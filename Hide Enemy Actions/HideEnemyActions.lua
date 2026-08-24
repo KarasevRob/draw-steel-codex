@@ -26,8 +26,8 @@ if state.uninstall ~= nil then
     state.uninstall()
 end
 
-state.currentEnemyCastDepth = 0
-state.currentEnemyCasterId = nil
+state.currentCastHidden = false
+state.currentCasterId = nil
 state.installed = false
 state.uninstall = nil
 
@@ -76,7 +76,48 @@ local function IsEnemyCastMessage(properties)
 end
 
 local function ShouldHideCurrentCast()
-    return Enabled() and (state.currentEnemyCastDepth or 0) > 0
+    return Enabled() and state.currentCastHidden == true
+end
+
+local function ShouldHideCustomMessage(properties)
+    if not ShouldHideCurrentCast() then
+        return false
+    end
+
+    -- Chat attachments, whispers, and other custom chat-channel messages can
+    -- be sent while an ability dialog is open. They are not part of the action.
+    if SafeTryGet(properties, "channel", nil) == "chat" then
+        return false
+    end
+
+    -- When a custom action identifies its caster, require it to match the cast
+    -- we are hiding. Messages without casterid are still treated as cast output
+    -- because several ability behaviors emit result cards without that field.
+    local casterid = SafeTryGet(properties, "casterid", nil)
+    return casterid == nil or casterid == state.currentCasterId
+end
+
+local function ShouldHideRoll(args)
+    if not ShouldHideCurrentCast() or type(args) ~= "table" then
+        return false
+    end
+
+    local tokenid = args.tokenid
+    if tokenid == nil and type(args.rollArgs) == "table" then
+        tokenid = args.rollArgs.tokenid
+    end
+
+    if tokenid ~= nil then
+        return tokenid == state.currentCasterId
+    end
+
+    -- Ability power rolls carry castid in their properties. Keep this fallback
+    -- for environment/ability rolls where the roll API cannot resolve tokenid.
+    local properties = args.properties
+    if properties == nil and type(args.rollArgs) == "table" then
+        properties = args.rollArgs.properties
+    end
+    return SafeTryGet(properties, "castid", nil) ~= nil
 end
 
 local function MarkPropertiesForPlayerFallback(properties)
@@ -192,21 +233,19 @@ local function InstallHooks()
     local wrappedCastRender
 
     wrappedCast = function(self, casterToken, ...)
-        if not Enabled() or not IsEnemyToken(casterToken) then
-            return baseCast(self, casterToken, ...)
-        end
+        local previousHidden = state.currentCastHidden
+        local previousCasterId = state.currentCasterId
 
-        local previousDepth = state.currentEnemyCastDepth or 0
-        local previousCasterId = state.currentEnemyCasterId
-        state.currentEnemyCastDepth = previousDepth + 1
-        state.currentEnemyCasterId = casterToken.charid
+        local hideThisCast = Enabled() and IsEnemyToken(casterToken)
+        state.currentCastHidden = hideThisCast
+        state.currentCasterId = hideThisCast and casterToken.charid or nil
 
-        -- Lua 5.4 close variables restore the cast state even if the underlying
-        -- cast errors. The guard stays alive while a coroutine yields mid-cast.
+        -- Every cast pushes its own visibility context. This matters for nested
+        -- friendly reactions inside an enemy cast: their output must stay visible.
         local guard <close> = setmetatable({}, {
             __close = function()
-                state.currentEnemyCastDepth = previousDepth
-                state.currentEnemyCasterId = previousCasterId
+                state.currentCastHidden = previousHidden
+                state.currentCasterId = previousCasterId
             end,
         })
 
@@ -214,7 +253,7 @@ local function InstallHooks()
     end
 
     wrappedSendCustom = function(properties, ...)
-        local hide = ShouldHideCurrentCast()
+        local hide = ShouldHideCustomMessage(properties)
         if hide then
             MarkPropertiesForPlayerFallback(properties)
         end
@@ -227,7 +266,7 @@ local function InstallHooks()
     end
 
     wrappedOnBeforeRoll = function(args)
-        local hide = ShouldHideCurrentCast()
+        local hide = ShouldHideRoll(args)
         if hide then
             ForceRollDirectorOnly(args)
         end
@@ -277,8 +316,8 @@ local function InstallHooks()
             castMessageType.Render = baseCastRender
         end
 
-        state.currentEnemyCastDepth = 0
-        state.currentEnemyCasterId = nil
+        state.currentCastHidden = false
+        state.currentCasterId = nil
         state.installed = false
         if state.uninstall == UninstallHooks then
             state.uninstall = nil
