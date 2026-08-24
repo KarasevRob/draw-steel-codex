@@ -3,7 +3,6 @@ local mod = dmhub.GetModLoading()
 local SETTING_ID = "enemyactionprivacy:hideenemyactions"
 local MESSAGE_MARKER = "enemyActionDirectorOnly"
 local STATE_KEY = "g_hideEnemyActionsModState"
-local CLEANUP_DELAY = 1.0
 
 setting{
     id = SETTING_ID,
@@ -21,69 +20,131 @@ if state == nil then
     rawset(_G, STATE_KEY, state)
 end
 
--- A hot reload can leave wrappers installed until the old unload handler runs.
--- Remove those wrappers before installing this version.
+-- Always unwind a clean previous load before installing this one.
 if state.uninstall ~= nil then
-    state.uninstall()
+    pcall(state.uninstall)
 end
 
+-- The first published revision failed after replacing ActivatedAbility.Cast but
+-- before registering its uninstall handler. There is no safe way to recover the
+-- captured base function from that orphaned closure. Refuse to stack another
+-- wrapper over it; restarting DMHub restores the real game-rule function.
+local legacyFailedLoad = rawget(state, "currentCastHidden") ~= nil
+    or rawget(state, "currentCasterId") ~= nil
+if legacyFailedLoad then
+    print("Hide Enemy Actions: a failed legacy load is still present. Restart DMHub before loading this version.")
+    return
+end
+
+state.version = 3
 state.installed = false
 state.uninstall = nil
 state.activeCasts = {}
-state.hiddenCasterCounts = {}
+state.activeTags = {}
+state.activeCasterCounts = {}
 state.pendingCasterCounts = {}
-state.seenMessageKeys = {}
-state.scannerRunning = false
+state.functionHooks = {}
+state.rollPanelHooks = {}
+state.renderHooks = {}
+state.renderHookNames = {}
 
 local function Enabled()
     return dmhub.GetSettingValue(SETTING_ID) == true
 end
 
-local function SafeTryGet(obj, field, defaultValue)
+local function SafeGet(obj, field, defaultValue)
     if obj == nil then
         return defaultValue
     end
 
     local result = defaultValue
-    pcall(function()
+    local ok = pcall(function()
         result = obj:try_get(field, defaultValue)
     end)
-    return result
-end
-
-local function SafeMessageField(message, field, defaultValue)
-    local result = defaultValue
-    pcall(function()
-        result = message[field]
-    end)
-    return result
-end
-
-local function IsEnemyToken(token)
-    if token == nil or not token.valid then
-        return false
+    if not ok then
+        pcall(function()
+            local value = obj[field]
+            if value ~= nil then
+                result = value
+            end
+        end)
     end
-
-    local isFriend = true
-    local ok = pcall(function()
-        isFriend = token.isFriendOfPlayer
-    end)
-
-    -- Fail open if relationship data cannot be read from a stale token.
-    return ok and isFriend == false
+    return result
 end
 
-local function IsEnemyCastMessage(properties)
-    local casterid = SafeTryGet(properties, "casterid", nil)
-    if casterid == nil then
-        return false
+local function GetToken(tokenid)
+    if tokenid == nil or tokenid == "" then
+        return nil
     end
 
     local token = nil
     pcall(function()
-        token = dmhub.GetCharacterById(casterid)
+        token = dmhub.GetCharacterById(tokenid)
     end)
-    return IsEnemyToken(token)
+    if token ~= nil and token.valid then
+        return token
+    end
+    return nil
+end
+
+local function TokenIsFriendOfPlayer(token)
+    if token == nil or not token.valid then
+        return nil
+    end
+
+    local value = nil
+    pcall(function()
+        value = token.isFriendOfPlayer
+    end)
+    return value
+end
+
+local function TokenIsPlayerControlled(token)
+    if token == nil or not token.valid then
+        return false
+    end
+
+    local value = false
+    pcall(function()
+        value = token.playerControlled == true
+    end)
+    return value
+end
+
+local function IsEnemyTokenForPlayer(token)
+    return TokenIsFriendOfPlayer(token) == false
+end
+
+-- Follow the same relational notion of hostility used by enemy power-roll
+-- modifiers when we have a player-side target. For self/buff/area actions with
+-- no such target, fall back to the token's player-friend relationship.
+local function ShouldHideCast(casterToken, targets)
+    if not Enabled() or casterToken == nil or not casterToken.valid then
+        return false
+    end
+
+    local sawPlayerSideTarget = false
+    for _,target in ipairs(targets or {}) do
+        local targetToken = target and target.token or nil
+        if targetToken ~= nil and targetToken.valid then
+            local targetFriend = TokenIsFriendOfPlayer(targetToken)
+            if targetFriend == true or TokenIsPlayerControlled(targetToken) then
+                sawPlayerSideTarget = true
+                local areFriends = true
+                local ok = pcall(function()
+                    areFriends = casterToken:IsFriend(targetToken)
+                end)
+                if ok and not areFriends then
+                    return true
+                end
+            end
+        end
+    end
+
+    if sawPlayerSideTarget then
+        return false
+    end
+    return IsEnemyTokenForPlayer(casterToken)
 end
 
 local function AdjustCount(t, key, delta)
@@ -103,173 +164,116 @@ local function CasterIsHidden(casterid)
     if casterid == nil then
         return false
     end
-    return (state.hiddenCasterCounts[casterid] or 0) > 0
+    return (state.activeCasterCounts[casterid] or 0) > 0
         or (state.pendingCasterCounts[casterid] or 0) > 0
 end
 
-local function AnyHiddenCast()
-    return next(state.activeCasts) ~= nil or next(state.pendingCasterCounts) ~= nil
+local function CastIdIsHidden(castid)
+    return castid ~= nil and state.activeCasts[castid] ~= nil
 end
 
-local function BaselineMessages()
-    for _,message in ipairs(chat.messages) do
-        local key = SafeMessageField(message, "key", nil)
-        if key ~= nil then
-            state.seenMessageKeys[key] = true
-        end
-    end
-end
-
-local function MarkMessageDirectorOnly(message)
-    if not dmhub.isDM then
+local function RegisterTag(tag)
+    if tag == nil or tag.finished or tag.registered then
         return
     end
-    pcall(function()
-        message.gmonly = true
-    end)
+
+    tag.registered = true
+    state.activeTags[tag] = true
+    AdjustCount(state.activeCasterCounts, tag.casterid, 1)
+    if tag.castid ~= nil then
+        state.activeCasts[tag.castid] = tag
+    end
 end
 
-local function MessageBelongsToHiddenAction(message)
-    if not Enabled() or not dmhub.isDM then
-        return false
+local function FinishTag(tag)
+    if tag == nil or tag.finished then
+        return
     end
 
-    local userid = SafeMessageField(message, "userid", nil)
-    if userid ~= dmhub.userid then
-        return false
+    tag.finished = true
+    if not tag.registered then
+        return
     end
 
-    local messageType = SafeMessageField(message, "messageType", nil)
-    local properties = SafeMessageField(message, "properties", nil)
+    tag.registered = false
+    state.activeTags[tag] = nil
+    AdjustCount(state.activeCasterCounts, tag.casterid, -1)
+    if tag.castid ~= nil and state.activeCasts[tag.castid] == tag then
+        state.activeCasts[tag.castid] = nil
+    end
+end
 
-    if messageType == "roll" then
-        local castid = SafeTryGet(properties, "castid", nil)
-        if castid ~= nil and state.activeCasts[castid] ~= nil then
-            return true
+local function CastIdFromOptions(options)
+    if type(options) ~= "table" then
+        return nil
+    end
+
+    if type(options.symbols) == "table" then
+        local castid = options.symbols.castid
+        if castid ~= nil then
+            return castid
         end
-
-        local tokenid = SafeMessageField(message, "tokenid", nil)
-        return CasterIsHidden(tokenid)
     end
 
-    if messageType ~= "custom" then
+    local properties = options.rollProperties or options.properties
+    return SafeGet(properties, "castid", nil)
+end
+
+local function CasterIdFromRollOptions(options)
+    if type(options) ~= "table" then
+        return nil
+    end
+
+    if options.tokenid ~= nil then
+        return options.tokenid
+    end
+
+    if options.creature ~= nil then
+        local tokenid = nil
+        pcall(function()
+            tokenid = dmhub.LookupTokenId(options.creature)
+        end)
+        if tokenid ~= nil then
+            return tokenid
+        end
+    end
+
+    return nil
+end
+
+local function ShouldHideRollOptions(options)
+    if not Enabled() or type(options) ~= "table" then
         return false
     end
 
-    -- Normal chat-channel custom messages are never ability-log output.
-    if SafeTryGet(properties, "channel", nil) == "chat" then
-        return false
-    end
-
-    local castid = SafeTryGet(properties, "castid", nil)
-    if castid ~= nil and state.activeCasts[castid] ~= nil then
+    local casterid = CasterIdFromRollOptions(options)
+    if CasterIsHidden(casterid) then
         return true
     end
 
-    local casterid = SafeTryGet(properties, "casterid", nil)
-    if casterid ~= nil then
-        return CasterIsHidden(casterid)
-    end
-
-    -- Some ability result cards identify only the target, not the caster. The
-    -- scanner sees only NEW local messages, so while a hidden cast is active
-    -- these un-attributed Action Log cards are treated as part of that action.
-    return AnyHiddenCast()
+    return CastIdIsHidden(CastIdFromOptions(options))
 end
 
-local function ScanNewMessages()
-    if mod.unloaded then
-        state.scannerRunning = false
-        return
+local function CopyTable(t)
+    local result = {}
+    for k,v in pairs(t or {}) do
+        result[k] = v
     end
-
-    for _,message in ipairs(chat.messages) do
-        local key = SafeMessageField(message, "key", nil)
-        if key ~= nil and not state.seenMessageKeys[key] then
-            state.seenMessageKeys[key] = true
-            if MessageBelongsToHiddenAction(message) then
-                MarkMessageDirectorOnly(message)
-            end
-        end
-    end
-
-    if AnyHiddenCast() then
-        dmhub.Schedule(0.05, ScanNewMessages)
-    else
-        state.scannerRunning = false
-    end
+    return result
 end
 
-local function EnsureScanner()
-    if not dmhub.isDM or state.scannerRunning then
-        return
-    end
-    state.scannerRunning = true
-    dmhub.Schedule(0.05, ScanNewMessages)
-end
-
-local function TryMarkMessageKeyDirectorOnly(key)
-    if key == nil then
-        return true
+-- DSRollDialog has an early deterministic shortcut that calls dmhub.Roll before
+-- RollDialog.OnBeforeRoll. Disable only that shortcut for hidden enemy rolls so
+-- every networked roll reaches the normal privacy hook below.
+local function PrepareShowDialogOptions(options)
+    if not ShouldHideRollOptions(options) then
+        return options
     end
 
-    for _,message in ipairs(chat.messages) do
-        if SafeMessageField(message, "key", nil) == key then
-            MarkMessageDirectorOnly(message)
-            return true
-        end
-    end
-
-    return false
-end
-
-local function MarkMessageKeyDirectorOnly(key, attempt)
-    if not dmhub.isDM or mod.unloaded or key == nil then
-        return
-    end
-
-    if TryMarkMessageKeyDirectorOnly(key) then
-        return
-    end
-
-    attempt = attempt or 1
-    if attempt >= 30 then
-        return
-    end
-
-    dmhub.Schedule(0.05, function()
-        if not mod.unloaded then
-            MarkMessageKeyDirectorOnly(key, attempt + 1)
-        end
-    end)
-end
-
-local function RegisterHiddenCast(castid, casterid)
-    if castid == nil or casterid == nil then
-        return
-    end
-
-    if state.activeCasts[castid] == nil then
-        state.activeCasts[castid] = casterid
-        AdjustCount(state.hiddenCasterCounts, casterid, 1)
-    end
-    EnsureScanner()
-end
-
-local function CleanupHiddenCast(castid)
-    if castid ~= nil and state.activeCasts[castid] ~= nil then
-        local storedCaster = state.activeCasts[castid]
-        state.activeCasts[castid] = nil
-        AdjustCount(state.hiddenCasterCounts, storedCaster, -1)
-    end
-end
-
-local function ScheduleHiddenCastCleanup(castid)
-    dmhub.Schedule(CLEANUP_DELAY, function()
-        if not mod.unloaded then
-            CleanupHiddenCast(castid)
-        end
-    end)
+    local result = CopyTable(options)
+    result.skipDeterministic = false
+    result._tmp_enemyActionDirectorOnly = true
+    return result
 end
 
 local function ForceRollDirectorOnly(args)
@@ -283,38 +287,220 @@ local function ForceRollDirectorOnly(args)
     end
 end
 
-local function ShouldHideRoll(args)
+local function ShouldHideRollHook(args)
     if not Enabled() or type(args) ~= "table" then
         return false
     end
 
-    local tokenid = args.tokenid
-    if tokenid == nil and type(args.rollArgs) == "table" then
-        tokenid = args.rollArgs.tokenid
+    local rollArgs = args.rollArgs
+    local casterid = args.tokenid
+    if casterid == nil and type(rollArgs) == "table" then
+        casterid = rollArgs.tokenid
     end
-    if CasterIsHidden(tokenid) then
+    if casterid == nil and args.creature ~= nil then
+        pcall(function()
+            casterid = dmhub.LookupTokenId(args.creature)
+        end)
+    end
+    if CasterIsHidden(casterid) then
         return true
     end
 
     local properties = args.properties
-    if properties == nil and type(args.rollArgs) == "table" then
-        properties = args.rollArgs.properties
+    if properties == nil and type(rollArgs) == "table" then
+        properties = rollArgs.properties
     end
-    local castid = SafeTryGet(properties, "castid", nil)
-    return castid ~= nil and state.activeCasts[castid] ~= nil
+    return CastIdIsHidden(SafeGet(properties, "castid", nil))
 end
 
-local function CreateHiddenCastPanel(properties)
+local function HiddenPanel(properties, preserveCastId)
+    local data = {}
+    if preserveCastId then
+        data.castid = SafeGet(properties, "castid", nil)
+    end
+
     return gui.Panel{
         classes = {"collapsed"},
         width = 0,
         height = 0,
-        data = {
-            -- Preserve castid so ActionLogPanel can adopt a linked roll into
-            -- this collapsed parent if visibility synchronization races.
-            castid = SafeTryGet(properties, "castid", nil),
-        },
+        data = data,
     }
+end
+
+local function ShouldHideRenderedCaster(properties, field)
+    if dmhub.isDM or not Enabled() then
+        return false
+    end
+    local token = GetToken(SafeGet(properties, field, nil))
+    return IsEnemyTokenForPlayer(token)
+end
+
+local function ShouldHideRenderedTarget(properties, field)
+    if dmhub.isDM or not Enabled() then
+        return false
+    end
+    local token = GetToken(SafeGet(properties, field, nil))
+    return IsEnemyTokenForPlayer(token)
+end
+
+local function InstallRenderHook(spec)
+    if state.renderHookNames[spec.name] then
+        return true
+    end
+
+    local messageType = rawget(_G, spec.name)
+    if messageType == nil then
+        return false
+    end
+
+    local baseRender = messageType.Render
+    if type(baseRender) ~= "function" then
+        return false
+    end
+
+    local wrappedRender
+    wrappedRender = function(properties, message)
+        local hide = false
+        if spec.casterField ~= nil then
+            hide = ShouldHideRenderedCaster(properties, spec.casterField)
+        elseif spec.targetField ~= nil then
+            hide = ShouldHideRenderedTarget(properties, spec.targetField)
+        end
+
+        if SafeGet(properties, MESSAGE_MARKER, false) == true and not dmhub.isDM and Enabled() then
+            hide = true
+        end
+
+        if hide then
+            return HiddenPanel(properties, spec.preserveCastId == true)
+        end
+        return baseRender(properties, message)
+    end
+
+    messageType.Render = wrappedRender
+    state.renderHookNames[spec.name] = true
+    state.renderHooks[#state.renderHooks+1] = {
+        messageType = messageType,
+        base = baseRender,
+        wrapped = wrappedRender,
+    }
+    return true
+end
+
+local g_renderSpecs = {
+    {name = "CastActivatedAbilityChatMessage", casterField = "casterid", preserveCastId = true},
+    {name = "ActivatedAbilityDamageChatMessage", casterField = "casterid"},
+    {name = "ActivatedAbilityPurgeEffectsChatMessage", casterField = "casterid"},
+    {name = "ActivatedAbilityTemporaryStaminaChatMessage", casterField = "casterid"},
+    -- HealChatMessage is created only by the activated-ability heal behavior and
+    -- carries its affected token rather than the caster. Enemy-target healing is
+    -- therefore still suppressible without using timing heuristics.
+    {name = "HealChatMessage", targetField = "tokenid"},
+}
+
+local function InstallOptionalRenderHooks(attempt)
+    if mod.unloaded then
+        return
+    end
+
+    local complete = true
+    for _,spec in ipairs(g_renderSpecs) do
+        if not InstallRenderHook(spec) then
+            complete = false
+        end
+    end
+
+    attempt = attempt or 1
+    if not complete and attempt < 50 then
+        dmhub.Schedule(0.2, function()
+            InstallOptionalRenderHooks(attempt + 1)
+        end)
+    end
+end
+
+local function RecordFunctionHook(owner, key, base, wrapped)
+    state.functionHooks[#state.functionHooks+1] = {
+        owner = owner,
+        key = key,
+        base = base,
+        wrapped = wrapped,
+    }
+end
+
+local function WrapRollPanel(panel)
+    if panel == nil then
+        return
+    end
+
+    local valid = true
+    pcall(function()
+        valid = panel.valid
+    end)
+    if valid == false then
+        return
+    end
+
+    local data = nil
+    pcall(function()
+        data = panel.data
+    end)
+    if type(data) ~= "table" or type(data.ShowDialog) ~= "function" then
+        return
+    end
+
+    for _,entry in ipairs(state.rollPanelHooks) do
+        if entry.panel == panel then
+            return
+        end
+    end
+
+    local baseShowDialog = data.ShowDialog
+    local wrappedShowDialog
+    wrappedShowDialog = function(options)
+        return baseShowDialog(PrepareShowDialogOptions(options))
+    end
+
+    data.ShowDialog = wrappedShowDialog
+    state.rollPanelHooks[#state.rollPanelHooks+1] = {
+        panel = panel,
+        data = data,
+        base = baseShowDialog,
+        wrapped = wrappedShowDialog,
+    }
+end
+
+local function WrapRollDialogFactory(owner, key)
+    if owner == nil then
+        return
+    end
+
+    local base = rawget(owner, key)
+    if type(base) ~= "function" then
+        return
+    end
+
+    local wrapped
+    wrapped = function(...)
+        local results = table.pack(base(...))
+        WrapRollPanel(results[1])
+        return table.unpack(results, 1, results.n)
+    end
+
+    owner[key] = wrapped
+    RecordFunctionHook(owner, key, base, wrapped)
+end
+
+local function WrapExistingRollDialog()
+    local gh = rawget(_G, "gamehud")
+    if gh == nil then
+        return
+    end
+
+    local panel = nil
+    pcall(function()
+        panel = gh.rollDialog
+    end)
+    WrapRollPanel(panel)
 end
 
 local function InstallHooks()
@@ -323,61 +509,56 @@ local function InstallHooks()
     end
 
     local activatedAbility = rawget(_G, "ActivatedAbility")
-    local castMessageType = rawget(_G, "CastActivatedAbilityChatMessage")
     local rollDialog = rawget(_G, "RollDialog")
-
-    if activatedAbility == nil or castMessageType == nil or rollDialog == nil then
+    local gameHudType = rawget(_G, "GameHud")
+    if activatedAbility == nil or rollDialog == nil or gameHudType == nil then
         dmhub.Schedule(0.1, InstallHooks)
         return
     end
 
     local baseCast = activatedAbility.Cast
-    local baseFinishCast = activatedAbility.FinishCast
-    local baseOnBeforeRoll = rollDialog.OnBeforeRoll
-    local baseCastRender = castMessageType.Render
-
-    if type(baseCast) ~= "function" or type(baseFinishCast) ~= "function" or type(baseCastRender) ~= "function" then
+    if type(baseCast) ~= "function" then
         dmhub.Schedule(0.1, InstallHooks)
         return
     end
 
     local wrappedCast
-    local wrappedFinishCast
-    local wrappedOnBeforeRoll
-    local wrappedCastRender
-
     wrappedCast = function(self, casterToken, targets, options)
         options = options or {}
-        local hideThisCast = Enabled() and IsEnemyToken(casterToken)
-
-        if not hideThisCast then
+        if not ShouldHideCast(casterToken, targets) then
             return baseCast(self, casterToken, targets, options)
         end
 
-        local casterid = casterToken.charid
-        options._tmp_enemyActionDirectorOnly = true
-        options._tmp_enemyActionCasterId = casterid
+        local tag = {
+            casterid = casterToken.charid,
+            castid = nil,
+            registered = false,
+            finished = false,
+        }
 
-        if not AnyHiddenCast() then
-            BaselineMessages()
+        local handlers = options.OnFinishCastHandlers
+        if type(handlers) ~= "table" then
+            handlers = {}
+            options.OnFinishCastHandlers = handlers
         end
-        AdjustCount(state.pendingCasterCounts, casterid, 1)
-        EnsureScanner()
+        handlers[#handlers+1] = function()
+            FinishTag(tag)
+        end
 
+        AdjustCount(state.pendingCasterCounts, tag.casterid, 1)
         local pendingGuard <close> = setmetatable({}, {
             __close = function()
-                AdjustCount(state.pendingCasterCounts, casterid, -1)
+                AdjustCount(state.pendingCasterCounts, tag.casterid, -1)
             end,
         })
 
         local results = table.pack(baseCast(self, casterToken, targets, options))
+        tag.castid = CastIdFromOptions(options)
+        RegisterTag(tag)
 
-        local castid = nil
-        if type(options.symbols) == "table" then
-            castid = options.symbols.castid
-        end
-        RegisterHiddenCast(castid, casterid)
-
+        -- The main cast card can be classified from casterid immediately on a
+        -- player client. Persist a marker too so it remains hidden if the token
+        -- despawns before the Action Log is reopened later.
         if options.chatMessage ~= nil then
             pcall(function()
                 options.chatMessage[MESSAGE_MARKER] = true
@@ -388,24 +569,17 @@ local function InstallHooks()
                 end)
             end
         end
-        MarkMessageKeyDirectorOnly(options.chatMessageKey, 1)
 
         return table.unpack(results, 1, results.n)
     end
 
-    wrappedFinishCast = function(self, casterToken, options, ...)
-        if type(options) == "table" and options._tmp_enemyActionDirectorOnly == true then
-            local castid = nil
-            if type(options.symbols) == "table" then
-                castid = options.symbols.castid
-            end
-            ScheduleHiddenCastCleanup(castid)
-        end
-        return baseFinishCast(self, casterToken, options, ...)
-    end
+    activatedAbility.Cast = wrappedCast
+    RecordFunctionHook(activatedAbility, "Cast", baseCast, wrappedCast)
 
+    local baseOnBeforeRoll = rollDialog.OnBeforeRoll
+    local wrappedOnBeforeRoll
     wrappedOnBeforeRoll = function(args)
-        local hide = ShouldHideRoll(args)
+        local hide = ShouldHideRollHook(args)
         if hide then
             ForceRollDirectorOnly(args)
         end
@@ -413,53 +587,65 @@ local function InstallHooks()
         if type(baseOnBeforeRoll) == "function" then
             local results = table.pack(baseOnBeforeRoll(args))
             if hide then
-                -- A pre-existing roll hook may mutate rollArgs, so enforce the
-                -- Director-only flag again after it returns.
                 ForceRollDirectorOnly(args)
             end
             return table.unpack(results, 1, results.n)
         end
-
         return nil
     end
+    rollDialog.OnBeforeRoll = wrappedOnBeforeRoll
+    RecordFunctionHook(rollDialog, "OnBeforeRoll", baseOnBeforeRoll, wrappedOnBeforeRoll)
 
-    wrappedCastRender = function(properties, message)
-        if not dmhub.isDM and Enabled() then
-            local marked = SafeTryGet(properties, MESSAGE_MARKER, false) == true
-            if marked or IsEnemyCastMessage(properties) then
-                return CreateHiddenCastPanel(properties)
-            end
-        end
+    -- Cover both the existing global dialog and dialogs created later. Ability
+    -- behaviors primarily acquire embedded dialogs through CharacterPanel, so
+    -- those factories are wrapped as well.
+    WrapExistingRollDialog()
+    WrapRollDialogFactory(gameHudType, "CreateRollDialog")
 
-        return baseCastRender(properties, message)
+    local characterPanel = rawget(_G, "CharacterPanel")
+    if characterPanel ~= nil then
+        WrapRollDialogFactory(characterPanel, "AcquireAbilityRollDialog")
+        WrapRollDialogFactory(characterPanel, "EmbedDialogStandalone")
+        WrapRollDialogFactory(characterPanel, "EmbedDialog")
     end
 
-    activatedAbility.Cast = wrappedCast
-    activatedAbility.FinishCast = wrappedFinishCast
-    rollDialog.OnBeforeRoll = wrappedOnBeforeRoll
-    castMessageType.Render = wrappedCastRender
+    InstallOptionalRenderHooks(1)
     state.installed = true
 
     local function UninstallHooks()
-        if rawget(_G, "ActivatedAbility") == activatedAbility then
-            if activatedAbility.Cast == wrappedCast then
-                activatedAbility.Cast = baseCast
-            end
-            if activatedAbility.FinishCast == wrappedFinishCast then
-                activatedAbility.FinishCast = baseFinishCast
+        for i = #state.renderHooks, 1, -1 do
+            local entry = state.renderHooks[i]
+            if entry.messageType.Render == entry.wrapped then
+                entry.messageType.Render = entry.base
             end
         end
-        if rawget(_G, "RollDialog") == rollDialog and rollDialog.OnBeforeRoll == wrappedOnBeforeRoll then
-            rollDialog.OnBeforeRoll = baseOnBeforeRoll
+
+        for i = #state.rollPanelHooks, 1, -1 do
+            local entry = state.rollPanelHooks[i]
+            local panelValid = true
+            pcall(function()
+                panelValid = entry.panel.valid
+            end)
+            if panelValid ~= false and entry.data.ShowDialog == entry.wrapped then
+                entry.data.ShowDialog = entry.base
+            end
         end
-        if rawget(_G, "CastActivatedAbilityChatMessage") == castMessageType and castMessageType.Render == wrappedCastRender then
-            castMessageType.Render = baseCastRender
+
+        for i = #state.functionHooks, 1, -1 do
+            local entry = state.functionHooks[i]
+            if rawget(entry.owner, entry.key) == entry.wrapped then
+                entry.owner[entry.key] = entry.base
+            end
         end
 
         state.activeCasts = {}
-        state.hiddenCasterCounts = {}
+        state.activeTags = {}
+        state.activeCasterCounts = {}
         state.pendingCasterCounts = {}
-        state.scannerRunning = false
+        state.functionHooks = {}
+        state.rollPanelHooks = {}
+        state.renderHooks = {}
+        state.renderHookNames = {}
         state.installed = false
         if state.uninstall == UninstallHooks then
             state.uninstall = nil
@@ -467,7 +653,7 @@ local function InstallHooks()
     end
 
     state.uninstall = UninstallHooks
-    mod.unloadHandlers[#mod.unloadHandlers + 1] = UninstallHooks
+    mod.unloadHandlers[#mod.unloadHandlers+1] = UninstallHooks
 end
 
 InstallHooks()
