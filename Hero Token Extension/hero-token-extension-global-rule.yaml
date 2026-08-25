@@ -1,0 +1,306 @@
+__typeName: GlobalRuleMod
+id: 1a80ecac-9bcf-4996-b049-db114e48f5eb
+name: Hero Token Extension
+hteContentVersion: 3
+applyCharacters: true
+applyMonsters: false
+applyRetainers: false
+applyCompanions: false
+_migrated_apply: true
+modifierInfo:
+  __typeName: ClassLevel
+  features:
+  - __typeName: CharacterFeature
+    implementation: 3
+    guid: 3db20f86-0163-4653-9079-4825cfca5c5f
+    name: Hero Token - Gain 2 Surges
+    source: Hero Token Extension
+    description: Spend 1 Hero Token to gain 2 surges.
+    tags:
+      Ability: true
+    modifiers:
+    - __typeName: CharacterModifier
+      guid: f9fa58ce-07f9-441b-a200-259d1b95096a
+      sourceguid: 3db20f86-0163-4653-9079-4825cfca5c5f
+      source: Hero Token Extension
+      name: Hero Token - Gain 2 Surges
+      description: Spend 1 Hero Token to gain 2 surges.
+      behavior: activated
+      activatedAbility:
+        __typeName: ActivatedAbility
+        guid: 070626b2-90cd-4a7f-8130-fe85fbcd3b19
+        name: Hero Token - Gain 2 Surges
+        description: Spend 1 Hero Token to gain 2 surges.
+        actionResourceId: d81ce1e9-96a3-4705-9180-1c80f72a86cf
+        actionNumber: 1
+        resourceCost: 2166c5fe-260e-4691-9743-06cf097a59f3
+        resourceNumber: 1
+        abilityFilters:
+        - reason: The Hero Token Extension Code Mod is not active or is incompatible with the loaded Draw Steel Hero Token rules.
+          formula: HTEHeroTokenExtensionReady
+        - reason: The party has no Hero Tokens available to spend.
+          formula: HeroTokens >= 1
+        - reason: You have already used a Hero Token benefit this turn.
+          formula: HTEHeroTokenBenefitAvailable
+        usageLimitOptions:
+          resourceRefreshType: turn
+          charges: "1"
+          resourceid: 854e7cf2-ac22-4805-bd31-5d48dae6c926
+        targetType: self
+        selfTarget: true
+        castImmediately: true
+        numTargets: "1"
+        range: 1
+        repeatTargets: false
+        categorization: none
+        source: Hero Token Extension
+        iconid: ui-icons/skills/1.png
+        display:
+          bgcolor: "#ffffffff"
+          hueshift: 0
+          brightness: 1
+          saturation: 1
+        behaviors:
+        - __typeName: ActivatedAbilityReplenishBehavior
+          resourceid: 8b0ae5fe-0eb3-45fa-9e6d-b9de68f5cc6d
+          quantity: "2"
+          mode: replenish
+          chatMessage: Hero Token spent to gain 2 surges
+
+  - __typeName: CharacterFeature
+    implementation: 3
+    guid: 5b70a9e6-e316-4c1d-9c14-a84315ca3405
+    name: Hero Token - Recover
+    source: Hero Token Extension
+    description: On your turn, or when manually adjudicating the pre-damage timing, spend 2 Hero Tokens with no action required to regain Stamina equal to your recovery value.
+    tags:
+      Trigger: true
+    modifiers:
+    - __typeName: CharacterModifier
+      guid: fdb6690c-db4d-4232-ad58-82abf150f387
+      sourceguid: 5b70a9e6-e316-4c1d-9c14-a84315ca3405
+      source: Hero Token Extension
+      name: Hero Token - Recover
+      description: Spend 2 Hero Tokens with no action required to regain Stamina equal to your recovery value.
+      behavior: trigger
+      triggeredAbility:
+        __typeName: TriggeredAbility
+        guid: 4063547a-c783-42cc-a249-dc2332377577
+        name: Hero Token - Recover
+        description: Spend 2 Hero Tokens with no action required to regain Stamina equal to your recovery value. The start-of-turn prompt is automatic; use the generated manual version later in your turn or when manually adjudicating the pre-damage timing.
+        trigger: beginturn
+        triggerPrompt: Spend 2 Hero Tokens with no action required to regain Stamina equal to your recovery value.
+        mandatory: false
+        hasManualVersion: true
+        conditionFormula: HeroTokens >= 2 and HTEHeroTokenExtensionReady and HTEHeroTokenBenefitAvailable
+        actionResourceId: none
+        resourceCost: 2166c5fe-260e-4691-9743-06cf097a59f3
+        resourceNumber: 2
+        abilityFilters:
+        - reason: The Hero Token Extension Code Mod is not active or is incompatible with the loaded Draw Steel Hero Token rules.
+          formula: HTEHeroTokenExtensionReady
+        - reason: The party does not have 2 Hero Tokens available to spend.
+          formula: HeroTokens >= 2
+        - reason: You have already used a Hero Token benefit this turn.
+          formula: HTEHeroTokenBenefitAvailable
+        usageLimitOptions:
+          resourceRefreshType: turn
+          charges: "1"
+          resourceid: 854e7cf2-ac22-4805-bd31-5d48dae6c926
+        targetType: self
+        selfTarget: true
+        numTargets: "1"
+        range: 1
+        repeatTargets: false
+        categorization: Triggered Ability
+        abilityType: none
+        source: Hero Token Extension
+        iconid: ui-icons/skills/1.png
+        display:
+          bgcolor: "#ffffffff"
+          hueshift: 0
+          brightness: 1
+          saturation: 1
+        strain: []
+        modifiers: []
+        persistence: []
+        behaviors:
+        - __typeName: ActivatedAbilityHealBehavior
+          roll: Recovery Value
+          chatMessage: Hero Token recovery
+    - __typeName: CharacterModifier
+      guid: 5d1edfba-381f-43de-bc7b-9e5fceafcafd
+      sourceguid: 5b70a9e6-e316-4c1d-9c14-a84315ca3405
+      source: Hero Token Extension
+      name: Hero Token - Recover
+      description: ""
+      behavior: triggerdisplay
+      ability:
+        __typeName: TriggeredAbilityDisplay
+        guid: 059c7cb2-64be-4774-a812-80971cbcd6f0
+        name: Hero Token - Recover
+        type: passive
+        trigger: You start your turn or take damage.
+        effect: Spend 2 Hero Tokens with no action required to regain Stamina equal to your Recovery Value. Start-of-turn use is prompted automatically. For damage-triggered use, activate the manual version before the damage is applied.
+        target: Self
+        cost: 2 Hero Tokens
+        implementationNotes: The TriggeredAbility uses hasManualVersion so Codex owns the manual/triggered duality. Automatic pre-damage prompting remains disabled until the engine exposes a pre-damage trigger that guarantees damage will actually be applied.
+        keywords: []
+
+  - __typeName: CharacterFeature
+    implementation: 2
+    guid: 4c79c5c3-211b-4047-b897-ddc9d7e4a3c4
+    name: Hero Token - Succeed on a Failed Save (Manual)
+    source: Hero Token Extension
+    description: Manual adjudication only. After a failed saving throw, spend 1 Hero Token to succeed instead. Use this ability to record the Hero Token spend and shared usage limit; resolve the successful save before any failed-save consequences manually.
+    tags:
+      Ability: true
+      Trigger: true
+    modifiers:
+    - __typeName: CharacterModifier
+      guid: ab11a60c-93cd-4b29-a7d2-3e52d0da8c0c
+      sourceguid: 4c79c5c3-211b-4047-b897-ddc9d7e4a3c4
+      source: Hero Token Extension
+      name: Hero Token - Succeed on a Failed Save (Manual)
+      description: Records the 1 Hero Token spend only. The saving throw result and failed-save consequences must be adjudicated manually.
+      behavior: activated
+      activatedAbility:
+        __typeName: ActivatedAbility
+        guid: e4fb6670-1466-4421-b43b-3795d48bd3ff
+        name: Hero Token - Succeed on a Failed Save (Manual)
+        description: Spend 1 Hero Token to record a manually adjudicated failed-save success. This ability does not purge an effect or fire save-success logic itself.
+        actionResourceId: none
+        resourceCost: 2166c5fe-260e-4691-9743-06cf097a59f3
+        resourceNumber: 1
+        abilityFilters:
+        - reason: The Hero Token Extension Code Mod is not active or is incompatible with the loaded Draw Steel Hero Token rules.
+          formula: HTEHeroTokenExtensionReady
+        - reason: The party has no Hero Tokens available to spend.
+          formula: HeroTokens >= 1
+        - reason: You have already used a Hero Token benefit this turn.
+          formula: HTEHeroTokenBenefitAvailable
+        usageLimitOptions:
+          resourceRefreshType: turn
+          charges: "1"
+          resourceid: 854e7cf2-ac22-4805-bd31-5d48dae6c926
+        targetType: self
+        selfTarget: true
+        castImmediately: true
+        numTargets: "1"
+        range: 1
+        repeatTargets: false
+        categorization: Trigger
+        source: Hero Token Extension
+        iconid: ui-icons/skills/1.png
+        display:
+          bgcolor: "#ffffffff"
+          hueshift: 0
+          brightness: 1
+          saturation: 1
+        behaviors: []
+    - __typeName: CharacterModifier
+      guid: 481e99cc-c9df-4bda-8d1c-ccf14329b78f
+      sourceguid: 4c79c5c3-211b-4047-b897-ddc9d7e4a3c4
+      source: Hero Token Extension
+      name: Hero Token - Succeed on a Failed Save
+      description: ""
+      behavior: triggerdisplay
+      ability:
+        __typeName: TriggeredAbilityDisplay
+        guid: 185d6eb1-4978-415d-8364-bb8c84339e91
+        name: Hero Token - Succeed on a Failed Save
+        type: passive
+        trigger: You fail a saving throw.
+        effect: Spend 1 Hero Token to succeed instead. Use the manual ability to record the spend and adjudicate the successful save before any failed-save consequences resolve.
+        target: Self
+        cost: 1 Hero Token
+        implementationNotes: Automatic resolution is intentionally disabled because the current savefail event fires after failed-save consequences can already begin resolving.
+        keywords: []
+
+  - __typeName: CharacterFeature
+    implementation: 3
+    guid: ad40e2cc-87cd-4a7f-a442-3c79fe55759d
+    name: Hero Token - Reroll Test
+    source: Hero Token Extension
+    description: When you make a test, you can spend 1 Hero Token to reroll that test and use the new result.
+    tags:
+      Trigger: true
+    modifiers:
+    - __typeName: CharacterModifier
+      guid: ba932d88-6095-4365-bd64-97703b00da62
+      sourceguid: ad40e2cc-87cd-4a7f-a442-3c79fe55759d
+      source: Hero Token Extension
+      name: Hero Token - Reroll Test
+      description: Spend 1 Hero Token to reroll your test and use the new result.
+      behavior: powertabletrigger
+      trigger: powerroll
+      type: passive
+      targetType: self
+      range: "0"
+      multitarget: all
+      forceReroll: true
+      abilityFilter: Ability.Test and HTEHeroTokenExtensionReady and HTEHeroTokenBenefitAvailable and HeroTokens >= 1
+      rules: Spend 1 Hero Token to reroll this test and use the new result.
+      powerRollModifier:
+        __typeName: CharacterModifier
+        guid: 3726b996-e65f-4cfe-9221-e612921cd593
+        source: Hero Token Extension
+        name: Hero Token - Reroll Test
+        description: Spend 1 Hero Token to reroll your test and use the new result.
+        behavior: power
+        rollType: test_power_roll
+        modtype: none
+        activationCondition: false
+        resourceCostType: none
+        rules: ""
+        keywords: []
+        hasTriggerBefore: true
+        triggerBeforeCondition: HTEHeroTokenRerollCommitted
+        triggerBefore:
+          __typeName: TriggeredAbility
+          guid: 30bf9523-b418-44b8-8885-44051dabb545
+          name: Hero Token - Commit Test Reroll
+          description: Commit the Hero Token payment before the native reroll is applied.
+          trigger: custom
+          mandatory: true
+          actionResourceId: none
+          resourceCost: none
+          targetType: self
+          selfTarget: true
+          numTargets: "1"
+          range: 1
+          repeatTargets: false
+          categorization: Triggered Ability
+          abilityType: none
+          strain: []
+          modifiers: []
+          persistence: []
+          iconid: ui-icons/skills/1.png
+          display:
+            bgcolor: "#ffffffff"
+            hueshift: 0
+            brightness: 1
+            saturation: 1
+          behaviors:
+          - __typeName: HTEHeroTokenSpendBehavior
+            cost: 1
+            markRerollCommit: true
+            note: Hero Token - Reroll Test
+    - __typeName: CharacterModifier
+      guid: b31e4dbc-b08a-4b66-87dc-5ce703b03fb8
+      sourceguid: ad40e2cc-87cd-4a7f-a442-3c79fe55759d
+      source: Hero Token Extension
+      name: Hero Token - Reroll Test
+      description: ""
+      behavior: triggerdisplay
+      ability:
+        __typeName: TriggeredAbilityDisplay
+        guid: 1d536024-dfbf-4240-87cf-32281e7bf84b
+        name: Hero Token - Reroll Test
+        type: passive
+        trigger: You make a test.
+        effect: After seeing the result, spend 1 Hero Token to reroll the test and use the new result.
+        target: Self
+        cost: 1 Hero Token
+        keywords: []
+_table: globalRuleMods
