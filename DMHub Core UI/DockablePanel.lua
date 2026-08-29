@@ -85,7 +85,9 @@ local dockablePanelsDMSetting = "dockablepanelsgm_v2"
 local g_dockGap = 0
 
 function GetDockablePanelsSetting()
-	return cond(dmhub.isDM, dockablePanelsDMSetting, dockablePanelsPlayerSetting)
+	--DirectorUIVisible rather than dmhub.isDM: a Director presenting as a
+	--player (Encounter of the Week host) loads the player dock layout.
+	return cond(GameHud.DirectorUIVisible(), dockablePanelsDMSetting, dockablePanelsPlayerSetting)
 end
 
 local GetPanelsConfig = function()
@@ -2231,7 +2233,19 @@ local PanelPermittedForUser = function(p)
 	if p.devonly and not devmode() then
 		return false
 	end
-	if p.dmonly and not dmhub.isDM then
+	--DirectorUIVisible rather than dmhub.isDM so dmonly panels also hide for
+	--a Director presenting as a player (Encounter of the Week host). Panel
+	--background processes (DockablePanel.StartProcess) are independent of
+	--this gate, so the EotW host still runs the Monster AI headless.
+	if p.dmonly and not GameHud.DirectorUIVisible() then
+		return false
+	end
+	--a mod-enforced custom interface can suppress panels by name
+	--(GameHud.RegisterCustomInterface); this gate covers every discovery
+	--surface that respects registrations -- menus, toolbar, rail, search.
+	local suppressed = false
+	pcall(function() suppressed = p.name ~= nil and GameHud.CustomInterfaceSuppressesPanel(p.name) == true end)
+	if suppressed then
 		return false
 	end
 	return true
@@ -2276,6 +2290,12 @@ DockablePanel = {
 	--floatingHalign = "right" places that window on the right.
 	--menu = "codex"|"game"|"tools" lists the panel in that title-bar menu
 	--INSTEAD of the Panels menu.
+	--launch = function() makes this an ACTION registration instead of a
+	--panel: activating it (menu row, icon-rail button, ShowPanelByName)
+	--runs launch() and no window ever opens. Give it no content; it still
+	--gets an icon, menu placement, dmonly/devonly gating, and rail
+	--membership like any panel. First client: the Body Banks, which
+	--launches the companion app.
 	Register = function(args)
 		--if args.dmonly and not dmhub.isDM then
 		--	return
@@ -2511,6 +2531,17 @@ DockablePanel = {
                     
                     ---@param operation nil|'toggle'|'show'|'hide'
 					click = function(operation)
+						-- Action registration: activating it IS the action.
+						-- No dock, rail, or window is touched, so this works
+						-- from the lobby too. "hide" means the caller wants
+						-- it gone, which for an action is a no-op.
+						if p.launch ~= nil then
+							if operation ~= "hide" then
+								p.launch()
+							end
+							return
+						end
+
 						-- Docks are only created once a game is active. Bail out
 						-- silently when invoked from the lobby.
 						if gamehud == nil or rawget(gamehud, "leftDock") == nil then

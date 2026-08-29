@@ -4734,6 +4734,7 @@ function creature:GetCustomVisionSenses()
 end
 
 creature._tmp_grabbedby = false
+creature._tmp_movementcarrier = false
 
 local g_grabbedid = "70504ebe-3899-41d3-9f60-74b52ce35e39"
 local g_proneid = "da6867b1-01e3-4570-8d1b-1b94ea1ea343"
@@ -4749,6 +4750,7 @@ function creature:Invalidate()
     self._tmp_resources = nil
     self._tmp_languagesKnown = nil
     self._tmp_grabbedby = nil
+    self._tmp_movementcarrier = nil
     self._tmp_aggroColor = nil
     self._tmp_suspended = nil
     self._tmp_prone = nil
@@ -4815,6 +4817,7 @@ function creature:RefreshToken(token)
     end
 
     self._tmp_grabbedby = nil
+    self._tmp_movementcarrier = nil
     --Rebuild prone from the current inflicted-condition state on every token refresh.
     --The modifier cache can already be stamped for this game update before
     --this base refresh runs, which skips Invalidate() above; without this
@@ -4832,6 +4835,10 @@ function creature:RefreshToken(token)
         if inflictedConditions[g_proneid] ~= nil then
             self._tmp_prone = true
         end
+    end
+
+    if CharacterModifier.GetMovementCarrierFromModifiers ~= nil then
+        self._tmp_movementcarrier = CharacterModifier.GetMovementCarrierFromModifiers(self, modifiers)
     end
 
 	--check if any inflicted conditions or ongoing effects no longer sustain.
@@ -5570,27 +5577,42 @@ function creature:FillTemporalActiveModifiers(result)
 
 
     self._tmp_numberOfCreaturesGrabbed = 0
+    local grabbedTargetIds = {}
     local conditionSourceBestows = {}
+
+    local function AccumulateCarriedCreature(targetToken, countsTowardGrabLimit, useGrabMovementPenalty)
+        if targetToken == nil or targetToken.properties == nil then
+            return
+        end
+
+        if countsTowardGrabLimit then
+            self._tmp_numberOfCreaturesGrabbed = self._tmp_numberOfCreaturesGrabbed + 1
+        end
+
+        if useGrabMovementPenalty then
+	        local ourSize = self:CalculateNamedCustomAttribute("SizeWhenGrabbing")
+            local theirSize = targetToken.properties:GetCalculatedCreatureSizeAsNumber()
+
+            if ourSize <= theirSize then
+                local grabbingFeature = MCDMImporter.GetStandardFeature("Grabbing")
+                if grabbingFeature ~= nil then
+                    for _,modifier in ipairs(grabbingFeature.modifiers) do
+                        result[#result+1] = {
+                            mod = modifier,
+                            stacks = 1,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
     if self:IsCasterOfConditions() then
         --apply slow down if we are grabbing.
         self:VisitConditionCasterSource(function(condid, targetToken)
             if condid == g_grabbedCondition then
-	            local ourSize = self:CalculateNamedCustomAttribute("SizeWhenGrabbing")
-                local theirSize = targetToken.properties:GetCalculatedCreatureSizeAsNumber()
-
-                self._tmp_numberOfCreaturesGrabbed = self._tmp_numberOfCreaturesGrabbed + 1
-
-                if ourSize <= theirSize then
-                    local grabbingFeature = MCDMImporter.GetStandardFeature("Grabbing")
-                    if grabbingFeature ~= nil then
-                        for _,modifier in ipairs(grabbingFeature.modifiers) do
-                            result[#result+1] = {
-                                mod = modifier,
-                                stacks = 1,
-                            }
-                        end
-                    end
-                end
+                grabbedTargetIds[targetToken.id] = true
+                AccumulateCarriedCreature(targetToken, true, true)
             end
 
             -- Check target's active modifiers for conditionsourcebestow.
@@ -5608,6 +5630,19 @@ function creature:FillTemporalActiveModifiers(result)
                             (conditionSourceBestows[modEntry.mod.conditionid] or 0) + 1
                     end
                 end
+            end
+        end)
+    end
+
+
+    if CharacterModifier.VisitMovementCarrierPassengers ~= nil then
+        CharacterModifier.VisitMovementCarrierPassengers(self, function(targetToken, modifier)
+            if not grabbedTargetIds[targetToken.id] then
+                AccumulateCarriedCreature(
+                    targetToken,
+                    modifier:try_get("countsTowardGrabLimit", true),
+                    modifier:try_get("useGrabMovementPenalty", true)
+                )
             end
         end)
     end
@@ -6341,6 +6376,13 @@ function creature:OnMove(path)
     --movement and OA immunity still suppress them.
     local immuneFromDeparture = path.forced or moverImmuneToOpportunityAttacks
 
+    --"Willingly moves away" for the mover-side `departadjacent` dispatch below
+    --(the goblin Cunning trait). Deliberately NOT gated by
+    --moverImmuneToOpportunityAttacks: a trait that both grants OA immunity and
+    --grants a parting attack would otherwise suppress its own second half.
+    --Forced movement and shifting are not willing, so they do not count.
+    local willingDeparture = (not path.forced) and (not path.shifting)
+
     local ourTileSize = ourToken.tileSize
 
 
@@ -6567,6 +6609,19 @@ function creature:OnMove(path)
                         if departureNotImmuneForThisObserver then
                             tok.properties:DispatchEvent("leaveadjacentorshift", { movingcreature = self })
                         end
+                    end
+
+                    --Mirror of leaveadjacent, dispatched on the MOVER instead of the
+                    --creature being left, carrying the enemy just departed. This is
+                    --what a "when you willingly move away from an adjacent enemy"
+                    --trait needs (goblin Cunning) -- the mover cannot know at
+                    --begin-move which enemy it will end up leaving, so the check has
+                    --to happen here, per step, where adjacency is actually lost.
+                    --Gated only on the mover: the observer-side OA filters above
+                    --(banes, opportunityattack target filter, CanMakeOpportunityAttacks)
+                    --describe the enemy's reaction, not the mover's own trait.
+                    if willingDeparture and withinVerticalReach and (not tok:IsFriend(self)) and self:CanUseTriggeredAbilities() then
+                        self:DispatchEvent("departadjacent", { departedcreature = tok.properties })
                     end
                 end
             end
@@ -6853,6 +6908,19 @@ function creature:ApplyOngoingEffect(ongoingEffectid, duration, casterInfo, opti
 
 	--use this as an opportunity to clean up any ongoingEffects that are no longer active.
 	self.ongoingEffects = self:ActiveOngoingEffects(true)
+
+	--Record where the caster stood when this effect landed. Effects that leash a target
+	--to "the caster's position when this ability is used" (Hooked) measure from this
+	--point, so it has to be captured now -- the caster is free to walk away afterwards.
+	if casterInfo ~= nil and casterInfo.tokenid ~= nil and casterInfo.loc == nil then
+		local casterLocToken = dmhub.GetTokenById(casterInfo.tokenid)
+		if casterLocToken ~= nil and casterLocToken.valid then
+			local casterLoc = casterLocToken.loc
+			if casterLoc ~= nil and casterLoc.valid then
+				casterInfo.loc = { x = casterLoc.x, y = casterLoc.y, floor = casterLoc.floor }
+			end
+		end
+	end
 
 	options = options or {}
 
@@ -8105,6 +8173,13 @@ creature.helpSymbols = {
         name = "Number of Creatures Grabbed",
         type = "number",
         desc = "The number of creatures currently grabbed by this creature.",
+    },
+
+    grabbedcreatures = {
+        name = "Grabbed Creatures",
+        type = "creatureset",
+        desc = "The set of creatures currently grabbed by this creature.",
+        examples = {'GrabbedCreatures.Highest("Size") >= 2'},
     }
 }
 
@@ -8331,6 +8406,16 @@ creature.lookupSymbols = {
 
     numberofcreaturesgrabbed = function(c)
         return c:try_get("_tmp_numberOfCreaturesGrabbed", 0)
+    end,
+
+    grabbedcreatures = function(c)
+        local result = CreatureSet.new{}
+        c:VisitConditionCasterSource(function(conditionid, targetToken)
+            if conditionid == g_grabbedCondition then
+                result:Add(targetToken.properties)
+            end
+        end)
+        return result
     end,
 
 	hitpoints = function(c)

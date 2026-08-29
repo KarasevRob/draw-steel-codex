@@ -153,6 +153,24 @@ local function GetParentPrimaryTargetTokenId(options)
     return nil
 end
 
+--Squad caster-side invokes receive the main attacker as their current target.
+--Reverse its targetPairs entry to recover the parent target that attacker chose.
+local function GetParentCurrentTargetTokenId(options, currentToken)
+    local symbols = options ~= nil and options.symbols or nil
+    if symbols ~= nil and currentToken ~= nil then
+        for _,pair in ipairs(symbols.targetPairs or {}) do
+            if pair.a == currentToken.charid or pair.a == currentToken.id then
+                local targetToken = dmhub.GetTokenById(pair.b)
+                if targetToken ~= nil and targetToken.valid and targetToken.id ~= nil then
+                    return targetToken.id
+                end
+            end
+        end
+    end
+
+    return GetParentPrimaryTargetTokenId(options)
+end
+
 --Pulls every ActivatedAbility granted by a feature's "activated" modifiers into result,
 --stamping each clone with the class metadata that the chooseClassAbility filter reads.
 --- @param feature CharacterFeature
@@ -359,10 +377,7 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
     end
 
     local promptWhenResolving = self:try_get("promptWhenResolving", false)
-    local rangeOriginTokenId = nil
-    if self:try_get("rangeOrigin", "") == "parent_primary_target" then
-        rangeOriginTokenId = GetParentPrimaryTargetTokenId(options)
-    end
+    local rangeOrigin = self:try_get("rangeOrigin", "")
 
     local targetChoices = {}
     if promptWhenResolving then
@@ -436,6 +451,13 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
         for i,target in ipairs(targets) do
             if target.token ~= nil then
                 print("INVOKE:: CASTING ON TARGET", i, "/", #targets)
+
+                local rangeOriginTokenId = nil
+                if rangeOrigin == "parent_primary_target" then
+                    rangeOriginTokenId = GetParentPrimaryTargetTokenId(options)
+                elseif rangeOrigin == "parent_current_target" then
+                    rangeOriginTokenId = GetParentCurrentTargetTokenId(options, target.token)
+                end
 
                 --In a squad coordinated strike, the invoked effect (e.g. a forced-
                 --movement push/pull, or an inflicted condition) should be SOURCED
@@ -787,6 +809,16 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
     until promptWhenResolving == false or #targetChoices == 0
 end
 
+--A string that changes every time the turn changes. Used to spot a leftover flag from
+--an invoke that never finished.
+function ActivatedAbilityInvokeAbilityBehavior.SquadSuppressionTurnKey()
+    local q = dmhub.initiativeQueue
+    if q == nil or q.hidden then
+        return "none"
+    end
+    return string.format("%s:%s:%s", tostring(q.round), tostring(q.turn), tostring(q.currentTurn))
+end
+
 function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abilityClone, casterToken, targeting, symbols, options)
     --record if we have to 'pay' for the invoke -- if work was done.
     local haveToPay = false
@@ -795,12 +827,34 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
 
     --When the invoke opted out of squad coordination, mirror the abilityClone flag
     --onto the cast caster's properties as a transient depth counter so any cloned/
-    --bifurcated/synthesized variant produced downstream is also covered. Cleared
-    --in finishHandler below. UsesSquadCoordination checks both signals.
+    --bifurcated/synthesized variant produced downstream is also covered.
+    --UsesSquadCoordination checks both signals.
     local suppressSquad = abilityClone:try_get("disableSquadCoordination", false) == true
     if suppressSquad and casterToken ~= nil and casterToken.properties ~= nil then
         local depth = casterToken.properties:try_get("_tmp_disableSquadCoordinationDepth", 0)
         casterToken.properties._tmp_disableSquadCoordinationDepth = depth + 1
+        casterToken.properties._tmp_disableSquadCoordinationTurn = ActivatedAbilityInvokeAbilityBehavior.SquadSuppressionTurnKey()
+    end
+
+    --Always lower the counter again on the way out, not just when a cast finishes. If
+    --the player declines the prompt it used to stay up, and that minion's squad could
+    --never attack with more than one member again (report 3ERZG7SW).
+    local squadSuppressionReleased = false
+    local ReleaseSquadSuppression = function()
+        if squadSuppressionReleased or not suppressSquad then
+            return
+        end
+        squadSuppressionReleased = true
+        if casterToken == nil or casterToken.properties == nil then
+            return
+        end
+        local depth = casterToken.properties:try_get("_tmp_disableSquadCoordinationDepth", 0)
+        if depth <= 1 then
+            casterToken.properties._tmp_disableSquadCoordinationDepth = nil
+            casterToken.properties._tmp_disableSquadCoordinationTurn = nil
+        else
+            casterToken.properties._tmp_disableSquadCoordinationDepth = depth - 1
+        end
     end
 
     print("INVOKE:: STARTING:", abilityClone.name)
@@ -850,14 +904,7 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
         end
         casting = false
         finishedCasting = true
-        if suppressSquad and casterToken ~= nil and casterToken.properties ~= nil then
-            local depth = casterToken.properties:try_get("_tmp_disableSquadCoordinationDepth", 0)
-            if depth <= 1 then
-                casterToken.properties._tmp_disableSquadCoordinationDepth = nil
-            else
-                casterToken.properties._tmp_disableSquadCoordinationDepth = depth - 1
-            end
-        end
+        ReleaseSquadSuppression()
         if finishOptions.pay then
             --if the ability we invoked had to be paid for, we have to pay for the invoke.
             ability:CommitToPaying(casterToken, finishOptions)
@@ -871,19 +918,33 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
         castOptions.OnFinishCastHandlers[#castOptions.OnFinishCastHandlers + 1] = finishHandler
     end
 
-	abilityClone.OnBeginCast = function(_ability, castOptions)
-		if OnBeginCast then
-			OnBeginCast()
-		end
-		casting = true
-        installFinishHandler(castOptions)
-	end
+    --Prompt handlers can replace a wrapper ability with a concrete synthesized
+    --ability (for example, choosing Melee Free Strike from the generic Free
+    --Strike prompt). Every replacement still needs the invoke lifecycle hooks.
+    local installCastCallbacks = function(castAbility)
+        local priorBeginCast = castAbility:try_get("OnBeginCast")
+        local priorFinishCast = castAbility:try_get("OnFinishCast")
 
-    --Defense-in-depth: keep OnFinishCast as a fallback in case this path somehow runs
-    --through a Cast that skips OnBeginCast. The finishHandler is idempotent via finishedCasting.
-	abilityClone.OnFinishCast = function(ability, finishOptions)
-        finishHandler(ability, casterToken, finishOptions)
-	end
+        castAbility.OnBeginCast = function(beginAbility, castOptions)
+            if priorBeginCast then
+                priorBeginCast(beginAbility, castOptions)
+            end
+            casting = true
+            installFinishHandler(castOptions)
+        end
+
+        --Defense-in-depth: keep OnFinishCast as a fallback in case this path
+        --somehow runs through a Cast that skips OnBeginCast. finishHandler is
+        --idempotent via finishedCasting.
+        castAbility.OnFinishCast = function(finishedAbility, finishOptions)
+            if priorFinishCast then
+                priorFinishCast(finishedAbility, finishOptions)
+            end
+            finishHandler(finishedAbility, casterToken, finishOptions)
+        end
+    end
+
+    installCastCallbacks(abilityClone)
 
     local canceled = false
 
@@ -917,6 +978,17 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
             print("PUSH:: INVOKING!!!!!")
             targeting = invokerToken.properties._tmp_aipromptCallback(invokerToken, casterToken, abilityClone, symbols, options)
             aiResolvedTargeting = (targeting ~= "prompt" and targeting ~= "prompt_inherit")
+        end
+
+        --A prompt handler may resolve a synthesized-ability chooser as well as
+        --its targets. Consume the override immediately so it cannot leak into a
+        --later invoke that shares the parent cast's options table.
+        local abilityOverride = options.abilityOverride
+        if abilityOverride ~= nil then
+            options.abilityOverride = nil
+            abilityClone = abilityOverride
+            abilityClone.invoker = invokerToken.properties
+            installCastCallbacks(abilityClone)
         end
 
         if targeting == "prompt" or targeting == "prompt_inherit" then
@@ -990,20 +1062,16 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
                 local synth = abilityClone:SynthesizeAbilities(casterToken.properties)
                 if synth ~= nil and #synth == 1 then
                     --if exactly one synthesized ability then just auto-cast it?
+                    local preSynthDisableSquad = abilityClone:try_get("disableSquadCoordination")
                     abilityClone = synth[1]
-                    --The synth is a brand-new ability; re-install our wrappers so we still get
-                    --notified when it begins/finishes. Preserve any wrappers the synth came with.
-                    local synthOnBegin = abilityClone:try_get("OnBeginCast")
-                    local synthOnFinish = abilityClone:try_get("OnFinishCast")
-                    abilityClone.OnBeginCast = function(_ability, castOptions)
-                        if synthOnBegin then synthOnBegin() end
-                        casting = true
-                        installFinishHandler(castOptions)
+                    --Synthesizing builds a fresh ability, so copy the opt-out across.
+                    --Without it a minion gets asked for one target per squad member.
+                    if preSynthDisableSquad ~= nil then
+                        abilityClone.disableSquadCoordination = preSynthDisableSquad
                     end
-                    abilityClone.OnFinishCast = function(ability, finishOptions)
-                        if synthOnFinish then synthOnFinish(ability, finishOptions) end
-                        finishHandler(ability, casterToken, finishOptions)
-                    end
+                    --The synth is a brand-new ability; re-install our wrappers
+                    --while preserving any callbacks the synth came with.
+                    installCastCallbacks(abilityClone)
                 end
             end
 
@@ -1050,6 +1118,9 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
             break
         end
     end
+
+    --Catches the cases where no cast ever finished, such as the player declining.
+    ReleaseSquadSuppression()
 
     print("INVOKE:: FINISHED FOR", abilityClone.name, coroutine.running(), "CANCELED:", canceled)
 

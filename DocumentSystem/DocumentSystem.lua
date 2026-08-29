@@ -1226,7 +1226,7 @@ function CustomDocument:CreateInterface(args)
         return true
     end
 
-    if dmhub.isDM then --and not args.presentationMode then
+    if dmhub.isDM and not args.presentationMode then
     -- Present to Players
         m_presentButton = gui.Button {
             classes = {"sizeS"},
@@ -1529,7 +1529,7 @@ function CustomDocument:CreateInterface(args)
             if t == currentId then isPlain = true break end
         end
 
-        if isPlain and (dmhub.isDM or self:HaveEditPermissions()) then
+        if isPlain and (not args.presentationMode) and (dmhub.isDM or self:HaveEditPermissions()) then
             local typeIconPanel, typeLabel
             local function SyncType()
                 local info = CustomDocument.DocTypeInfo(self)
@@ -1585,6 +1585,12 @@ function CustomDocument:CreateInterface(args)
         classes = { "closeButton", "sizeXs", cond(args.suppressCloseButton or args.presentationMode or (args.dialog == nil and args.close == nil), "collapsed") },
         hmargin = 4,
         closedocuments = function(element)
+            --a presented document is held open by the Director; the
+            --/closedocuments macro (fired tree-wide, so it reaches this
+            --button even collapsed) must not dismiss it.
+            if args.presentationMode then
+                return
+            end
             element:FireEvent("press")
         end,
         press = function(element)
@@ -1600,7 +1606,9 @@ function CustomDocument:CreateInterface(args)
     }
 
     local m_breadcrumb = gui.Label {
-        classes = {"fgMuted"},
+        --presentation mode: the breadcrumb would leak the document's journal
+        --folder path and open the journal tree popup; players get neither.
+        classes = {"fgMuted", cond(args.presentationMode, "collapsed")},
         text = buildBreadcrumbText(self),
         halign = "left",
         valign = "center",
@@ -2985,14 +2993,26 @@ function CustomDocument.GetOrCreateTabbedViewer()
         tabScrollRight:SetClass("disabled", activeIdx >= #tabs or #tabs <= 1)
         tabScrollRight.interactable = (#tabs > 1 and activeIdx < #tabs)
 
-        -- Available width for the tab strip = bar width minus the arrow/close cluster.
-        -- tabButtonsPanel is auto-width, so its renderedWidth is the content (sum of
-        -- tabs), not the container; measure the full bar and subtract the arrows.
+        -- Available width for the tab strip = bar width minus everything that is
+        -- not a tab: the arrow/close cluster, the tree-rail toggle on the left,
+        -- and the + (new tab) button after the tabs. tabButtonsPanel is
+        -- auto-width, so its renderedWidth is the content (sum of tabs), not the
+        -- container; measure the full bar and subtract the fixed chrome.
         -- Before the first layout pass every panel reports a placeholder width, so
         -- defer until we have a real measurement (the viewer's think re-runs this).
+        local function chromeWidth(p, fallback)
+            local w = p.renderedWidth
+            if w and w > 1 then
+                return w
+            end
+            return fallback
+        end
         local barWidth = tabBar.renderedWidth or 0
         local arrowsWidth = tabArrowsPanel.renderedWidth or 0
-        local panelWidth = barWidth - arrowsWidth - 12
+        local panelWidth = barWidth - arrowsWidth
+            - chromeWidth(treeToggleButton, TAB_HEIGHT)
+            - chromeWidth(newTabButton, TAB_HEIGHT)
+            - 12
         if panelWidth < 200 then
             for _, tab in ipairs(tabs) do
                 tab.tabButton:SetClass("collapsed", false)
@@ -4237,10 +4257,31 @@ GameHud.RegisterPresentableDialog {
     id = "document",
     create = function(args)
         local doc = (dmhub.GetTable(CustomDocument.tableName) or {})[args.docid]
-        if doc ~= nil then
-            doc:ShowDocument()
+        if doc == nil then
+            return nil
         end
-        return nil
+
+        if dmhub.isDM then
+            --Directors just get the document as a normal journal tab they are
+            --free to browse away from or close.
+            doc:ShowDocument()
+            return nil
+        end
+
+        --Players get a locked presentation window: presentationMode strips the
+        --close button and every editing affordance, so the document stays on
+        --screen, read-only, for as long as the Director presents it. Returning
+        --the panel (instead of opening a journal tab) is what lets GameHud
+        --destroy it the moment the presentation is cleared or replaced.
+        local dialog = doc:PresentDocument{ presentationMode = true }
+        --the rail-mode Font Size zoom applies via an event that needs the
+        --window attached; GameHud adds it right after this returns.
+        dmhub.Schedule(0.05, function()
+            if dialog ~= nil and dialog.valid then
+                dialog:FireEvent("setWindowScale")
+            end
+        end)
+        return dialog
     end,
     keeplocal = true,
 }
@@ -4268,6 +4309,12 @@ PanelDocument.panelName = ""
 --in the ballpark of the design's compact rail windows.
 PanelDocument.DefaultWidth = 380
 PanelDocument.DefaultHeight = 520
+
+--The rail-mode Font Size zoom (WindowUIScale, defined above), exported
+--for UI outside this file that scales its own root by the same factor
+--(the action bar does; see DSActionBar's setBarScale). A field rather
+--than a new local: this chunk is at Lua's 200-locals ceiling.
+PanelDocument.WindowUIScale = WindowUIScale
 
 --Declared here rather than beside its other uses further down: PresentPanel
 --needs it, and a local is not in lexical scope for code written above it.
@@ -4839,6 +4886,21 @@ local function RailActivation(key)
     return "close", ownerKey, doc, dialog
 end
 
+--An ACTION registration (DockablePanel.Register with launch = fn): its
+--button runs launch() instead of opening a window -- e.g. Monster
+--Builder, which launches the companion app. Returns the launch function
+--for a layout key, or nil for ordinary panels and non-panel keys.
+local function RailLaunchAction(key)
+    if key == nil then
+        return nil
+    end
+    local reg = DockablePanel.GetRegistration(string.lower(key))
+    if reg ~= nil and reg.launch ~= nil and DockablePanel.PanelPermittedForUser(reg) then
+        return reg.launch
+    end
+    return nil
+end
+
 --The rail's curated panel list, in display order (from the Player Icon
 --Rail design). Panels missing a registration, or not available to this
 --user (dmonly/devonly), are skipped wherever the list is consumed.
@@ -5317,6 +5379,18 @@ function PanelDocument:CreateInterface(args)
             end
             local content = reg.content()
             tab.contentRoot = content
+            --Mirror the dock host's stickyFocus contract: the dock instance
+            --carries the registration's stickyFocus flag on an ancestor of
+            --the content, which Hud.StickyFocus walks when a right-click on
+            --the map tries to cancel focus. Without it here, a rail-hosted
+            --tool panel (Objects, Terrain, Map Markup, ...) was fully
+            --deselected by any right-click on the map instead of just
+            --cancelling its in-progress action. Set on the wrapper, not the
+            --content, so a panel that replaces its own data table cannot
+            --clobber it.
+            if reg.stickyFocus then
+                element.data.stickyFocus = true
+            end
             content.selfStyle.valign = "top"
             --anchor the hosted content left as well: without an alignment
             --from an ancestor, panel content centers in the window host
@@ -8614,6 +8688,11 @@ local function OpenIconRailWindow(panelName, placement)
     if doc == nil then
         return
     end
+    --an action registration never has a window; a stale restore record
+    --or Views entry naming one must not error into reg.content().
+    if RailLaunchAction(key) ~= nil then
+        return
+    end
 
     local args = {
         --dragging a rail window makes it stick where it lands: it stops
@@ -10680,8 +10759,30 @@ end
 --a per-user setting in Settings > General ("New Experimental UI"),
 --on by default; it used to be opt-in, and to additionally require
 --devmode() while the rail was a dev-only trial.
+--A custom-interface takeover (see PanelDocument.RailCustomInterfaceId)
+--forces the mode ON regardless of the setting: the docks slide away and
+--windows host on the layer exactly as in rail mode, with the mod's
+--widgets standing in for the button columns.
 function RailModeActive()
+    if PanelDocument.RailCustomInterfaceId() ~= nil then
+        return true
+    end
     return dmhub.GetSettingValue("iconrail") == true
+end
+
+--The id of the custom interface that currently owns the rail surface
+--(GameHud.RegisterCustomInterface with suppressRails), or nil when the
+--normal rails should build. A PanelDocument field rather than a local:
+--this file's main chunk runs close to Lua's 200-local ceiling. pcall so a
+--mid-deploy core without the hook degrades to the normal rails.
+PanelDocument.RailCustomInterfaceId = function()
+    local id = nil
+    pcall(function()
+        if GameHud.CustomInterfaceSuppressesRails() then
+            id = GameHud.CustomInterfaceId() or "custom"
+        end
+    end)
+    return id
 end
 
 --How deeply floating rail panel windows currently intrude into the
@@ -10997,6 +11098,9 @@ local function RailIsGroupableKey(key)
     return string.match(key, "^doc:") == nil
         and string.match(key, "^character:") == nil
         and string.match(key, "^toolkit:") == nil
+        --an action registration has no window, so a folder tab for it
+        --would be an inert chip; it stays a standalone button.
+        and RailLaunchAction(key) == nil
 end
 
 --(Grouping edits reach open windows through g_onPanelGroupChanged,
@@ -12619,6 +12723,12 @@ end
 --anchored beside the strip rather than beside the rail.
 local function ToolkitTogglePanel(panelKey, strip, toolkitid)
     local key = string.lower(panelKey)
+    --action registration: the strip button runs it; no window opens.
+    local launch = RailLaunchAction(key)
+    if launch ~= nil then
+        launch()
+        return
+    end
     local verb, ownerKey, doc, d = RailActivation(key)
     if doc == nil then
         return
@@ -16910,7 +17020,8 @@ local function CreateIconRail(side, entries)
         local buttonIconRect = nil
         local sbuttonStyle = nil
         --whether this button wears the scriptAnim class (hover swell +
-        --click pop): script buttons only, unless the author opted out.
+        --click pop): script buttons (unless the author opted out) and
+        --launch-action registrations, whose click also IS the act.
         --Pack "panel" shortcuts are excluded -- their click opens a
         --window, and buttons that open things answer with the window.
         local sbuttonAnimates = false
@@ -17125,6 +17236,13 @@ local function CreateIconRail(side, entries)
         --member has no button of its own to anchor to.
         local function ToggleGroupMember(memberKey)
             memberKey = string.lower(memberKey)
+            --defensive: launch panels are not groupable, but a stored
+            --group could predate the flag. Run the action, keep the strip.
+            local launch = RailLaunchAction(memberKey)
+            if launch ~= nil then
+                launch()
+                return
+            end
             local verb, ownerKey, doc, d = RailActivation(memberKey)
             if doc == nil then
                 return
@@ -17887,7 +18005,7 @@ local function CreateIconRail(side, entries)
         --a scale-down animation: it constructs oversized (justDropped)
         --and sheds the class a moment later, riding the transition.
         local buttonClasses = {"iconRailButton"}
-        if sbuttonAnimates then
+        if sbuttonAnimates or (reg ~= nil and reg.launch ~= nil) then
             buttonClasses[#buttonClasses + 1] = "scriptAnim"
         end
         if sbuttonDisabled then
@@ -18717,6 +18835,15 @@ local function CreateIconRail(side, entries)
                     return
                 end
 
+                --action registration: clicking IS the action (e.g. Monster
+                --Builder launching the companion app). The pop acknowledges
+                --the press, since no window will answer it.
+                if reg ~= nil and reg.launch ~= nil then
+                    element:PulseClass("clickPop")
+                    reg.launch()
+                    return
+                end
+
                 local doc = RailPanelDocument(key)
                 if doc == nil then
                     return
@@ -19118,20 +19245,24 @@ local function CreateIconRail(side, entries)
                     numAlerted = #DockablePanel.GetAlertedRegistrations()
                 end
 
-                table.insert(entries, 1, {
-                    text = cond(PanelDocument.IsPinned(key), "Unpin", "Pin in place"),
-                    click = function()
-                        element.popup = nil
-                        togglePin()
-                    end,
-                })
-                table.insert(entries, 1, {
-                    text = "Keep open",
-                    click = function()
-                        element.popup = nil
-                        keepOpen()
-                    end,
-                })
+                --action registrations have no window: nothing to keep
+                --open or pin, so those verbs stay off their menu.
+                if reg == nil or reg.launch == nil then
+                    table.insert(entries, 1, {
+                        text = cond(PanelDocument.IsPinned(key), "Unpin", "Pin in place"),
+                        click = function()
+                            element.popup = nil
+                            togglePin()
+                        end,
+                    })
+                    table.insert(entries, 1, {
+                        text = "Keep open",
+                        click = function()
+                            element.popup = nil
+                            keepOpen()
+                        end,
+                    })
+                end
                 table.insert(entries, 1, {
                     text = "Open",
                     bind = dmhub.GetCommandBinding(bindCommand),
@@ -19145,7 +19276,10 @@ local function CreateIconRail(side, entries)
                 --the move verbs: it acts on this panel, not on where the
                 --button lives.
                 if clearAlerts ~= nil then
-                    table.insert(entries, 4, {
+                    --a launch registration's menu skipped keep-open/pin, so
+                    --"after the open verbs" is position 2 there, 4 otherwise.
+                    local alertsAt = cond(reg ~= nil and reg.launch ~= nil, 2, 4)
+                    table.insert(entries, alertsAt, {
                         text = "Clear Alerts",
                         click = function()
                             element.popup = nil
@@ -19157,7 +19291,7 @@ local function CreateIconRail(side, entries)
                     --when other panels have alerts too, offer the sweep:
                     --every alerted registration retires in one act.
                     if numAlerted > 1 then
-                        table.insert(entries, 5, {
+                        table.insert(entries, alertsAt + 1, {
                             text = "Clear All Alerts",
                             click = function()
                                 element.popup = nil
@@ -19485,6 +19619,13 @@ local function CreateIconRail(side, entries)
                 element:DestroySelf()
                 return
             end
+            --a custom interface took the rail surface over mid-session
+            --(e.g. the game mode identified itself after the rails were
+            --built): swap to its widgets.
+            if PanelDocument.RailCustomInterfaceId() ~= nil then
+                PanelDocument.RailCustomInterfaceRebuild()
+                return
+            end
             if g_railTransientKey ~= nil then
                 --a toolkit cluster stays the transient unit while ANY of
                 --its windows is open; a plain key while its own window is.
@@ -19674,9 +19815,162 @@ local function WrapRailOverflow(sides)
     end
 end
 
+--Slide the docks off screen for a custom-interface takeover WITHOUT
+--touching the dock settings: SyncDocksToRailMode writes them, which would
+--permanently trample the user's dock layout for what is a per-game-mode
+--takeover. The class is transient by design -- the next game entry
+--re-syncs the docks from the settings as usual.
+PanelDocument.SyncDocksOffscreenForCustomInterface = function(offscreen)
+    if gamehud == nil or rawget(gamehud, "leftDock") == nil then
+        return
+    end
+    for _, side in ipairs({"left", "right"}) do
+        local dock = cond(side == "left", gamehud.leftDock, gamehud.rightDock)
+        if dock ~= nil and dock.valid then
+            if offscreen then
+                dock:SetClass("offscreen", true)
+            else
+                --restore to what the settings say (rail mode may still
+                --legitimately keep the dock off screen).
+                dock:SetClass("offscreen", dmhub.GetSettingValue(side .. "dockoffscreen") == true)
+            end
+        end
+    end
+end
+
+--A custom interface owns the rail surface: mount one wrapper per side
+--holding whatever widget the mod supplies (GameHud.CustomInterfaceRailPanel),
+--plus an optional bottom-corner wrapper per side
+--(GameHud.CustomInterfaceRailBottomPanel -- e.g. kept Chat/Action Log
+--buttons), instead of the button columns. The wrappers reuse the
+--"iconRail" class and the g_iconRails slots (bottom wrappers under
+--"leftbottom"/"rightbottom") so every existing lifecycle path --
+--DestroyIconRails, the stale-generation sweep, EnsureIconRail's
+--already-built check, the theme recolor loop -- handles them for free.
+--They also carry IconRailStyles, so provider widgets can use the standard
+--iconRailButton/iconRailIcon classes and look native.
+PanelDocument.BuildCustomInterfaceRails = function(layer)
+    local builtId = PanelDocument.RailCustomInterfaceId()
+
+    local function MakeWrapper(side, bottom, widget)
+        return gui.Panel{
+            classes = {"iconRail"},
+            halign = side,
+            valign = cond(bottom, "bottom", "top"),
+            lmargin = cond(side == "left", ICON_RAIL_LEFT, 0),
+            rmargin = cond(side == "right", ICON_RAIL_LEFT, 0),
+            tmargin = cond(bottom, 0, IconRailTop()),
+            bmargin = cond(bottom, 12, 0),
+            width = "auto",
+            height = "auto",
+            flow = "vertical",
+
+            data = { side = side },
+
+            styles = IconRailStyles(),
+
+            --the same Font Size zoom the real rail applies (see the
+            --setRailScale notes in CreateIconRail), anchored to whichever
+            --corner the wrapper hangs from so a bottom wrapper stays
+            --pinned to the bottom edge as it scales.
+            setRailScale = function(element)
+                element.selfStyle.pivot = {x = cond(side == "left", 0, 1), y = cond(bottom, 0, 1)}
+                element.selfStyle.uiscale = WindowUIScale()
+            end,
+
+            multimonitor = {"fontsize"},
+            monitor = function(element)
+                if g_railRebuildPending then
+                    return
+                end
+                g_railRebuildPending = true
+                dmhub.Schedule(0.01, function()
+                    g_railRebuildPending = false
+                    if mod.unloaded then
+                        return
+                    end
+                    RebuildIconRails()
+                end)
+            end,
+
+            --self-heal like the real rail: die with the module generation,
+            --and swap back to the normal rails the moment the takeover
+            --ends or changes hands.
+            thinkTime = 0.5,
+            think = function(element)
+                if mod.unloaded then
+                    element:DestroySelf()
+                    return
+                end
+                if PanelDocument.RailCustomInterfaceId() ~= builtId then
+                    PanelDocument.RailCustomInterfaceRebuild()
+                    return
+                end
+                --the standard rail cadence, so provider widgets can run
+                --refreshRail-driven behaviors (unread badges, lit states).
+                element:FireEventTree("refreshRail")
+                if side == "left" and not bottom then
+                    SyncDockHandles()
+                    RemoveDockTrayButtons()
+                    PanelDocument.SyncDocksOffscreenForCustomInterface(true)
+                end
+            end,
+
+            --"/" with nothing focused summons chat, exactly like the real
+            --rail. Only the left top wrapper is registered as the chat
+            --listener (below), so this runs once.
+            slash = function(element)
+                RailSlashOpensChat()
+            end,
+
+            --a chat message landing while chat is closed: the bubble
+            --helper bails harmlessly when it cannot find a slotted chat
+            --button (custom widgets are not slotted), but unread badges
+            --on provider buttons update via refreshRail above.
+            refreshChat = function(element, changeInfo)
+                PanelDocument.ChatBubbleNotify(changeInfo)
+            end,
+
+            widget,
+        }
+    end
+
+    for _, side in ipairs({"left", "right"}) do
+        local rail = MakeWrapper(side, false, GameHud.CustomInterfaceRailPanel(side))
+        g_iconRails[side] = rail
+        layer:AddChild(rail)
+        rail:FireEvent("setRailScale")
+
+        --the bottom wrapper only exists when the provider supplies a
+        --widget for it (pcall: the accessor may predate this deploy).
+        local bottomWidget = nil
+        pcall(function() bottomWidget = GameHud.CustomInterfaceRailBottomPanel(side) end)
+        if bottomWidget ~= nil then
+            local bottomRail = MakeWrapper(side, true, bottomWidget)
+            g_iconRails[side .. "bottom"] = bottomRail
+            layer:AddChild(bottomRail)
+            bottomRail:FireEvent("setRailScale")
+        end
+    end
+
+    --one chat listener, mirroring BuildIconRails: delivers the "/"
+    --hotkey and chat refresh events to the wrapper's handlers above.
+    if g_iconRails.left ~= nil then
+        chat.events:Listen(g_iconRails.left)
+    end
+
+    PanelDocument.SyncDocksOffscreenForCustomInterface(true)
+end
+
 local function BuildIconRails()
     local layer = DocumentsLayer()
     if layer == nil then
+        return
+    end
+    --a custom interface owns the rail surface: mount its widgets instead
+    --of the button columns.
+    if PanelDocument.RailCustomInterfaceId() ~= nil then
+        PanelDocument.BuildCustomInterfaceRails(layer)
         return
     end
     local sides = RailLayout()
@@ -19754,6 +20048,27 @@ RebuildIconRails = function()
     end
 end
 
+--Deferred full rebuild when a custom interface takes over or releases the
+--rail surface mid-session. Goes through DestroyIconRails + EnsureIconRail
+--rather than RebuildIconRails so the disable branch can restore the dock
+--handles when rail mode ends together with the takeover. Defined after
+--DestroyIconRails: that local is not in scope earlier in the chunk.
+PanelDocument.RailCustomInterfaceRebuild = function()
+    if g_railRebuildPending then
+        return
+    end
+    g_railRebuildPending = true
+    dmhub.Schedule(0.01, function()
+        g_railRebuildPending = false
+        if mod.unloaded then
+            return
+        end
+        PanelDocument.SyncDocksOffscreenForCustomInterface(PanelDocument.RailCustomInterfaceId() ~= nil)
+        DestroyIconRails()
+        EnsureIconRail()
+    end)
+end
+
 --Recolor the rails when the theme or color scheme changes. IconRailStyles
 --resolves its tokens (@fg, @fgStrong, the accent on the process gear)
 --ONCE, at construction, and nothing rebuilds the rails on a scheme
@@ -19821,6 +20136,55 @@ function EnsureIconRail()
         --tray buttons.
         SyncDockHandles()
         RemoveDockTrayButtons()
+        dmhub.UpdateScreenHudArea(1)
+        return
+    end
+
+    --a custom-interface takeover builds the mod's widgets instead of the
+    --button columns and restores nothing: the custom interface owns what
+    --is on screen. Mode flips mid-session are handled by the rails' own
+    --think (both kinds watch RailCustomInterfaceId), so standing rails
+    --are left alone here either way.
+    local customInterfaceId = PanelDocument.RailCustomInterfaceId()
+    if customInterfaceId ~= nil then
+        local custom = g_iconRails.left
+        if custom ~= nil and custom.valid then
+            return
+        end
+        local customLayer = DocumentsLayer()
+        if customLayer == nil then
+            return
+        end
+        --sweep rail panels left behind by a previous module generation,
+        --exactly as the normal build below does.
+        for _, child in ipairs(customLayer.children) do
+            if child.valid and (child:HasClass("iconRail") or child:HasClass("iconRailGhost") or child:HasClass("iconRailGhostLine") or child:HasClass("iconRailCardGhost") or child:HasClass("iconRailTrash") or child:HasClass("iconRailViewChip") or child:HasClass("iconRailViewToast") or child:HasClass("iconRailToolkitStrip")) then
+                child:DestroySelf()
+            end
+        end
+        --and orphaned panel windows from a previous generation (the
+        --custom interface can still open windows, e.g. the character
+        --panel; same reasoning as the normal-mode sweep below).
+        local customKnownDialogs = {}
+        for _, doc in pairs(g_panelDocuments) do
+            local d = doc:try_get("_tmp_dialog")
+            if d ~= nil and d.valid then
+                customKnownDialogs[d] = true
+            end
+        end
+        for _, child in ipairs(customLayer.children) do
+            if child.valid and not customKnownDialogs[child] then
+                local tabs = nil
+                pcall(function() tabs = child.data.panelTabs end)
+                if tabs ~= nil then
+                    child:DestroySelf()
+                end
+            end
+        end
+        BuildIconRails()
+        SyncDockHandles()
+        RemoveDockTrayButtons()
+        PanelDocument.SyncDocksOffscreenForCustomInterface(true)
         dmhub.UpdateScreenHudArea(1)
         return
     end

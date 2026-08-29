@@ -887,7 +887,7 @@ local function WrapAbilityBodyInScrollFrame(maxHeight, bleedLeft, bodyPanel)
     }
 end
 
---- A copy of a style rule list with every font size multiplied.
+--- A copy of a style rule list with every size multiplied.
 ---
 --- The card's sizes are a fixed pixel ladder tuned for the card floating over
 --- the map; params.cardScale shrinks the whole thing for hosts that embed it in
@@ -896,7 +896,7 @@ end
 --- @param styles table list of plain style rule tables
 --- @param scale number 1 leaves the list untouched
 --- @return table
-local function ScaleStyleFontSizes(styles, scale)
+local function ScaleStyleSizes(styles, scale)
     if scale == 1 then
         return styles
     end
@@ -906,11 +906,14 @@ local function ScaleStyleFontSizes(styles, scale)
         for k, v in pairs(rule) do
             copy[k] = v
         end
-        if type(copy.fontSize) == "number" then
-            copy.fontSize = copy.fontSize * scale
-        end
-        if type(copy.minFontSize) == "number" then
-            copy.minFontSize = copy.minFontSize * scale
+        --Type and the padding around it, so a shrunk card does not sit in
+        --full-size margins. Margins and borders are deliberately left alone:
+        --they are card chrome, not a function of the text size.
+        for _, key in ipairs({"fontSize", "minFontSize", "pad", "hpad", "vpad",
+                             "lpad", "rpad", "tpad", "bpad"}) do
+            if type(copy[key]) == "number" then
+                copy[key] = copy[key] * scale
+            end
         end
         result[i] = copy
     end
@@ -1964,7 +1967,7 @@ function ActivatedAbility:Render(options, params)
     --king panel
     local args = {
         id = 'spellInfo',
-        styles = ThemeEngine.MergeStyles(ScaleStyleFontSizes(SpellRenderStyles, cardScale)),
+        styles = ThemeEngine.MergeStyles(ScaleStyleSizes(SpellRenderStyles, cardScale)),
         bgimage = "panels/square.png",
         hpad = 0,
         vpad = 0,
@@ -2016,9 +2019,9 @@ function ActivatedAbility:Render(options, params)
             --cropped), right-aligned so every bit of the frame's extra width
             --bleeds off to the LEFT where the tabs live. The scroll-mode hpad
             --is bigger to inset the text clear of the scrollbar drawn at the
-            --frame's right edge; non-scroll gets a symmetric card inset.
-            --borderBox because this framework has no per-side padding and
-            --bare hpad is additive to the width.
+            --frame's right edge; the left never needed it, and a blanket hpad
+            --was pushing the body text well inside the title above it.
+            --borderBox because bare padding is additive to the width.
             width = cond(paramMaxHeight ~= nil and scrollBleedLeft > 0,
                 string.format("100%%-%d", scrollBleedLeft), "100%"),
             halign = cond(paramMaxHeight ~= nil, "right", nil),
@@ -2027,7 +2030,8 @@ function ActivatedAbility:Render(options, params)
             bgcolor = "clear",
             tmargin = 8,
             bmargin = 8,
-            hpad = cond(paramMaxHeight ~= nil, 20, 14),
+            lpad = sc(14),
+            rpad = sc(cond(paramMaxHeight ~= nil, 20, 14)),
             borderBox = true,
 
             --titel and ability and icon type king panel
@@ -2444,7 +2448,7 @@ function ActivatedAbility:Render(options, params)
                         local m_value = capturedEntry.checked
                         local pillPanel
                         pillPanel = gui.Panel{
-                            styles = ThemeEngine.MergeStyles(ScaleStyleFontSizes(g_improvementPillStyles, cardScale)),
+                            styles = ThemeEngine.MergeStyles(ScaleStyleSizes(g_improvementPillStyles, cardScale)),
                             classes = {"improvementPill"},
                             press = function(el)
                                 m_value = not m_value
@@ -2987,6 +2991,45 @@ function ActivatedAbility:UsesIndividualManeuver(casterToken)
     return self.selfTarget or self.targetType == 'self'
 end
 
+--Minions we have already logged about, so we print once each instead of every refresh.
+local g_reportedSquadSuppression = {}
+
+--True while an invoke is holding this minion's squad coordination off. A flag stamped
+--on an earlier turn is left over from an invoke that never finished, so drop it --
+--otherwise the squad is stuck attacking with one member for the rest of the session.
+local function SquadCoordinationSuppressed(casterToken)
+    if casterToken == nil or casterToken.properties == nil then
+        return false
+    end
+
+    local depth = casterToken.properties:try_get("_tmp_disableSquadCoordinationDepth", 0) or 0
+    if depth <= 0 then
+        return false
+    end
+
+    --Never throw here: this runs while the player is picking targets.
+    local invokeBehavior = rawget(_G, "ActivatedAbilityInvokeAbilityBehavior")
+    local turnKeyFunction = invokeBehavior ~= nil and invokeBehavior.SquadSuppressionTurnKey or nil
+
+    local stampedTurn = casterToken.properties:try_get("_tmp_disableSquadCoordinationTurn")
+    local currentTurn = turnKeyFunction ~= nil and turnKeyFunction() or nil
+    if stampedTurn ~= nil and currentTurn ~= nil and stampedTurn ~= currentTurn then
+        print(string.format("SQUADDIAG:: clearing leaked squad-coordination suppression on %s (depth=%d stamped=%s now=%s)",
+            tostring(casterToken.name or casterToken.charid), depth, tostring(stampedTurn), tostring(currentTurn)))
+        casterToken.properties._tmp_disableSquadCoordinationDepth = nil
+        casterToken.properties._tmp_disableSquadCoordinationTurn = nil
+        return false
+    end
+
+    if not g_reportedSquadSuppression[casterToken.charid] then
+        g_reportedSquadSuppression[casterToken.charid] = true
+        print(string.format("SQUADDIAG:: squad coordination suppressed on %s by an active invoke (depth=%d turn=%s)",
+            tostring(casterToken.name or casterToken.charid), depth, tostring(stampedTurn)))
+    end
+
+    return true
+end
+
 --Returns true if this ability, when cast by a minion in a squad, should be coordinated across the squad
 function ActivatedAbility:UsesSquadCoordination(casterToken)
     --An invoke that opted out of squad coordination forces this off regardless of the
@@ -2996,8 +3039,7 @@ function ActivatedAbility:UsesSquadCoordination(casterToken)
     if self:try_get("disableSquadCoordination", false) then
         return false
     end
-    if casterToken ~= nil and casterToken.properties ~= nil
-        and (casterToken.properties:try_get("_tmp_disableSquadCoordinationDepth", 0) or 0) > 0 then
+    if SquadCoordinationSuppressed(casterToken) then
         return false
     end
     --casterToken.properties can be nil if the caster was destroyed/despawned mid-cast

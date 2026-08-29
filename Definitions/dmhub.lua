@@ -81,7 +81,7 @@
 --- @field markupZonesSeq number A sequence number that increments whenever any floor's markup zone records change, locally or remotely. Poll it to invalidate caches built from floor.markupZones.
 --- @field supportsDynamicLightZones boolean (read-only) True on engine builds that support dmhub.GetDarkTiles (deterministic map light sampling for dynamic-light markup zones). Probe this before calling it: on older builds unknown dmhub properties read as nil.
 --- @field popoutChildWindowsSupported boolean (read-only) True when the live popout companion process has advertised support for desktop-level child surfaces (tooltip/popup-menu/modal-child native windows parented to a popout window via panel:MoveToNativeWindow{windowType=..., parentPanel=...}). Gate any child-surface promotion on this: false means an old companion (or none attached yet), and promotion must fall back to today's in-window behavior. On older engine builds unknown dmhub properties read as nil, which is equally falsy.
---- @field popoutCustomTitleBarSupported boolean (read-only) True when the live Windows popout companion supports borderless normal windows whose title bars are rendered in Lua. Keep custom titlebar UI collapsed until this becomes true; an old companion retains its native frame.
+--- @field popoutCustomTitleBarSupported boolean (read-only) True when the live Windows popout companion advertises support for borderless normal windows whose title bars are rendered in Lua. A custom-titlebar panel should stay collapsed until this becomes true; old companions ignore the creation flag and retain their native frame.
 --- @field supportsPopoutTooltipPlacement boolean (read-only) True on engine builds where popout-panel tooltip placement is mirror-correct: panel.distancesToScreenEdge returns true WINDOW pixels with correct left/right sides for panels in popout windows, and tooltip promote-on-overflow places the child window at visually-correct offsets. Gate SideTooltip-style popout placement (window-edge x offsets) on this AND popoutChildWindowsSupported; on older builds the values are screen-scaled and horizontally mirrored.
 --- @field diagnosticStatus string (read-only) The most important diagnostic message to display to the user currently, or an empty string if there is none.
 --- @field status string (read-only) A general status message that describes the mouse's position in world space and information about the tile the user is pointing at, such as its terrain type and position.
@@ -926,6 +926,19 @@ function dmhub.ClearMovementCrossSection()
 	-- dummy implementation for documentation purposes only
 end
 
+--- SetMovementRestriction: Installs a Movement Restriction Mode on this client: while installed, tokens can only be moved within the given tiles. Pathfinding treats any step ending outside the set as impassable, so the drag preview and movement-radius markers clip to the allowed area, and drops outside it are refused -- including for the DM (the dmillegalmoves setting does not bypass it). Forced movement (pushes/slides) is exempt. The restriction applies to all tokens on this client until dmhub.ClearMovementRestriction is called or the game session ends. Calling again replaces the previous set.
+--- @param args {locs: Loc[]}
+--- @return nil
+function dmhub.SetMovementRestriction(args)
+	-- dummy implementation for documentation purposes only
+end
+
+--- ClearMovementRestriction: Clears the Movement Restriction Mode installed by dmhub.SetMovementRestriction, restoring normal token movement. Safe to call when no restriction is active.
+--- @return nil
+function dmhub.ClearMovementRestriction()
+	-- dummy implementation for documentation purposes only
+end
+
 --- Roll: Execute a dice roll. Returns an object that manages the roll.
 
 The rolldef table accepts a `forcedDice` field for integrations driving rolls from an
@@ -1581,6 +1594,13 @@ function dmhub.OpenCharacterPopout(characterId, extraParams, onError)
 	-- dummy implementation for documentation purposes only
 end
 
+--- OpenCompanionTool: Opens a Draw Steel companion tool surface by route -- e.g. "/monsters" for the Monster Builder -- authenticated as the current user via the same one-time handoff OpenCharacterPopout uses. Prefers a new window in the bundled desktop companion (reusing a running instance when there is one) and falls back to opening the draw-steel-codex.com page, signed in, in the system browser. The route must be an absolute path of URL-safe segments (letters, digits, - and _); anything else fails to onError. Works with or without an active game. The success path is silent.
+--- @param route string The companion route to open, e.g. "/monsters".
+--- @param onError nil|function Optional callback invoked as onError(message:string) if the launch fails.
+function dmhub.OpenCompanionTool(route, onError)
+	-- dummy implementation for documentation purposes only
+end
+
 --- RunSteamHandoffDiagnostic: ADMIN ONLY. Runs the Steam companion-popout handoff end-to-end against the live cloud function and reports every captured datapoint back to onComplete as a table. The engine rejects non-admin accounts before requesting a Steam ticket or starting any network work. Use this to diagnose why drawSteelCompanion authentication might be failing on a particular machine. The variant argument selects the test scenario; pass 0 for the happy path or 1-5 to deliberately break a specific step (see SteamHandoffVariant in LoginController.cs).
 --- @param variant integer 0=HappyPath, 1=WrongIdentityCasing, 2=DashedHex, 3=Base64Ticket, 4=OldApiNoIdentity, 5=WrongAppId.
 --- @param onComplete function Called with a single result table containing variant, steamInitialized, steamLoggedOn, steamId, personaName, appId, identityRequested, identityRequestedLength, methodUsed, ticketHandle, callbackFired, callbackResult, callbackElapsedSeconds, ticketSize, ticketEncoding, ticketEncodedLength, ticketEncodedFirst16, appIdSent, mintUrl, httpStatus, httpElapsedSeconds, responseBody, nonce, consumeUrl, ok, error, errorStep.
@@ -1735,6 +1755,20 @@ end
 --- @param loc nil|Loc The location to paste the token at.
 --- @return nil|string
 function dmhub.PasteTokenFromClipboard(loc)
+	-- dummy implementation for documentation purposes only
+end
+
+--- CopyTokensToClipboard: Copies a list of tokens to the clipboard together, replacing any previous clipboard contents. Paste them as a batch with PasteTokensFromClipboard.
+--- @param tokens CharacterToken[] The tokens to copy.
+--- @return nil
+function dmhub.CopyTokensToClipboard(tokens)
+	-- dummy implementation for documentation purposes only
+end
+
+--- PasteTokensFromClipboard: Pastes every token on the clipboard at once, fanning out from the given location. Returns the list of pasted token ids in the order they were copied; empty if the clipboard is empty.
+--- @param loc nil|Loc The anchor location to paste the tokens around.
+--- @return string[]
+function dmhub.PasteTokensFromClipboard(loc)
 	-- dummy implementation for documentation purposes only
 end
 

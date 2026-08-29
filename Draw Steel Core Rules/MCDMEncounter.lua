@@ -714,10 +714,13 @@ LiveEncounter.onsetHeroes = nil
 
 -- A snapshot of the monster-side initiative groupings, used by the victory screen's
 -- Monsters tab and by monster stat attribution. A dense list of
--- { groupid, statKey, name, memberids }, where groupid is the group's initiative id
--- (see InitiativeQueue.GetInitiativeId), statKey is its path-safe form used to key
--- monsterStats, and memberids are the member tokenids seen when the group entered
--- combat. Populated by RecordOnsetMonsterGroups at combat start and topped up when
+-- { groupid, statKey, name, memberids, memberinfo }, where groupid is the group's
+-- initiative id (see InitiativeQueue.GetInitiativeId), statKey is its path-safe form
+-- used to key monsterStats, memberids are the member tokenids seen when the group
+-- entered combat, and memberinfo maps each member tokenid to a small display snapshot
+-- ({ minion, portrait, monsterType, role }) so the victory screen can still show the
+-- group after its tokens are despawned or deleted (dead monsters leave the map).
+-- Populated by RecordOnsetMonsterGroups at combat start and topped up when
 -- reinforcements join (Commands.rollinitiative additions, DeployWave).
 LiveEncounter.onsetMonsterGroups = nil
 
@@ -893,6 +896,32 @@ function LiveEncounter:RecordOnsetMonsterGroups(tokenids)
                     if not present then
                         g.memberids[#g.memberids+1] = tokenid
                     end
+
+                    --Display snapshot for this member, so the victory screen can
+                    --still show the group after its token despawns or is deleted
+                    --(dead monsters leave the map). portrait is omitted for
+                    --spine-animated tokens: their inspect portrait is a live
+                    --spine render that cannot outlive the token.
+                    if g.memberinfo == nil then
+                        g.memberinfo = {}
+                    end
+                    if g.memberinfo[tokenid] == nil then
+                        local info = {
+                            minion = token.properties:try_get("minion", false) == true,
+                        }
+                        if not token.hasSpineAnimation then
+                            info.portrait = token.inspectPortrait
+                        end
+                        local mtype = token.properties:try_get("monster_type")
+                        if mtype ~= nil and mtype ~= "" then
+                            info.monsterType = mtype
+                        end
+                        local mrole = token.properties:try_get("role")
+                        if mrole ~= nil and mrole ~= "" then
+                            info.role = mrole
+                        end
+                        g.memberinfo[tokenid] = info
+                    end
                 end
             end
         end
@@ -919,18 +948,25 @@ end
 --     groupid,      -- the initiative id
 --     statKey,      -- key into monsterStats (sanitized groupid)
 --     name,         -- display name for the group
---     tokens,       -- member tokens (live members union onset members), heroes excluded
---     memberCount,  -- #tokens
+--     tokens,       -- member tokens still resolvable on the map, heroes excluded
+--     memberCount,  -- #tokens plus onset members whose tokens are gone
 --     aliveCount, deadCount, allDead,
---     primaryToken, -- the token to show as the group's portrait (captain preferred)
+--     primaryToken, -- the token to show as the group's portrait (captain preferred);
+--                   -- may be an off-map token for a dead member, or nil when every
+--                   -- member's token has been deleted outright
+--     fallbackInfo, -- onset display snapshot ({ minion, portrait, monsterType, role })
+--                   -- to draw the card from when primaryToken is nil; may be nil
 --   }
--- Groups with no resolvable members are skipped. Returns a freshly-built list.
+-- Onset members whose tokens no longer resolve on the map (dead monsters are
+-- despawned or deleted) still count as dead members, so the victory screen shows
+-- the full roster rather than just the survivors. Groups with no resolvable
+-- members and no onset members are skipped. Returns a freshly-built list.
 function LiveEncounter:GetMonsterGroups()
     local q = dmhub.initiativeQueue
     local result = {}
     local seenGroups = {}
 
-    local function AddGroup(groupid, name, memberids)
+    local function AddGroup(groupid, name, memberids, memberinfo)
         if seenGroups[groupid] then
             return
         end
@@ -946,17 +982,34 @@ function LiveEncounter:GetMonsterGroups()
                 tokens[#tokens+1] = tok
             end
         end
+
+        --Onset members with no token on the map any more: the monster died and
+        --was despawned/deleted, or was otherwise removed mid-fight. They still
+        --count as (dead) members. Each entry is { tokenid, token, info }: token
+        --is the off-map token when it still exists anywhere in the game
+        --(portraits still render from it), info the onset display snapshot.
+        local missing = {}
         for _, mid in ipairs(memberids or {}) do
             if not seenTokens[mid] then
+                seenTokens[mid] = true
                 local tok = dmhub.GetTokenById(mid)
                 if tok ~= nil and tok.valid and tok.properties ~= nil and not tok.properties:IsHero() then
-                    seenTokens[mid] = true
                     tokens[#tokens+1] = tok
+                else
+                    local offmap = dmhub.GetCharacterById(mid)
+                    if offmap ~= nil and (not offmap.valid or offmap.properties == nil or offmap.properties:IsHero()) then
+                        offmap = nil
+                    end
+                    missing[#missing+1] = {
+                        tokenid = mid,
+                        token = offmap,
+                        info = memberinfo ~= nil and memberinfo[mid] or nil,
+                    }
                 end
             end
         end
 
-        if #tokens == 0 then
+        if #tokens == 0 and #missing == 0 then
             return
         end
 
@@ -971,9 +1024,41 @@ function LiveEncounter:GetMonsterGroups()
                 primaryToken = tok
             end
         end
+        --no live captain: fall back to a dead member's off-map token (a wiped
+        --squad still shows its captain's face), then any live member, then any
+        --dead member whose token survives.
+        if primaryToken == nil then
+            for _, m in ipairs(missing) do
+                if m.token ~= nil and not m.token.properties:try_get("minion", false) then
+                    primaryToken = m.token
+                    break
+                end
+            end
+        end
         if primaryToken == nil then
             primaryToken = tokens[1]
         end
+        if primaryToken == nil then
+            for _, m in ipairs(missing) do
+                if m.token ~= nil then
+                    primaryToken = m.token
+                    break
+                end
+            end
+        end
+
+        --when every member's token is deleted outright, the onset snapshot is
+        --all that is left to draw the card from; prefer a non-minion member's.
+        local fallbackInfo = nil
+        for _, m in ipairs(missing) do
+            if m.info ~= nil then
+                if fallbackInfo == nil or (fallbackInfo.minion and not m.info.minion) then
+                    fallbackInfo = m.info
+                end
+            end
+        end
+
+        local memberCount = #tokens + #missing
 
         local displayName = name
         if displayName == nil or displayName == "" then
@@ -983,7 +1068,7 @@ function LiveEncounter:GetMonsterGroups()
             end
         end
         if displayName == nil or displayName == "" then
-            displayName = primaryToken.description or "Monsters"
+            displayName = (primaryToken ~= nil and primaryToken.description) or "Monsters"
         end
 
         result[#result+1] = {
@@ -991,16 +1076,17 @@ function LiveEncounter:GetMonsterGroups()
             statKey = SanitizeStatKey(groupid),
             name = displayName,
             tokens = tokens,
-            memberCount = #tokens,
+            memberCount = memberCount,
             aliveCount = aliveCount,
-            deadCount = #tokens - aliveCount,
+            deadCount = memberCount - aliveCount,
             allDead = aliveCount == 0,
             primaryToken = primaryToken,
+            fallbackInfo = fallbackInfo,
         }
     end
 
     for _, g in ipairs(self:GetOnsetMonsterGroups()) do
-        AddGroup(g.groupid, g.name, g.memberids)
+        AddGroup(g.groupid, g.name, g.memberids, g.memberinfo)
     end
 
     if q ~= nil then
@@ -1881,6 +1967,11 @@ function LiveEncounter:BuildBattleRecord(outcome, roles)
             if r ~= nil and r ~= "" then
                 monsterRole = r
             end
+        elseif group.fallbackInfo ~= nil then
+            --every member token was deleted; the onset snapshot still knows what
+            --this group was.
+            monsterType = group.fallbackInfo.monsterType
+            monsterRole = group.fallbackInfo.role
         end
 
         local groupRoleInfo = monsterRoles[group.groupid]
@@ -4494,8 +4585,13 @@ ScheduleDriver()
 --  height       : code area height (default 340)
 --  getText      : function() -> current code
 --  setText      : function(newCode) called whenever the code changes
+--  compile      : function(code) -> def, err (default CompileDefinition; lets
+--                 other script kinds, e.g. Map Scripts, reuse this widget)
+--  describe     : function(def) -> status string (default DescribeDefinition)
 function EncounterScript.CreateCodePanel(options)
     options = options or {}
+    local compile = options.compile or EncounterScript.CompileDefinition
+    local describe = options.describe or EncounterScript.DescribeDefinition
 
     local watcher = nil
     local function DestroyWatcher()
@@ -4515,11 +4611,11 @@ function EncounterScript.CreateCodePanel(options)
         text = "",
         refreshCode = function(element)
             local code = options.getText()
-            local def, err = EncounterScript.CompileDefinition(code)
+            local def, err = compile(code)
             if def == nil then
                 element.text = tostring(err)
             else
-                element.text = EncounterScript.DescribeDefinition(def)
+                element.text = describe(def)
             end
         end,
     }
@@ -4609,13 +4705,19 @@ end
 --  canSaveToLibrary : offer the "Save to Library..." button
 --  onSavedToLibrary : function(scriptid) - called after the library item is
 --                     created (the dialog closes afterwards)
+--  compile/describe : as CreateCodePanel - reuse by other script kinds
+--  saveToLibrary    : function(def, code) -> scriptid; overrides the default
+--                     create-an-EncounterScript library save
 function EncounterScript.ShowCodeEditorDialog(options)
     options = options or {}
     local currentCode = options.code or ""
+    local compile = options.compile or EncounterScript.CompileDefinition
 
     local codePanel = EncounterScript.CreateCodePanel{
         width = "100%",
         height = 380,
+        compile = options.compile,
+        describe = options.describe,
         getText = function() return currentCode end,
         setText = function(text) currentCode = text end,
     }
@@ -4641,7 +4743,7 @@ function EncounterScript.ShowCodeEditorDialog(options)
             fontSize = 16,
             hmargin = 6,
             click = function(element)
-                local def, err = EncounterScript.CompileDefinition(currentCode)
+                local def, err = compile(currentCode)
                 if def == nil then
                     gui.ModalMessage{
                         title = "Cannot save to library",
@@ -4649,13 +4751,18 @@ function EncounterScript.ShowCodeEditorDialog(options)
                     }
                     return
                 end
-                local item = EncounterScript.new{
-                    guid = dmhub.GenerateGuid(),
-                    name = def.name or "New Encounter Script",
-                    description = def.description or "",
-                    code = currentCode,
-                }
-                local scriptid = dmhub.SetAndUploadTableItem(EncounterScript.tableName, item)
+                local scriptid
+                if options.saveToLibrary ~= nil then
+                    scriptid = options.saveToLibrary(def, currentCode)
+                else
+                    local item = EncounterScript.new{
+                        guid = dmhub.GenerateGuid(),
+                        name = def.name or "New Encounter Script",
+                        description = def.description or "",
+                        code = currentCode,
+                    }
+                    scriptid = dmhub.SetAndUploadTableItem(EncounterScript.tableName, item)
+                end
                 if options.onSavedToLibrary ~= nil then
                     options.onSavedToLibrary(scriptid)
                 end
