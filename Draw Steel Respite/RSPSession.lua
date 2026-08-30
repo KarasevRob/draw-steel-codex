@@ -22,6 +22,7 @@ end
 --- @field id string
 --- @field phase string
 --- @field daysElapsed number
+--- @field location string optional, where the Respite is taken
 --- @field activityCount number
 --- @field nonParticipantsMayAct boolean
 --- @field journal boolean write the Respite up when it ends
@@ -92,7 +93,9 @@ function RSPSession.Ensure()
     local doc = RSPSession.Doc()
     doc:BeginChange()
     doc.data = doc.data or {}
-    doc.data.session = RSPSession.CreateNew{}
+    doc.data.session = RSPSession.CreateNew{
+        location = doc.data.lastLocation or "",
+    }
     doc:CompleteChange("Begin respite setup")
 
     return doc.data.session
@@ -119,6 +122,13 @@ function RSPSession.DaysElapsed()
     return session ~= nil and session.daysElapsed or RSPConstants.daysMin
 end
 
+--- Where the Respite is being taken. Optional, and empty when never set.
+--- @return string
+function RSPSession.Location()
+    local session = RSPSession.Active()
+    return session ~= nil and session:try_get("location", "") or ""
+end
+
 --- @return number
 function RSPSession.ActivityCount()
     local session = RSPSession.Active()
@@ -138,6 +148,13 @@ function RSPSession.SetDaysElapsed(days)
     RSPSession.Mutate("Set respite days elapsed", function(session)
         session.daysElapsed = days
         session.activityCount = days
+    end)
+end
+
+--- @param location string
+function RSPSession.SetLocation(location)
+    RSPSession.Mutate("Set respite location", function(session)
+        session.location = location or ""
     end)
 end
 
@@ -325,6 +342,19 @@ function RSPSession.MyCharacters()
     return result
 end
 
+--- Parks the location beside the session on the way out. It lives ON the
+--- session, which is wiped when the Respite ends, and the Director should not
+--- have to retype where the table is each time. The fishing water keeps its
+--- name across a close for the same reason; this is the same idea, made
+--- explicit because the session object does not survive to carry it.
+--- @param doc LuaCodeModDocumentSnapshot with a change already open
+local function RememberLocation(doc)
+    local session = doc.data.session
+    if session ~= nil then
+        doc.data.lastLocation = session:try_get("location", "")
+    end
+end
+
 --- Throw away a Respite that never started
 --- Deliberately none of what Complete does: nothing was granted, no time has
 --- passed and nobody has rested, so there is nothing to settle. Closing out of
@@ -337,6 +367,7 @@ function RSPSession.Abandon()
     end
 
     doc:BeginChange()
+    RememberLocation(doc)
     doc.data.session = nil
     doc:CompleteChange("Abandon respite setup")
 end
@@ -369,6 +400,7 @@ function RSPSession.Complete()
     end
 
     doc:BeginChange()
+    RememberLocation(doc)
     doc.data.session = nil
     doc:CompleteChange("Complete respite")
 end

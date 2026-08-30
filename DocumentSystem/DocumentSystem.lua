@@ -461,10 +461,20 @@ local function buildBreadcrumbText(doc)
     return table.concat(reversed, " <color=#ffffff99>></color> ")
 end
 
-function CustomDocument.GetAccessibleRoots()
+--`hostAccess` (optional): resolve access for the machine HOSTING the game
+--rather than for the user viewing it. Identical for a real Director. It matters
+--in a directorless game, where the host's dmhub.isDM is false: their setup code
+--still has to read the map's journal (that is where the encounter lives), but
+--their journal UI must keep showing them only what a player sees. So only
+--capability callers pass this -- never the browsing/viewing UI.
+function CustomDocument.GetAccessibleRoots(hostAccess)
     local roots = {}
     roots["public"] = true
-    if dmhub.isDM then
+    local director = dmhub.isDM
+    if hostAccess and IsDMOrPlayerHost() then
+        director = true
+    end
+    if director then
         roots["private"] = true
         roots["templates"] = true
         if game and game.currentMapId then
@@ -2740,6 +2750,7 @@ function CustomDocument.GetOrCreateTabbedViewer()
 
             --destroying the popped viewer closes the OS window (the
             --engine sweeps native windows whose panel died).
+            v.data.popoutTeardownReason = "popin"  --POPOUT-DIAG
             v:DestroySelf()
             g_tabbedViewer = nil
 
@@ -3452,7 +3463,56 @@ function CustomDocument.GetOrCreateTabbedViewer()
             forwardHistory = {},
             shaded = false,
             poppedOut = false,
+            --POPOUT-DIAG (report UCBSGXVW): dmhub.Time() at which the viewer
+            --was popped out, and the name of the teardown path that is about
+            --to destroy it. Every KNOWN way a popped-out viewer can die sets
+            --the reason first; a destroy that arrives with it still nil is
+            --the unexplained one we are hunting. See the destroy handler.
+            popoutTime = nil,
+            popoutTeardownReason = nil,
         },
+
+        --POPOUT-DIAG (report UCBSGXVW): users see a popped-out journal window
+        --vanish ~1-2s after it opens, taking every open tab with it. The only
+        --engine trace is "NativeWindow: Sheet destroyed, closing window N",
+        --which merely says this panel's GameObject died -- it names no
+        --culprit, and the known Lua teardown paths were each ruled out by
+        --their absent side effects (no close-button sound, no rebuild, no
+        --reload, no error). This handler runs on EVERY destroy path, engine
+        --or Lua (SheetPanel fires "destroy" from DestroyPanel, OnDestroy and
+        --RecycleReset alike), so the next occurrence is attributable:
+        --  * reason ~= nil  -> a known path; logged quietly.
+        --  * reason == nil  -> logged as an ERROR so it reaches Player.log
+        --    AND the bug report's recentErrors, with a Lua traceback. If the
+        --    traceback shows Lua frames below this handler, Lua destroyed it
+        --    and they name the caller; if it bottoms out at the C boundary,
+        --    the destroy came from the engine (see the matching
+        --    SheetPanel.DestroyPanel diagnostic).
+        --Costs nothing until a popped-out viewer is destroyed.
+        destroy = function(element)
+            if not element.data.poppedOut then
+                return
+            end
+
+            local reason = element.data.popoutTeardownReason
+            local age = "unknown"
+            if type(element.data.popoutTime) == "number" then
+                age = string.format("%.2fs", dmhub.Time() - element.data.popoutTime)
+            end
+
+            local summary = string.format(
+                "POPOUT-DIAG:: popped-out journal viewer destroyed; reason=%s; age=%s; tabs=%d; activeTab=%s",
+                tostring(reason or "UNKNOWN"),
+                age,
+                #(element.data.tabs or {}),
+                tostring(element.data.activeTabId))
+
+            if reason == nil then
+                dmhub.Error(summary .. "\n" .. debug.traceback("popout destroy stack:"))
+            else
+                dmhub.Debug(summary)
+            end
+        end,
 
         --pop the viewer out into its own native OS window (the
         --companion-app mechanism the compendium and character sheet use).
@@ -3488,6 +3548,10 @@ function CustomDocument.GetOrCreateTabbedViewer()
             --it must lay out in-hierarchy first, but must never be
             --user-visible in the app.
             element.x = -30000
+
+            --POPOUT-DIAG: stamp the clock the destroy handler reports against.
+            element.data.popoutTime = dmhub.Time()
+            element.data.popoutTeardownReason = nil
 
             element:FireEventTree("popout")
             element:ScheduleEvent("popoutToNativeWindow", 0.15)
@@ -3612,6 +3676,12 @@ function CustomDocument.GetOrCreateTabbedViewer()
                 table.remove(element.data.tabs, idx)
 
                 if #element.data.tabs == 0 then
+                    --POPOUT-DIAG: the last tab closing is a legitimate (if
+                    --unwanted, while popped out) teardown -- name it so it is
+                    --not confused with the unexplained destroy.
+                    if element.data.popoutTeardownReason == nil then
+                        element.data.popoutTeardownReason = "lastTabClosed"
+                    end
                     viewer:DestroySelf()
                     g_tabbedViewer = nil
                     return
@@ -3689,6 +3759,7 @@ function CustomDocument.GetOrCreateTabbedViewer()
 
         closeAllTabs = function(element)
             element.data.closeAllPending = true
+            element.data.popoutTeardownReason = "closeAllTabs"  --POPOUT-DIAG
             -- Close the first tab and let its close closure cascade. We target a
             -- live tab (tabs[1]) rather than activeTabId because the close path no
             -- longer switches activeTabId to a surviving tab during teardown.
@@ -4970,6 +5041,7 @@ mod.unloadHandlers[#mod.unloadHandlers + 1] = function()
     --popped out: it is unparented from the hud tree, so the hud rebuild
     --cannot reach it. Destroy it and the engine closes its window.
     if g_tabbedViewer ~= nil and g_tabbedViewer.valid and g_tabbedViewer.data.poppedOut then
+        g_tabbedViewer.data.popoutTeardownReason = "moduleUnload"  --POPOUT-DIAG
         g_tabbedViewer:DestroySelf()
         g_tabbedViewer = nil
     end
@@ -8214,7 +8286,10 @@ local OpenPanelPopout
 --RefreshRails are in scope to capture.
 --anchorToken (optional): open the window beside that token rather than
 --at its default/remembered position.
-function ToggleCharacterPanelDocument(charid, anchorToken)
+--anchorPanel (optional): open the window beside that UI PANEL instead
+--(see PanelDocument.PanelWindowPlacement) -- used by custom-interface
+--widgets like the EotW hero roster. anchorToken wins when both are given.
+function ToggleCharacterPanelDocument(charid, anchorToken, anchorPanel)
     local doc = CharacterPanelDocument.Get(charid)
     if doc == nil then
         return
@@ -8252,7 +8327,7 @@ function ToggleCharacterPanelDocument(charid, anchorToken)
     end
 
     local presentArgs = {}
-    if anchorToken ~= nil then
+    if anchorToken ~= nil or anchorPanel ~= nil then
         --mirror PresentPanel/PresentDocument's size resolution so the
         --placement math uses the size the window will actually open at:
         --the defaults, unless a drag/resize this session is remembered
@@ -8268,7 +8343,13 @@ function ToggleCharacterPanelDocument(charid, anchorToken)
         --(WindowUIScale), so the placement must dodge/fit the SCALED
         --footprint, not the declared geometry.
         local scale = WindowUIScale()
-        local placement = TokenWindowPlacement(anchorToken, width * scale, height * scale)
+        local placement = nil
+        if anchorToken ~= nil then
+            placement = TokenWindowPlacement(anchorToken, width * scale, height * scale)
+        end
+        if placement == nil and anchorPanel ~= nil then
+            placement = PanelDocument.PanelWindowPlacement(anchorPanel, width * scale, height * scale)
+        end
         if placement ~= nil then
             presentArgs.x = placement.x
             presentArgs.y = placement.y
@@ -8517,6 +8598,82 @@ local function DocumentsLayer()
         return nil
     end
     return panel
+end
+
+--Where a window anchored to an arbitrary UI panel lands: beside that
+--panel, level with its top, clamped on screen -- the UI-panel sibling of
+--TokenWindowPlacement (which anchors to a map token). width/height are
+--the SCALED window footprint, exactly as TokenWindowPlacement takes them.
+--First client: custom-interface rail widgets (the EotW hero roster) whose
+--cards open character windows; the anchor panel is assumed to render at
+--the rail-mode Font Size zoom (WindowUIScale) when deriving its on-screen
+--extent, which holds for anything mounted on the rail wrappers.
+--
+--UNITS: positionInScreenSpace is NOT in screen pixels despite the name --
+--it reads back in the LAYER's own units, the same space renderedWidth and
+--PresentDocument's args.x/y use, with the origin at the layer's
+--bottom-left and y UP. Verified live 2026-08-29 on a 1630x930 screen: the
+--documents layer reports position (946.45, 524) against a rendered size of
+--1892.9x1048 -- exactly half its own extent, which only holds in layer
+--units. The first cut of this function divided by screenDimensions.x/uiW
+--and so placed windows correctly only on a display whose pixel width
+--happened to equal the layer's unit width; everywhere else the anchor read
+--far off to the right and the window landed on top of it.
+--
+--It is also the PIVOT's position, not the centre: the rail wrappers and
+--the roster set pivot {1,1} so they read back their top-right corner.
+--Anchor panels are expected to keep the default centred pivot (the hero
+--CARDS do); anything with a moved pivot must not be passed here.
+PanelDocument.PanelWindowPlacement = function(panel, width, height)
+    if panel == nil or not panel.valid then
+        return nil
+    end
+    local layer = DocumentsLayer()
+    if layer == nil then
+        return nil
+    end
+    local uiW = IconRailUIWidth()
+    local uiH = IconRailUIHeight()
+    if uiW <= 0 or uiH <= 0 then
+        return nil
+    end
+
+    local layerLeft = layer.positionInScreenSpace.x - layer.renderedWidth / 2
+    local layerTop = layer.positionInScreenSpace.y + layer.renderedHeight / 2
+    local centerX = panel.positionInScreenSpace.x - layerLeft
+    local centerY = layerTop - panel.positionInScreenSpace.y
+
+    local scale = WindowUIScale()
+    local halfW = panel.renderedWidth * scale / 2
+    local halfH = panel.renderedHeight * scale / 2
+    local gap = 10
+    local margin = 8
+
+    --beside the panel, on whichever side has more room first -- the same
+    --preference TokenWindowPlacement uses. An anchor hanging off the right
+    --edge (the roster) therefore opens cleanly to its LEFT rather than
+    --being clamped back over the top of it.
+    local candidates = {
+        centerX + halfW + gap,
+        centerX - halfW - gap - width,
+    }
+    if centerX >= uiW / 2 then
+        candidates[1], candidates[2] = candidates[2], candidates[1]
+    end
+    local x = nil
+    for _, c in ipairs(candidates) do
+        if c >= margin and c + width <= uiW - margin then
+            x = c
+            break
+        end
+    end
+    if x == nil then
+        --the anchor effectively fills the screen; covering it is
+        --unavoidable, so clamp the preferred side on screen.
+        x = math.max(margin, math.min(candidates[1], uiW - width - margin))
+    end
+    local y = math.max(margin, math.min(centerY - halfH, uiH - height - margin))
+    return { x = x, y = y }
 end
 
 --the drag ghost panels and their helpers live below IconRailStyles,
@@ -8832,6 +8989,21 @@ function PanelDocument.PopoutWindowStyles()
             {
                 selectors = {"panelDocumentHairline"},
                 bgcolor = "@border",
+            },
+            --rail-hover attention: while the pointer rests on this
+            --panel's rail button in the main window, the whole popout
+            --tree carries popoutAttention (SetClassTree from the rail
+            --button's hover) and the header takes the accent, so the
+            --raised OS window is easy to spot among others.
+            {
+                selectors = {"panelDocumentHeader", "popoutAttention"},
+                bgcolor = "@accent",
+                transitionTime = 0.15,
+            },
+            {
+                selectors = {"panelDocumentHairline", "popoutAttention"},
+                bgcolor = "@accent",
+                transitionTime = 0.15,
             },
             {
                 selectors = {"label", "panelDocumentTitle"},
@@ -10827,6 +10999,36 @@ function RailWindowsRightIntrusion(maxDepth, hostReserve)
         result = slideLimit
     elseif result < 0 then
         result = 0
+    end
+    return result
+end
+
+--How far in from the RIGHT screen edge the right-hand rail reaches, in
+--layer units, or 0 when there is no right rail. Normally that is just the
+--40-unit button column, but a custom-interface takeover mounts an
+--arbitrary widget in the wrapper's place (the EotW hero roster is a stack
+--of 132-unit cards), and the right-edge hosts -- the ability sidebar and
+--the standalone roll host -- have to clear whatever is actually there or
+--they render on top of it. Both the top and the bottom-corner wrappers
+--count: the hosts are full-height.
+--renderedWidth is the pre-zoom layout width and the wrapper renders at the
+--rail-mode Font Size zoom (setRailScale), so it is scaled by that here. A
+--widget that shrinks itself FURTHER (the roster's fit-to-screen uiscale)
+--is not visible from out here, which makes this an upper bound -- the safe
+--direction for a keep-clear reserve.
+function RailRightColumnWidth()
+    local result = 0
+    for _, key in ipairs({"right", "rightbottom"}) do
+        local rail = g_iconRails[key]
+        if rail ~= nil and rail.valid then
+            local w = rail.renderedWidth
+            if type(w) == "number" and w > 0 then
+                local depth = ICON_RAIL_LEFT + w * WindowUIScale()
+                if depth > result then
+                    result = depth
+                end
+            end
+        end
     end
     return result
 end
@@ -18316,6 +18518,23 @@ local function CreateIconRail(side, entries)
             --from the button into the strip never shuts it mid-reach.
             hover = function(element)
                 RailButtonSound("hover")
+                --A popped-out panel's OS window can be buried under other
+                --windows; arriving on its rail button surfaces it: bring
+                --the window to the top (without stealing focus -- the
+                --pointer is here, in the main window) and light its
+                --header up so the eye finds it. Cleared on dehover.
+                --pcall: RaiseNativeWindow needs an engine build newer
+                --than this file; on an older build only the highlight
+                --happens.
+                if PanelDocument.IsPoppedOut(key) then
+                    local popoutHost = PanelDocument.PopoutHost(key)
+                    if popoutHost ~= nil and popoutHost.valid then
+                        pcall(function()
+                            popoutHost:RaiseNativeWindow()
+                        end)
+                        popoutHost:SetClassTree("popoutAttention", true)
+                    end
+                end
                 --Tell the rail the pointer is on it, so the + reveals.
                 --Hovering a CHILD does not deliver hover to the rail root
                 --(measured: the root's handler never fired while the
@@ -18397,6 +18616,15 @@ local function CreateIconRail(side, entries)
             end,
             dehover = function(element)
                 RailButtonSound("dehover")
+                --the popout attention highlight follows the pointer off
+                --the button. (A click that just closed the popout leaves
+                --an invalid host; the guard skips it.)
+                if PanelDocument.IsPoppedOut(key) then
+                    local popoutHost = PanelDocument.PopoutHost(key)
+                    if popoutHost ~= nil and popoutHost.valid then
+                        popoutHost:SetClassTree("popoutAttention", false)
+                    end
+                end
                 --the rail's own grace period decides whether this actually
                 --hides the + (travelling between buttons must not).
                 RailNotifyProximity(element, false)
@@ -18869,20 +19097,20 @@ local function CreateIconRail(side, entries)
                 end
 
                 --A popped-out panel is not in any window this rail owns,
-                --so it never reaches RailActivation below: its icon
-                --raises the OS window (or flashes its taskbar button when
-                --the OS denies the focus steal) rather than opening a
-                --copy. It comes home via the popout's own pop-in button.
-                --pcall: RaiseNativeWindow needs an engine build newer
-                --than this file; on an older build the click is a no-op.
+                --so it never reaches RailActivation below. Its button
+                --shows the X close hint while hovered (the panel is
+                --"shown"), so the click honors it: close the popout's OS
+                --window outright, exactly like the window's own chrome
+                --close button. Locating the window is the HOVER's job
+                --(raise + highlight -- see the hover handler); pop-in
+                --(back into the app) stays on the popout header's own
+                --button.
                 if PanelDocument.IsPoppedOut(key) then
                     local popoutHost = PanelDocument.PopoutHost(key)
+                    PanelDocument.PopoutForgetWindow(key)
                     if popoutHost ~= nil and popoutHost.valid then
-                        pcall(function()
-                            popoutHost:RaiseNativeWindow()
-                        end)
+                        popoutHost:DestroySelf()
                     end
-                    CenterOnCharacter()
                     RefreshRails()
                     return
                 end

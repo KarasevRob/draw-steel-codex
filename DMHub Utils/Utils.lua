@@ -1,5 +1,112 @@
 local mod = dmhub.GetModLoading()
 
+-- True when this client has real DM/hosting status, INCLUDING a "player host"
+-- (dmhub.playerHostMode, e.g. the Encounter of the Week host): a machine that
+-- hosts the game -- runs setup and the Monster AI -- while its user is
+-- presented and treated as a player (dmhub.isDM reads false). Use this
+-- instead of dmhub.isDM at sites that need hosting CAPABILITY; keep dmhub.isDM
+-- for sites about the Director-vs-player EXPERIENCE (UI, vision, rules
+-- enforcement exemptions). Falls back to dmhub.isDM on engine builds without
+-- the isDMOrPlayerHost API (unknown userdata members read as nil).
+function IsDMOrPlayerHost()
+    local result = dmhub.isDMOrPlayerHost
+    if result == nil then
+        return dmhub.isDM
+    end
+    return result
+end
+
+--- Elevate the RUNNING COROUTINE to host permissions: while elevated,
+--- dmhub.isDM reports this client's real hosting status even on a player host,
+--- so player rules enforcement (strict:movement and friends) does not bind
+--- work the machine is doing as host -- above all the Monster AI moving
+--- monsters. The elevation follows the coroutine: the engine parks it while
+--- the coroutine is yielded and restores it on resume, so nothing else --
+--- rendering, vision, UI -- ever sees it, and it dies with the coroutine even
+--- if DropHostPermissions() is never reached. No-op on engine builds without
+--- the API (unknown userdata members read as nil), which is exactly the
+--- pre-existing behavior.
+--- Do NOT wrap UI or presentation code in this: it restores Director
+--- CAPABILITY, and Director chrome or Director vision on a player host is a bug.
+function ElevateToHostPermissions()
+    if dmhub.PushHostPermissions ~= nil then
+        dmhub.PushHostPermissions()
+    end
+end
+
+--- Drops one level of ElevateToHostPermissions().
+function DropHostPermissions()
+    if dmhub.PopHostPermissions ~= nil then
+        dmhub.PopHostPermissions()
+    end
+end
+
+--- True when the "Strictly Enforce Rolls" game setting binds THIS client. It
+--- withdraws the roll dialog's result-editing affordances: the Re-roll button,
+--- the editable dice expression, click-a-tier-row overrides, the modifier chips
+--- and the edge/bane bar (both become read-outs, and only the modifiers that
+--- actually apply are listed), and the ability card's close button once the
+--- cast has committed to paying.
+--- Gated on dmhub.isDM, NOT IsDMOrPlayerHost(): isDM is the Director-EXPERIENCE
+--- flag, so a player host is bound by rules enforcement exactly like any other
+--- player, and only a Director is exempt. This matches strict:resources,
+--- strict:targeting and strict:inventory -- see PERMISSIONS_MODEL_REFERENCE.md.
+function StrictRollsEnforced()
+    return (not dmhub.isDM) and dmhub.GetSettingValue("strict:rolls") == true
+end
+
+--- True when the user may still back out of the embedded roll `dialog` -- the
+--- ability card's close (X) button and ESC. "Strictly Enforce Rolls" withdraws
+--- that the moment the cast behind the roll has committed to paying its cost:
+--- ActivatedAbility:CommitToPaying sets options.pay, and the cast stashes its
+--- options on the dialog as data.castOptions
+--- (CharacterPanel.AcquireAbilityRollDialog). The resources are spent by then,
+--- so a cancel would be a free undo. A roll with no cast behind it (standalone
+--- and table rolls carry no castOptions) stays cancellable, as does every roll
+--- for a Director.
+--- Deliberately NOT applied to dialog.data.Cancel() itself: system teardown
+--- paths -- restoreFromBackup, the request-rolls and roll-table cleanups --
+--- call that directly and must always work.
+function RollDialogCancelOffered(dialog)
+    if dialog == nil or not dialog.valid or dialog.data == nil then
+        return false
+    end
+    if not StrictRollsEnforced() then
+        return true
+    end
+    local castOptions = dialog.data.castOptions
+    return castOptions == nil or not castOptions.pay
+end
+
+-- True when the USER controls this token in their own right -- they own it,
+-- it is in their party, or they are the Director. On a player host
+-- (dmhub.playerHostMode) tok.canControl is host-WIDE: it reports true for
+-- every token, including monsters the client only controls because it runs
+-- the game and its Monster AI. Use THIS for UI asking "is this token mine to
+-- drive?" (End Turn, claiming a turn), and keep tok.canControl for capability
+-- questions. Identical to tok.canControl in every other game; falls back to it
+-- on engine builds without the canControlAsUser API (unknown userdata members
+-- read as nil).
+function TokenControlledByUser(tok)
+    if tok == nil then
+        return false
+    end
+    local result = tok.canControlAsUser
+    if result ~= nil then
+        return result
+    end
+
+    --Engine build without the canControlAsUser API: fall back to the same
+    --ownership discriminator the prompt predicates use (RequireDCDialog,
+    --DSRequestRollsDialog). It misses party-owned tokens, which the engine
+    --property handles; every other game reads tok.canControl as before.
+    if dmhub.playerHostMode == true then
+        return tok.ownerId ~= nil and tok.ownerId == dmhub.loginUserid
+    end
+
+    return tok.canControl
+end
+
 -- Macro registration infrastructure. Defined here in Utils so it is available
 -- to every module (Utils loads first in main.lua).
 Commands._macros = Commands._macros or {}
