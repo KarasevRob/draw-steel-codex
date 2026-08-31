@@ -472,7 +472,7 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                 end
 
                 --be careful not to put anything in here we don't want to transmit to the database.
-                local symbols = { spellname = options.symbols.spellname or ability.name, charges = options.symbols.charges, cast = options.symbols.cast, forcedMovementOrigin = options.symbols.forcedMovementOrigin }
+                local symbols = { spellname = options.symbols.spellname or ability.name, charges = options.symbols.charges, cast = options.symbols.cast, forcedMovementOrigin = options.symbols.forcedMovementOrigin, forcedMovementOriginTokenId = options.symbols.forcedMovementOriginTokenId }
 
                 --Opt-in only: 'attacker' (and other trigger-only symbols) do not
                 --normally cross the invoke boundary, since most invokes have no
@@ -1083,11 +1083,15 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
                 --pay defaults to false (the historical behavior for invoked abilities, which are
                 --almost always free custom abilities); callers that invoke a REAL costed ability
                 --stamp _tmp_payInvokedCost so its own resource cost is actually charged.
-                abilityClone:Cast(casterToken, targets, {
+                --The selected area is cast state and must survive this invoke boundary.
+                local castOptions = {
                     symbols = symbols,
+                    targetArea = options.targetArea,
+                    targetAreaList = options.targetAreaList,
                     pay = abilityClone:try_get("_tmp_payInvokedCost", false),
                     OnFinishCastHandlers = { finishHandler },
-                })
+                }
+                abilityClone:Cast(casterToken, targets, castOptions)
             end
         end
 

@@ -337,6 +337,7 @@ local function ClearStartZoneConfinement()
         pcall(function() m_zoneMarker:Destroy() end)
         m_zoneMarker = nil
     end
+    GameHud.SetTooltipsSuppressed("eotw", false)
 end
 
 local function UpdateStartZoneConfinement()
@@ -350,6 +351,13 @@ local function UpdateStartZoneConfinement()
             end
         end
     end
+
+    --Tooltips -- the token-drag movement tooltip and its cross-section diagram
+    --above all -- are noise while players shuffle around the start zone, and
+    --the phase has nothing a tooltip would explain. Silence them for exactly as
+    --long as the confinement lasts. Done before the Start-zone lookup below so
+    --a map with no Start zone (no confinement possible) still gets the quiet.
+    GameHud.SetTooltipsSuppressed("eotw", desired)
 
     if not desired then
         ClearStartZoneConfinement()
@@ -699,15 +707,23 @@ function EncounterOfTheWeekGame.SpawnEncounterMonsters(numHeroes)
     Encounter.SetReadiedEncounter(entry.encounter)
 
     local spawns = {}
-    for _,group in ipairs(entry.encounter.groups) do
+    --every spawned token tagged with its (group, slot), so monsters saved riding
+    --another monster get seated once the whole encounter is down.
+    local mountEntries = {}
+    for groupIndex,group in ipairs(entry.encounter.groups) do
         if group.wave == nil and Encounter.AdjustedGroupCount(group, numHeroes) > 0 then
             local anchor = (group.spawnlocs or {})[1] or dmhub.cameraPosition
-            local _, charids = Encounter.SpawnGroupForReal(group, numHeroes, anchor)
+            local _, charids, entries = Encounter.SpawnGroupForReal(group, numHeroes, anchor)
             for _,charid in ipairs(charids) do
                 spawns[#spawns+1] = charid
             end
+            for _,e in ipairs(entries) do
+                mountEntries[#mountEntries+1] = { group = groupIndex, slot = e.slot, token = e.token }
+            end
         end
     end
+
+    entry.encounter:RestoreMounts(mountEntries)
 
     richEncounter.spawns = spawns
     richEncounter:UploadDocument()
@@ -717,6 +733,80 @@ function EncounterOfTheWeekGame.SpawnEncounterMonsters(numHeroes)
 end
 
 --- hero placement -----------------------------------------------------
+
+--Force a placed hero to exactly level 1.
+--
+--Heroes arrive from wherever their owner built them, and the weekly
+--encounter is tuned for a level-1 party, so two directions have to be
+--corrected on the game's COPY of the hero:
+--  * ABOVE level 1: a lobby or campaign hero can be any level. Note that
+--    CharacterLevel() is max(sum of class levels, levelOverride), so the
+--    class entries have to come down too -- levelOverride alone cannot
+--    lower a level-6 hero.
+--  * BELOW level 1: the Draw Steel "slow start" track sits at level 1 with
+--    extraLevelInfo.encounter = 1..4 -- the "First Encounter".."Fourth
+--    Encounter" rungs, which grant only part of a level-1 hero's features.
+--    Clearing .encounter promotes them to a full level 1.
+--The owner's original hero (in their lobby game or campaign) is never
+--touched: this runs on the pasted duplicate that lives in the EotW game.
+--Mirrors the character builder's level dropdown (Draw Steel Character
+--Builder/CharacterPanel.lua).
+local function NormalizeHeroLevel(token)
+    local props = token.properties
+    if props == nil then
+        return
+    end
+
+    --decide first, so a hero that is already level 1 (every well-authored
+    --pregen) costs nothing and leaves no upload behind.
+    local extra = props:ExtraLevelInfo()
+    local clearEncounter = extra.encounter ~= nil
+    local setOverride = props:try_get("levelOverride", 1) ~= 1
+
+    local classes = props:try_get("classes", {})
+    local lowerClasses = false
+    for _,entry in ipairs(classes) do
+        if entry.level ~= 1 then
+            lowerClasses = true
+        end
+    end
+
+    if #classes > 1 then
+        --Draw Steel has no multiclassing, so this should not happen; the
+        --level would sum to #classes and no per-entry clamp can fix it.
+        --Leave the classes alone (deleting one is destructive) and say so.
+        printf("EotW: hero %s has %d classes; level cannot be forced to 1", tostring(token.name), #classes)
+    end
+
+    if not (clearEncounter or setOverride or lowerClasses) then
+        return
+    end
+
+    token:ModifyProperties{
+        --setup, not a player action: an undo must not put the hero back to
+        --the level the encounter is not balanced for.
+        description = "Encounter of the Week: level 1",
+        undoable = false,
+        execute = function()
+            if clearEncounter then
+                --the field existed, so this is the stored table and not
+                --try_get's throwaway default; write it back to persist the
+                --clear.
+                local info = props:ExtraLevelInfo()
+                info.encounter = nil
+                props.extraLevelInfo = info
+            end
+
+            if setOverride then
+                props.levelOverride = 1
+            end
+
+            for _,entry in ipairs(props:try_get("classes", {})) do
+                entry.level = 1
+            end
+        end,
+    }
+end
 
 --Claim a freshly pasted hero for the local player: owner, default (friendly)
 --party. Cross-game pastes by the DM arrive ownerless and partyless (which
@@ -737,6 +827,9 @@ local function ClaimPastedHero(charid, description)
                 token.partyId = GetDefaultPartyID()
                 token.ownerId = dmhub.loginUserid
                 token:UploadToken(description or "Encounter of the Week hero")
+                --the encounter is balanced for a level-1 party; this is a
+                --separate properties patch, so it runs after the token upload.
+                NormalizeHeroLevel(token)
                 return
             end
             coroutine.yield(0.1)
