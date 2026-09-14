@@ -327,6 +327,9 @@ local m_restrictionInstalled = false
 local m_zoneMarker = nil
 local m_outcomeSeen = false
 local m_exitScheduled = false
+--set the moment THIS user presses Proceed on the victory/defeat screen; the
+--auto-exit below never fires without it, whatever the other clients do.
+local m_localProceeded = false
 
 local function ClearStartZoneConfinement()
     if m_restrictionInstalled then
@@ -386,10 +389,12 @@ local function UpdateStartZoneConfinement()
 end
 
 --Watch the encounter conclude: once this client has seen the victory/defeat
---screen (an awarded outcome on the live queue) and the queue then hides
---(someone pressed Proceed), leave for the titlescreen. Clients that never
---saw an awarded outcome (mid-join, or a combat ended through the Director
---escape hatch) never auto-exit.
+--screen (an awarded outcome on the live queue), the local user has pressed
+--Proceed, and the queue has hidden (combat torn down), leave for the
+--titlescreen. Another client's Proceed tears combat down but leaves this
+--client's screen held until its own press. Clients that never saw an awarded
+--outcome (mid-join, or a combat ended through the Director escape hatch)
+--never auto-exit.
 local function UpdateEncounterConclusion()
     if m_exitScheduled or not EncounterOfTheWeekGame.IsEotwGame() then
         return
@@ -412,7 +417,7 @@ local function UpdateEncounterConclusion()
         return
     end
 
-    if m_outcomeSeen then
+    if m_outcomeSeen and m_localProceeded then
         m_exitScheduled = true
         printf("EotW: encounter concluded; returning to the titlescreen")
 
@@ -502,8 +507,13 @@ local function AbilityActivityInFlight()
     end
 
     --an unanswered trigger / invocation prompt card on a creature this
-    --client controls. Hostile prompts never age out, so they must not block
-    --forever (same carve-out as the death gate).
+    --MACHINE is responsible for: the user's own heroes, and on the host the
+    --monsters its Monster AI answers for. tok.canControl is elevation-aware
+    --(false for monsters in the host's un-elevated tick), so ask under host
+    --permissions -- a state read, no UI. Hostile prompts never age out, so
+    --they must not block forever (same carve-out as the death gate).
+    local pending = false
+    ElevateToHostPermissions()
     for _,tok in ipairs(dmhub.allTokens) do
         if tok.valid and tok.canControl and tok.properties ~= nil then
             local triggers = nil
@@ -511,14 +521,19 @@ local function AbilityActivityInFlight()
             if triggers ~= nil then
                 for _,t in pairs(triggers) do
                     if not t.hostile then
-                        return true
+                        pending = true
+                        break
                     end
                 end
             end
         end
+        if pending then
+            break
+        end
     end
+    DropHostPermissions()
 
-    return false
+    return pending
 end
 
 local function WriteBusyStamp()
@@ -621,6 +636,7 @@ dmhub.Coroutine(function()
         pcall(UpdateStartZoneConfinement)
         pcall(UpdateBusyMirror)
         pcall(UpdateEncounterConclusion)
+        pcall(function() EncounterOfTheWeekGame.EnsureMapScriptRunning() end)
     end
 end)
 
@@ -629,16 +645,34 @@ end)
 --history, analytics are Director-gated); a PLAYER pressing relays the
 --request through the state doc for the host tick to execute. pcall: a core
 --codex without the hook keeps the Director-only button.
+--
+--The screen is dismissed PER CLIENT: it stays up on this client, whatever
+--the other clients or the host do, until the local user presses Proceed
+--(holdUntilLocalProceed). Only that press releases this client's auto-exit.
 pcall(function()
     DSVictoryScreen.RegisterProceedOverride{
         canProceed = function()
             return EncounterOfTheWeekGame.IsEotwGame()
         end,
-        proceed = function(defaultProceed)
+        holdUntilLocalProceed = function()
+            --once this user has pressed Proceed the screen may close with
+            --the queue as normal (that close is what triggers the exit).
+            return EncounterOfTheWeekGame.IsEotwGame() and not m_localProceeded
+        end,
+        proceed = function(defaultProceed, alreadyEnded)
+            if not EncounterOfTheWeekGame.IsEotwGame() then
+                return false
+            end
+            m_localProceeded = true
+            if alreadyEnded then
+                --combat was torn down while this screen was held; the
+                --driver below exits now that the local press has happened.
+                return true
+            end
             --the HOST (a player host: real hosting status, presented as a
             --player) falls through to the default teardown -- battle log,
             --role history and analytics must run on the host machine.
-            if not EncounterOfTheWeekGame.IsEotwGame() or IsDMOrPlayerHost() then
+            if IsDMOrPlayerHost() then
                 return false
             end
             local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
@@ -871,6 +905,107 @@ local function WaitForPastedCharacters(charids)
     game.UpdateCharacterTokens()
 end
 
+--Start-zone tiles ordered by distance from the anchor (ties by x then y):
+--the shared spreading order every client agrees on.
+local function StartZoneTilesByDistance(anchor)
+    local tiles = StartZoneLocs()
+    local ax, ay = anchor.x, anchor.y
+    table.sort(tiles, function(a, b)
+        local da = (a.x - ax) * (a.x - ax) + (a.y - ay) * (a.y - ay)
+        local db = (b.x - ax) * (b.x - ax) + (b.y - ay) * (b.y - ay)
+        if da ~= db then
+            return da < db
+        end
+        if a.x ~= b.x then
+            return a.x < b.x
+        end
+        return a.y < b.y
+    end)
+    return tiles
+end
+
+--The nth (1-based) tile in ordered that no token occupies, or nil.
+local function NthFreeStartTile(ordered, n)
+    local count = 0
+    for _,loc in ipairs(ordered) do
+        if game.GetTokensAtLoc(loc) == nil then
+            count = count + 1
+            if count == n then
+                return loc
+            end
+        end
+    end
+    return nil
+end
+
+--how long to wait for other clients' pastes to echo back before checking
+--for stacked heroes, and how many check/repair rounds to run.
+local UNSTACK_WAIT = 1.0
+local UNSTACK_ROUNDS = 3
+
+--Repair heroes this client just pasted that ended up sharing a tile with
+--another token. The paste's vacancy scan cannot see a paste another client
+--sent in the same instant (both echo back after both have chosen), so two
+--arrivals can land on the anchor tile together. After the echoes land every
+--client sees the same pile, so the repair is deterministic: the lowest
+--charid keeps the tile and each other member takes the next free Start-zone
+--tile in the shared distance order -- two clients repairing the same pile at
+--once therefore pick different tiles. Re-checks a few times to catch echoes
+--that arrive late. Yields; runs inside PlaceMyHeroes' coroutine.
+local function UnstackPlacedHeroes(charids, anchor)
+    if charids == nil or #charids == 0 then
+        return
+    end
+    local ordered = StartZoneTilesByDistance(anchor)
+    if #ordered == 0 then
+        --no Start zone: nothing to spread across.
+        return
+    end
+
+    for _ = 1, UNSTACK_ROUNDS do
+        coroutine.yield(UNSTACK_WAIT)
+        if mod.unloaded then
+            return
+        end
+        game.UpdateCharacterTokens()
+
+        local moved = false
+        for _,charid in ipairs(charids) do
+            local token = dmhub.GetCharacterById(charid)
+            if token ~= nil then
+                local stacked = game.GetTokensAtLoc(token.loc) or {}
+                if #stacked > 1 then
+                    local ids = {}
+                    for _,t in ipairs(stacked) do
+                        ids[#ids+1] = t.charid
+                    end
+                    table.sort(ids)
+                    local rank = 0
+                    for i,id in ipairs(ids) do
+                        if id == charid then
+                            rank = i - 1
+                        end
+                    end
+                    if rank > 0 then
+                        local dest = NthFreeStartTile(ordered, rank)
+                        if dest ~= nil then
+                            printf("EotW: hero %s shares %s with %d other token(s); moving it to %s", charid, tostring(token.loc), #stacked - 1, tostring(dest))
+                            token:ChangeLocation(dest)
+                            moved = true
+                        else
+                            printf("EotW: hero %s is stacked but the Start zone has no free tile", charid)
+                        end
+                    end
+                end
+            end
+        end
+
+        if not moved then
+            return
+        end
+    end
+end
+
 --Place the local player's claimed heroes into the Start zone.
 --  heroes:       full claim list, {kind, id, name} each, in claim order.
 --  clipboardIds: ids of the "lobby" heroes copied to the token clipboard at
@@ -892,6 +1027,8 @@ local function PlaceMyHeroes(heroes, clipboardIds)
     end
 
     local changed = false
+    --every hero this call put on the map, for the stacking repair below.
+    local myPasted = {}
 
     --lobby heroes travel via the token clipboard, loaded before EnterGame.
     clipboardIds = clipboardIds or {}
@@ -931,12 +1068,14 @@ local function PlaceMyHeroes(heroes, clipboardIds)
                     --token rather than guessing, but do not record it.
                     printf("EotW: pasted hero %d has no matching claim entry", i)
                     ClaimPastedHero(charid)
+                    myPasted[#myPasted+1] = charid
                 elseif mine[key] ~= nil then
                     --this hero was placed on an earlier entry; the batch paste
                     --recreated it, so delete the duplicate.
                     game.DeleteCharacters({charid})
                 else
                     ClaimPastedHero(charid)
+                    myPasted[#myPasted+1] = charid
                     mine[key] = charid
                     changed = true
                 end
@@ -961,12 +1100,17 @@ local function PlaceMyHeroes(heroes, clipboardIds)
                     --sees it instead of stacking on the anchor tile.
                     WaitForPastedCharacters({charid})
                     ClaimPastedHero(charid)
+                    myPasted[#myPasted+1] = charid
                     mine[HeroKey(heroEntry)] = charid
                     changed = true
                 end
             end
         end
     end
+
+    --another client arriving in the same instant may have pasted onto the
+    --same tiles; spread any pile before recording placement.
+    UnstackPlacedHeroes(myPasted, anchor)
 
     if changed then
         game.UpdateCharacterTokens()
@@ -1063,6 +1207,62 @@ local function AttachMapScript()
     records[#records+1] = ms.CreateRecordFromLibrary(MAP_SCRIPT_ID)
     ms.SetAttachedRecords(records)
     printf("EotW: attached the Encounter of the Week map script to the map")
+end
+
+--Self-healing, from every client's 1s driver. A mid-game Lua reload once
+--killed a live encounter: Core Rules reloaded AFTER this mod, MapScript's
+--fresh builtin registry no longer knew "builtin:eotw-encounter", the attached
+--record stopped resolving, the driver tore the instance down and the host
+--tick (combat entry, AI supervision, victory detection) silently stopped.
+--So, every tick: (1) any client re-registers the builtin if the registry
+--lost it; (2) the HOST of an EotW game makes sure the record is attached to
+--the current map and reports (once) if it still is not running. Cheap when
+--healthy: a table lookup and a walk of a one-entry list.
+local m_reportedScriptNotRunning = false
+function EncounterOfTheWeekGame.EnsureMapScriptRunning()
+    local ms = rawget(_G, "MapScript")
+    if ms == nil then
+        return
+    end
+    if ms.GetBuiltin(MAP_SCRIPT_ID) == nil then
+        printf("EotW: the map script builtin was missing; re-registering it")
+        RegisterMapScriptBuiltin()
+    end
+
+    if not EncounterOfTheWeekGame.IsEotwGame() or not IsDMOrPlayerHost() then
+        return
+    end
+    if game.currentMapId == nil or game.currentMapId == "" then
+        return
+    end
+
+    local record = nil
+    for _,rec in ipairs(ms.GetAttachedRecords()) do
+        if rec.scriptid == MAP_SCRIPT_ID then
+            record = rec
+            break
+        end
+    end
+    if record == nil then
+        printf("EotW: the map script was not attached to the map; attaching it")
+        AttachMapScript()
+        return
+    end
+
+    --the map-script driver reconciles attachments every 0.5s, so a record
+    --whose code resolves runs on its own; if it still does not, say so once
+    --rather than every second.
+    local running = true
+    if ms.IsRecordRunning ~= nil then
+        running = ms.IsRecordRunning(record.guid)
+    end
+    if running then
+        m_reportedScriptNotRunning = false
+    elseif not m_reportedScriptNotRunning then
+        m_reportedScriptNotRunning = true
+        local code = ms.GetRecordCode(record)
+        printf("EotW: the map script is attached but not running (code resolves: %s)", tostring(code ~= nil and code ~= ""))
+    end
 end
 
 --- combat entry ---------------------------------------------------------
@@ -1170,6 +1370,27 @@ local AWARD_HOLD_TICKS = 2
 local m_outcomeMetTime = nil
 local OUTCOME_LINGER_SECONDS = 5
 
+--Heroes in the initiative queue that are not dead. Dying heroes count as
+--living (see the defeat check below); a hero with no token on the map is
+--ignored, like CountLiveCombatants does.
+local function CountLivingHeroes(queue)
+    local count = 0
+    local seen = {}
+    for initiativeid, _ in pairs(queue.entries) do
+        local tokens = InitiativeQueue.GetTokensForInitiativeId(initiativeid)
+        for _, token in ipairs(tokens or {}) do
+            if token ~= nil and not seen[token.charid] then
+                seen[token.charid] = true
+                local props = token.properties
+                if props ~= nil and props:IsHero() and not props:IsDead() then
+                    count = count + 1
+                end
+            end
+        end
+    end
+    return count
+end
+
 --Host only, every tick while combat is live: award victory/defeat once the
 --encounter's conditions are met (the existing evaluators the Director's
 --objective strip uses) AND no client has an ability prompting -- the
@@ -1210,17 +1431,16 @@ local function CheckEncounterOutcome(queue)
 
     local defeat = false
     if not victory then
-        --defeat = a script-declared defeat condition, or every hero down
-        --(CountLiveCombatants counts hitpoints > 0, so dying heroes count as
-        --down -- an all-dying party is a defeat in a one-shot).
+        --defeat = a script-declared defeat condition, or every hero DEAD.
+        --Deliberately not CountLiveCombatants: that counts hitpoints > 0,
+        --so a DYING hero (0 or less, above the death threshold) reads as
+        --down there -- but a dying hero still takes turns in Draw Steel
+        --and can win the fight, so only actual deaths count here.
         pcall(function()
             if live:CheckDefeat() == true then
                 defeat = true
-            else
-                local heroes, _ = live:CountLiveCombatants()
-                if heroes <= 0 then
-                    defeat = true
-                end
+            elseif CountLivingHeroes(queue) <= 0 then
+                defeat = true
             end
         end)
     end
@@ -1274,29 +1494,50 @@ local function CheckEncounterOutcome(queue)
     end
 end
 
---EotW games strictly enforce all game rules: every "Strict..." Rules
---Enforcement option, plus the engine's "Strictly Enforce Movement Rules".
---All of these gate on (not dmhub.isDM) -- which, under player-host mode,
---reads false on the HOST too, so the rules bind every human in the game.
---The Monster AI is unaffected: its capability paths read IsDMOrPlayerHost.
+--Game-scoped settings every EotW game forces to a fixed value.
+--
+--Strict rules: every "Strict..." Rules Enforcement option, plus the
+--engine's "Strictly Enforce Movement Rules". All of these gate on
+--(not dmhub.isDM) -- which, under player-host mode, reads false on the
+--HOST too, so the rules bind every human in the game. The Monster AI is
+--unaffected: its capability paths read IsDMOrPlayerHost.
+--
+--Monster stamina: players always see every monster's stamina BAR, but
+--not the exact amount. The "lifebar" status bar reaches a player through
+--its showToEnemies rung (TokenUI.lua ShouldShowElement), which
+--enemystambardisplay turns off at its "none" default; "bar" shows the bar
+--with no value or percentage, and the minion squad HUD (MCDMMinion.lua)
+--reads the same setting. Bars are shown outside combat too
+--(hpbarsonlyincombat off) so the monsters' stamina is visible from the
+--moment the heroes arrive, not only once the map script opens initiative.
+--
+--Monster Info: the feature is always on in EotW (monsterinfo, declared in
+--Draw Steel Core Rules/MonsterKnowledge.lua) with automatic learning
+--(monsterinfoautolearn), so players learn the monsters' stat blocks by
+--fighting them -- the one sanctioned route to exact stamina (third kill).
+--
 --Game-scoped settings are only editable from the dmonly Game settings tab,
---so nobody in a player-host game can flip them off; the host tick
---re-asserts them regardless.
-local g_strictRuleSettings = {
-    "strictmovementrules", --Strictly Enforce Movement Rules (engine)
-    "strict:movement",     --Strictly Enforce Forced Movement Rules
-    "strict:targeting",    --Strictly Enforce Targeting Rules
-    "strict:resources",    --Strictly Enforce Action Economy and Resource Costs
-    "strict:inventory",    --Strict Inventory Management
-    "strict:rolls",        --Strictly Enforce Rolls
+--so nobody in a player-host game can flip them; the host tick re-asserts
+--them regardless.
+local g_forcedGameSettings = {
+    { id = "strictmovementrules", value = true },  --Strictly Enforce Movement Rules (engine)
+    { id = "strict:movement", value = true },      --Strictly Enforce Forced Movement Rules
+    { id = "strict:targeting", value = true },     --Strictly Enforce Targeting Rules
+    { id = "strict:resources", value = true },     --Strictly Enforce Action Economy and Resource Costs
+    { id = "strict:inventory", value = true },     --Strict Inventory Management
+    { id = "strict:rolls", value = true },         --Strictly Enforce Rolls
+    { id = "enemystambardisplay", value = "bar" }, --enemy stamina bars: bar only, no value
+    { id = "hpbarsonlyincombat", value = false },  --stamina bars shown outside combat too
+    { id = "monsterinfo", value = true },          --Monster Info: players learn monster stat blocks
+    { id = "monsterinfoautolearn", value = true }, --...automatically, from combat events
 }
 
---Force every strict-rules setting on, writing only the ones not already
---true (these are game-scoped settings, so each write replicates).
+--Force every forced game setting to its value, writing only the ones not
+--already there (these are game-scoped settings, so each write replicates).
 local function EnforceStrictRules()
-    for _,id in ipairs(g_strictRuleSettings) do
-        if dmhub.GetSettingValue(id) ~= true then
-            dmhub.SetSettingValue(id, true)
+    for _,entry in ipairs(g_forcedGameSettings) do
+        if dmhub.GetSettingValue(entry.id) ~= entry.value then
+            dmhub.SetSettingValue(entry.id, entry.value)
         end
     end
 end
@@ -1315,8 +1556,9 @@ function EncounterOfTheWeekGame.MapScriptHostThink(ctx)
         return
     end
 
-    --keep the strict-rules settings forced on for the life of the game
-    --(no-op writes are skipped, so this is free when nothing changed).
+    --keep the forced game settings (strict rules, monster stamina
+    --visibility) asserted for the life of the game (no-op writes are
+    --skipped, so this is free when nothing changed).
     EnforceStrictRules()
 
     local queue = dmhub.initiativeQueue
@@ -1452,7 +1694,8 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
             --initiative (select turns, advance rounds) for their side.
             dmhub.SetSettingValue("permission:playersinitiative", true)
 
-            --EotW games always strictly enforce the game rules.
+            --EotW games always strictly enforce the game rules, and
+            --players always see the monsters' stamina.
             EnforceStrictRules()
 
             --the map script takes it from here: combat entry once everyone

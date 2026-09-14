@@ -1229,6 +1229,10 @@ function creature:RefreshSquadInfo(token)
                         --rerun this entire function. This is a super rare event so okay to do this.
                         self._tmp_minionSquad.damage_taken_seq = nil
                         self._tmp_minionSquad.damage_taken_charid = nil
+                        --Clear the stamp first, or the rerun sees this update as already
+                        --done, returns straight away, and leaves squad.tokens half-built.
+                        --Every squad-wide count reads that table, so the squad collapses.
+                        self._tmp_minionSquad.updateid = nil
                         self:RefreshSquadInfo(token)
                         return
                     end
@@ -1808,6 +1812,20 @@ creature.RegisterSymbol {
         type = "creature",
         desc = "If we have a captain, this will return the captain of the squad this creature is a member of.",
         seealso = {},
+    }
+}
+
+creature.RegisterSymbol {
+    symbol = "squad",
+    lookup = function(c)
+        --Captains report their squad too; pair with Minion to exclude them.
+        return c:MinionSquad() or ""
+    end,
+    help = {
+        name = "Squad",
+        type = "text",
+        desc = "The minion squad this creature belongs to, or empty text if none.",
+        seealso = { "Minion", "Squad Captain", "Living Squad Members" },
     }
 }
 
@@ -3611,7 +3629,9 @@ creature.RegisterSymbol {
 }
 
 --The living enemy tokens relevant to this creature: every token on the map
---that is not friendly to this creature's token and is not dead. When an
+--that is not friendly to this creature's token and is not dead. Friendliness
+--uses token:IsFriend, which consults the initiative queue when an encounter
+--is running and otherwise falls back to party allegiance. When an
 --initiative encounter is active (an unhidden initiative queue exists), only
 --enemies participating in the initiative queue count; out of combat, all
 --enemy tokens on the current map count. Neutral (non-friendly) tokens count
@@ -3632,7 +3652,7 @@ function creature:GetRelevantEnemyTokens()
     for _,tok in ipairs(dmhub.allTokens) do
         if tok.valid and tok.properties ~= nil and tok.charid ~= token.charid
                 and (not tok.properties:IsDead())
-                and (not dmhub.TokensAreFriendly(token, tok)) then
+                and (not token:IsFriend(tok)) then
             local include = true
             if combatActive then
                 local initiativeid = InitiativeQueue.GetInitiativeId(tok)
@@ -4892,7 +4912,11 @@ function creature:ShowCharacteristicRollDialog(attrid)
                 },
             }
 
-            CharacterPanel.UnlockDisplayAbility()
+            --Force: we waited above for every roll surface to clear, so any lock
+            --left is stale. The new lock is id-only (no coroutine): this
+            --coroutine returns as soon as the dialog is scheduled, while the roll
+            --stays up until the next AcquireAbilityRollDialog displaces it.
+            CharacterPanel.ForceUnlockDisplayAbility()
             displaying = CharacterPanel.DisplayAbility(token, syntheticAbility, nil, {lock = true, renderAsAbility = true})
         end
 
@@ -5023,6 +5047,7 @@ end
 -- "Fire Immunity 5" for innate resistances) and hovering it shows the source's
 -- description. Purpose is to communicate to all players WHY the damage was reduced or
 -- increased and where to look for it.
+--- @class DamageModifierChatMessage: GameType
 DamageModifierChatMessage = RegisterGameType("DamageModifierChatMessage")
 DamageModifierChatMessage.victimid = ""
 DamageModifierChatMessage.attackerid = ""
@@ -5283,6 +5308,12 @@ function creature.InflictDamageInstance(self, amount, damageType, keywords, sour
 
             local attacker = symbols ~= nil and symbols.attacker or nil
             local attackerToken = (attacker ~= nil and attacker ~= self) and dmhub.LookupToken(attacker) or nil
+
+            -- Monster Info: an innate immunity or weakness that changed the damage
+            -- reveals that stat block entry to the players (self-guarding).
+            if bestEntry ~= nil then
+                MonsterKnowledge.RecordDamageModifier(self, bestEntry)
+            end
 
             -- The ability/attack that inflicted the damage (e.g. "Ranged Free Strike").
             -- Prefer the ability's name; fall back to the damage source description string.
@@ -6014,6 +6045,10 @@ function creature.TakeDamage(self, amount, note, info)
                     end
                 end
 
+                --Monster Info: each minion death counts as a kill of its type for
+                --what the players learn about it (self-guarding, never throws).
+                MonsterKnowledge.RecordKill(self, eventArg.attacker, minionsKilled)
+
                 --Victim-side: the squad records its own losses (round-bucketed, so
                 --the victory screen can tell a squad wiped in round 1). Recorded
                 --with or without an attacker so environmental deaths count; the
@@ -6320,6 +6355,10 @@ function creature.TakeDamage(self, amount, note, info)
                 --DispatchEvent does not currently have support for dispatching
                 --creature objects and other self-referential objects.
                 eventArg.attacker:TriggerEvent("kill", eventArg)
+
+                --Monster Info: players learn about a monster type as they kill it
+                --(self-guarding, never throws; ignores hero victims itself).
+                MonsterKnowledge.RecordKill(self, eventArg.attacker, 1)
 
                 --Per-encounter combat stat: credit the killer. A non-hero victim
                 --is a "kill" (for a hero killer this feeds the hero roles; for a
@@ -7043,12 +7082,12 @@ creature.RegisterSymbol {
             return "exploration"
         end
 
-        return q.gameMode
+        return q:GameModeId()
     end,
     help = {
         name = "Game Mode",
         type = "string",
-        desc = "The id of the game mode the game is currently in. Can be 'exploration', 'combat', 'respite', or 'downtime'.",
+        desc = "The id of the game mode the game is currently in. Can be 'exploration', 'combat', or 'respite'.",
         seealso = {},
     }
 }
@@ -8137,3 +8176,15 @@ CharacterModifier.TypeInfo.monstermodes = {
         Refresh()
     end,
 }
+
+--An opportunity attack is a free strike, so it needs line of effect like any other strike.
+--Only effect-driven denial counts here, not cover or walls: gating every opportunity attack
+--in the game on geometry would be a far larger rules change.
+local g_baseCanOpportunityAttack = creature.CanOpportunityAttack
+function creature:CanOpportunityAttack(observerToken, moverToken)
+    if not g_baseCanOpportunityAttack(self, observerToken, moverToken) then
+        return false
+    end
+
+    return RuleUtils.LineOfEffectDenialReason(observerToken, moverToken) == nil
+end

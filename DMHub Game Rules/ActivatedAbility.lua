@@ -18,7 +18,7 @@ end
 --- @alias AbilityTarget {loc: Loc, token = nil|CharacterToken}
 --- @alias Symbols table|function
 
---- @class ActivatedAbility
+--- @class ActivatedAbility: GameType
 --- @field description string Rules text shown to players.
 --- @field flavor string Flavor/lore text shown in the ability tooltip.
 --- @field range number|string|table Targeting range in world units.
@@ -55,7 +55,7 @@ end
 --- @field behaviors ActivatedAbilityBehavior[] The list of behaviors that execute when the ability is cast.
 ActivatedAbility = RegisterGameType("ActivatedAbility")
 
---- @class ActivatedAbilityBehavior
+--- @class ActivatedAbilityBehavior: GameType
 --- @field instant boolean If true, executes immediately (not in a coroutine).
 --- @field customOngoingEffect boolean If true, uses a custom ongoing effect rather than the default.
 --- @field duration string|number|nil Duration type for the effect ("none" by default).
@@ -92,7 +92,7 @@ ActivatedAbilityApplyOngoingEffectBehavior = RegisterGameType("ActivatedAbilityA
 --- @class ActivatedAbilityRemoveOngoingEffectBehavior:ActivatedAbilityBehavior
 ActivatedAbilityRemoveOngoingEffectBehavior = RegisterGameType("ActivatedAbilityRemoveOngoingEffectBehavior", "ActivatedAbilityBehavior")
 
---- @class ActivatedAbilityAbilityAuraBehavior:ActivatedAbilityBehavior
+--- @class ActivatedAbilityAuraBehavior:ActivatedAbilityBehavior
 ActivatedAbilityAuraBehavior = RegisterGameType("ActivatedAbilityAuraBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityMoveAuraBehavior:ActivatedAbilityBehavior
@@ -1176,6 +1176,59 @@ local function ForcedMovementOriginDistanceFunction(originToken, originLoc, move
     end
 end
 
+local function MovementConstraintPredicate(symbols, movedToken)
+    local constraint = symbols.movementconstraint
+    if type(constraint) ~= "table" then
+        return nil
+    end
+
+    local anchors = {}
+    for _,anchorid in ipairs(constraint.anchorids or {}) do
+        local anchorToken = dmhub.GetTokenById(anchorid)
+        if anchorToken ~= nil and anchorToken.valid and anchorToken.loc ~= nil then
+            local distanceFromAnchor = ForcedMovementOriginDistanceFunction(anchorToken,
+                anchorToken.loc, movedToken)
+            anchors[#anchors+1] = {
+                distance = distanceFromAnchor,
+                start = distanceFromAnchor(movedToken.loc),
+            }
+        end
+    end
+
+    if #anchors == 0 then
+        return function()
+            return false
+        end
+    end
+
+    local mode = constraint.mode or "not_closer"
+    return function(loc)
+        local distanceMoved = loc:DistanceInTiles(movedToken.loc)
+
+        if mode == "toward" then
+            for _,anchor in ipairs(anchors) do
+                if anchor.start - anchor.distance(loc) >= distanceMoved then
+                    return true
+                end
+            end
+            return false
+        end
+
+        for _,anchor in ipairs(anchors) do
+            local destinationDistance = anchor.distance(loc)
+            if mode == "away" then
+                if destinationDistance - anchor.start < distanceMoved then
+                    return false
+                end
+            elseif destinationDistance < anchor.start then
+                return false
+            end
+        end
+
+        return true
+    end
+end
+
 function ActivatedAbility:TargetLocMaxElevationChangeFunction(casterToken, symbols)
     --Teleport targeting: distance is Chebyshev -- max(|dx|, |dy|, |dz|) -- so a
     --"teleport 5" may end up to 5 squares above or below the creature's current
@@ -1292,6 +1345,13 @@ function ActivatedAbility:TargetLocPassesFilterPredicate(casterToken, symbols)
         end
     end
 
+    if self.targetType == "emptyspace" or self.targetType == "anyspace" then
+        local movementConstraint = MovementConstraintPredicate(symbols, casterToken)
+        if movementConstraint ~= nil then
+            return movementConstraint
+        end
+    end
+
     if self.targetType == "emptyspace" then
 		if symbols.compeltoward ~= nil then
 			print("MARKER:: COMPEL...")
@@ -1392,6 +1452,37 @@ function ActivatedAbility:ObjectGrantsTargeting(casterToken, targetToken, symbol
 	return GoblinScriptTrue(ExecuteGoblinScript(filter, props:LookupSymbol(filterSymbols), 0, string.format("Additional targeting filter for %s", self.name)))
 end
 
+--- Renders a reasoned filter's message for the tooltip on a greyed-out target. A filter
+--- added by a modifier (Modify Abilities -> Reasoned Filter) knows the name of the effect
+--- that added it, and that gets appended in brackets -- "No line of effect to this creature
+--- (Everything The Light Touches)." -- so the player can see what is stopping them. Filters
+--- authored on the ability itself carry no source and read exactly as written.
+--- @param reasonedFilter table
+--- @param symbols table
+--- @return string
+function ActivatedAbility.FormatFilterReason(reasonedFilter, symbols)
+	local reason = StringInterpolateGoblinScript(reasonedFilter.reason or "", symbols)
+
+	local sourceName = reasonedFilter.sourceName
+	if sourceName == nil or sourceName == "" or reason == "" then
+		return reason
+	end
+
+	--the author already named the effect in the text; don't say it twice.
+	if string.find(reason, sourceName, 1, true) ~= nil then
+		return reason
+	end
+
+	--keep the bracket inside the sentence rather than after the full stop.
+	local terminator = ""
+	if string.sub(reason, -1) == "." then
+		reason = string.sub(reason, 1, -2)
+		terminator = "."
+	end
+
+	return string.format("%s (%s)%s", reason, sourceName, terminator)
+end
+
 --- @param casterToken CharacterToken
 --- @param targetToken CharacterToken
 --- @param symbols table
@@ -1484,11 +1575,13 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
             return false
         end
 
-        if self.targetAllegiance == 'enemy' and IsFriendForTargeting(casterToken, targetToken) and (not isAnyObject) then
+        --IsFriendForTargeting is tri-state (true friend / false enemy / nil neither):
+        --a neutralized ally passes neither allegiance gate, so both compare strictly.
+        if self.targetAllegiance == 'enemy' and IsFriendForTargeting(casterToken, targetToken) ~= false and (not isAnyObject) then
             return false
         end
 
-        if self.targetAllegiance == 'ally' and (not IsFriendForTargeting(casterToken, targetToken)) and (not isAnyObject) then
+        if self.targetAllegiance == 'ally' and IsFriendForTargeting(casterToken, targetToken) ~= true and (not isAnyObject) then
             return false
         end
     end
@@ -1513,7 +1606,9 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
     symbols = table.shallow_copy(symbols or {})
     symbols.invoker = symbols.invoker or caster
     symbols.caster = caster
-    symbols.enemy = not IsFriendForTargeting(casterToken, targetToken)
+    --strict == false: tri-state IsFriendForTargeting returns nil for a neutralized
+    --ally, which is not an enemy.
+    symbols.enemy = IsFriendForTargeting(casterToken, targetToken) == false
 	symbols.target = GenerateSymbols(targetToken.properties)
 
 	local result = filter == "" or GoblinScriptTrue(ExecuteGoblinScript(filter, targetToken.properties:LookupSymbol(symbols), 0, string.format("Target filter for %s", self.name)))
@@ -1524,7 +1619,7 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
     for _,reasonedFilter in ipairs(reasonedFilters) do
         local result = GoblinScriptTrue(ExecuteGoblinScript(reasonedFilter.formula, targetToken.properties:LookupSymbol(symbols), 0, string.format("Target reasoned filter for %s", self.name)))
         if not result then
-            return false, StringInterpolateGoblinScript(reasonedFilter.reason, symbols)
+            return false, ActivatedAbility.FormatFilterReason(reasonedFilter, symbols)
         end
     end
 
@@ -1554,7 +1649,8 @@ function ActivatedAbility:TargetPassesAuthoredFilters(casterToken, targetToken, 
 	symbols = table.shallow_copy(symbols or {})
 	symbols.invoker = symbols.invoker or caster
 	symbols.caster = caster
-	symbols.enemy = not IsFriendForTargeting(casterToken, targetToken)
+	--strict == false: tri-state IsFriendForTargeting, nil (neutral) is not an enemy.
+	symbols.enemy = IsFriendForTargeting(casterToken, targetToken) == false
 	symbols.target = GenerateSymbols(targetToken.properties)
 
 	for _,customFilter in ipairs(customFilters) do
@@ -1569,7 +1665,7 @@ function ActivatedAbility:TargetPassesAuthoredFilters(casterToken, targetToken, 
 
 	for _,reasonedFilter in ipairs(reasonedFilters) do
 		if not GoblinScriptTrue(ExecuteGoblinScript(reasonedFilter.formula, targetToken.properties:LookupSymbol(symbols), 0, string.format("Target reasoned filter for %s", self.name))) then
-			return false, StringInterpolateGoblinScript(reasonedFilter.reason, symbols)
+			return false, ActivatedAbility.FormatFilterReason(reasonedFilter, symbols)
 		end
 	end
 
@@ -2532,7 +2628,7 @@ end
 
 ActivatedAbility.recordTargets = false
 
---- @class CastActivatedAbilityChatMessage
+--- @class CastActivatedAbilityChatMessage: GameType
 --- @field ability ActivatedAbility
 CastActivatedAbilityChatMessage = RegisterGameType("CastActivatedAbilityChatMessage")
 
@@ -2890,10 +2986,12 @@ function ActivatedAbility:Cast(casterToken, targets, options)
 	end
 end
 
+--- @param options nil|{modeResolved: nil|boolean}
 --- @return boolean Returns true if this ability requires some kind of player prompt when cast. It can't auto-target if invoked. Used with augmented abilities etc.
-function ActivatedAbility:RequiresPromptWhenCast()
-    -- Multi-mode abilities need a prompt so the user can choose a mode.
-    if self.multipleModes and self:has_key("modeList") then
+function ActivatedAbility:RequiresPromptWhenCast(options)
+    -- Multi-mode abilities need a prompt unless the caller already chose one.
+    if self.multipleModes and self:has_key("modeList")
+        and not (options ~= nil and options.modeResolved) then
         return true
     end
 
@@ -3734,7 +3832,24 @@ function ActivatedAbilityBehavior:IsFiltered(ability, casterToken, options)
 	if options and options.symbols and options.symbols.cast and options.symbols.cast.tier ~= 0 and #self:try_get("tiersSelected", {}) > 0 then
         --see if the tier filter filters it out.
         if not table.contains(self.tiersSelected, options.symbols.cast.tier) then
-            return true
+            --cast.tier is a scalar written by SetTierResult on a last-writer-wins basis, so
+            --with a multi-target roll it only reflects one target. Consult the per-target map
+            --before dropping the behavior: if ANY target landed on a selected tier, let the
+            --behavior through and let ApplyToTargets do the per-target filtering it already does.
+            local anyTierMatches = false
+            local tokenToTier = options.symbols.cast:try_get("tokenToTier")
+            if type(tokenToTier) == "table" then
+                for _,tier in pairs(tokenToTier) do
+                    if table.contains(self.tiersSelected, tier) then
+                        anyTierMatches = true
+                        break
+                    end
+                end
+            end
+
+            if not anyTierMatches then
+                return true
+            end
         end
     end
 
@@ -4861,11 +4976,35 @@ function ActivatedAbilityApplyOngoingEffectBehavior:Cast(ability, casterToken, t
 		end
 	end
 
+	--MODE GATING ALSO MATTERS: a purge gated to a different mode than this apply
+	--can never run in the same cast (ActivatedAbilityBehavior:IsFiltered drops a
+	--behavior whose modesSelected does not contain options.symbols.mode), so it is
+	--not a pairing and must not install the FinishCast leak protection -- doing so
+	--deletes the effect the cast just applied. The Shieldscale Drangolin's
+	--"Size 2 or 3" applies its size effect on one mode and purges it on the other
+	--(report 64XYJBPE). Only treat the modes as exclusive when the engine actually
+	--honors them: multipleModes with a non-empty list on both sides.
+	local myModes = self:try_get("modesSelected", {})
+
 	local hasPurgePair = false
 	for i,b in ipairs(ability.behaviors) do
 		if (myIndex == nil or i > myIndex) and b.typeName == "ActivatedAbilityPurgeEffectsBehavior" and b.mode == "effect" and b.ongoingEffect == self.ongoingEffect then
-			hasPurgePair = true
-			break
+			local purgeModes = b:try_get("modesSelected", {})
+			local modeExclusive = false
+			if ability.multipleModes and #myModes > 0 and #purgeModes > 0 then
+				modeExclusive = true
+				for _,m in ipairs(myModes) do
+					if table.contains(purgeModes, m) then
+						modeExclusive = false
+						break
+					end
+				end
+			end
+
+			if not modeExclusive then
+				hasPurgePair = true
+				break
+			end
 		end
 	end
 	local pairedApplications = nil
@@ -6224,6 +6363,11 @@ local g_helpCasting = {
 		name = "Invoker",
 		type = "creature",
 		desc = "The creature that caused this ability to be invoked. Only valid for abilities invoked from another ability.",
+	},
+	parenttarget = {
+		name = "Parent Target",
+		type = "creature",
+		desc = "The target from the parent ability paired with this invocation. Only valid for abilities invoked from another ability.",
 	},
 }
 

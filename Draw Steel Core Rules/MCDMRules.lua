@@ -1038,6 +1038,15 @@ CharacterResource.RegisterRefreshOptions{
 		refreshDescription = 'on level up',
 	},
 	{
+		--"Can't use again until you earn N or more Victories". countLabel makes the
+		--editor show a count box, stored as "victory:N" (plain "victory" means 1).
+		id = 'victory',
+		text = 'Per Victory',
+		refreshDescription = 'when you earn a Victory',
+		refreshDescriptionCount = 'after you earn %d Victories',
+		countLabel = 'Victories that must be earned before this refreshes',
+	},
+	{
 		id = 'never',
 		text = 'Manual Refresh',
 		refreshDescription = 'manually',
@@ -1052,6 +1061,31 @@ CharacterResource.RegisterRefreshOptions{
 		text = 'Global',
 		refreshDescription = 'global',
 	},
+}
+
+--Victory refreshes can't use the usual "id changed" test because the count only
+--climbs; a use is spent until the hero has earned enough Victories since it (or
+--took a respite, which zeroes Victories and stamps a new rest id). The stamp is
+--"<longRestId>:<victories at use>" so both parts can be compared later.
+CharacterResource.RegisterCustomRefreshType{
+	id = "victory",
+
+	getRefreshId = function(c, count)
+		local victories = math.floor(tonumber(c:GetVictories()) or 0)
+		return string.format("%s:%d", tostring(c.longRestId), victories)
+	end,
+
+	isCurrent = function(c, storedId, currentId, count)
+		local needed = count or 1
+		local storedRest, storedVictories = string.match(tostring(storedId or ""), "^(.*):(%-?%d+)$")
+		local currentRest, currentVictories = string.match(currentId, "^(.*):(%-?%d+)$")
+		if storedRest == nil or storedRest ~= currentRest then
+			return false
+		end
+
+		--A Director lowering Victories makes this negative; that stays spent on purpose.
+		return (tonumber(currentVictories) - tonumber(storedVictories)) < needed
+	end,
 }
 
 --always just use squares for measurements.
@@ -1307,35 +1341,30 @@ GameSystem.OnEndCastActivatedAbility = function(casterToken, ability, options)
 
     ability:FireUseAbility(casterToken, options)
 
+    --Monster Info: a monster using an ability reveals it to the players
+    --(self-guarding, no-op for heroes).
+    MonsterKnowledge.RecordAbilityUse(casterToken, ability)
+
 	if ability.categorization == "Signature Ability" and (ability:HasKeyword("Area") or ability:HasKeyword("Strike")) then
 		casterToken.properties:DispatchEvent("castsignature", {ability = ability, cast = options.symbols.cast})
 	end
 end
 
-local friendlyFire = setting{
-    id = "friendlyfire",
-    description = "Friendly Fire",
-    storage = "game",
-	section = "game",
-	editor = "check",
-    dmonly = true,
-    default = false,
-}
-
 local g_hiddenConditionId = "31daf7f6-f77c-4f73-8eab-43e2d0f123c0"
 
 function GameSystem.AllowTargeting(casterToken, targetToken, ability)
-	if friendlyFire:Get() == false and ability:HasKeyword("Strike") and ability:HasKeyword("Area") and casterToken:IsFriend(targetToken) then
-		return false
-	end
-
 	-- Hidden: "While you are hidden from another creature, the creature can't
 	-- target you with abilities that don't have the Area keyword." A creature
 	-- with the Hidden condition is treated as hidden from all its enemies:
 	-- enemies lose non-Area targeting (including free strikes), while allies
 	-- can still target them normally. Area abilities are unaffected, so a
 	-- hidden creature standing in a swept area is still hit.
-	if (not targetToken.isObject) and (not ability:HasKeyword("Area"))
+	-- Map-wide effects (targetType "map", e.g. goblin malice "Swamp Stink") are
+	-- area effects that carry no keywords in their stat block, so the Area
+	-- keyword alone does not recognise them. They affect everyone on the map
+	-- and target no one in particular, so Hidden must not exempt a creature.
+	local isAreaAbility = ability:HasKeyword("Area") or ability.targetType == "map"
+	if (not targetToken.isObject) and (not isAreaAbility)
 		and (not casterToken:IsFriend(targetToken))
 		and targetToken.properties:HasCondition(g_hiddenConditionId) ~= false then
 		return false

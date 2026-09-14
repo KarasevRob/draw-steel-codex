@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- Assembles the Respite wizards and puts them on the Game menu.
+--- @class RSPDialog: GameType
 RSPDialog = RegisterGameType("RSPDialog")
 
 --- The Director's wizard. Every step it knows about is handed to the shell,
@@ -150,5 +151,20 @@ LaunchablePanel.Register{
     valign = "center",
     content = function()
         return RSPDialog.Create()
+    end,
+}
+
+-- Types the Game menu's Respite entry. Not gated on isDM: the entry is not
+-- either, and Create() already hands a Director and a player their own view.
+-- A Respite asked for mid-combat still gets Create()'s refusal modal.
+Commands.RegisterMacro{
+    name = "respite",
+    summary = "open the Respite window",
+    doc = "Usage: /respite\nOpens the Respite window.",
+    command = function()
+        -- LaunchPanelByName toggles, so asking an open window to open shuts it.
+        if not RSPShell.IsOpen() then
+            LaunchablePanel.LaunchPanelByName(RSPConstants.panelName)
+        end
     end,
 }

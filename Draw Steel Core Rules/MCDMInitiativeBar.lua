@@ -315,6 +315,18 @@ local function CreateDrawSteelBubble()
 				end
 			end
 
+			--An orphaned turn: the entry whose turn it is no longer resolves to
+			--any token on the map (e.g. a hero killed on their own turn and then
+			--removed from the battlefield by the Hero Death rule, a monster group
+			--wiped mid-turn). Nobody controls a token that isn't there, so
+			--without this nobody without Director UI could ever end the turn and
+			--the combat sat on "Hero Turn" forever. Anyone allowed to run
+			--initiative may close it out. Removal normally auto-ends the turn
+			--(ActivatedAbilityRemoveCreatureBehavior); this is the safety net.
+			if #tokens == 0 and CanControlInitiative() then
+				return true
+			end
+
 			--note that the dm always shows entries, and doesn't auto-remove entries since they might be for a different map.
 			--(DirectorUIVisible: a Director presenting as a player only sees End Turn for tokens they control.)
 			return foundControllable or GameHud.DirectorUIVisible()
@@ -3530,29 +3542,22 @@ function GameHud.CreateInitiativeBar(self, info)
 						return
 					end
 
-					UploadDayNightInfo()
-					if info.initiativeQueue == nil then
-						info.initiativeQueue = InitiativeQueue.Create()
-					end
-					--Conditional, not a flat true: this block runs for EVERY
-					--mode, combat included, and rollinitiative below sends a
-					--hidden queue to the combat setup dialog instead of
-					--starting the fight. Only the modes without initiative
-					--want the queue kept out of sight.
-					info.initiativeQueue.gameMode = mod.id
-					info.initiativeQueue.hidden = not mod.hasinitiative
-					info.UploadInitiative()
-
+					--Combat runs the Game menu's "Draw Steel!" path verbatim: rollinitiative only
+					--opens the setup dialog while the queue is hidden, so we must not clear it first.
 					if mod.hasinitiative then
 						Commands.rollinitiative()
 						return
 					end
 
-					if info.initiativeQueue.gameMode == "downtime" then
-						for _, token in pairs(dmhub.GetTokens({playerControlled = true})) do
-							token.properties:DispatchEvent("startdowntime", {})
-						end
+					UploadDayNightInfo()
+					if info.initiativeQueue == nil then
+						info.initiativeQueue = InitiativeQueue.Create()
 					end
+					--Combat returned above, so every mode reaching here is one without
+					--initiative and wants its queue kept out of sight.
+					info.initiativeQueue.gameMode = mod.id
+					info.initiativeQueue.hidden = not mod.hasinitiative
+					info.UploadInitiative()
 
 				end,
 			}
@@ -5423,7 +5428,7 @@ local g_beginRoundStyles = {
     }
 }
 
---- @class BeginRoundChatMessage
+--- @class BeginRoundChatMessage: GameType
 BeginRoundChatMessage = RegisterGameType("BeginRoundChatMessage")
 BeginRoundChatMessage.round = 0
 function BeginRoundChatMessage.Render(self, message)
@@ -5492,7 +5497,7 @@ function BeginRoundChatMessage.Render(self, message)
     return resultPanel
 end
 
---- @class StartOfTurnChatMessage
+--- @class StartOfTurnChatMessage: GameType
 StartOfTurnChatMessage = RegisterGameType("StartOfTurnChatMessage")
 StartOfTurnChatMessage.tokenids = {}
 
@@ -5545,6 +5550,10 @@ function GameHud:NewRound()
 	end
 
     Aura.CheckObjectAuraExpirationEndOfRound()
+
+    --A dead or despawned caster never begins another turn, so its turn-scoped auras
+    --have to be expired here instead of from the caster's own turn boundary.
+    Aura.RemoveOrphanedTurnScopedAuras()
 
     local message = BeginRoundChatMessage.new{
         round = info.initiativeQueue.round,

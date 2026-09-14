@@ -12,11 +12,135 @@ ActivatedAbility.effectImplemented = true
 --them before deciding to hide.
 ActivatedAbility.hideSightlines = false
 
+--The targeting-mode slider on the ability card. Its positions, in slider order:
+--  "enemies" -- enemy creatures only; the caster's own side is never offered
+--  false     -- any creature, friend or foe
+--  true      -- objects only
+--  "all"     -- creatures and objects
+--
+--"enemies" is the default, and it is a convenience for the player doing the
+--clicking rather than a rule: while attacking, don't make them pick their way
+--around their own party. It therefore only applies to a strike aimed at a
+--chosen target. An area ability affects whoever is in its area per the rules,
+--and everything else (heals, buffs, grabs) has to be able to name an ally, so
+--both of those read "enemies" as plain false -- any creature -- and the slider
+--shows that position instead.
+
 local g_settingTargetObjects = setting {
     id = "targetobjects",
-    default = false,
+    default = "enemies",
     storage = "preference",
 }
+
+local g_targetModeText = {
+    ["enemies"] = "Enemies",
+    [false]     = "Creatures",
+    [true]      = "Objects",
+    ["all"]     = "All",
+}
+
+--- True for an ability the "Enemies" slider position applies to: a strike the
+--- player aims at chosen targets rather than one that fills an area.
+--- @return boolean
+function ActivatedAbility:IsNonAreaStrike()
+    return self:HasKeyword("Strike") and (not self:HasKeyword("Area"))
+end
+
+--- The positions to show on this ability's targeting slider, in order, or nil
+--- if the ability offers no meaningful choice and the slider should be hidden.
+--- @return nil|{id: any, text: string}[]
+function ActivatedAbility:TargetModeOptions()
+    --an object-only ability has no creatures to choose between.
+    if self.targetAllegiance == "none" then
+        return nil
+    end
+
+    local canTargetObjects = (self.objectTarget and true) or false
+    local canTargetFriends = self.targetAllegiance ~= "enemy"
+
+    local ids
+    if self:IsNonAreaStrike() then
+        --"Creatures" (friend or foe) is only a distinct choice if the ability
+        --is allowed to name a friend in the first place; an enemy-allegiance
+        --ability already excludes them, so that position is dropped.
+        ids = {"enemies"}
+        if canTargetFriends then ids[#ids+1] = false end
+        if canTargetObjects then
+            ids[#ids+1] = true
+            --"All" only says something once there are objects to add to the
+            --creatures; without them it is just "Creatures" under another name.
+            ids[#ids+1] = "all"
+        end
+
+        --with no friends to withhold and no objects to offer, "Enemies" and
+        --"All" would pick out the same targets. Show nothing rather than a
+        --slider that does nothing.
+        if (not canTargetFriends) and (not canTargetObjects) then
+            return nil
+        end
+    elseif canTargetObjects then
+        --unchanged for everything that is not a single-target strike.
+        ids = {false, true, "all"}
+    else
+        return nil
+    end
+
+    local result = {}
+    for _,id in ipairs(ids) do
+        result[#result+1] = { id = id, text = g_targetModeText[id] }
+    end
+
+    return result
+end
+
+--- The slider position this ability is currently using: the player's stored
+--- preference, clamped to a position this ability actually offers, so the bar
+--- and the target list can never disagree.
+--- @return false|true|'all'|'enemies'
+function ActivatedAbility:GetTargetMode()
+    local value = g_settingTargetObjects:Get()
+    local options = self:TargetModeOptions()
+
+    if options == nil then
+        --no slider: "enemies" has no meaning here, so it reads as any creature.
+        if value == "enemies" then
+            return false
+        end
+        return value
+    end
+
+    for _,option in ipairs(options) do
+        if option.id == value then
+            return value
+        end
+    end
+
+    --a stored "all" on an ability with no objects to target means the same
+    --thing as "Creatures", so land there rather than falling back to
+    --"Enemies", which would silently withhold the caster's own side.
+    if value == "all" then
+        for _,option in ipairs(options) do
+            if option.id == false then
+                return false
+            end
+        end
+    end
+
+    return options[1].id
+end
+
+--- Resolve this ability's slider position into the two things the target list
+--- actually needs.
+--- @return false|true|'all' objectMode Whether to offer creatures, objects or both.
+--- @return boolean enemiesOnly Whether the caster's own side is withheld.
+function ActivatedAbility:GetTargetingMode()
+    local mode = self:GetTargetMode()
+    if mode == "enemies" then
+        return false, true
+    end
+
+    return mode, false
+end
 
 -- Custom rules for the spellInfo / roll-dialog panel. Plain rule tables (NOT
 -- gui.Style objects) because they are routed through ThemeEngine.MergeStyles,
@@ -2609,29 +2733,37 @@ function ActivatedAbility:Render(options, params)
                 end,
             },
 
-            --attack creatures vs objects panel
+            --targeting mode: which creatures/objects the player is offered as
+            --targets. See TargetModeOptions for what the positions mean.
             gui.Panel {
-                width = "auto",
+                width = "100%",
                 height = "auto",
                 showAbilitySection = function(element, options)
-                    if self.objectTarget and self.targetAllegiance ~= "none" and options.ability.name == self.name and options.section == "target" then
-                        element.children = {
-                            gui.EnumeratedSliderControl {
-                                styles = ThemeEngine.GetStyles("default", "default"),
-                                options = {
-                                    { id = false, text = "Creatures" },
-                                    { id = true,  text = "Objects" },
-                                    { id = "all", text = "Creatures or Objects" },
-                                },
-                                value = g_settingTargetObjects:Get(),
-                                change = function(element)
-                                    g_settingTargetObjects:Set(element.value)
-                                end,
-                            },
-                        }
-                    else
-                        element.children = {}
+                    local modeOptions = nil
+                    if options.ability.name == self.name and options.section == "target" then
+                        modeOptions = self:TargetModeOptions()
                     end
+
+                    if modeOptions == nil then
+                        element.children = {}
+                        return
+                    end
+
+                    element.children = {
+                        gui.EnumeratedSliderControl {
+                            styles = ThemeEngine.GetStyles("default", "default"),
+                            --fixed footprint: the bar occupies the same space
+                            --whether it is showing two positions or four, so the
+                            --card does not reflow as the player cycles abilities.
+                            width = "100%",
+                            height = 24,
+                            options = modeOptions,
+                            value = self:GetTargetMode(),
+                            change = function(element)
+                                g_settingTargetObjects:Set(element.value)
+                            end,
+                        },
+                    }
                 end,
 
             },
@@ -3262,7 +3394,7 @@ end
 
 -- Build a minion-to-target adjacency table. adjacency[minionIdx] is a list of
 -- target indices that minion can reach (range overlap + line of effect).
-local function BuildSquadAdjacency(squadTokens, squadTargetsPerToken, targets, targetLocsOccupying)
+local function BuildSquadAdjacency(squadTokens, squadTargetsPerToken, targets, targetLocsOccupying, ability)
     local adjacency = {}
     for i, tok in ipairs(squadTokens) do
         adjacency[i] = {}
@@ -3274,7 +3406,7 @@ local function BuildSquadAdjacency(squadTokens, squadTargetsPerToken, targets, t
                     break
                 end
             end
-            if canReach and RuleUtils.HasLineOfEffect(tok, target.token) then
+            if canReach and RuleUtils.HasLineOfEffect(tok, target.token, ability) then
                 adjacency[i][#adjacency[i] + 1] = j
             end
         end
@@ -3452,7 +3584,7 @@ function ActivatedAbility:GetTargetingRays(casterToken, range, symbols, targets)
             end
         end
 
-        local adjacency = BuildSquadAdjacency(squadTokens, possibleTargetsForEachToken, targets, targetLocsOccupying)
+        local adjacency = BuildSquadAdjacency(squadTokens, possibleTargetsForEachToken, targets, targetLocsOccupying, self)
 
         -- Build committed assignments. Player locks (g_squadLocks) are hard
         -- commitments: each claims its target creature's earliest free slot so
@@ -3767,7 +3899,7 @@ function ActivatedAbility:CustomTargetShape(casterToken, range, symbols, targets
         if #targets == 0 then
             usableSquadMembers = squadTokens
         else
-            local adjacency = BuildSquadAdjacency(squadTokens, possibleTargetsForEachToken, targets, targetLocsOccupying)
+            local adjacency = BuildSquadAdjacency(squadTokens, possibleTargetsForEachToken, targets, targetLocsOccupying, self)
 
             -- Baseline: how many targets can the full squad cover at most.
             local baselineMatch = BipartiteMatch(adjacency, #squadTokens, #targets)
@@ -3827,6 +3959,10 @@ end
 
 local g_numTargetsFunction = ActivatedAbility.GetNumTargets
 
+--GetNumTargets re-runs on every targeting recompute, so throttle its diagnostic
+--below to one line per caster/squad/game update instead of flooding the log.
+local g_lastNoSquadAttackerDiag = nil
+
 function ActivatedAbility:GetNumTargets(casterToken, symbols)
     local result = g_numTargetsFunction(self, casterToken, symbols) or 0
 
@@ -3838,15 +3974,39 @@ function ActivatedAbility:GetNumTargets(casterToken, symbols)
         local squad = casterToken.properties._tmp_minionSquad
         if casterToken.properties:HasManeuverOrActionRule() and squad ~= nil and squad.tokens ~= nil then
             local count = 0
+            local rejectInvalid, rejectDead, rejectSkipped, rejectInactive = 0, 0, 0, 0
             for _, tok in ipairs(squad.tokens) do
-                if tok ~= nil and tok.valid
-                    and (not tok.properties:IsDead())
-                    and (not tok.properties:IsTurnSkipped(tok))
-                    and tok.properties:IsActiveInSquad() then
+                if tok == nil or not tok.valid or tok.properties == nil then
+                    rejectInvalid = rejectInvalid + 1
+                elseif tok.properties:IsDead() then
+                    rejectDead = rejectDead + 1
+                elseif tok.properties:IsTurnSkipped(tok) then
+                    rejectSkipped = rejectSkipped + 1
+                elseif not tok.properties:IsActiveInSquad() then
+                    rejectInactive = rejectInactive + 1
+                else
                     count = count + 1
                 end
             end
-            if count < 1 then count = 1 end
+
+            if count < 1 then
+                --An empty squad here strikes as one minion while ConsumeResources still
+                --charges all of them, which on screen looks like a normal solo strike.
+                --Fall back to 1 so the cast works, but log what emptied the squad.
+                local diagKey = string.format("%s/%s/%s", tostring(casterToken.charid),
+                    tostring(squad.name), tostring(dmhub.gameupdateid))
+                if g_lastNoSquadAttackerDiag ~= diagKey then
+                    g_lastNoSquadAttackerDiag = diagKey
+                    print(string.format(
+                        "SQUADDIAG:: no squad attackers for %s ability=%s squad=%s tokens=%d invalid=%d dead=%d turnskipped=%d inactive=%d; falling back to 1 attacker",
+                        tostring(casterToken.name or casterToken.charid),
+                        tostring(self.name),
+                        tostring(squad.name),
+                        #squad.tokens, rejectInvalid, rejectDead, rejectSkipped, rejectInactive))
+                end
+                count = 1
+            end
+
             return count * result
         end
 
@@ -4395,3 +4555,44 @@ ActivatedAbility.RegisterProperty {
     name = "All Force Move From Caster",
     description = "If true, push/pull/slide effects from this ability use the original caster as the source for size-difference calculations (Big Versus Little), rather than this ability's caster. Generally only used within Invoked Abilities",
 }
+
+--Line-of-effect gates on targeting: an effect denying the caster line of effect to a set of
+--creatures, and an enemy standing in the way with "Block Enemy Line of Effect". Both return
+--a reason, so the action bar greys the target out with a tooltip instead of hiding it.
+local g_baseTargetPassesFilter = ActivatedAbility.TargetPassesFilter
+function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, filterOverride)
+    local result, reason = g_baseTargetPassesFilter(self, casterToken, targetToken, symbols, filterOverride)
+    if not result then
+        return result, reason
+    end
+
+    if casterToken == nil or targetToken == nil or targetToken.isObject then
+        return result, reason
+    end
+
+    --Area abilities are exempt from the caster's own line-of-effect denial: they need line
+    --of effect to where the area lands, not to each creature caught in it, which the base
+    --filter already checks against the area's origin.
+    local isAreaAbility = self:HasKeyword("Area") or self.targetType == "map"
+    if not isAreaAbility then
+        local denialReason = RuleUtils.LineOfEffectDenialReason(casterToken, targetToken)
+        if denialReason ~= nil then
+            return false, denialReason
+        end
+    end
+
+    --An area ability's line of effect runs from wherever the area is centred, not from the
+    --caster; this matches the line-of-sight check the base filter makes just above.
+    local originLoc = nil
+    local targetArea = (symbols ~= nil) and symbols.targetArea or nil
+    if targetArea ~= nil then
+        originLoc = targetArea.origin
+    end
+
+    local blocker = RuleUtils.LineOfEffectBlocker(casterToken, targetToken, originLoc)
+    if blocker == nil then
+        return result, reason
+    end
+
+    return false, string.format("%s blocks line of effect to this creature.", RuleUtils.LineOfEffectBlockerName(blocker))
+end

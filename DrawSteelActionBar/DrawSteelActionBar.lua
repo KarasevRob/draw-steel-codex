@@ -52,6 +52,123 @@ local CalculateSpellTargeting
 --- @type nil|Panel
 local g_abilityController = nil
 
+--Bottom-centre prompt a behavior can show while a cast waits on the player.
+--- @type nil|Panel
+local g_castHintPanel = nil
+
+--args: a string, or { text=, choices = { {text=, disabled=, warn=, charids={}, click=fn} }, cancel=fn }.
+--Hovering a choice pulses its charids on the map. Returns true when shown; nil hides it.
+function DrawSteelActionBar.ShowCastPrompt(args)
+    if g_castHintPanel == nil or not g_castHintPanel.valid then
+        return false
+    end
+
+    local data = g_castHintPanel.data
+    if args == nil then
+        data.choices.children = {}
+        g_castHintPanel:SetClass("collapsed", true)
+        return false
+    end
+    if type(args) == "string" then
+        args = { text = args }
+    end
+
+    --The engine flash is brief, so the think re-fires it while hovered.
+    local function SetLocate(charids, on)
+        for _, charid in ipairs(charids or {}) do
+            local tok = dmhub.GetTokenById(charid)
+            if tok ~= nil and tok.valid then
+                if on then
+                    dmhub.PulseHighlightToken(charid)
+                end
+                if tok.bottomsheet ~= nil and tok.bottomsheet.valid then
+                    tok.bottomsheet:SetClassTree("locate", on)
+                end
+            end
+        end
+    end
+
+    local buttons = {}
+    for _, choice in ipairs(args.choices or {}) do
+        buttons[#buttons+1] = gui.Button{
+            classes = { "sizeS", cond(choice.disabled, "disabled"), cond(choice.warn, "castPromptWarn") },
+            text = choice.text or "",
+            width = "auto",
+            height = "auto",
+            hpad = 12,
+            vpad = 4,
+            borderBox = true,
+            hmargin = 4,
+            vmargin = 2,
+            data = { pulsing = false },
+            thinkTime = 0.6,
+            think = function(element)
+                if element.data.pulsing then
+                    SetLocate(choice.charids, true)
+                end
+            end,
+            hover = function(element)
+                element.data.pulsing = true
+                SetLocate(choice.charids, true)
+            end,
+            dehover = function(element)
+                element.data.pulsing = false
+                SetLocate(choice.charids, false)
+            end,
+            destroy = function(element)
+                if element.data.pulsing then
+                    SetLocate(choice.charids, false)
+                end
+            end,
+            click = function(element)
+                if choice.disabled then
+                    return
+                end
+                element.data.pulsing = false
+                SetLocate(choice.charids, false)
+                if choice.click ~= nil then
+                    choice.click()
+                end
+            end,
+        }
+    end
+    if args.cancel ~= nil then
+        buttons[#buttons+1] = gui.Button{
+            classes = { "sizeS" },
+            text = "Cancel",
+            width = "auto",
+            height = "auto",
+            hpad = 12,
+            vpad = 4,
+            borderBox = true,
+            hmargin = 4,
+            vmargin = 2,
+            click = function()
+                args.cancel()
+            end,
+        }
+    end
+
+    data.label.text = args.text or ""
+    data.label:SetClass("collapsed", (args.text or "") == "")
+    data.choices.children = buttons
+    data.choices:SetClass("collapsed", #buttons == 0)
+    g_castHintPanel:SetClass("collapsed", false)
+    return true
+end
+
+function DrawSteelActionBar.ClearCastPrompt()
+    DrawSteelActionBar.ShowCastPrompt(nil)
+end
+
+function DrawSteelActionBar.ShowCastHint(text)
+    return DrawSteelActionBar.ShowCastPrompt(text)
+end
+
+function DrawSteelActionBar.ClearCastHint()
+    DrawSteelActionBar.ShowCastPrompt(nil)
+end
+
 --- @type nil|Panel
 local g_triggerPanel = nil
 
@@ -1044,6 +1161,10 @@ local function ClearPointTargeting()
 
     if g_pointTargeting.fallDamageLabel ~= nil then
         g_pointTargeting.fallDamageLabel:Destroy()
+    end
+
+    if g_pointTargeting.chargeJumpLabel ~= nil then
+        g_pointTargeting.chargeJumpLabel:Destroy()
     end
 
     if g_pointTargeting.label ~= nil then
@@ -3204,6 +3325,53 @@ local function CreateActionBar()
         m_triggerPanel,
     }
 
+    local castHintLabel = gui.Label {
+        halign = "center",
+        width = "auto",
+        minWidth = 200,
+        maxWidth = 620,
+        textAlignment = "center",
+        height = "auto",
+        bold = true,
+        fontSize = 16,
+        textWrap = true,
+        text = "",
+    }
+
+    local castHintChoices = gui.Panel {
+        classes = { "collapsed" },
+        flow = "horizontal",
+        wrap = true,
+        width = "auto",
+        maxWidth = 720,
+        height = "auto",
+        halign = "center",
+        vmargin = 4,
+        styles = {
+            { selectors = { "button", "castPromptWarn" }, color = "@warning" },
+            { selectors = { "button", "disabled" }, brightness = 0.5 },
+        },
+    }
+
+    g_castHintPanel = gui.Panel {
+        classes = { "collapsed" },
+        data = { label = castHintLabel, choices = castHintChoices },
+        floating = true,
+        width = "auto",
+        height = "auto",
+        valign = "bottom",
+        halign = "center",
+        y = -70,
+        gui.TooltipFrame(gui.Panel {
+            flow = "vertical",
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            castHintLabel,
+            castHintChoices,
+        }, {}),
+    }
+
     resultPanel = gui.Panel {
         classes = { "actionBar" },
         styles = { ThemeEngine.GetStyles(), ThemeEngine.MergeTokens(Styles.ActionBar), ThemeEngine.MergeTokens{ SEARCH_REVEAL_RULE }, ThemeEngine.MergeTokens(NOVEL_MARKER_RULES), ThemeEngine.MergeTokens(OVERVIEW_FOOTER_RULES) },
@@ -3416,6 +3584,8 @@ local function CreateActionBar()
         valign = "bottom",
         g_triggerReactionPanel,
         resultPanel,
+        --Outside resultPanel so it survives the bar hiding itself (no token selected).
+        g_castHintPanel,
     }
 
     return m_containerPanel
@@ -3488,6 +3658,11 @@ local function AbilityHeading(args)
     local m_cannotAfford = false
     local m_expended = false
     local m_suppressed = false
+    --true when this ability spends a turn-bound action (main action, maneuver,
+    --free maneuver, or a Move) and it is not the caster's turn. Under
+    --strict:resources a player's press is refused; the chip is shown in the
+    --expended style with "Not your turn" so they can still read the ability.
+    local m_offTurn = false
 
     --True when the filter suppressing this ability asks for enemy sight-line
     --arrows on hover (sightlines = true on the abilityFilters entry).
@@ -3510,6 +3685,34 @@ local function AbilityHeading(args)
             return caster
         end
         return g_token
+    end
+
+    --Does this ability spend an action the creature only has on its own
+    --turn? Triggers, free actions, malice, respite activities etc. are legal
+    --off-turn and are never turn-bound.
+    local function AbilityIsTurnBound(ability)
+        local rid = ability:try_get("actionResourceId")
+        if rid == CharacterResource.actionResourceId or rid == CharacterResource.maneuverResourceId or rid == CharacterResource.freeManeuverResourceId then
+            return true
+        end
+        return ability.categorization == "Move"
+    end
+
+    --Off-turn only means something while initiative is live and the
+    --caster is a participant whose turn it is not.
+    local function AbilityIsOffTurn(ability)
+        if not AbilityIsTurnBound(ability) then
+            return false
+        end
+        local q = dmhub.initiativeQueue
+        if q == nil or q.hidden then
+            return false
+        end
+        local caster = CasterToken()
+        if caster == nil or not caster.valid or caster.properties == nil then
+            return false
+        end
+        return not caster.properties:IsOurTurn()
     end
 
     local SetCannotAfford = function(cannotAffordResourceCost, expended)
@@ -3721,73 +3924,46 @@ local function AbilityHeading(args)
             end
 
             if dmhub.isDM then
-                local addedEditEntry = false
-                for domain, _ in pairs(m_ability.domains or {}) do
-                    if addedEditEntry then
-                        break
-                    end
-                    if domain ~= "_luaTable" then
-                        --parse domain information
-                        local tableType, guid = string.match(domain, "^([^:]+):(.+)$")
-                        if tableType and guid then
-                            -- Find the parent object (class/feat/etc) that contains this ability
-                            local obj, tableid = FindAbilityParentByGuid(guid)
-                            if obj and tableid then
-                                local path = {}
-                                --Find the path to the ability within the parent object
-                                local found = FindObjectPathByGuid(m_ability.guid, obj, path)
-                                --if a path is found create an edit option
-                                if found then
-                                    entries[#entries + 1] = {
-                                        text = 'Edit Ability',
-                                        click = function()
-                                            element.popup = nil
-
-                                            -- Get the original ability from the parent object
-                                            local originalAbility = GetObjectAtPath(obj, path)
-
-                                            element.root:AddChild(originalAbility:ShowEditActivatedAbilityDialog{
-                                                close = function()
-                                                    --Use found path to save edited ability back to parent object
-                                                    SetObjectAtPath(obj, path, originalAbility)
-
-                                                    -- Upload the parent object
-                                                    dmhub.SetAndUploadTableItem(tableid, obj)
-                                                end
-                                            })
-                                        end,
-                                    }
-                                    addedEditEntry = true
-                                end
-                            end
-                        end
-                    end
+                --The chip renders a temporary clone, so the edit has to reach the
+                --stored copy: an innate ability is this creature's alone and is
+                --edited on the token, anything else in the shared compendium entry.
+                local casterToken = CasterToken()
+                local innateAbility = nil
+                if casterToken ~= nil and casterToken.properties ~= nil then
+                    innateAbility = casterToken.properties:IsActivatedAbilityInnate(m_ability)
                 end
 
-                local casterToken = CasterToken()
-                if not addedEditEntry and casterToken ~= nil and casterToken.properties ~= nil then
-                    local innateAbility = casterToken.properties:IsActivatedAbilityInnate(m_ability)
-                    if innateAbility then
-                        entries[#entries + 1] = {
-                            text = 'Edit Ability',
-                            click = function()
-                                element.popup = nil
+                if innateAbility then
+                    entries[#entries + 1] = {
+                        text = 'Edit Ability',
+                        click = function()
+                            element.popup = nil
 
-                                element.root:AddChild(innateAbility:ShowEditActivatedAbilityDialog{
-                                    close = function()
-                                        --resolved at close time, as the original g_token read was.
-                                        local tok = CasterToken()
-                                        tok:ModifyProperties{
-                                            description = "Edit Innate Ability",
-                                            execute = function()
-                                                tok.properties.innateActivatedAbilities = tok.properties.innateActivatedAbilities
-                                            end,
-                                        }
-                                    end,
-                                })
-                            end,
-                        }
-                    end
+                            element.root:AddChild(innateAbility:ShowEditActivatedAbilityDialog{
+                                close = function()
+                                    --resolved at close time, as the original g_token read was.
+                                    local tok = CasterToken()
+                                    tok:ModifyProperties{
+                                        description = "Edit Innate Ability",
+                                        execute = function()
+                                            tok.properties.innateActivatedAbilities = tok.properties.innateActivatedAbilities
+                                        end,
+                                    }
+                                end,
+                            })
+                        end,
+                    }
+                elseif m_ability:FindCompendiumSource() ~= nil then
+                    --Captured now, not read at click time: this panel is pooled
+                    --and m_ability is re-pointed on every bar refresh.
+                    local editAbility = m_ability
+                    entries[#entries + 1] = {
+                        text = 'Edit Ability',
+                        click = function()
+                            element.popup = nil
+                            editAbility:ShowEditCompendiumSourceDialog(element)
+                        end,
+                    }
                 end
             end
 
@@ -3845,7 +4021,7 @@ local function AbilityHeading(args)
             -- click is silently ignored. Directors bypass this so they can
             -- still demo or override the rules.
             if (not dmhub.isDM) and dmhub.GetSettingValue("strict:resources") then
-                if m_cannotAfford or m_expended or m_suppressed then
+                if m_cannotAfford or m_expended or m_suppressed or m_offTurn then
                     return
                 end
             end
@@ -4102,13 +4278,31 @@ local function AbilityHeading(args)
                     end
 
                     SetCannotAfford(cannotAfford, not costInfo.canAfford)
+
+                    --offTurn is its own class (styled like expended in
+                    --AbilityStyles) so it clears cleanly when a pooled chip is
+                    --re-pointed at an on-turn ability.
+                    m_offTurn = AbilityIsOffTurn(ability)
+                    resultPanel:SetClassTree("offTurn", m_offTurn)
+                    if m_offTurn then
+                        element.text = "Not your turn"
+                        return
+                    end
+
                     for _, entry in ipairs(costInfo.details) do
                         if entry.description ~= nil and (not entry.canAfford) then
                             --this means there is an 'anonymous' cost, e.g. number of times they can use per round.
-                            if entry.refreshType == "long" then
+                            local refreshBase, refreshCount = CharacterResource.ParseRefreshType(entry.refreshType)
+                            if refreshBase == "long" then
                                 element.text = "Already used since respite"
+                            elseif refreshBase == "victory" then
+                                if (refreshCount or 1) > 1 then
+                                    element.text = string.format("Already used; needs %d Victories", refreshCount)
+                                else
+                                    element.text = "Already used until next Victory"
+                                end
                             else
-                                element.text = string.format("Already used this %s", entry.refreshType)
+                                element.text = string.format("Already used this %s", refreshBase)
                             end
                             return
                         end
@@ -8322,7 +8516,7 @@ local function AddModifierLabelsToMarker(markers, sourceToken, targetToken, abil
 
     local modifiers = sourceToken.properties:DescribeModifiersOnTarget(ability, targetToken)
     for _,m in ipairs(modifiers) do
-        local modInfo = ActivatedAbilityPowerRollBehavior.s_modificationTypesById[m.modifier.modtype]
+        local modInfo = ActivatedAbilityPowerRollBehavior.s_modificationTypesById[m.modifier:try_get("modtype", "none")]
         local labelType = "neutral"
         if modInfo ~= nil and (modInfo.value or 0) > 0 then
             labelType = "buff"
@@ -9858,10 +10052,127 @@ CreateAbilityController = function()
     }
 
     g_castButton = gui.Button {
-        classes = {"sizeL", "bold", "collapsed"},
+        classes = {"sizeL", "bold", "primary", "collapsed"},
         halign = "center",
-        width = 140,
+        width = "auto",
+        minWidth = 140,
         text = "Confirm",
+        data = {
+            --dmhub.Time() when the button last became visible; nil while hidden.
+            revealTime = nil,
+            --Set once the player hovers the button, which silences the nudge pulse.
+            nudgeDismissed = false,
+            --Seconds the button sits untouched before the nudge pulse starts, and the
+            --length of one full grow+shrink cycle once it does.
+            nudgeDelay = 1.5,
+            pulsePeriod = 1.4,
+        },
+
+        --Show or hide the button for the ability being cast. On the hidden -> visible
+        --edge it stamps the ability name on the label, pops the button once so the eye
+        --is drawn to it, and arms the delayed nudge pulse (see think below).
+        setVisible = function(element, visible)
+            local wasVisible = not element:HasClass("collapsed")
+            element:SetClass("collapsed", not visible)
+            --The fixed-size wrapper around the button hides with it so it does
+            --not leave an empty box in the cast panel.
+            if element.parent ~= nil then
+                element.parent:SetClass("collapsed", not visible)
+            end
+
+            if not visible then
+                element.data.revealTime = nil
+                element:SetClass("pulse", false)
+                return
+            end
+
+            local abilityName = nil
+            if g_currentAbility ~= nil then
+                abilityName = g_currentAbility.name
+            end
+            --This runs on every targeting refresh; only assign when the label changes
+            --so we do not force a text relayout mid-pulse.
+            local text = "Confirm"
+            if abilityName ~= nil and abilityName ~= "" then
+                text = string.format("Confirm %s", abilityName)
+            end
+            if element.text ~= text then
+                element.text = text
+            end
+
+            if not wasVisible then
+                element.data.revealTime = dmhub.Time()
+                element.data.nudgeDismissed = false
+                element:PulseClass("reveal")
+            end
+        end,
+
+        --Long ability names shrink via minFontSize rather than growing past the
+        --fixed-size wrapper this button sits in (see the cast panel layout).
+        maxWidth = 240,
+
+        --uiscale changes the button's LAYOUT size, not just its rendering, so any
+        --scale animation here must happen inside a fixed-size wrapper or the row
+        --re-centres every frame and the button appears to shake sideways.
+        styles = ThemeEngine.MergeTokens{
+            {
+                --One-shot pop when the button appears, applied via PulseClass.
+                selectors = {"reveal"},
+                uiscale = 1.12,
+                transitionTime = 0.25,
+                easing = "easeinOutSine",
+            },
+            {
+                --Slow breathing nudge for a player who has left the button sitting:
+                --a little larger and a shade brighter. transitionTime must equal
+                --half of data.pulsePeriod so each grow and shrink leg finishes
+                --exactly when the class flips.
+                --Repeats the primary selectors and out-prioritises the primary
+                --rule (priority 5), or its colours silently win over ours.
+                selectors = {"button", "primary", "pulse"},
+                priority = 10,
+                uiscale = 1.08,
+                bgcolor = "@accentHover",
+                borderColor = "@fgStrong",
+                --Lift across every colour scheme, since some schemes' accent
+                --and accentHover are only a shade apart.
+                brightness = 1.3,
+                transitionTime = 0.7, --data.pulsePeriod / 2
+                easing = "easeinOutSine",
+            },
+        },
+
+        --think only runs while the button is visible (collapsed panels don't think).
+        --The pulse is driven by wall-clock phase rather than by counting ticks: think
+        --timers jitter, and toggling on every tick cut the previous transition short
+        --and made the button jerk. Ticking often and deriving the class from
+        --dmhub.Time() keeps each leg the full length regardless of tick timing.
+        thinkTime = 0.1,
+        think = function(element)
+            local revealTime = element.data.revealTime
+            local elapsed = nil
+            if revealTime ~= nil then
+                elapsed = dmhub.Time() - revealTime - element.data.nudgeDelay
+            end
+
+            local pulse = false
+            if elapsed ~= nil and elapsed >= 0 and not element.data.nudgeDismissed
+                and not element:HasClass("hover") then
+                --First half of each period grows, second half shrinks.
+                pulse = (elapsed % element.data.pulsePeriod) < element.data.pulsePeriod / 2
+            end
+
+            --Only touch the class on a change: re-setting it restarts the transition clock.
+            if element:HasClass("pulse") ~= pulse then
+                element:SetClass("pulse", pulse)
+            end
+        end,
+
+        hover = function(element)
+            element.data.nudgeDismissed = true
+            element:SetClass("pulse", false)
+        end,
+
         press = function(element)
             if g_currentAbility == nil then return end
             if g_abilityController == nil then return end
@@ -10372,7 +10683,19 @@ CreateAbilityController = function()
             height = "auto",
             flow = "horizontal",
             halign = "center",
-            g_castButton,
+            gui.Panel {
+                --Fixed-size box so the Confirm button's scale animations do not
+                --resize this row (uiscale affects layout). Sized for the button
+                --at its largest: maxWidth 240 / height 35 at the 1.12 reveal pop.
+                --Collapsed alongside the button by its setVisible event.
+                classes = {"collapsed"},
+                width = 270,
+                height = 40,
+                flow = "none",
+                halign = "center",
+                valign = "center",
+                g_castButton,
+            },
             g_skipButton,
         },
 
@@ -10586,7 +10909,7 @@ CreateAbilityController = function()
 
             g_castMessageContainer:SetClass("collapsed", true)
             g_tokenSelectionContainer:SetClass("collapsed", true)
-            g_castButton:SetClass("collapsed", true)
+            g_castButton:FireEvent("setVisible", false)
 
             --Reset cast-control state for this new cast and refresh the controls panel.
             --Each control's render() builds widgets and may mutate g_castControlState.
@@ -10892,7 +11215,7 @@ CreateAbilityController = function()
             g_castMessage.data.promptText = promptText
             g_castMessage:FireEvent("refresh")
             g_abilityController:SetClass("collapsed", false)
-            g_castButton:SetClass("collapsed", true)
+            g_castButton:FireEvent("setVisible", false)
 
             --a bare token pick has no movement: never show the shift toggle,
             --which may have been left visible by a previous shift-move cast.
@@ -11171,6 +11494,9 @@ CreateAbilityController = function()
             local destroyLabelsBeforeReturning = g_pointTargeting.labelsAtPathEnd ~= nil
             local destroyThroughCreatureLabels = g_pointTargeting.labelsAtThroughCreatures ~= nil
             local destroyFallDamageLabel = g_pointTargeting.fallDamageLabel ~= nil
+            local destroyChargeJumpLabel = g_pointTargeting.chargeJumpLabel ~= nil
+            g_pointTargeting.chargeJumpUnreachable = false
+            g_pointTargeting.chargeJumpRequiresRoll = false
             local pathfinding = false
             if point ~= nil and g_currentAbility.targetType ~= "areatemplate" then
                 local radius = g_currentAbility:GetRadius(g_token.properties, g_currentSymbols)
@@ -11346,6 +11672,7 @@ CreateAbilityController = function()
                                 end
 
                                 g_jumpHoverRequiredTier = requiredRing.tier
+                                g_jumpShortfallMarkers.guaranteed = requiredRing.guaranteed == true
                                 if #alternates > 0 then
                                     jumpAlternates = alternates
                                 end
@@ -11376,7 +11703,7 @@ CreateAbilityController = function()
                                 diagramLabel = tr("Jump")
                                 if g_jumpHoverUnreachable then
                                     diagramLabel = tr("Jump (cannot reach)")
-                                elseif g_jumpHoverRequiredTier ~= nil and g_jumpHoverRequiredTier > 1 then
+                                elseif g_jumpHoverRequiredTier ~= nil and g_jumpHoverRequiredTier > 1 and not g_jumpShortfallMarkers.guaranteed then
                                     diagramLabel = string.format(tr("Jump (needs Tier %d)"), g_jumpHoverRequiredTier)
                                 end
                                 --The jump preview path already carries movementType=Jump and its
@@ -11451,14 +11778,75 @@ CreateAbilityController = function()
                     --captured from the identical engine computation that draws the radius).
                     local movementInfo = nil
                     if not ((targetingType == "straightline") and ForcedMoveLocRejected(loc)) then
-                        movementInfo = g_token:MarkMovementArrow(loc, {
+                        local markOptions = {
                             straightline = true,
                             ignorecreatures = (targetingType == "straightpathignorecreatures" or throughCreatures),
                             rebound = reboundOptions.rebound,
                             maxBounces = reboundOptions.maxBounces,
                             forcedMovementDistance = previewForcedDist,
                             slide = (g_currentSymbols.forcedmovement or g_currentAbility:try_get("forcedMovement")) == "vertical_slide",
-                        })
+                        }
+                        local chargeOptions = g_currentAbility:GetChargeJumpOptions(g_token, g_currentSymbols, g_abilities)
+                        if chargeOptions ~= nil then
+                            for key, value in pairs(chargeOptions) do
+                                markOptions[key] = value
+                            end
+                        end
+                        movementInfo = g_token:MarkMovementArrow(loc, markOptions)
+                        if chargeOptions ~= nil and (movementInfo == nil or movementInfo.validCharge ~= true) then
+                            g_pointTargeting.chargeJumpUnreachable = true
+                            movementInfo = nil
+                        end
+                        if chargeOptions ~= nil and movementInfo ~= nil and movementInfo.jumpLabelLoc ~= nil then
+                            --The cross-section still treats the composite path as walking.
+                            --The map arrow renders the actual jump segment for this charge.
+                            ClearMovementDiagram()
+                            destroyChargeJumpLabel = false
+                            local labelLoc = movementInfo.jumpLabelLoc
+                            g_pointTargeting.chargeJumpRequiresRoll = movementInfo.requiresRoll == true
+                            local labelText = tr("Jump")
+                            if g_pointTargeting.chargeJumpRequiresRoll then
+                                labelText = tr("Jump - Roll Needed")
+                            end
+                            local labelKey = labelLoc.str .. labelText
+                            if g_pointTargeting.chargeJumpLabelKey ~= labelKey then
+                                if g_pointTargeting.chargeJumpLabel ~= nil then
+                                    g_pointTargeting.chargeJumpLabel:Destroy()
+                                end
+                                g_pointTargeting.chargeJumpLabel = g_token:CreateMapTag(labelLoc,
+                                    labelText, cond(movementInfo.requiresRoll, "result", "buff"))
+                                g_pointTargeting.chargeJumpLabelKey = labelKey
+                            end
+
+                            --Keep lower-tier markers at the end of the airborne segment,
+                            --so a landing on a lower floor is still explained on this floor.
+                            if movementInfo.requiresRoll and movementInfo.tierOutcomes ~= nil then
+                                local outcomesByLoc = {}
+                                for tier = movementInfo.guaranteedTier or 1, (movementInfo.requiredTier or 3) - 1 do
+                                    local outcome = movementInfo.tierOutcomes[tier]
+                                    if outcome ~= nil and not outcome.reachesJumpEnd and outcome.previewLoc ~= nil then
+                                        local key = outcome.previewLoc.str .. ":" .. tostring(outcome.fallDistance or 0)
+                                        local entry = outcomesByLoc[key]
+                                        if entry == nil then
+                                            entry = {loc = outcome.previewLoc, tiers = {}, fallDistance = outcome.fallDistance or 0}
+                                            outcomesByLoc[key] = entry
+                                        end
+                                        entry.tiers[#entry.tiers + 1] = string.format(tr("Tier %d"), tier)
+                                    end
+                                end
+                                for _, outcome in pairs(outcomesByLoc) do
+                                    g_jumpShortfallMarkers[#g_jumpShortfallMarkers + 1] = dmhub.MarkLocs{
+                                        locs = {outcome.loc}, color = "#f4c54266",
+                                    }
+                                    local text = table.concat(outcome.tiers, " / ") .. ": " .. tr("Lands Short")
+                                    if outcome.fallDistance > 0 then
+                                        text = table.concat(outcome.tiers, " / ") .. ": " .. string.format(tr("Falls %d squares"), outcome.fallDistance)
+                                    end
+                                    g_jumpShortfallMarkers[#g_jumpShortfallMarkers + 1] =
+                                        g_token:CreateMapTag(outcome.loc, text, "result", -0.6)
+                                end
+                            end
+                        end
                     end
 
                     if movementInfo ~= nil then
@@ -12204,9 +12592,11 @@ CreateAbilityController = function()
                     --Tiered jump: tell the player this tile needs a test (lower
                     --tiers land short -- on the marked shortfall tiles), or that
                     --no tier reaches it at all.
-                    if g_jumpHoverUnreachable and clickText ~= "" then
+                    if (g_jumpHoverUnreachable or g_pointTargeting.chargeJumpUnreachable) and clickText ~= "" then
                         clickText = tr("Cannot Reach")
-                    elseif g_jumpHoverRequiredTier ~= nil and g_jumpHoverRequiredTier > 1 and clickText ~= "" then
+                    elseif g_pointTargeting.chargeJumpRequiresRoll and clickText ~= "" then
+                        clickText = tr("Click to Charge (Roll Needed)")
+                    elseif g_jumpHoverRequiredTier ~= nil and g_jumpHoverRequiredTier > 1 and not g_jumpShortfallMarkers.guaranteed and clickText ~= "" then
                         clickText = string.format(tr("Needs Tier %d - Click to Roll"), g_jumpHoverRequiredTier)
                     end
 
@@ -12298,6 +12688,12 @@ CreateAbilityController = function()
                         }
                     }
                 end
+            end
+
+            if destroyChargeJumpLabel and g_pointTargeting.chargeJumpLabel ~= nil then
+                g_pointTargeting.chargeJumpLabel:Destroy()
+                g_pointTargeting.chargeJumpLabel = nil
+                g_pointTargeting.chargeJumpLabelKey = nil
             end
 
             if clearMovementArrow then
@@ -12401,6 +12797,16 @@ CreateAbilityController = function()
             --the large-creature offset so it matches the loc the preview/append use.
             if targetingType == "straightline" and ForcedMoveLocRejected(loc) then
                 return
+            end
+
+            --Only guaranteed complete charge routes can be committed. Recompute
+            --on click so a stale hover preview cannot authorize an invalid route.
+            local chargeOptions = g_currentAbility:GetChargeJumpOptions(g_token, g_currentSymbols, g_abilities)
+            if chargeOptions ~= nil then
+                local ok, plan = pcall(function() return g_token:PlanCharge(loc, chargeOptions) end)
+                if not ok or plan == nil or plan.validCharge ~= true then
+                    return
+                end
             end
 
             print("WAYPOINT:: PRESS SHAPE:", g_pointTargeting.shape)
@@ -12789,7 +13195,11 @@ local function CalculateSpellTargetFocusing(symbols)
         end
 
         local allTokens = nil
-        local targeting = dmhub.GetSettingValue("targetobjects")
+        --The ability card's targeting slider, resolved against what this
+        --ability supports: which of creatures/objects to offer, and whether to
+        --withhold the caster's own side ("Enemies"). See ActivatedAbility
+        --GetTargetingMode in MCDMActivatedAbility.lua.
+        local targeting, enemiesOnly = g_currentAbility:GetTargetingMode()
         if g_currentAbility.targetAllegiance == "dead" then
             allTokens = dmhub.allTokensIncludingObjects
         elseif g_currentAbility.objectTarget == false then
@@ -12833,6 +13243,18 @@ local function CalculateSpellTargetFocusing(symbols)
                         -- "Objects" mode: exclude regular creatures.
                         canTarget = false
                     end
+                end
+
+                -- "Enemies" mode: don't offer the caster's own side as targets.
+                -- This is a convenience for whoever is clicking, not a rule --
+                -- the other slider positions hand the allies straight back --
+                -- so it is applied here, to the candidate list, and not in
+                -- GameSystem.AllowTargeting where it would also bind the AI and
+                -- scripted casts. Objects and the caster itself are unaffected.
+                if enemiesOnly and canTarget and (not targetToken.isObject)
+                    and targetToken.charid ~= g_token.charid
+                    and g_token:IsFriend(targetToken) then
+                    canTarget = false
                 end
 
                 if (spell.targetType == 'self' or spell.targetType == 'all') and targetToken.charid ~= g_token.charid then
@@ -13164,12 +13586,18 @@ CalculateSpellTargeting = function(forceCast, initialSetup)
             g_castChargesInput:FireEvent("refreshSpell")
 
             local synthesizedSpells = g_synthesizedSpellsPanel.data.synthesized
-            g_castButton:SetClass('collapsed',
-                (not g_currentAbility:CanCastAsIs(g_token, targets, g_currentSymbols)) or
-                (synthesizedSpells ~= nil and #synthesizedSpells > 0))
+            local canConfirm = g_currentAbility:CanCastAsIs(g_token, targets, g_currentSymbols) and
+                not (synthesizedSpells ~= nil and #synthesizedSpells > 0)
+            g_castButton:FireEvent("setVisible", canConfirm)
 
 
             local promptText = g_currentAbility:PromptText(g_token, targets, g_currentSymbols, synthesizedSpells)
+            --Abilities that need no targets (targetType 'all', zero targets) have no
+            --prompt of their own, which left a bare Confirm button with nothing
+            --explaining it. Give the player a sentence naming what they are confirming.
+            if canConfirm and (promptText == nil or promptText == "") then
+                promptText = string.format("Use %s?", g_currentAbility.name or "this ability")
+            end
             --While a minion is armed for a lock, prompt for its target.
             --Otherwise, during squad targeting, add a hint that clicking a
             --minion lets the player choose its target instead of using the

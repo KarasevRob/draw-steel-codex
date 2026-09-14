@@ -29,6 +29,7 @@ local mod = dmhub.GetModLoading()
 -- Storage type: a MarkdownDocument subtype stored in its own table.
 ----------------------------------------------------------------------
 
+--- @class CampaignNote: MarkdownDocument
 CampaignNote = RegisterGameType("CampaignNote", "MarkdownDocument")
 
 --Upload() routes to self.tableName, so rows land in our own table.
@@ -523,10 +524,16 @@ function CampaignTracker.RegisterSection(args)
         error("CampaignTracker.RegisterSection: requires { id = string, create = function }")
     end
 
+    --remember which mod registered this so the section can be dropped once
+    --that mod unloads (the Lua state outlives a game, so a module's section
+    --would otherwise linger into the next campaign). nil when not loading a mod.
+    local ownerMod = dmhub.GetModLoading()
+
     CampaignTracker._sections[args.id] = {
         id = args.id,
         ord = args.ord or 100,
         create = args.create,
+        mod = ownerMod,
     }
 
     dmhub.FireGlobalEvent(SECTIONS_CHANGED_EVENT)
@@ -543,8 +550,16 @@ end
 
 local function GetSortedSections()
     local result = {}
-    for _, section in pairs(CampaignTracker._sections) do
-        result[#result + 1] = section
+    for id, section in pairs(CampaignTracker._sections) do
+        if section.mod ~= nil and section.mod.unloaded == true then
+            --the owning mod is gone, so drop the section outright rather than
+            --just skipping it -- otherwise _sections accumulates one dead entry
+            --per module visited for the life of the app session. (Clearing an
+            --existing key during a pairs() traversal is well-defined in Lua.)
+            CampaignTracker._sections[id] = nil
+        else
+            result[#result + 1] = section
+        end
     end
     table.sort(result, function(a, b)
         if a.ord ~= b.ord then
@@ -2896,7 +2911,7 @@ end
 --  nextLabel: string|false   display name for the next scene
 ----------------------------------------------------------------------
 
----@class RichExit
+---@class RichExit: RichTag
 RichExit = RegisterGameType("RichExit", "RichTag")
 RichExit.tag = "exit"
 RichExit.hasEdit = false

@@ -419,6 +419,7 @@ local function RenderChatAttachment(attachment, message)
 	}
 end
 
+--- @class ChatAttachmentMessage: GameType
 ChatAttachmentMessage = RegisterGameType("ChatAttachmentMessage")
 ChatAttachmentMessage.channel = "chat"
 ChatAttachmentMessage.chatAttachmentBlobId = false
@@ -432,6 +433,7 @@ function ChatAttachmentMessage:Render(message)
 	return RenderChatAttachment(self, message)
 end
 
+--- @class ChatImageMessage: GameType
 ChatImageMessage = RegisterGameType("ChatImageMessage")
 ChatImageMessage.channel = "chat"
 ChatImageMessage.chatImageBlobId = false
@@ -991,6 +993,10 @@ CreateChatPanel = function()
 
 	local history = {}
 	local historyCursor = nil
+	--the message the user was typing when they first pressed up-arrow. It
+	--occupies a virtual slot just past the newest history entry, so down-arrow
+	--from the last entry (or up-arrow from the first) returns to it.
+	local historyDraft = ""
 
 	local savedHistory = dmhub.GetSettingValue("chat:inputhistory")
 	if type(savedHistory) == "table" then
@@ -1792,16 +1798,24 @@ CreateChatPanel = function()
 					return
 				end
 
+				local newText
 				if historyCursor == nil then
+					--leaving the draft: stash it so down-arrow can bring it back.
+					historyDraft = element.text
 					historyCursor = #history
+					newText = history[historyCursor]
 				else
 					historyCursor = historyCursor - 1
 					if historyCursor < 1 then
-						historyCursor = #history
+						--wrapped past the oldest entry: back to the draft.
+						historyCursor = nil
+						newText = historyDraft
+					else
+						newText = history[historyCursor]
 					end
 				end
 
-				element.text = history[historyCursor]
+				element.text = newText
 				element.caretPosition = element.text:len()
 				element.selectionAnchorPosition = 0
 
@@ -1816,12 +1830,17 @@ CreateChatPanel = function()
 					return
 				end
 
+				local newText
 				historyCursor = historyCursor+1
 				if historyCursor > #history then
-					historyCursor = 1
+					--past the newest entry: restore the draft.
+					historyCursor = nil
+					newText = historyDraft
+				else
+					newText = history[historyCursor]
 				end
 
-				element.text = history[historyCursor]
+				element.text = newText
 				element.caretPosition = element.text:len()
 				element.selectionAnchorPosition = 0
 
@@ -1829,6 +1848,7 @@ CreateChatPanel = function()
 			end,
 			edit = function(element)
 				if historyCursor ~= nil and element.text ~= history[historyCursor] then
+					--the user edited a recalled entry; it becomes the new draft.
 					historyCursor = nil
 				end
 				chat.PreviewChat(element.text)
@@ -1888,7 +1908,8 @@ CreateChatPanel = function()
 
                 speakerPanel:FireEventTree("send", element.text)
 
-				historyCursor = -1
+				historyCursor = nil
+				historyDraft = ""
 
 				if element.text ~= "" and history[#history] ~= element.text then
 					history[#history+1] = element.text

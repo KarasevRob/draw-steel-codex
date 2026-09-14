@@ -2,7 +2,7 @@ local mod = dmhub.GetModLoading()
 
 --This file implements the core rules for classes.
 
---- @class Class
+--- @class Class: GameType
 --- @field name string Display name of the class.
 --- @field details string Long-form description/lore text.
 --- @field portraitid string Asset id for the class portrait image.
@@ -21,11 +21,11 @@ local mod = dmhub.GetModLoading()
 --- @field spellbookSizeFormula string GoblinScript formula for spellbook size.
 Class = RegisterGameType("Class")
 
---- @class ClassLevel
+--- @class ClassLevel: GameType
 --- @field features (CharacterFeature|CharacterChoice)[] Features and choices granted at this level.
 ClassLevel = RegisterGameType("ClassLevel") --type which represents the benefits a character gets at a specific level.
 
---- @class CharacterChoice
+--- @class CharacterChoice: GameType
 CharacterChoice = RegisterGameType("CharacterChoice")
 
 --- @class CharacterFeatureChoice:CharacterChoice
@@ -34,7 +34,7 @@ CharacterFeatureChoice = RegisterGameType("CharacterFeatureChoice", "CharacterCh
 --- @class CharacterSubclassChoice:CharacterChoice
 CharacterSubclassChoice = RegisterGameType("CharacterSubclassChoice", "CharacterChoice")
 
---- @class CharacterFeatureList
+--- @class CharacterFeatureList: GameType
 CharacterFeatureList = RegisterGameType("CharacterFeatureList")
 
 --- @param options nil|table
@@ -311,10 +311,24 @@ function Class:FillFeaturesForLevel(choices, levelNum, extraLevelInfo, secondary
 	local levels = {}
 	self:FillLevelsUpTo(levelNum, extraLevelInfo, secondaryClass, levels)
 
+	--levels is in ascending level order, so appending each name as it is seen ranks features
+	--by the highest level they reach. Downstream suppression (a higher-level ability
+	--replacing its lower-level version) breaks ties by list position, so this must be ordered.
+	local featureNames = {}
 	local features = {}
 	for i,levelInfo in ipairs(levels) do
 		for j,feature in ipairs(levelInfo.features) do
 			if feature.typeName == 'CharacterFeature' then
+				if features[feature.name] ~= nil then
+					--a later level upgrades this feature, so re-rank it to that higher level.
+					for k,name in ipairs(featureNames) do
+						if name == feature.name then
+							table.remove(featureNames, k)
+							break
+						end
+					end
+				end
+				featureNames[#featureNames+1] = feature.name
 				features[feature.name] = feature
 			else
 				feature:FillChoice(choices, result)
@@ -323,8 +337,8 @@ function Class:FillFeaturesForLevel(choices, levelNum, extraLevelInfo, secondary
 	end
 
 
-	for k,feature in pairs(features) do
-		result[#result+1] = feature
+	for i,featureName in ipairs(featureNames) do
+		result[#result+1] = features[featureName]
 	end
 end
 

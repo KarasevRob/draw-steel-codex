@@ -4786,12 +4786,15 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                                         }
                                         local filterFormula = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetFilter")
                                         local targets = {}
+                                        local retargetReasons = {}
                                         for _,potential in ipairs(dmhub.allTokens) do
                                             symbols.target = potential.properties:LookupSymbol{}
                                             if trim(filterFormula) == "" or GoblinScriptTrue(ExecuteGoblinScript(filterFormula, potential.properties:LookupSymbol(symbols), 1)) then
                                                 targets[#targets+1] = potential
                                             end
                                         end
+
+                                        RuleUtils.RemoveRetargetStrikeTargets(targets, trigger)
 
                                         local sourceToken = token
                                         local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, token.properties:LookupSymbol(symbols), 10))
@@ -4802,12 +4805,19 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                                         elseif rangeType == "distance" then
                                             range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
                                         end
+                                        --the new target must be one the striking creature could actually
+                                        --hit: inside the strike's distance and in its line of effect.
+                                        if rangeType == "ability" then
+                                            RuleUtils.AddRetargetRangeReasons(targets, retargetReasons, sourceToken, range)
+                                        end
 
                                         print("ChooseTarget:: A")
                                         gamehud.actionBarPanel:FireEventTree("chooseTarget", {
                                             sourceToken = sourceToken,
                                             radius = range,
                                             targets = targets,
+                                            reasons = retargetReasons,
+                                            prompt = RuleUtils.RetargetPromptText(sourceToken, range, rangeType),
                                             choose = function(newTargetToken)
                                                 if token == nil then
                                                     return
@@ -4819,6 +4829,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                                                     execute = function()
                                                         trigger.triggered = true
                                                         trigger.retargetid = newTargetToken.charid
+                                                        --choosing the new target commits the trigger, so the card leaves the drawer.
+                                                        trigger.dismissed = true
 
                                                         token.properties:DispatchAvailableTrigger(trigger)
                                                     end,
@@ -4974,12 +4986,15 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                                             }
                                             local filterFormula = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetFilter")
                                             local targets = {}
+                                            local retargetReasons = {}
                                             for _,potential in ipairs(dmhub.allTokens) do
                                                 symbols.target = potential.properties:LookupSymbol{}
                                                 if trim(filterFormula) == "" or GoblinScriptTrue(ExecuteGoblinScript(filterFormula, potential.properties:LookupSymbol(symbols), 1)) then
                                                     targets[#targets+1] = potential
                                                 end
                                             end
+
+                                            RuleUtils.RemoveRetargetStrikeTargets(targets, trigger)
 
                                             local sourceToken = token
                                             local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, token.properties:LookupSymbol(symbols), 10))
@@ -4990,12 +5005,19 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                                             elseif rangeType == "distance" then
                                                 range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
                                             end
+                                            --the new target must be one the striking creature could actually
+                                            --hit: inside the strike's distance and in its line of effect.
+                                            if rangeType == "ability" then
+                                                RuleUtils.AddRetargetRangeReasons(targets, retargetReasons, sourceToken, range)
+                                            end
 
                                         print("ChooseTarget:: B")
                                             gamehud.actionBarPanel:FireEventTree("chooseTarget", {
                                                 sourceToken = sourceToken,
                                                 radius = range,
                                                 targets = targets,
+                                                reasons = retargetReasons,
+                                                prompt = RuleUtils.RetargetPromptText(sourceToken, range, rangeType),
                                                 choose = function(newTargetToken)
                                                     if token == nil then
                                                         return
@@ -5008,6 +5030,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 
                                                             trigger.triggered = index
                                                             trigger.retargetid = newTargetToken.charid
+                                                            --choosing the new target commits the trigger, so the card leaves the drawer.
+                                                            trigger.dismissed = true
 
                                                             token.properties:DispatchAvailableTrigger(trigger)
                                                         end,

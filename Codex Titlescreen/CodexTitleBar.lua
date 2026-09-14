@@ -403,7 +403,7 @@ end
 local function BarFitStepNatural(step)
     --No latched width means the bar has never had this element on screen for
     --reasons of its own -- the search box on the title screen, the status
-    --readouts with Show Status Bar off. Releasing the ladder would not bring
+    --readouts on the title screen. Releasing the ladder would not bring
     --it back, so it must not be credited with space it never occupied.
     if g_barFit.naturals[step.key] == nil then
         return 0
@@ -478,8 +478,8 @@ function BarFitApply()
     --(`enabled`), which rules out two different double-counts: an element the
     --LADDER collapsed is already credited in full by ladderSaved, and an
     --element the bar hides for its own reasons -- the search box on the title
-    --screen, the whole status bar with Show Status Bar off -- occupies no
-    --space to give back in the first place.
+    --screen, the status bar readouts outside a game -- occupies no space to
+    --give back in the first place.
     local withheld = 0
 
     --Stage 1: the search box narrows first. It is the widest thing on the bar
@@ -635,6 +635,7 @@ local function CreateWindowControl(args)
         data = { maximized = nil },
         calculateVisibility = args.calculateVisibility,
         click = args.click,
+        hover = args.hover,
 
         gui.Panel{
             classes = {"windowControlIcon", cond(args.danger, "windowControlIconDanger")},
@@ -1104,15 +1105,6 @@ local function CreatePresentationBar()
     return resultPanel
 end
 
-local g_showStatusBarSetting = setting{
-    id = "showstatusbar",
-    description = "Show status bar",
-    editor = "check",
-    default = true,
-    storage = "preference",
-    section = "General",
-}
-
 ----------------------------------------------------------------------
 -- Connectivity status panel
 -- Replaces the old "Synced seq:N" label and its "DO Message History"
@@ -1480,17 +1472,13 @@ local function CreateConnectivityPanel()
             }
         end,
 
-        multimonitor = {"showstatusbar"},
-        monitor = function(element)
-            contentPanel:SetClass("collapsed", not g_showStatusBarSetting:Get())
-        end,
         thinkTime = 0.5,
         think = function(element)
             if (not dmhub.inGame) or dmhub.isLobbyGame then
                 contentPanel:SetClass("collapsed", true)
                 return
             end
-            contentPanel:SetClass("collapsed", not g_showStatusBarSetting:Get())
+            contentPanel:SetClass("collapsed", false)
 
             --nil = engine build without the bridge; treat as connected.
             local connected = dmhub.gameServerConnected ~= false
@@ -1548,13 +1536,6 @@ local function CreateInitiativeStatusHost()
         height = "100%",
         valign = "center",
         rmargin = 16,
-        multimonitor = {"showstatusbar"},
-        create = function(element)
-            element:SetClass("collapsed", not g_showStatusBarSetting:Get())
-        end,
-        monitor = function(element)
-            element:SetClass("collapsed", not g_showStatusBarSetting:Get())
-        end,
     }
     return g_initiativeStatusContainer
 end
@@ -1941,6 +1922,169 @@ function g_tileIndicator.HoleTypeOnMap()
     return nil
 end
 
+--The Map object on the floor we are on. A layer's map may live on the
+--layer or on its parent floor, so the whole top-level floor family is
+--searched (GetLayersForFloor returns the floor itself plus its layers).
+--Mirrors FindMapObjectForFloor in the Floors panel.
+function g_tileIndicator.FindCurrentFloorMapObject()
+    local cf = game.currentFloor
+    if cf == nil then
+        return nil
+    end
+    local topId = cf.parentFloor or cf.floorid
+    local layers = game.currentMap:GetLayersForFloor(topId)
+    for _,layer in ipairs(layers or {}) do
+        for _,obj in pairs(layer.objects) do
+            if obj:GetComponent("Map") ~= nil then
+                return obj
+            end
+        end
+    end
+    return nil
+end
+
+--Director-only: the map appearance variations on the floor we are on,
+--as a compact version of the Floors panel gallery -- click a tile to
+--switch the map's image. No adding or renaming here; that stays in the
+--Floors panel. Returns nil when there is nothing to choose between
+--(not a Director, no Map object, or only the base image).
+function g_tileIndicator.CreateAppearanceSection()
+    if not dmhub.isDM then
+        return nil
+    end
+
+    local mapObj = g_tileIndicator.FindCurrentFloorMapObject()
+    if mapObj == nil then
+        return nil
+    end
+
+    local comp = mapObj:GetComponent("Appearance")
+    if comp == nil or not comp.valid then
+        return nil
+    end
+
+    local doc = mapObj:ComponentToJson(comp.componentid)
+    if doc == nil then
+        return nil
+    end
+
+    --Same index scheme as the Floors panel: 0 is the map's own base
+    --image, i >= 1 is swaps[i] shown with names[i].
+    local swaps = doc.imageSwaps or {}
+    if #swaps == 0 then
+        return nil
+    end
+    local names = doc.imageSwapNames or {}
+    local selected = doc.imageNumber or 0
+    local baseName = doc.imageDefaultName
+    if baseName == nil or baseName == "" then
+        baseName = "Default"
+    end
+
+    local tilesPanel = gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "horizontal",
+        wrap = true,
+        valign = "top",
+    }
+
+    local RefreshTiles
+
+    --One gallery tile: a thumbnail with the name beneath. Four fit across
+    --the popup's 256px interior (60 + 2px margin each side).
+    local function CreateTile(index)
+        local isBase = index == 0
+        local imageId = cond(isBase, mapObj.displayImageId, swaps[index])
+        local isSelected = selected == index
+        local name = cond(isBase, baseName, names[index] or string.format("Appearance %d", index))
+
+        --The selected tile is framed as a whole (thumbnail + name) with a
+        --solid accent border and tinted fill; a thicker border on the
+        --56px thumbnail alone was too subtle to tell apart from the rest.
+        return gui.Panel{
+            width = 60,
+            height = "auto",
+            flow = "vertical",
+            hmargin = 2,
+            vmargin = 2,
+            halign = "left",
+            valign = "top",
+            bgimage = "panels/square.png",
+            bgcolor = cond(isSelected, "#ffffff22", "clear"),
+            cornerRadius = 4,
+            borderWidth = cond(isSelected, 2, 0),
+            borderColor = cond(isSelected, "@accent", "clear"),
+            pad = 2,
+            borderBox = true,
+
+            gui.Panel{
+                classes = {"image", "hoverable"},
+                width = 52,
+                height = 39,
+                halign = "center",
+                valign = "top",
+                bgimage = imageId or "panels/square.png",
+                cornerRadius = 4,
+                borderWidth = 1,
+                borderColor = cond(isSelected, "@accent", "@border"),
+                hover = gui.Tooltip(name),
+                click = function()
+                    if selected == index then
+                        return
+                    end
+                    selected = index
+                    local live = mapObj:GetComponent("Appearance")
+                    if live ~= nil and live.valid then
+                        live:SetAndUploadProperties{ imageNumber = selected }
+                    end
+                    RefreshTiles()
+                end,
+            },
+
+            gui.Label{
+                classes = {cond(isSelected, "bold")},
+                text = name,
+                width = 60,
+                height = "auto",
+                halign = "center",
+                textAlignment = "center",
+                fontSize = 11,
+                textWrap = false,
+                textOverflow = "ellipsis",
+                tmargin = 2,
+            },
+        }
+    end
+
+    RefreshTiles = function()
+        local children = { CreateTile(0) }
+        for i = 1, #swaps do
+            children[#children+1] = CreateTile(i)
+        end
+        tilesPanel.children = children
+    end
+
+    RefreshTiles()
+
+    return gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "vertical",
+        bmargin = 8,
+
+        gui.Label{
+            classes = {"bold"},
+            text = "Map Appearance",
+            width = "100%",
+            height = "auto",
+            bmargin = 4,
+        },
+
+        tilesPanel,
+    }
+end
+
 function g_tileIndicator.CreateOverlayMenu()
     local checkStyle = {
         width = "100%",
@@ -2072,6 +2216,13 @@ function g_tileIndicator.CreateOverlayMenu()
     local holeType = g_tileIndicator.HoleTypeOnMap()
 
     local children = {}
+
+    --Directors get the map appearance picker first: it is about the map
+    --the clicked label names, the overlay toggles come after.
+    local appearanceSection = g_tileIndicator.CreateAppearanceSection()
+    if appearanceSection ~= nil then
+        children[#children+1] = appearanceSection
+    end
 
     children[#children+1] = gui.Label{
         classes = {"bold"},
@@ -2246,12 +2397,7 @@ function g_tileIndicator.CreatePanel()
 
         data = { key = nil, name = nil },
 
-        multimonitor = {"showstatusbar"},
-        monitor = function(element)
-            element.thinkTime = cond(g_showStatusBarSetting:Get(), 0.1, nil)
-            Clear(element)
-        end,
-        thinkTime = cond(g_showStatusBarSetting:Get(), 0.1, nil),
+        thinkTime = 0.1,
         think = function(element)
             if (not dmhub.inGame) or dmhub.isLobbyGame then
                 if element.data.key ~= nil then
@@ -2293,7 +2439,7 @@ local function CreateStatusBar()
     local m_mapCluster
 
     local function MapClusterAvailable()
-        return g_showStatusBarSetting:Get() and dmhub.inGame and (not dmhub.isLobbyGame)
+        return dmhub.inGame and (not dmhub.isLobbyGame)
     end
 
     local function RefreshMapClusterAffordance()
@@ -2328,14 +2474,7 @@ local function CreateStatusBar()
         interactable = false,
         text = "",
         data = { fullText = "" },
-        multimonitor = {"showstatusbar"},
-        monitor = function(element)
-            element.thinkTime = cond(g_showStatusBarSetting:Get(), 0.1, nil)
-            element.data.fullText = ""
-            element.text = ""
-            RefreshMapClusterAffordance()
-        end,
-        thinkTime = cond(g_showStatusBarSetting:Get(), 0.1, nil),
+        thinkTime = 0.1,
         think = function(element)
             RefreshMapClusterAffordance()
             if (not dmhub.inGame) or dmhub.isLobbyGame then
@@ -2399,23 +2538,6 @@ local function CreateStatusBar()
         width = "auto",
         halign = "right",
 
-        rightClick = function(element)
-            local menuItems = {
-                {
-                    text = "Show Status Bar",
-                    check = g_showStatusBarSetting:Get(),
-                    click = function()
-                        g_showStatusBarSetting:Set(not g_showStatusBarSetting:Get())
-                        element.popup = nil
-                    end,
-                },
-            }
-
-            element.popup = gui.ContextMenu{
-                entries = menuItems,
-            }
-        end,
-
         -- Dev-only note: when this game is loading its assets from a local
         -- directory (the "local assets" developer feature -- a custom data
         -- directory that replaces the game's cloud assets), flag it here so it
@@ -2448,13 +2570,7 @@ local function CreateStatusBar()
                     dmhub.ShowPlayerSettings{tab = "Editing"}
                 end
             end,
-            multimonitor = {"showstatusbar"},
-            monitor = function(element)
-                element.thinkTime = cond(g_showStatusBarSetting:Get(), 1, nil)
-                element.data.dir = nil
-                element.text = ""
-            end,
-            thinkTime = cond(g_showStatusBarSetting:Get(), 1, nil),
+            thinkTime = 1,
             think = function(element)
                 if (not dmhub.inGame) or dmhub.isLobbyGame or dmhub.LocalAssetsStatus == nil then
                     element.data.dir = nil
@@ -2475,10 +2591,7 @@ local function CreateStatusBar()
         BarFitRegister("connectivity", CreateConnectivityPanel()),
 
         -- Host for the initiative/game-mode panel; empty (and therefore
-        -- zero-width) until a game hud mounts one. Collapsing on the
-        -- showstatusbar preference is done here rather than in the mounted
-        -- panel so the initiative bar does not have to know about this
-        -- setting.
+        -- zero-width) until a game hud mounts one.
         m_initiativeHost,
 
         -- Hovered-tile terrain chip + map name/engine status, sharing one
@@ -7035,6 +7148,15 @@ local function CreateTopBar()
                                 element:FireEventTree("setIcon", cond(maximized, "window-chrome/chrome-restore.png", "window-chrome/chrome-maximize.png"))
                             end
                         end,
+                        --while fullscreen the control is grayed out and does
+                        --nothing, so tell the user why and how to leave the
+                        --mode. Windowed mode needs no tooltip -- the glyph
+                        --is the native maximize/restore control.
+                        hover = function(element)
+                            if dmhub.GetSettingValue("fullscreen") == true then
+                                gui.Tooltip("Fullscreen mode: Press F11 to enter Windowed mode")(element)
+                            end
+                        end,
                         click = function()
                             --disabled while fullscreen; minimize/close stay live.
                             if dmhub.GetSettingValue("fullscreen") == true then
@@ -7067,9 +7189,9 @@ local function CreateTopBar()
     local titleBarStyleExtras = {
         -- Narrow-bar fit: the collapse ladder's own way of taking an element
         -- out of the flow. Deliberately NOT the "collapsed" class -- several
-        -- of these elements drive that themselves (the initiative host tracks
-        -- the Show Status Bar setting, the menu items track dev mode and
-        -- in-game state), and two writers on one class fight. A separate
+        -- of these elements drive that themselves (the connectivity panel
+        -- tracks in-game state, the menu items track dev mode and in-game
+        -- state), and two writers on one class fight. A separate
         -- class means the ladder and the element's own visibility rules
         -- simply both get a veto.
         {

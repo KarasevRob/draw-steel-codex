@@ -1003,8 +1003,9 @@ local function CreateMonsterEntry(nodeid, startHidden)
 
         local level = nil
         pcall(function() level = props:Level() end)
+        level = tonumber(level)
         if level ~= nil and level > 0 then
-            parts[#parts + 1] = string.format("Level %d", level)
+            parts[#parts + 1] = string.format("Level %d", round(level))
         end
 
         local role = nil
@@ -1392,7 +1393,7 @@ local function CreateMonsterEntry(nodeid, startHidden)
                             --popout art overflows its nominal rect; use the
                             --inset crop CreateTokenImage uses for it.
                             local b = 0.14
-                            element.data.baseRect = {x1 = b, y1 = b, x2 = 1 - b, y2 = 1 - b}
+                            element.data.baseRect = core.Vector4(b, b, 1 - b, 1 - b)
                         else
                             element.data.baseRect = monster.portraitRect
                         end
@@ -2817,7 +2818,7 @@ CharacterPanel.CreateCharacterEntry = function(charid, party)
                                 --popout art overflows its nominal rect; use
                                 --the inset crop CreateTokenImage uses for it.
                                 local b = 0.14
-                                element.data.baseRect = {x1 = b, y1 = b, x2 = 1 - b, y2 = 1 - b}
+                                element.data.baseRect = core.Vector4(b, b, 1 - b, 1 - b)
                             else
                                 element.data.baseRect = token.portraitRect
                             end

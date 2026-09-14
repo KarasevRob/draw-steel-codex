@@ -851,7 +851,20 @@ function GameHud:CreateToolbarPanel()
 					end
 				end,
 				press = function()
+					--Commands.GetCommandInfo only knows the launchable-panel and
+					--command registries; panels like Maps and the Measuring Tool
+					--are dockable panels now, so fall back to the toolbar's own
+					--candidate list (which covers both registries) or the button
+					--is inert.
 					local info = Commands.GetCommandInfo(itemName)
+					if info == nil then
+						for _,candidate in ipairs(ToolbarCandidates()) do
+							if candidate.name == itemName then
+								info = candidate
+								break
+							end
+						end
+					end
 					if info ~= nil and info.click ~= nil then
 						info.click()
 					end
@@ -1112,6 +1125,14 @@ local function CreateLobbyHud(dialog, tokenInfo)
 	}
 
 	GameHud.instance = gamehud
+
+	--The lobby hud has no present-to-players machinery, but callers such as
+	--DocumentSystem's present button poll this on every think. Reading an
+	--undefined field on a Hud userdata raises a Lua error, so define the
+	--accessor here; nothing is ever presented in the lobby.
+	gamehud.GetCurrentlyPresentedDialog = function()
+		return nil
+	end
 
 	local mainDialogPanel = gamehud:MainDialogPanel()
 

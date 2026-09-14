@@ -2,12 +2,13 @@ local mod = dmhub.GetModLoading()
 
 --- Player Step 1: which of my heroes are taking the Respite, and am I done
 --- saying so. The mirror of the Director's Participants step.
+--- @class RSPPlayerRespitePanel: GameType
 RSPPlayerRespitePanel = RegisterGameType("RSPPlayerRespitePanel")
 
 local INSTRUCTIONS = [[
 ### Participate
 
-Click one of your characters to take them in or out of the Respite. Including the hero in the Respite means the game's mechanics like converting Victories to XP and resetting Recoveries and Stamina will apply to them.
+Tick a checkbox to indicate a hero is participating in the Respite. Including the hero in the Respite means the game's mechanics like converting Victories to XP and resetting Recoveries and Stamina will apply to them.
 
 Heroes that do not participate in the Respite will%s be able to participate in downtime activities.
 
@@ -35,7 +36,7 @@ end
 local function BuildWorkingArea()
     return RSPWidgets.CharacterList{
         roster = RSPSession.MyCharacters(),
-        highlight = RSPSession.IsParticipating,
+        check = RSPSession.IsParticipating,
         indicator = ParticipationText,
         click = function(charid)
             RSPSession.SetParticipating(charid, not RSPSession.IsParticipating(charid))

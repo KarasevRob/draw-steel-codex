@@ -541,7 +541,7 @@ local function ShowTimelinePrompt(check, dialogParams)
         end
 
         if mount.locked then
-            CharacterPanel.UnlockDisplayAbility()
+            CharacterPanel.UnlockDisplayAbility(mount.lockId)
         end
         if mount.ownedAbility ~= nil then
             --Safe if someone else has since taken the card over; HideAbility
@@ -912,6 +912,11 @@ function GameHud:RequireRollListenerPanel()
 												req.info.tokens[tokid].isCrit = RollUtils.IsCrit(rollInfo)
 												req.info.tokens[tokid].rollid = rollInfo.key
 												req.info.tokens[tokid].modifiersUsed = rollInfo.properties ~= nil and rollInfo.properties:try_get("modifiersUsed", {}) or {}
+												if rollType == "test_power_roll" then
+													--Keep tier-changing test effects when the result returns to the ability's caster.
+													local overrideTier = rollInfo.properties ~= nil and rollInfo.properties:try_get("overrideTier") or nil
+													req.info.tokens[tokid].tier = overrideTier or RollUtils.DiceResultToTier(rollInfo)
+												end
 
 												if rollInfo.forcedResult then
 													req.info.tokens[tokid].forcedResult = rollInfo.autosuccess

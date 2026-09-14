@@ -57,6 +57,7 @@ function CreateInfoBubble(info)
 		interactable = info.floorid == game.currentFloorId,
 		bgimage = 'panels/square.png',
 		styles = styles,
+		inworld = true,
 		--blocksGameInteraction = false,
 
 		create = function(element)
@@ -135,15 +136,26 @@ function CreateInfoBubble(info)
 					return
 				end
 				dmhub.Debug('right click')
+				--"Allow Dragging" is session-transient: info.locked lives on the
+				--bubble's hud object, not in the saved map data, so it resets to
+				--locked whenever the bubble is recreated.
 				element.popup = gui.ContextMenu{
 					entries = {
+						{
+							text = "Allow Dragging",
+							check = not info.locked,
+							click = function()
+								element.popup = nil
+								info.locked = not info.locked
+							end,
+						},
 						{
 							text = "Delete",
 							click = function()
 								element.popup = nil
 								info:Delete()
 							end,
-						}
+						},
 					},
 				}
 			end,

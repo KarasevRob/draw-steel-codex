@@ -1971,12 +1971,13 @@ local ShowResourcesPanel = function(parentPanel)
 				classes = {"formStacked"},
 				text = "Refresh:",
 			},
-			gui.Dropdown{
-				classes = {"formStacked"},
-				options = CharacterResource.usageLimitOptions,
-				idChosen = resource.usageLimit,
-				change = function(element)
-					resource.usageLimit = element.idChosen
+			CharacterResource.RefreshTypeEditor{
+				value = resource.usageLimit,
+				dropdown = {
+					classes = {"formStacked"},
+				},
+				change = function(refreshType)
+					resource.usageLimit = refreshType
 					UploadResource()
 
 					quantityLabelPreview:FireEvent("create")
@@ -7360,6 +7361,7 @@ end
 --A glossary term: reference content mirroring the book's glossary - the
 --term, its definition, and a SourceReference to the book and page that
 --defines it (openable directly in the PDF viewer, like ability sources).
+--- @class GlossaryTerm: GameType
 GlossaryTerm = RegisterGameType("GlossaryTerm")
 GlossaryTerm.tableName = "glossaryTerms"
 GlossaryTerm.name = "New Term"

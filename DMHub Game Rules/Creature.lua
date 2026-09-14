@@ -3,6 +3,7 @@ local mod = dmhub.GetModLoading()
 
 --This file implements the important Creature type, which is a base type for both characters and monsters.
 
+--- @class GameSystem: GameType
 GameSystem = RegisterGameType("GameSystem")
 
 --- @class StatHistoryEntry
@@ -14,7 +15,7 @@ GameSystem = RegisterGameType("GameSystem")
 --- @field attackerid nil|string
 --- @field refreshid nil|string
 
---- @class StatHistory Keeps history of a stat.
+--- @class StatHistory: GameType Keeps history of a stat.
 --- @field entries StatHistoryEntry[] The list of entries the stat history has.
 StatHistory = RegisterGameType("StatHistory")
 
@@ -110,7 +111,7 @@ function StatHistory:MostRecentTimestamp(attackerid, disposition)
 	return timestamp
 end
 
---- @class CharacterAttribute
+--- @class CharacterAttribute: GameType
 --- @field baseValue nil|number Base (unmodified) value of this attribute.
 --- @field id nil|string Attribute id (e.g. "str", "dex", "int").
 --- @field name nil|string Display name (e.g. "Strength").
@@ -154,7 +155,7 @@ function CharacterAttribute.ModifierStr(self)
 	end
 end
 
---- @class creature
+--- @class creature: GameType
 --- @field max_hitpoints number The creature's maximum hitpoints (stamina in Draw Steel).
 --- @field temporary_hitpoints nil|number Current temporary hitpoints.
 --- @field damage_taken nil|number Total damage taken so far.
@@ -577,16 +578,28 @@ function creature:PlayLandingFootstep(surfaceType)
         --Settings-registry check keeps this quiet (no engine error log)
         --when the MapMarkup module, which registers the setting, isn't
         --loaded.
+        --A map with several appearances (map variations) may give the
+        --selected one its own default, which stands in for the map-wide
+        --default - including 0, "use tile surfaces", so a non-nil variation
+        --answer never falls through to the map-wide setting.
         local painted = nil
+        local variationDefault = nil
         pcall(function()
             local markup = rawget(_G, "MapMarkupFootsteps")
             local token = dmhub.LookupToken(self)
             if markup ~= nil and token ~= nil and token.loc ~= nil then
                 painted = markup.GetPaintedSurfaceAt(token.floorid, token.loc.x, token.loc.y)
             end
+            if markup ~= nil and markup.GetVariationDefaultSurface ~= nil and token ~= nil then
+                variationDefault = markup.GetVariationDefaultSurface(token.floorid)
+            end
         end)
         if painted ~= nil and AudioSurfaceTypes.surfaces[painted] ~= nil then
             entry = AudioSurfaceTypes.surfaces[painted]
+        elseif variationDefault ~= nil then
+            if AudioSurfaceTypes.surfaces[variationDefault] ~= nil then
+                entry = AudioSurfaceTypes.surfaces[variationDefault]
+            end
         else
             local settingsTable = rawget(_G, "Settings")
             if settingsTable ~= nil and settingsTable["markup:footstepdefault"] ~= nil then
@@ -1291,6 +1304,29 @@ function creature:FillCalculatedStatusIcons(result)
 	end
 end
 
+--- Tallies, per language id, how many times the creature has been granted it minus
+--- how many times it has forgotten it. Innate languages and 'language' proficiency
+--- modifiers each add 1; 'forgetlanguage' modifiers subtract 1. A language is known
+--- while its tally is positive, so a hero who knows Caelian from two sources and
+--- forgets it once still knows it.
+--- @return table<string, number>
+function creature:LanguageCounts()
+    local counts = {}
+
+    for k,v in pairs(self:try_get("innateLanguages", {})) do
+        if v then
+            counts[k] = (counts[k] or 0) + 1
+        end
+    end
+
+    local mods = self:GetActiveModifiers()
+    for i,mod in ipairs(mods) do
+        mod.mod:AccumulateLanguages(mod, self, counts)
+    end
+
+    return counts
+end
+
 --returns a {string -> true} of languages the creature knows.
 --- Returns the set of language ids this creature knows.
 --- @return table<string, boolean>
@@ -1302,14 +1338,19 @@ function creature:LanguagesKnown()
     local result = self:try_get("_tmp_languagesKnownReuse")
     if result == nil then
         result = {}
+    else
+        --the reused table must be emptied first: a language that has since been
+        --forgotten or lost would otherwise linger in it for the rest of the session.
+        for k,_ in pairs(result) do
+            result[k] = nil
+        end
     end
 
-	local mods = self:GetActiveModifiers()
-	table.shallow_copy_into_dest(self:try_get("innateLanguages", {}), result)
-
-	for i,mod in ipairs(mods) do
-		mod.mod:AccumulateLanguages(mod, self, result)
-	end
+    for k,n in pairs(self:LanguageCounts()) do
+        if n > 0 then
+            result[k] = true
+        end
+    end
 
     self._tmp_languagesKnown = result
     self._tmp_languagesKnownReuse = result --stash a copy to re-use
@@ -2801,7 +2842,7 @@ function creature:RollDeathSavingThrow(args)
 end
 
 --Lua properties that we attach to a dice roll.
---- @class RollProperties
+--- @class RollProperties: GameType
 --- @field displayType string How the roll result is displayed: "none", "attack", "damage", etc.
 --- @field criticalHitDamage boolean If true, this roll contributes to critical hit extra damage.
 --- @field lowerIsBetter boolean If true, lower roll values are treated as better outcomes.
@@ -4905,41 +4946,8 @@ function creature:RefreshToken(token)
 
 	self:RefreshAnimations(token)
 
-	local triggeredEvents = self:try_get("triggeredEvents")
-	if triggeredEvents ~= nil and #triggeredEvents > 0 and triggeredEvents[1] and triggeredEvents[1].userid and triggeredEvents[1].userid == dmhub.userid then
-		local token = dmhub.LookupToken(self)
-		if token ~= nil then
-			for _,eventInfo in ipairs(triggeredEvents) do
-				if TimestampAgeInSeconds(eventInfo.timestamp) < 30 then
-                    local info = eventInfo.info
-                    if info ~= nil then
-                        --Resolve "charid:"/"tokenid:" refs back to live objects,
-                        --including refs nested inside tables such as the cast's
-                        --targets list. See DeserializeEventValue.
-                        local deserializedInfo = {}
-                        local visited = {}
-                        for k,v in pairs(info) do
-                            deserializedInfo[k] = DeserializeEventValue(v, visited)
-                        end
-
-                        info = deserializedInfo
-                    end
-
-					--Skip local-only triggers since they already fired on the originating machine.
-                    info = info or {}
-                    info.remote = true
-					self:TriggerEvent(eventInfo.eventName, info, true, "skipLocal")
-				end
-			end
-
-			token:ModifyProperties{
-				description = "Clear Triggers",
-				execute = function()
-					self.triggeredEvents = nil
-				end,
-			}
-		end
-	end
+	self:PumpAIReactionEvents()
+	self:PumpTriggeredEvents()
 
     if self:HasCondition(g_conditionHiddenId) then
         local q = dmhub.initiativeQueue
@@ -6279,6 +6287,7 @@ function creature:CaptureTeleportOpportunityAttackers(originLoc)
                and p._tmp_grabbedby ~= ourCharid
                and p:CanUseTriggeredAbilities()
                and p:CanMakeOpportunityAttacks()
+               and p:CanOpportunityAttack(tok, ourToken)
                and tok.loc ~= nil
                and originLoc:DistanceInTiles(tok.loc) <= 1 then
                 result = result or {}
@@ -6308,7 +6317,7 @@ function creature:DispatchTeleportOpportunityAttacks(observers)
            and (not tok:IsFriend(self))
            and not tok.properties:HasBanesOnGenericFreeStrike(ourToken)
            and tok.properties:CanMakeOpportunityAttacks()
-           and tok.properties:TargetPassesFilter("opportunityattack", self) then
+           and tok.properties:CanOpportunityAttack(tok, ourToken) then
             tok.properties:DispatchEvent("leaveadjacent", { movingcreature = self })
         end
     end
@@ -6329,6 +6338,22 @@ function creature:CanMakeOpportunityAttacks()
     return self:CalculateNamedCustomAttribute("Cannot Make Opportunity Attacks") == 0
 end
 
+--- Whether this creature (the observer) may make an opportunity attack against the
+--- creature leaving its reach. Every gate asks this one question -- the stepped move
+--- path, teleports, and the HUD preview -- so they cannot drift apart. The base rule is
+--- just the "Can Opportunity Attack" filter; game systems override this to add their own
+--- requirements (Draw Steel adds line of effect).
+--- @param observerToken CharacterToken this creature's own token
+--- @param moverToken CharacterToken the creature leaving our reach
+--- @return boolean
+function creature:CanOpportunityAttack(observerToken, moverToken)
+    if moverToken == nil or moverToken.properties == nil then
+        return false
+    end
+
+    return self:TargetPassesFilter("opportunityattack", moverToken.properties)
+end
+
 CreatureFilter.Register{
     id = "opportunityattack",
     text = "Can Opportunity Attack",
@@ -6344,7 +6369,16 @@ function creature:OnMove(path)
     if ourToken == nil then
         return
     end
-	self:DispatchEvent("move", {
+
+    local aiActivityId = self:try_get("_tmp_aiActivityId")
+    local function MovementEventInfo(info)
+        if aiActivityId ~= nil and aiActivityId ~= false then
+            info.aiActivityId = aiActivityId
+        end
+        return info
+    end
+
+	self:DispatchEvent("move", MovementEventInfo{
         path = PathMoved.new{
             path = path,
             size = ourToken.tileSize,
@@ -6520,7 +6554,7 @@ function creature:OnMove(path)
                     
                     if overlapping and not movedThroughTokens[otherToken.charid] then
                         --we moved through this token for the first time this turn.
-                        ourToken.properties:DispatchEvent("movethrough", {
+                        ourToken.properties:DispatchEvent("movethrough", MovementEventInfo{
                             path = PathMoved.new{
                                 path = path,
                                 size = ourTileSize,
@@ -6599,9 +6633,9 @@ function creature:OnMove(path)
                     local notImmuneForThisObserver = (not immuneFromOpportunityAttacks) or anyMovementObserver
                     local departureNotImmuneForThisObserver = (not immuneFromDeparture) or anyMovementObserver
 
-                    if withinVerticalReach and (not tok:IsFriend(self)) and tok.properties._tmp_grabbedby ~= ourCharid and not tok.properties:HasBanesOnGenericFreeStrike(ourToken) and tok.properties:TargetPassesFilter("opportunityattack", self) then
+                    if withinVerticalReach and (not tok:IsFriend(self)) and tok.properties._tmp_grabbedby ~= ourCharid and not tok.properties:HasBanesOnGenericFreeStrike(ourToken) and tok.properties:CanOpportunityAttack(tok, ourToken) then
                         if notImmuneForThisObserver and tok.properties:CanMakeOpportunityAttacks() then
-                            tok.properties:DispatchEvent("leaveadjacent", { movingcreature = self })
+                            tok.properties:DispatchEvent("leaveadjacent", MovementEventInfo{ movingcreature = self })
                             self._tmp_triggeredOpportunityAttacks = self._tmp_triggeredOpportunityAttacks + 1
                         end
 
@@ -6609,7 +6643,7 @@ function creature:OnMove(path)
                         --whose text reads "moves or shifts away" uses this single
                         --trigger rather than needing one of each.
                         if departureNotImmuneForThisObserver then
-                            tok.properties:DispatchEvent("leaveadjacentorshift", { movingcreature = self })
+                            tok.properties:DispatchEvent("leaveadjacentorshift", MovementEventInfo{ movingcreature = self })
                         end
                     end
 
@@ -6623,7 +6657,7 @@ function creature:OnMove(path)
                     --(banes, opportunityattack target filter, CanMakeOpportunityAttacks)
                     --describe the enemy's reaction, not the mover's own trait.
                     if willingDeparture and withinVerticalReach and (not tok:IsFriend(self)) and self:CanUseTriggeredAbilities() then
-                        self:DispatchEvent("departadjacent", { departedcreature = tok.properties })
+                        self:DispatchEvent("departadjacent", MovementEventInfo{ departedcreature = tok.properties })
                     end
                 end
             end
@@ -6635,7 +6669,7 @@ function creature:OnMove(path)
         -- space counts too. Deal Might damage to the first such enemy, once per turn.
         if reapingActive and not rawget(self, "_tmp_reapingScytheDealt") then
             for k,tok in pairs(adjacentTokens) do
-                if (not previousAdjacent[k]) and tok.loc ~= nil and (not IsFriendForTargeting(ourToken, tok)) then
+                if (not previousAdjacent[k]) and tok.loc ~= nil and IsFriendForTargeting(ourToken, tok) == false then
                     tok.properties:InflictDamageInstance(reapDamage, "", {}, "Reaping Scythe", { attacker = self })
                     self._tmp_reapingScytheDealt = true
                     break
@@ -6677,7 +6711,7 @@ function creature:OnMove(path)
     end
 end
 
---- @class PathMoved
+--- @class PathMoved: GameType
 PathMoved = RegisterGameType("PathMoved")
 PathMoved.size = 1
 
@@ -7338,6 +7372,35 @@ function creature:ApplyTemporaryEffect(effect)
     return result
 end
 
+--Removes EVERY copy of a temporary effect, unlike the single-slot cancel that
+--ApplyTemporaryEffect hands back. Use this when the owner of an effect wants it
+--gone regardless of how many times it was applied -- an ability whose cast ran
+--more than once can leave a copy behind whose cancel nobody holds any more, and
+--_tmp_ state is invisible to the character sheet, so a stray copy is otherwise
+--unreachable for the rest of the session.
+--- @param effect any the effect object that was passed to ApplyTemporaryEffect
+--- @return number how many copies were removed
+function creature:PurgeTemporaryEffect(effect)
+    local list = self:try_get("_tmp_temporaryEffects")
+    if list == nil then
+        return 0
+    end
+
+    local removed = 0
+    for i = #list, 1, -1 do
+        if list[i] == effect then
+            table.remove(list, i)
+            removed = removed + 1
+        end
+    end
+
+    if removed > 0 then
+        self:Invalidate()
+    end
+
+    return removed
+end
+
 function creature:ApplyMomentaryEffect(effect)
 	local momentaryEffects = self:get_or_add("_tmp_momentaryEffects", {})
 	momentaryEffects[#momentaryEffects+1] = effect
@@ -7471,13 +7534,18 @@ function creature:GetCustomAttribute(attrInfo)
 	return result
 end
 
--- Returns whether casterToken treats targetToken as a friend for TARGETING purposes.
--- Mirrors casterToken:IsFriend, except a creature with the "Count Allies as Enemies"
--- attribute treats allies within N squares (N = attribute value) as enemies, and a
--- creature with the "Count As Ally To Enemies" attribute forces everyone (even actual
--- enemies) to treat it as a friend. The target-side "cannot be treated as enemy" check
--- runs first and wins over both the base relationship and the caster-side attribute,
--- since it represents an effect the target is actively using to protect itself.
+-- TRI-STATE: how casterToken views targetToken for TARGETING purposes.
+--   true  = a friend (valid ally target)
+--   false = an enemy (valid enemy target)
+--   nil   = NEITHER -- not targetable as an ally, but not an enemy either
+-- Callers must treat "enemy" as a strict == false check and "friend" as a strict
+-- == true check; `not result` wrongly reads neutral (nil) as an enemy.
+-- Mirrors casterToken:IsFriend, with three attribute-driven overrides: the target-side
+-- "Count As Ally To Enemies" (Guise) forces friend and runs first since the target is
+-- actively protecting itself; caster-side "Count Allies as Enemies" makes allies within
+-- N squares read as enemies; caster-side "Count Allies as Neutral" (Memory Thief tier 1)
+-- makes allies within N squares read as neither. Enemies wins over Neutral when a
+-- creature somehow carries both.
 function IsFriendForTargeting(casterToken, targetToken)
     if casterToken == nil or targetToken == nil then
         return false
@@ -7495,7 +7563,7 @@ function IsFriendForTargeting(casterToken, targetToken)
         return false
     end
 
-    -- Never treat self as an enemy.
+    -- Never treat self as an enemy or as neutral.
     if casterToken.properties == targetToken.properties then
         return true
     end
@@ -7509,7 +7577,35 @@ function IsFriendForTargeting(casterToken, targetToken)
         end
     end
 
+    if IsNeutralizedAlly(casterToken, targetToken) then
+        return nil -- an ally, but not treatable as one: neither friend nor enemy
+    end
+
     return true
+end
+
+-- True when casterToken's "Count Allies as Neutral" attribute (Memory Thief tier 1)
+-- covers targetToken: within N squares (N = attribute value), casterToken cannot treat
+-- targetToken as an ally -- but targetToken does not become an enemy either. Self is
+-- never neutralized. IsFriendForTargeting returns nil off this. Targeting only for
+-- now: trigger eligibility, flanking, and auras stay on raw IsFriend by design.
+function IsNeutralizedAlly(casterToken, targetToken)
+    if casterToken == nil or targetToken == nil
+            or casterToken.properties == nil or targetToken.properties == nil
+            or casterToken.properties == targetToken.properties then
+        return false
+    end
+
+    local n = casterToken.properties:CalculateNamedCustomAttribute("Count Allies as Neutral")
+    if n ~= nil and n > 0 then
+        local casterLoc = casterToken.loc
+        local targetLoc = targetToken.loc
+        if casterLoc ~= nil and targetLoc ~= nil and casterLoc:DistanceInTiles(targetLoc) <= n then
+            return true
+        end
+    end
+
+    return false
 end
 
 --Derived states like "winded" that aren't conditions, but which we still want to be
@@ -7530,12 +7626,14 @@ function creature:MatchesString(viewingToken, token, str)
     str = string.lower(tostring(str))
 
     if viewingToken ~= nil then
+        --IsFriendForTargeting is tri-state (nil = neither): a neutralized ally
+        --matches neither "enemy" nor "ally", so both use strict comparisons.
         if str == "enemy" then
-            return not IsFriendForTargeting(viewingToken, token)
+            return IsFriendForTargeting(viewingToken, token) == false
         end
 
         if str == "ally" or str == "friend" then
-            return IsFriendForTargeting(viewingToken, token)
+            return IsFriendForTargeting(viewingToken, token) == true
         end
     end
 
@@ -9249,6 +9347,10 @@ function creature:BeginTurn()
         --Now that the prestartturn trigger has completed, expire start-of-turn auras.
         self:CheckAuraExpiration("nextturn")
 
+        --Auras left behind by a creature that died still belong to this initiative -- a
+        --summon acts on its summoner's turn -- so expire them on the same boundary.
+        Aura.ExpireOrphanedTurnScopedAurasOnTurn(initiativeid, "nextturn")
+
         if self:has_key("auras") then
             local expires = false
             for i,aura in ipairs(self.auras) do
@@ -9576,6 +9678,10 @@ function creature:EndTurn(token)
 	end
 	self:CheckAuraExpiration("endturn")
 
+	--Same as the start of the turn: a dead caster's auras expire on the initiative it
+	--acted on, which for a summon is its summoner's.
+	Aura.ExpireOrphanedTurnScopedAurasOnTurn(InitiativeQueue.GetInitiativeId(token), "endturn")
+
 end
 
 function creature:EndRound(token)
@@ -9813,6 +9919,8 @@ function creature:TriggerEvent(eventName, info, alreadyTriggeredOnOthers, localF
 	return true
 end
 
+local g_aiActivityReactionExpirySeconds = 600
+
 --Serialization helpers for event payloads that cross the network (the
 --triggeredEvents and remoteInvokes queues written via ModifyProperties).
 --Event info can hold live objects nested inside tables: e.g. info.cast is an
@@ -9926,6 +10034,203 @@ function DeserializeEventValue(value, visited)
     return result
 end
 
+--An event is one JSON string, so token diffs cannot recreate a deleted event
+--with only its userdata leaves. Requests and receipts have different writers;
+--stable IDs and retained receipts prevent a retry from firing an ability twice.
+local g_aiReactionDeliverySeconds = 15
+local g_aiReactionRetrySeconds = 3
+
+local function ReadAIReactionMessage(value)
+    if type(value) ~= "string" then return nil end
+    local ok, result = pcall(dmhub.FromJson, value)
+    if ok and type(result) == "table" and result.success and type(result.result) == "table" then return result.result end
+end
+
+local function WriteAIReactionMessage(props, field, id, value)
+    local token = dmhub.LookupToken(props)
+    if token == nil then return end
+    local encoded = dmhub.ToJson(value)
+    token:ModifyProperties{
+        description = "AI Reaction " .. tostring(value.state or "delivery"),
+        undoable = false,
+        execute = function()
+            local messages = props:get_or_add(field, {})
+            messages[id] = encoded
+            for key,bytes in pairs(messages) do
+                local message = ReadAIReactionMessage(bytes)
+                if key ~= id and message ~= nil and type(message.timestamp) == "number"
+                    and TimestampAgeInSeconds(message.timestamp) > g_aiActivityReactionExpirySeconds then
+                    messages[key] = nil
+                end
+            end
+        end,
+    }
+end
+
+--Legacy events can arrive from older clients. Inspect each record separately:
+--a malformed head or a different recipient must not block everyone behind it.
+function creature:PumpTriggeredEvents()
+    local token = dmhub.LookupToken(self)
+    local events = self:try_get("triggeredEvents")
+    if token == nil or events == nil or self:try_get("_tmp_pumpingTriggeredEvents", false) then return end
+    self._tmp_pumpingTriggeredEvents = true
+    local consumed = {}
+    for _,event in pairs(events) do
+        local valid = type(event) == "table" and type(event.userid) == "string"
+            and type(event.eventName) == "string" and type(event.timestamp) == "number"
+        if not valid or TimestampAgeInSeconds(event.timestamp) >= 30 or event.userid == dmhub.userid then
+            consumed[event] = true
+            if valid and event.userid == dmhub.userid and TimestampAgeInSeconds(event.timestamp) < 30 then
+                local ok, err = pcall(function()
+                    local info = DeserializeEventValue(event.info or {})
+                    info.remote = true
+                    self:TriggerEvent(event.eventName, info, true, "skipLocal")
+                end)
+                if not ok then
+                    consumed[event] = tostring(err)
+                    print("AI:: LEGACY EVENT FAILED", event.eventName, tostring(err))
+                end
+            elseif not valid then
+                consumed[event] = "malformed legacy movement event"
+                print("AI:: MALFORMED LEGACY EVENT DISCARDED", token.charid)
+            else
+                consumed[event] = "legacy movement event expired before evaluation"
+            end
+        end
+    end
+    if next(consumed) ~= nil then
+        token:ModifyProperties{
+            description = "Clear Processed Triggers", undoable = false,
+            execute = function()
+                local remaining = {}
+                for _,event in ipairs(self:try_get("triggeredEvents", {})) do
+                    if not consumed[event] then remaining[#remaining+1] = event end
+                end
+                self.triggeredEvents = #remaining > 0 and remaining or nil
+                for event,result in pairs(consumed) do
+                    local info = type(event) == "table" and event.info
+                    if type(info) == "table" and type(info.aiReactionDispatchId) == "string" then
+                        if result == true then
+                            self:CompletePendingAIActivityReaction(info.aiActivityId, info.aiReactionDispatchId)
+                        else
+                            local entry = self:try_get("pendingAIActivityReactions", {})[info.aiReactionDispatchId]
+                            if entry ~= nil then entry.state = "failed"; entry.reason = result end
+                        end
+                    end
+                end
+            end,
+        }
+    end
+    self._tmp_pumpingTriggeredEvents = nil
+end
+
+function creature:QueueAIReactionEvent(eventName, info, controller, abilityNames)
+    local id = dmhub.GenerateGuid()
+    local message = {
+        id = id, activityId = info.aiActivityId, eventName = eventName,
+        userid = controller, timestamp = ServerTimestamp(), attempt = 1,
+        info = SerializeEventValue(info), ability = table.concat(abilityNames, ", "),
+    }
+    --Keep a private intact copy even if the shared request is lost or damaged.
+    local outbox = self:get_or_add("_tmp_aiReactionOutbox", {})
+    for key,bytes in pairs(outbox) do
+        local previous = ReadAIReactionMessage(bytes)
+        if previous ~= nil and TimestampAgeInSeconds(previous.timestamp) > g_aiActivityReactionExpirySeconds then
+            outbox[key] = nil
+        end
+    end
+    outbox[id] = dmhub.ToJson(message)
+    WriteAIReactionMessage(self, "aiReactionRequests", id, message)
+end
+
+function creature:PumpAIReactionEvents()
+    local token = dmhub.LookupToken(self)
+    if token == nil then return end
+    local localReceipts = self:get_or_add("_tmp_aiReactionReceipts", {})
+    for id,bytes in pairs(localReceipts) do
+        local receipt = ReadAIReactionMessage(bytes)
+        if receipt ~= nil and type(receipt.timestamp) == "number"
+            and TimestampAgeInSeconds(receipt.timestamp) > g_aiActivityReactionExpirySeconds then
+            localReceipts[id] = nil
+        end
+    end
+    for id,bytes in pairs(self:try_get("aiReactionRequests", {})) do
+        local request = ReadAIReactionMessage(bytes)
+        if request ~= nil and request.userid == dmhub.userid then
+            local receiptBytes = localReceipts[id] or self:try_get("aiReactionReceipts", {})[id]
+            if receiptBytes ~= nil then
+                localReceipts[id] = receiptBytes
+                --A lost acknowledgment is repaired without repeating evaluation.
+                if self:try_get("aiReactionReceipts", {})[id] ~= receiptBytes then
+                    local receipt = ReadAIReactionMessage(receiptBytes)
+                    if receipt ~= nil then WriteAIReactionMessage(self, "aiReactionReceipts", id, receipt) end
+                end
+            else
+                local receipt = {id = id, activityId = request.activityId,
+                    timestamp = ServerTimestamp(), state = "evaluating"}
+                local valid = request.id == id and type(request.timestamp) == "number"
+                    and type(request.activityId) == "string" and type(request.eventName) == "string"
+                    and type(request.info) == "table" and request.info.aiActivityId == request.activityId
+                if not valid or TimestampAgeInSeconds(request.timestamp) >= g_aiReactionDeliverySeconds then
+                    receipt.state = "failed"
+                    receipt.reason = valid and "movement event arrived after its delivery deadline" or "malformed movement event"
+                end
+                localReceipts[id] = dmhub.ToJson(receipt)
+                WriteAIReactionMessage(self, "aiReactionReceipts", id, receipt)
+                if receipt.state == "evaluating" then
+                    --The claim is written before evaluation. An interrupted claim
+                    --is ambiguous, so a restarted client must never execute it again.
+                    local ok, err = pcall(function()
+                        local info = DeserializeEventValue(request.info)
+                        info.remote = true
+                        self:TriggerEvent(request.eventName, info, true, "skipLocal")
+                    end)
+                    receipt.state = ok and "evaluated" or "failed"
+                    receipt.reason = not ok and tostring(err) or nil
+                    localReceipts[id] = dmhub.ToJson(receipt)
+                    WriteAIReactionMessage(self, "aiReactionReceipts", id, receipt)
+                end
+            end
+        end
+    end
+end
+
+--Called by the host while waiting. Delivery has a short deadline; real player
+--choices and casts remain separate records and are never retried as events.
+function creature:GetAIReactionDeliveryStatus(activityId)
+    local pending, description, failure = 0, nil, nil
+    local requests = table.shallow_copy(self:try_get("aiReactionRequests", {}))
+    for id,bytes in pairs(self:try_get("_tmp_aiReactionOutbox", {})) do requests[id] = bytes end
+    for id,bytes in pairs(requests) do
+        local request = ReadAIReactionMessage(bytes)
+        if request ~= nil and request.activityId == activityId then
+            local receipt = ReadAIReactionMessage(self:try_get("aiReactionReceipts", {})[id])
+            local valid = request.id == id and type(request.timestamp) == "number"
+                and type(request.ability) == "string" and type(request.info) == "table"
+            local age = valid and TimestampAgeInSeconds(request.timestamp) or math.huge
+            if receipt ~= nil and (receipt.id ~= id or receipt.activityId ~= activityId) then receipt = nil end
+            if not valid then
+                failure = "malformed movement delivery record"
+            elseif receipt ~= nil and receipt.state == "failed" then
+                failure = receipt.reason or "movement event evaluation failed"
+            elseif receipt == nil or receipt.state ~= "evaluated" then
+                pending = pending + 1
+                description = "client to evaluate " .. request.ability
+                if age >= g_aiReactionDeliverySeconds then
+                    failure = receipt ~= nil and "movement event evaluation was interrupted"
+                        or "no movement event acknowledgment after 15 seconds"
+                elseif receipt == nil and self:try_get("_tmp_aiReactionOutbox", {})[id] ~= nil
+                    and age >= (request.attempt or 1)*g_aiReactionRetrySeconds then
+                    request.attempt = (request.attempt or 1) + 1
+                    self._tmp_aiReactionOutbox[id] = dmhub.ToJson(request)
+                    WriteAIReactionMessage(self, "aiReactionRequests", id, request)
+                end
+            end
+        end
+    end
+    return pending, description, failure
+end
+
 function creature:DispatchEvent(eventName, info)
 
     local triggeredOnOthers = false
@@ -9953,10 +10258,11 @@ function creature:DispatchEvent(eventName, info)
 
 	-- Check for non-local triggers that need normal dispatch.
 	local hasTrigger = false
+	local abilityNames = {}
 	for i,mod in ipairs(mods) do
 		if mod.mod:HasTriggeredEvent(self, eventName, targetsOther, "skipLocal") then
 			hasTrigger = true
-			break
+			abilityNames[#abilityNames+1] = mod.mod.triggeredAbility.name
 		end
 	end
 
@@ -9977,6 +10283,12 @@ function creature:DispatchEvent(eventName, info)
 	--we are the best choice to handle this event.
 	if activecontroller == nil then
 		self:TriggerEvent(eventName, info, triggeredOnOthers, "skipLocal")
+		return
+	end
+
+	local aiActivityId = info ~= nil and info.aiActivityId or nil
+	if token.playerControlled and type(aiActivityId) == "string" and aiActivityId ~= "" then
+		self:QueueAIReactionEvent(eventName, info, activecontroller, abilityNames)
 		return
 	end
 
@@ -10034,6 +10346,7 @@ function creature:DispatchEvent(eventName, info)
 				eventName = eventName,
 				info = info,
 			}
+
 		end,
 	}
 end
@@ -10084,6 +10397,7 @@ end
 --- @field auraControllerId false|string
 --- @field execSymbols false|table SerializeEventValue-encoded event symbols for orphan recovery.
 --- @field execTargets false|table SerializeEventValue-encoded targets for orphan recovery.
+--- @field aiActivityId false|string The Monster AI movement activity waiting for this prompt.
 ActiveTrigger = RegisterGameType("ActiveTrigger")
 ActiveTrigger.id = ""
 ActiveTrigger.charid = ""
@@ -10139,6 +10453,7 @@ ActiveTrigger.watcherUserid = false
 ActiveTrigger.auraControllerId = false
 ActiveTrigger.execSymbols = false
 ActiveTrigger.execTargets = false
+ActiveTrigger.aiActivityId = false
 
 --A prompt card that offers an ability invocation rather than a triggered
 --ability: a serialization-safe AbilityInvocation record (see
@@ -10154,6 +10469,114 @@ ActiveTrigger.invocation = false
 --them -- see ActiveTrigger.RefreshAllTimers. Entries created before this field
 --existed have 0 here and fall back to timestamp.
 ActiveTrigger.expiryTimestamp = 0
+
+--A movement event marker is replaced by one marker per prompt on the player's
+--token. The AI host can see these records, so it can wait across clients without
+--keeping the prompt card alive after the player has made a choice.
+function creature:BeginPendingAIActivityReaction(activityId, reactionId, abilityName)
+    if type(activityId) ~= "string" or activityId == "" or type(reactionId) ~= "string" or reactionId == "" then
+        return
+    end
+
+    local token = dmhub.LookupToken(self)
+    if token == nil then
+        return
+    end
+
+    token:ModifyProperties{
+        description = "Begin AI Reaction",
+        undoable = false,
+        combine = true,
+        execute = function()
+            local pendingReactions = self:get_or_add("pendingAIActivityReactions", {})
+            for id,entry in pairs(pendingReactions) do
+                if type(entry) == "table" and entry.state == "completed" and entry.timestamp ~= nil
+                    and TimestampAgeInSeconds(entry.timestamp) > g_aiActivityReactionExpirySeconds then
+                    pendingReactions[id] = nil
+                end
+            end
+            pendingReactions[reactionId] = {
+                activityId = activityId,
+                timestamp = ServerTimestamp(),
+                state = "awaiting_choice",
+                ability = abilityName,
+            }
+        end,
+    }
+end
+
+function creature:CompletePendingAIActivityReaction(activityId, reactionId)
+    if type(reactionId) ~= "string" or reactionId == "" then
+        return
+    end
+
+    local token = dmhub.LookupToken(self)
+    local pendingReactions = self:try_get("pendingAIActivityReactions")
+    if token == nil or pendingReactions == nil then
+        return
+    end
+
+    local entry = pendingReactions[reactionId]
+    if entry == nil or (type(activityId) == "string" and entry.activityId ~= activityId) then
+        return
+    end
+
+    token:ModifyProperties{
+        description = "Complete AI Reaction",
+        undoable = false,
+        combine = true,
+        execute = function()
+            --Retain completion so late callbacks can see that this reaction
+            --already ended. A later Begin call collects old terminal records.
+            pendingReactions[reactionId] = {activityId = entry.activityId,
+                timestamp = ServerTimestamp(), state = "completed"}
+        end,
+    }
+end
+
+function creature:SetAIActivityReactionResolving(activityId, reactionId)
+    local entry = self:try_get("pendingAIActivityReactions", {})[reactionId]
+    local token = dmhub.LookupToken(self)
+    if token ~= nil and entry ~= nil and entry.activityId == activityId and entry.state ~= "completed" then
+        token:ModifyProperties{
+            description = "Resolve AI Reaction", undoable = false,
+            execute = function() entry.state = "resolving" end,
+        }
+    end
+end
+
+function creature:GetAIActivityReactionStatus(activityId)
+    local pending, description, failure = self:GetAIReactionDeliveryStatus(activityId)
+    local triggers = self:try_get("availableTriggers", {})
+    for id,entry in pairs(self:try_get("pendingAIActivityReactions", {})) do
+        if type(entry) == "table" and entry.activityId == activityId and entry.state ~= "completed" then
+            pending = pending + 1
+            description = entry.state == "resolving" and "reaction to finish: " .. (entry.ability or "reaction")
+                or "player to answer " .. (entry.ability or "reaction")
+            local age = type(entry.timestamp) == "number" and TimestampAgeInSeconds(entry.timestamp) or math.huge
+            if entry.state == "failed" then
+                failure = entry.reason or "reaction evaluation failed"
+            elseif age > g_aiActivityReactionExpirySeconds then
+                failure = "reaction completion could not be confirmed"
+            elseif entry.state ~= "resolving" and triggers[id] == nil and age >= g_aiReactionDeliverySeconds then
+                failure = "reaction marker has no matching player prompt"
+            end
+        end
+    end
+    return pending, description, failure
+end
+
+function creature:CountPendingAIActivityReactions(activityId)
+    local result = 0
+    for _,entry in pairs(self:try_get("pendingAIActivityReactions", {})) do
+        if type(entry) == "table" and entry.activityId == activityId and entry.state ~= "completed"
+            and entry.timestamp ~= nil
+            and TimestampAgeInSeconds(entry.timestamp) <= g_aiActivityReactionExpirySeconds then
+            result = result + 1
+        end
+    end
+    return result
+end
 
 --How long a trigger prompt stays available before it ages out. This is a
 --garbage-collection backstop, not a gameplay timer: in combat the sustain
@@ -10527,6 +10950,13 @@ function creature:ClearAvailableTrigger(triggerInfo)
     local cleared = availableTriggers[triggerInfo.id]
     local isInteraction = cleared ~= nil and (cleared.triggered ~= false or cleared.dismissed)
 
+	--A declined or expired AI-correlated prompt has no cast completion callback,
+	--so clearing the card also completes its pending reaction marker. Accepted
+	--prompts keep the marker until their cast reports OnFinish.
+	if cleared ~= nil and cleared.aiActivityId ~= false and (cleared.triggered == false or cleared.dismissed) then
+		self:CompletePendingAIActivityReaction(cleared.aiActivityId, cleared.id)
+	end
+
 	local deletes = {}
 	for key,value in pairs(availableTriggers) do
 		if TriggerExpired(value) or key == triggerInfo.id then
@@ -10558,7 +10988,7 @@ end
 --from adjacent into the aura proper still triggers, while re-entering at the
 --same (or a shallower) depth in one turn does not. Records written before
 --levels existed hold true, which reads as level 2.
-function creature:EnterAuraHaltsMovement(info, level)
+function creature:LegacyAuraEntryAvailable(info, level)
 	level = level or 2
 	local turnid = self:GetTurnId()
 	if turnid ~= nil and turnid == self:try_get("aurasEnteredTurnId") then
@@ -10572,6 +11002,39 @@ function creature:EnterAuraHaltsMovement(info, level)
 	end
 
 	return true
+end
+
+--These opt-in triggers keep movement entry independent from turn start.
+--Outside combat there is no round limit, so each actual entry remains eligible.
+function creature:AuraRoundEntryAvailable(info)
+    local q = dmhub.initiativeQueue
+    local roundId = q and q:GetRoundId()
+    if roundId == nil or self:try_get("auraEntriesRoundId") ~= roundId then
+        return true
+    end
+    return not self:try_get("auraEntriesThisRound", {})[info.auraInstance.guid]
+end
+
+local function AuraHasIndependentTriggers(aura)
+    local independent = false
+    local legacy = aura:try_get("powerRollEnabled", false)
+    for _, trigger in ipairs(aura.triggers) do
+        independent = independent or trigger.trigger == "onfirstenterround" or trigger.trigger == "targetstartturnaura"
+        legacy = legacy or trigger.trigger == "onenter"
+    end
+    return independent, legacy
+end
+
+function creature:EnterAuraHaltsMovement(info, level)
+    local independent, legacy = AuraHasIndependentTriggers(info.auraInstance.aura)
+    if independent and (level or 2) >= 2 then
+        for _, trigger in ipairs(info.auraInstance.aura.triggers) do
+            if trigger.trigger == "onfirstenterround" and self:AuraRoundEntryAvailable(info) then
+                return true
+            end
+        end
+    end
+    return (not independent or legacy) and self:LegacyAuraEntryAvailable(info, level)
 end
 
 --called by dmhub when a creature enters an aura (adjacentOnly = it is only on
@@ -10598,7 +11061,45 @@ function creature:EnterAura(info, adjacentOnly, fromBeginTurn, enteredViaShift)
 	end
 
 	local result = false
-	if self:EnterAuraHaltsMovement(info, level) == false then
+    local independent, legacy = AuraHasIndependentTriggers(info.auraInstance.aura)
+    if independent and not adjacentOnly then
+        local event = fromBeginTurn and "targetstartturnaura" or "onfirstenterround"
+        local eligible = fromBeginTurn or self:AuraRoundEntryAvailable(info)
+        if eligible then
+            local matching = {}
+            for _, trigger in ipairs(info.auraInstance.aura.triggers) do
+                if trigger.trigger == event then matching[#matching + 1] = trigger end
+            end
+            local targetToken = dmhub.LookupToken(self)
+            if #matching > 0 and targetToken ~= nil and targetToken.valid then
+                local q = dmhub.initiativeQueue
+                local roundId = q and q:GetRoundId()
+                if not fromBeginTurn and roundId ~= nil then
+                    --Reserve before casting: a triggered move can enter another aura.
+                    targetToken:ModifyProperties{
+                        description = "Enter Aura",
+                        execute = function()
+                            if self:try_get("auraEntriesRoundId") ~= roundId then
+                                self.auraEntriesRoundId = roundId
+                                self.auraEntriesThisRound = {}
+                            end
+                            self.auraEntriesThisRound[info.auraInstance.guid] = true
+                        end,
+                    }
+                end
+                local auraCasterToken = info.token
+                if auraCasterToken == nil or not auraCasterToken.valid or not auraCasterToken.uploadable then
+                    auraCasterToken = targetToken
+                end
+                for _, trigger in ipairs(matching) do
+                    result = true
+                    info.auraInstance:FireTriggeredAbility(trigger.ability, self, auraCasterToken)
+                    if trigger.destroyaura then info:Destroy() end
+                end
+            end
+        end
+    end
+	if (independent and not legacy) or self:LegacyAuraEntryAvailable(info, level) == false then
 		return result
 	end
 	local auraGuid = info.auraInstance.guid
@@ -11509,7 +12010,7 @@ function creature:EventDropImage(path)
 			dmhub.AddAndUploadImageToLibrary("Avatar", imageid)
 
 			token.portrait = imageid
-			token.portraitOffset = {x = 0, y = 0}
+			token.portraitOffset = core.Vector2(0, 0)
 			token.portraitZoom = 1
 			token:UploadAppearance(snapshot)
 			dmhub.Debug("COMPLETED PASTE")
@@ -11517,7 +12018,7 @@ function creature:EventDropImage(path)
 		addlocal = function(imageid)
 			dmhub.AddImageToLibraryLocally("Avatar", imageid)
 			token.portrait = imageid
-			token.portraitOffset = {x = 0, y = 0}
+			token.portraitOffset = core.Vector2(0, 0)
 			token.portraitZoom = 1
 			token:RefreshAppearanceLocally()
 			dmhub.Debug("ADD LOCAL")
@@ -11567,7 +12068,7 @@ function creature:EventPaste()
 			dmhub.AddAndUploadImageToLibrary("Avatar", imageid)
 
 			token.portrait = imageid
-			token.portraitOffset = {x = 0, y = 0}
+			token.portraitOffset = core.Vector2(0, 0)
 			token.portraitZoom = 1
 			token:UploadAppearance(snapshot)
 			dmhub.Debug("COMPLETED PASTE")
@@ -11576,7 +12077,7 @@ function creature:EventPaste()
 			dmhub.AddImageToLibraryLocally("Avatar", imageid)
 
 			token.portrait = imageid
-			token.portraitOffset = {x = 0, y = 0}
+			token.portraitOffset = core.Vector2(0, 0)
 			token.portraitZoom = 1
 			token:RefreshAppearanceLocally()
 		end
@@ -12415,7 +12916,7 @@ function creature:HasCondition(conditionid)
         local effectInfo = ongoingEffects[i]
 		if effectInfo.seq > seqFound then
 			local ongoingEffectInfo = ongoingEffectsTable[effectInfo.ongoingEffectid]
-            if ongoingEffectInfo.condition == conditionid then
+            if ongoingEffectInfo ~= nil and ongoingEffectInfo.condition == conditionid then
                 local casterInfo = effectInfo:try_get("casterInfo")
 				seqFound = effectInfo.seq
                 result = (casterInfo and casterInfo.tokenid) or true

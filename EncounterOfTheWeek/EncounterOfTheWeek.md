@@ -925,6 +925,31 @@ How claimed heroes physically get from the titlescreen into an EotW game:
   the same moment both anchor at the same tile and cannot see each other's
   un-synced writes); accepted for now -- arrivals are naturally staggered by
   load time, and combat entry waits for every player anyway.
+  **Observed live 2026-09-08 (4-player game, host log):** two heroes stacked on
+  the anchor tile (1,-8, floor 2). The host had placed and then WALKED its own
+  hero off the anchor tile ~70s before the next arrivals, so the anchor read
+  vacant to everyone; two players' paste patches then reached the server
+  within the same instant (their `/characters` echoes arrived back-to-back in
+  the host's stream, the second token logging `canFit = False`), so neither
+  vacancy scan could see the other's write and both took the anchor. The
+  fourth arrival, seconds later, saw both and fanned out to (1,-7). The
+  vacancy scan (`FindBestTokenLoc` -> `charactersByLoc`) is correct for
+  everything it can see; the race is in what it cannot see yet.
+  **Post-paste stacking repair (BUILT 2026-09-08, UNTESTED, not yet
+  deployed):** `UnstackPlacedHeroes(charids, anchor)` runs at the end of
+  `PlaceMyHeroes` over every hero this client pasted. It waits 1s (for the
+  other clients' pastes from the same instant to echo back), runs
+  `game.UpdateCharacterTokens()`, and for each of its heroes checks
+  `game.GetTokensAtLoc(token.loc)`. A pile is repaired deterministically so
+  two clients fixing the same pile at once do not collide again: the members'
+  charids are sorted, the lowest keeps the tile, and the hero of sorted rank
+  `r` moves (`token:ChangeLocation`, which goes through the engine's
+  `SummonTokens` and is itself vacancy-aware) to the `r`-th free tile of the
+  Start zone in a shared order -- tiles sorted by distance from the anchor,
+  ties by x then y (`StartZoneTilesByDistance`, `NthFreeStartTile`). Up to 3
+  check/repair rounds run; a round that moves nothing ends it. Maps with no
+  Start zone skip the repair (nothing to spread across). Each client repairs
+  only its own heroes, so no elevated permissions are needed.
 - **Lua Loc gotcha (2026-08-27)**: a Loc's floor is READ as `loc.floor`;
   `loc.floorIndex` is not a property and reads nil (the CONSTRUCTOR arg is named
   `floorIndex`, the getter is `floor`). Passing a floorless Loc to
@@ -1294,9 +1319,12 @@ Consequences worth knowing before using it:
   asset rewrites the file in your directory instead of patching the cloud --
   most plausibly the encounter DOCUMENT, since journal documents are rows of
   the `documents` table under `/assets` and the host banks spawn locations
-  into the encounter annotation. It shows up as a git diff rather than
-  silently, but point the list at content you are happy to have a playtest
-  write to (a scratch clone, if that matters).
+  into the encounter annotation. Both overlay directories are now git
+  repositories, so a write-back shows up as a diff rather than silently:
+  `C:\dev\eotw` was `git init`-ed on 2026-09-06 (it had been loose files
+  with no history until then -- see that day's status entry), and
+  `draw-steel-codex/data` is the `draw-steel-data` submodule. Still, point
+  the list only at content you are happy to have a playtest write to.
 - **Mod documents are unaffected.** The EotW shared state doc lives at
   `/modDocuments/{modguid}/documents/...`, outside the intercepted
   `/GameDetails/{gid}/assets` prefix, so all the runtime state the encounter
@@ -1450,6 +1478,44 @@ entirely as leafy EotW-module code plus small named hooks in core:
     check is "any id in `richEncounter.spawns` with `dmhub.GetTokenById(id) ~= nil`"
     -- GetTokenById returns nil for deleted AND despawned characters (verified), so
     the stale ids in the shipped doc never trip it.
+
+### Initiative roll: monsters took the first turn on a 10 (ROOT-CAUSED + FIXED 2026-09-08; core fix, reload pending, UNTESTED live)
+
+Report (2026-09-08, live EotW game): the players rolled a 10 on the Draw
+Steel die, the banner said the heroes won, and the Monster AI took the
+first turn anyway. Live queue inspection confirmed the mechanism: the
+queue's stored `playersGoFirst` was **nil** (resolved to the class default
+`true`), so `playersTurn` had also been written nil and resolved to ITS
+class default `false` = monsters' turn (`MCDMInitiativeQueue.lua:41-42`).
+
+Root cause, in `Draw Steel UI/DSInitiativeRoll.lua`: the banner's
+controller (the EotW host) creates the queue with `playersGoFirst =
+m_heroesWin`, and `m_heroesWin` was set ONLY by the `diceface` event of the
+controller's own local die. Dice are simulated on the roller's machine and
+shipped as a recorded replay in the chat message (`Assets/DICE_REFERENCE.md`
+sections 7-8), so on any client that did not roll -- always the case in EotW
+when a player claims the die -- the replay only starts after the roller has
+finished, and the controller's finish path (`doc.data.finished` + 2.6s of
+banner animation) fires while that replay is still tumbling, or before the
+client ever subscribed to the die (the subscription in `refreshGame` needs
+the roll's chat message to have arrived before the last document change).
+Result: stale or nil `m_heroesWin` -- a coin flip or, as here, nil -> the
+bar shows heroes won while the monsters act. Normal games rarely hit this
+because the Director both controls the banner and rolls the die.
+
+Fix (core, applies to every game, not EotW-only): the roller's
+`complete` callback now writes the authoritative die value into the shared
+`drawsteel` document (`doc.data.result = rollInfo.total`, next to
+`finished`; cleared at banner init), and the controller resolves the winner
+from `doc.data.result >= m_initiativeThreshold` (its own threshold -- the
+surprise/Initiative Threshold calc only has the player tokens on the
+controller) before creating or re-rolling the queue. If no result is known
+it logs `BANNER:: no die result known` and defaults to heroes, so both
+`playersGoFirst` and `playersTurn` are always explicit booleans -- the
+nil-falls-to-mismatched-defaults path is closed. The reroll path's
+`m_heroesWin ~= nil` guard went with it. luac-clean; live in the
+git folder (= this repo) pending a Lua reload; needs a live EotW check
+where a non-host player rolls.
 
 ### Start-zone confinement during the pre-combat phase (DECIDED + BUILT 2026-08-28; engine NEEDS BUILD)
 
@@ -2005,8 +2071,10 @@ tokens the user does not own, not a general substitute for the
 capability/presentation split.
 
 **Known related site, left alone pending a decision**:
-`CharacterToken.DragBlockedByMovementRules` (the `strictmovementrules`
-drag block) has the same shape -- on a player host it now stops the host
+`CharacterToken.PlayerMoveBlockedByMovementRules` (the `strictmovementrules`
+drag block, renamed from `DragBlockedByMovementRules` on 2026-09-08 when the
+arrow keys started sharing it -- see "Arrow-key movement bypassed the drag
+gates" below) has the same shape -- on a player host it now stops the host
 manually dragging a monster during combat when it is not that monster's
 turn, which the audit had explicitly accepted as a manual-recovery path.
 It is a user action rather than automation, so it was not changed; the
@@ -2154,8 +2222,11 @@ defect. Raised for a decision; see Open Questions.
 
 User direction (2026-08-28): EotW games strictly enforce all game rules -- the
 settings screen's "Rules Enforcement" options that start with "Strict"/"Strictly"
-are force-enabled. The forced set (`g_strictRuleSettings` in
-`EncounterOfTheWeek/EncounterOfTheWeek.lua`):
+are force-enabled. The forced set (the `true` entries of
+`g_forcedGameSettings` in `EncounterOfTheWeek/EncounterOfTheWeek.lua`; the
+same table also carries the monster-stamina visibility and Monster Info
+settings, see "Players always see monster stamina bars, not amounts" and
+"Monster Info is always on" below):
 
 - `strict:movement` (Strictly Enforce Forced Movement Rules)
 - `strict:targeting` (Strictly Enforce Targeting Rules)
@@ -2172,11 +2243,169 @@ to Players") -- it shares the GameStrictRules section but is a Director
 visibility tool, not a strictness rule, and does not match the "Strict..."
 naming criterion.
 
-Mechanism: `EnforceStrictRules()` writes any of the six game-scoped settings
-that is not already `true`. Called from the host's `SetupOnArrival` block
-(next to the `permission:playersinitiative` write) and re-asserted at the top
-of every `MapScriptHostThink` tick (check-before-write, so steady-state ticks
-write nothing).
+Mechanism: `EnforceStrictRules()` walks `g_forcedGameSettings` (a list of
+`{ id, value }` entries) and writes any game-scoped setting whose current
+value differs from its forced value. Called from the host's `SetupOnArrival`
+block (next to the `permission:playersinitiative` write) and re-asserted at
+the top of every `MapScriptHostThink` tick (check-before-write, so
+steady-state ticks write nothing).
+
+#### Arrow-key movement bypassed the drag gates (FOUND + FIXED 2026-09-08; engine NEEDS BUILD, UNTESTED)
+
+User report (2026-09-08): in a live EotW game the arrow keys still moved the
+reporter's hero when it should have had no movement (off-turn), even though
+dragging refused. Root cause (engine-wide, not EotW-specific): the arrow keys
+are bound to the built-in `tokenmove` console command
+(`Assets/CoreAssets/Lua/commands.txt`, compiled into the engine as builtin
+Lua -- NOT a codex file), which calls `token:Move`. The `Move` bridge already
+clamped to the strict:movement remaining budget and honoured the
+movement-restriction zone, but it skipped the three gates the mouse drag in
+`CharacterToken.UpdateDragging` applies before a drag can even start:
+`canControlAsUser`, the frozen-game check (`isDM || !frozen`), and the
+`strictmovementrules` "in combat, not this token's turn" block. So off-turn
+arrow movement went through whenever the budget clamp alone did not catch
+it.
+
+Fix, all engine-side:
+
+- `CharacterToken.DragBlockedByMovementRules` renamed to the public
+  `PlayerMoveBlockedByMovementRules` (same body: `isDM` short-circuit, the
+  `strictmovementrules` setting, the initiative-status switch).
+- `Move` (the Lua bridge) gained a `playerMovement` option. When true it runs
+  the three drag gates above up front and returns nil if any refuses; the
+  budget clamp and zone restriction then apply as before. AI, ability and
+  forced movement never pass it, so their behaviour is unchanged.
+- `tokenmove` passes `{playerMovement = true}`. The `dmhub.isDM or
+  newLoc.isOnMap` pre-check it already had is untouched.
+- LuaLS stub `Definitions/CharacterToken.lua` documents the option.
+
+Both halves ship with the engine (the C# and the builtin Lua), so this is
+inert until the next build. `flyup`/`flydown` (`MoveVertical`) were not
+touched.
+
+#### Off-turn ability use (FOUND + FIXED 2026-09-07; verified live, uncommitted)
+
+User report (2026-09-07): in a live EotW game the action bar let the reporter
+use their Polder Elementalist's abilities while another creature's turn was
+selected. Root cause (codex-wide, not EotW-specific): the per-drawer
+`refresh` in `DrawSteelActionBar.lua` only cleared the drawer's cosmetic
+`available` class off-turn (its one style rule is a bgcolor), the drawer's
+`press` opened the menu unconditionally, and the `strict:resources` click
+gate on ability chips (the `press` in `AbilityHeading`) refused only on
+`m_cannotAfford` / `m_expended` / `m_suppressed` -- none of which reflect
+"not your turn". `creature:IsOurTurn()` itself was correct. (The "drag out
+of turn blocked" note in the step-27 status is about MOVEMENT, engine-side.)
+
+User direction (2026-09-07): keep the drawers openable so players can read
+their abilities; make the CHIP press refuse off-turn under strict resource
+enforcement, as it already does for unaffordable abilities.
+
+Built (`DrawSteelActionBar/DrawSteelActionBar.lua`, `AbilityHeading`):
+- `AbilityIsTurnBound(ability)`: actionResourceId is the main action,
+  maneuver or free-maneuver resource, or categorization is "Move". Triggers,
+  free actions, malice, respite activities are never turn-bound.
+- `AbilityIsOffTurn(ability)`: turn-bound AND the initiative queue is live
+  AND the chip's caster (`CasterToken()`, so the overview's re-pointed chips
+  are handled) reports `IsOurTurn() == false`.
+- Computed into `m_offTurn` in the `abilityInfoLabel`'s `ability` handler
+  right after `SetCannotAfford`; the chip gets the class tree `offTurn` and
+  the info line reads "Not your turn". `offTurn` is its own class (styled
+  like `expended` in `DMHub Titlescreen/AbilityStyles.lua` on `abilityTitle`
+  and `abilityInfoLabel`) so a pooled chip re-pointed at an on-turn ability
+  clears cleanly.
+- The strict-resources `press` gate now also refuses on `m_offTurn`
+  (`(not dmhub.isDM) and strict:resources` -- Directors still bypass, as for
+  the other three flags). Programmatic invokes (`invokeAbility`, triggers,
+  prompts) are untouched.
+
+Verified live 2026-09-07 in the running EotW game (isDM false, strict on,
+Dwarf Fury selected between turns): every Main Action chip -- including the
+Melee/Ranged Free Strike entries, which off-turn are only legal via the
+trigger panel -- showed "Not your turn" in the expended colour; pressing
+Brutal Slam started no cast and logged no error. Applies to any game with
+`strict:resources` on, not just EotW (by design: it is action-economy
+enforcement). Not re-verified on-turn (would have needed to claim a turn in
+the user's live game); that path is the pre-existing one with `m_offTurn`
+false.
+
+Reload gotcha hit while testing: the file watcher logged the change and
+`reload_lua` reported success, yet the mod kept compiling the committed
+HEAD version (chip backtrace line numbers were 34 short). The remedy from
+memory worked: set `autoreloadlua` true, rewrite the file bytes unchanged,
+wait for `MOD:: READ CONTENTS FOR MOD DrawSteelActionBar`, reload, set
+`autoreloadlua` back to false.
+
+#### Players always see monster stamina bars, not amounts (DECIDED + BUILT 2026-09-07; UNTESTED)
+
+User direction (2026-09-07, refined later the same day): in an EotW game
+every player can always see the monsters' stamina BARS, but not the exact
+stamina amounts. This closes the decision left open under "Player host sees
+every monster's stamina bar; joiners see none" in Open Questions: with
+`canControl` now elevation-aware the host presents as a player, so the only
+thing standing between EVERY human and a monster's stamina bar was the
+Director-only game setting `enemystambardisplay`, whose `"none"` default turns
+off the `showToEnemies` rung of the `lifebar` status bar (`TokenUI.lua`
+`ShouldShowElement`; the Draw Steel bar is registered in
+`Draw Steel UI/DrawSteelTokenHud.lua` and the minion squad HUD in
+`MCDMMinion.lua` reads the same setting).
+
+Two entries in `g_forcedGameSettings`, written by the host through the same
+`EnforceStrictRules()` path (setup on arrival, then re-asserted every host
+tick):
+
+- `enemystambardisplay = "bar"` -- the bar with no number. The setting's
+  enum is `none` / `bar` / `pct` / `val`; the first build of this (earlier on
+  2026-09-07) forced `"val"`, which the user corrected to bar-only. `"pct"`
+  is also out: a percentage is an exact amount in disguise once the max is
+  known. The one sanctioned route to a monster's exact stamina is Monster
+  Info (below), which reveals it on the third kill of that monster type.
+- `hpbarsonlyincombat = false` -- the bars are shown outside combat too, so
+  the bar is visible from the moment the heroes arrive in the start zone
+  rather than only after the map script opens initiative. Interpretation of
+  "always"; flip this entry back to `true` if the pre-combat bars are
+  unwanted.
+
+Both are game-scoped, so each write replicates to every client, and neither
+is editable by anyone in a player-host game (dmonly Game settings tab).
+Nothing else changed: the bar's own `Calculate` already honours the
+`"bar"` mode for `dmhub.isDM == false` clients.
+
+Verify live (two clients): every monster on the map shows a stamina bar with
+NO value or percentage to both the host and a joiner, before combat starts and
+during it; a minion squad shows its shared squad bar.
+
+#### Monster Info is always on (DECIDED + BUILT 2026-09-07; UNTESTED)
+
+User direction (2026-09-07): the Monster Info feature (players progressively
+learn monster stat blocks; see the top-level `MONSTER_INFO_PLAN.md`) is
+automatically on in EotW games. Two more entries in `g_forcedGameSettings`,
+forced by the same `EnforceStrictRules()` path:
+
+- `monsterinfo = true` -- the feature itself: the Monster Info radial button
+  replacing View Portrait on monsters, the fullscreen dialog, and the combat
+  hooks. Declared in `Draw Steel Core Rules/MonsterKnowledge.lua`
+  (game-scoped, dmonly), which loads in every Draw Steel game, so the id
+  resolves in an EotW game.
+- `monsterinfoautolearn = true` -- automatic learning from combat events
+  (kills reveal stamina, roughly then exactly; ability use reveals the
+  ability; and so on). Forced explicitly even though it is the setting's
+  default, so a game record that was ever flipped cannot stay off. There is
+  no Director in an EotW game to work the eye toggles, so without this the
+  feature would reveal nothing.
+
+Caveats: the Monster Info feature is itself NEEDS BUILD / UNTESTED (per
+`MONSTER_INFO_PLAN.md`), so this is forced-on ahead of the feature's own
+first live run. The Director-side reveal/hide eye toggles are `isDM` UI and
+are not reachable in EotW, which is the intent. The `monsterKnowledge`
+shared document lives in the game record, and EotW games are one-per-account
+and destroyed on replacement, so knowledge does not carry over between weeks
+(acceptable for now; revisit if cross-week persistence is wanted).
+
+Verify live (two clients, after the Monster Info engine build): a monster's
+radial menu shows Monster Info instead of View Portrait for both the host and
+a joiner; the dialog opens with an unknown stat block; killing a monster type
+reveals its rough stamina; the Settings > Game tab is unreachable to everyone
+(player-host game) so nobody can turn it off, and the host tick re-asserts it.
 
 #### "Strictly Enforce Rolls" (strict:rolls) -- NEW 2026-08-29
 
@@ -2273,11 +2502,14 @@ Codex titlescreen.
   `live:GetAwardedOutcome()` is nil, evaluate victory =
   `live:CheckVictory()` (the existing evaluator: all seven authored conditions
   plus encounter-script overrides, pending reinforcements included) and defeat
-  = `live:CheckDefeat()` (script-declared) OR all heroes down via
-  `live:CountLiveCombatants()` returning `heroes == 0`. Note
-  `CountLiveCombatants` counts `CurrentHitpoints() > 0`, so DYING heroes
-  (hp <= 0 but above the death threshold) count as down -- an all-dying party
-  is a defeat, which is the intended one-shot semantics. Award = set
+  = `live:CheckDefeat()` (script-declared) OR every hero DEAD, via the
+  EotW-local `CountLivingHeroes(queue)` (heroes in the queue with
+  `not props:IsDead()`). **Dying heroes count as living (DECIDED
+  2026-09-07)**: the original build used `live:CountLiveCombatants()`,
+  which counts `CurrentHitpoints() > 0`, so an all-dying party read as a
+  defeat -- wrong for Draw Steel, where a dying hero still takes turns and
+  can win. `CountLiveCombatants` itself is untouched (the core victory
+  conditions use it). Award = set
   `live.victoryAwarded`/`defeatAwarded` + `dmhub:UploadInitiativeQueue()` --
   exactly what the initiative bar's Award Victory button does. The existing
   `DSVictoryScreen` (mounted on every client, monitoring `/initiativeQueue`)
@@ -2317,11 +2549,26 @@ Codex titlescreen.
   condition reads unmet; `math.abs` on the elapsed check so a serverTime
   rebase releases the wait rather than wedging it. UNTESTED live.
 - **Player Proceed (core hook)**: `DSVictoryScreen.RegisterProceedOverride{
-  canProceed, proceed }` in `Draw Steel UI/DSVictoryScreen.lua`. Proceed-button
-  visibility becomes `dmhub.isDM OR canProceed()` (pcall-guarded); the click
-  runs `proceed(ProceedEndCombat)` first and only falls through to the normal
-  Director teardown when the override declines. `ProceedEndCombat` is also
-  exported as `DSVictoryScreen.ProceedEndCombat` for the host-side automation.
+  canProceed, proceed, holdUntilLocalProceed }` in `Draw Steel UI/DSVictoryScreen.lua`.
+  Proceed-button visibility becomes `dmhub.isDM OR canProceed()`
+  (pcall-guarded); the click runs `proceed(ProceedEndCombat, alreadyEnded)`
+  first and only falls through to the normal Director teardown when the
+  override declines. `ProceedEndCombat` is also exported as
+  `DSVictoryScreen.ProceedEndCombat` for the host-side automation.
+- **The screen is dismissed PER CLIENT (DECIDED 2026-09-08, user: "it
+  shouldn't proceed until I'm ready under any circumstances")**. The shared
+  queue drives the screen's SHOWING, but never its closing in EotW: while the
+  override's `holdUntilLocalProceed()` returns true, `checkVictory` reacts to
+  the outcome leaving the queue by flagging the screen `held`
+  (`rootPanel.data.held`) instead of hiding it -- the cards are already
+  built, so the dead live encounter is not needed. Proceed on a held screen
+  calls `proceed(ProceedEndCombat, true)` (nothing to tear down or relay) and
+  hides locally; its tooltip drops the "for everyone" wording. A new outcome
+  landing on a held screen re-shows fresh. Normal Director games register no
+  override and are unchanged. This resolves the 2026-09-07 policy question
+  (one player's Proceed used to end the screen for everyone): another
+  client's Proceed still tears combat down for the game, but each client's
+  screen and exit wait for that client's own press.
   The Victories award section's visibility gate converts `dmhub.isDM` ->
   `GameHud.DirectorUIVisible()` (identical in normal games; hidden in EotW for
   everyone including the host, per the no-Director presentation).
@@ -2331,20 +2578,29 @@ Codex titlescreen.
   run on the host). A PLAYER pressing stamps `proceedRequested` into the
   `eotwstate` doc; the host tick (which is already watching the awarded
   outcome) sees it and runs `DSVictoryScreen.ProceedEndCombat()` -- worst case
-  ~2s latency before the screen dismisses for everyone. If the host client is
-  gone, the request sits until the host returns (same accepted class as the
-  other host-crash edges).
+  ~2s latency before combat is torn down. If the host client is gone, the
+  request sits until the host returns (same accepted class as the other
+  host-crash edges). Every press (host or player, held or not) first sets the
+  module-local `m_localProceeded`; `holdUntilLocalProceed` returns
+  `IsEotwGame() and not m_localProceeded`, so the presser's own screen closes
+  with the queue as normal while everyone else's stays held.
 - **Auto-exit to the titlescreen**: each client's 1s driver latches "outcome
-  seen" while the queue is live with an awarded outcome; when the queue then
-  hides/disappears (Proceed ran), it schedules `dmhub.LeaveGame()` once, ~4s
+  seen" while the queue is live with an awarded outcome; when the queue has
+  hidden/disappeared (combat torn down) AND the local user has pressed
+  Proceed (`m_localProceeded`), it schedules `dmhub.LeaveGame()` once, ~4s
   out (covers the victory screen's 0.7s fade plus the 1-3s GameDetails write
   coalescing so the host's battle-log/queue writes flush before the socket
-  closes). Every client leaves, host included, landing on the titlescreen --
-  the existing post-leave flow (stale-screen sweep, resume row, no auto
-  re-entry) already handles the arrival. Clients that never saw an awarded
-  outcome (a combat ended via the Director escape hatch, or a mid-join) do NOT
-  auto-exit. `dmhub.LeaveGame` is deferred via `dmhub.Schedule` because it
-  synchronously unloads the calling codemod.
+  closes). Each client leaves on its own press, host included, landing on the
+  titlescreen -- the existing post-leave flow (stale-screen sweep, resume
+  row, no auto re-entry) already handles the arrival. Clients that never saw
+  an awarded outcome (a combat ended via the Director escape hatch, or a
+  mid-join) do NOT auto-exit. `dmhub.LeaveGame` is deferred via
+  `dmhub.Schedule` because it synchronously unloads the calling codemod.
+  A client still sitting on its held screen after the host has exited and
+  its titlescreen has wiped the game is fine: `DOConnection` treats the
+  server's `game-deleted` close as "stop reconnecting" and the client stays
+  in place, so the held screen survives until its own Proceed (verified in
+  `DataStoreDurableObjects.cs`; UNTESTED live).
 - **Finished-game cleanup (ADDED 2026-08-28 after the first live run: the
   game lingered in the lobby list and the account slot after everyone
   exited)**. Two causes: nobody ever told the lobby the game was over (and a
@@ -2448,8 +2704,69 @@ picked the YAML up without a restart; the row deserializes as a
 `GetActiveModifiers` while a monster does not. **Shipped in module version 7
 (2026-08-31)** -- the seeding pass picked it up as
 `global rule ("Hero Death (Encounter of the Week)")` and the published
-payload carries the `globalRuleMods` row. NOT yet exercised: an actual hero
-kill (removal + corpse) in a game running v7.
+payload carries the `globalRuleMods` row. **Kill path exercised live
+2026-09-06** (game `BroadEnormousVigorousSalorna`, an Orc Conduit killed on
+its own turn): the rule fired and the hero was despawned (`despawned=true`,
+stamina -12), and the queue kept its entry -- which exposed the orphaned-turn
+lock below.
+
+#### Dying on your own turn: the orphaned-turn lock (ROOT-CAUSED + FIXED 2026-09-06; Lua live on disk, UNTESTED end-to-end)
+
+Report (2026-09-06): a Conduit died during their own turn; the Hero Death
+rule removed them from the battlefield; the bubble then read "Hero Turn" with
+no way to proceed, and the game was locked.
+
+**Mechanism.** The initiative entry outlives the token. `ShouldShowEndTurn`
+(`MCDMInitiativeBar.lua`) resolves the current entry to tokens via
+`GetTokensForInitiativeId`, which reads `dmhub.allTokens` /
+`dmhub.GetTokenById` -- both exclude despawned tokens -- and shows End Turn
+only if the user controls one of them, else falls back to
+`GameHud.DirectorUIVisible()`. A removed hero resolves to zero tokens, nobody
+controls a token that is not there, and in an EotW game nobody has Director
+UI, so no client could end the turn. `IsPlayersTurn()` was still true (the
+entry is a player entry), hence "Hero Turn". Monsters never hit this: the
+Monster AI advances its own turn after `WaitForAbilityIdle`, and a Director
+always sees End Turn. Two dead monster groups in the same game sat with
+zero-token entries harmlessly because they were not the current turn.
+
+**Fix (both halves are core, not EotW-specific):**
+
+- *Auto-end on removal* -- `ActivatedAbilityRemoveCreatureBehavior:Cast`
+  (`DMHub Game Rules/AbilityRemoveCreature.lua`) records each removed
+  creature's initiative id and, after the removals, calls the new
+  `ActivatedAbilityRemoveCreatureBehavior.EndTurnIfEntryEmptied`: scheduled
+  0.2s later (so the engine token list has dropped the token), it re-checks
+  the live queue -- current turn is one of the removed ids, and that entry
+  now resolves to no valid non-despawned token -- and then runs
+  `GameHud.instance:NextInitiative` + `UploadInitiativeQueue`, exactly what
+  the End Turn button does. Exactly one client runs it because the Hero
+  Death rule is `mandatory: local` (the client that processed the killing
+  damage). If the turn already moved on (e.g. the AI advanced after its own
+  monster fell) it is a no-op; `NextInitiative`'s
+  `g_betweenTurnTransitionInProgress` guard covers the race the other way.
+  This also applies in Director games when a removal wipes the current
+  monster group mid-turn -- the Director no longer has to click End Turn for
+  an empty entry.
+- *Safety net in the bubble* -- `ShouldShowEndTurn` returns true when the
+  current entry resolves to zero tokens and `CanControlInitiative()` (which
+  every EotW player passes via `permission:playersinitiative`), so an
+  orphaned turn from any cause can be closed manually by anyone allowed to
+  run initiative. This is the "End Turn when ready" half of the user's ask;
+  the auto-end is the default behaviour.
+
+**Manual recovery** for a client running older code: the host toggles
+`/toggle eotw:showdirectorui` (restores Director UI, so End Turn appears), or
+over MCP on any client in the game:
+`GameHud.instance:NextInitiative(function() dmhub:UploadInitiativeQueue() end)`
+-- this is how the 2026-09-06 game was unlocked (the queue went back to
+choosing a turn with the three surviving heroes able to claim).
+
+**Gotcha hit while deploying**: the git-folder FileSystemWatcher for both
+mods was dead (the known Deploy-Changes watcher kill), so `reload_lua`
+reloaded 11 mods but not these two. Remedy: `code.GetMod(id).checkedout =
+true` for `34c17de9-...` (DMHub Game Rules) and `9000946e-...` (Draw Steel
+Core Rules), rewrite the file bytes, confirm `CodeMod: Local file changed` in
+Player.log, then reload.
 
 ### Custom interface: usurping the game hud (DECIDED + BUILT 2026-08-28)
 
@@ -2960,7 +3277,10 @@ Begin is now the only launch path, with the resume row for re-entry.)
     press Proceed (players relay through the host via `proceedRequested`);
     every client that saw the outcome auto-exits to the titlescreen ~4s after
     the queue hides. Design in "Victory/defeat auto-detection, player Proceed,
-    and auto-exit".
+    and auto-exit". REVISED 2026-09-08 (UNTESTED live): per-client dismissal
+    -- the screen is held locally until the local Proceed press
+    (`holdUntilLocalProceed` hook in `DSVictoryScreen.lua`,
+    `m_localProceeded` gate on the auto-exit in `EncounterOfTheWeek.lua`).
 
 27. [x] Strict rules enforcement: BUILT 2026-08-28 (Lua only, UNTESTED in a
     live EotW game). All "Strict..." rules-enforcement settings (the four
@@ -3047,6 +3367,75 @@ Deliverable: end-to-end -- lobby to fought encounter with AI-run monsters.
   Against: the host is the only person who can notice and intervene when the
   AI wedges a monster somewhere, and they would be doing it blind. Not
   changed pending a decision.
+- **Player host sees every monster's stamina bar; joiners see none** (FOUND
+  2026-09-06 in a live two-client test; same `canControl` family as the X-ray
+  above, UNFIXED). `TokenUI.lua` `ShouldShowElement` walks the status-bar
+  audiences in order and the second rung is `showToController` gated on
+  `token.canControl` -- the hosting-capability grant, true for every monster
+  on the player host. So the host takes the "controlling player" branch
+  (`hpbarforownplayer`, default on) and gets the bar with the raw value
+  (`showAs = "val"` is only overridden for `dmhub.isDM == false` clients via
+  `enemystambardisplay`, whose default is `"none"`). A joiner reaches the
+  `showToEnemies` rung, which the `"none"` default turns off, so they see
+  nothing. Two independent things to decide: (1) convert that
+  `showToController` rung (and the minion squad-health readers in
+  `MCDMMinion.lua` that also test control) to `token.canControlAsUser` so the
+  host presents as a player; (2) what EotW players should see at all --
+  `enemystambardisplay` is a Director-only game setting defaulting to
+  `"none"`, so if the answer is "bar only" the host's setup needs to write
+  it into the game record when it stamps the eotw marker.
+  **DONE 2026-09-06 (engine NEEDS BUILD, UNTESTED): `canControl` is now
+  elevation-aware.** User direction: `token.canControl` should be FALSE for
+  monsters on the player host. `CharacterInfo.canControl` now reads `isDM`
+  (true inside the Monster AI's `PushHostPermissions` coroutines, false for
+  the user's un-elevated UI) instead of `isDMOrPlayerHost`, so it equals
+  `canControlAsUser` except under elevation and is bit-identical in every
+  game that is not directorless. This closes the whole presentation family
+  at once -- the stamina bar, `hiddenFromEnemies` status effects, private
+  names, the raw `showAs` value, monster languages, Character Sheet / Copy
+  Token context entries, mouseover highlight, roof vision, the
+  `CalculateCanSee` X-ray (the host now sees monsters like a player) and the
+  minion squad HUD -- with no codex edits. New engine read
+  `CharacterInfo.canControlAsHost` / `CharacterToken.canControlAsHost` (the
+  old capability body, C# only, not bound to Lua) for host-MACHINE work that
+  runs un-elevated: `CharacterToken.shouldSendRealtimeUpdates` (attack
+  animations / targeting for AI-driven monsters) and the summoned-token
+  relocation fixup in `GameController` Update. `activeControllerId` prompt
+  routing already tested `isDMOrPlayerHost` first and is unchanged.
+  Sweep of every Lua `canControl` read (about 60 sites): all but four are
+  presentation or user-driven and now behave as the user intended. The
+  four machine-responsibility reads: (1) EotW's own pending-prompt busy gate
+  (`EncounterOfTheWeek.lua` `AbilityActivityInFlight`) now runs its token
+  loop under `ElevateToHostPermissions` so monster prompts the AI is still
+  answering keep deferring the victory award; (2) `ActiveTrigger.RefreshAllTimers`
+  (`Creature.lua`) no longer re-stamps monster trigger prompts from the host
+  -- accepted, the AI answers them promptly and hostile ones never expire;
+  (3) the roll-request prompt predicates (`DSRequestRollsDialog.lua`,
+  `RequireDCDialog.lua`) no longer prompt the host's user for a MONSTER's
+  requested roll (the `playerControlled == false` arm is dead on a player
+  host). Nothing in EotW requests rolls from monsters (heroic tests and
+  negotiation target heroes; Require Roll is Director UI), and the old
+  behavior was Director UI on a player, so left as is -- if an ability ever
+  requests a monster roll in EotW it would now stall; (4)
+  `creature:RefreshInitiativeGrouping` (`MCDMCreature.lua`) is a local
+  grouping HUD, presentation. `Monster AI/` reads `canControl` nowhere, and
+  the ability pipeline (`ActivatedAbility.lua`, `MCDMAbilityBehavior.lua`,
+  Timeline) reads it only in right-click menus, so the un-elevated
+  continuation risk reduces to the already-live `isDM` case, which the AI
+  has been running under since 2026-08-29. Stub updated in
+  `Definitions/CharacterToken.lua`; `TokenControlledByUser` in `Utils.lua`
+  kept for the old-engine fallback and the inside-elevation distinction.
+  ~~Remaining decision: what EotW PLAYERS should see of monster stamina
+  (`enemystambardisplay`, default `"none"`, Director-only game setting --
+  the host's setup would have to write it when it stamps the eotw marker).~~
+  DECIDED + BUILT 2026-09-07 (UNTESTED): players always see the monsters'
+  stamina BARS but not the amounts -- the host forces
+  `enemystambardisplay = "bar"` and `hpbarsonlyincombat = false` via
+  `g_forcedGameSettings`; see "Players always see monster stamina bars, not
+  amounts" under "Strict rules enforcement". Monster Info is forced on the
+  same way ("Monster Info is always on").
+  Verify after the build: `/testai` in an EotW game, an AI summon into an
+  occupied space, and a monster attack animation seen from a second client.
 - **Kick UX**: engine `KickPlayer` does not notify/disconnect the kicked client. Acceptable for v1, or add a watched-document notification?
 - **Unlisted module access for non-owners**: the module record has `published: false` /
   `dmhubCanUse: false` (unlisted). The owner can `DownloadModuleSnapshot` it and create
@@ -3074,7 +3463,68 @@ Deliverable: end-to-end -- lobby to fought encounter with AI-run monsters.
 
 # Status
 
-- 2026-08-31 (latest): **Module version 8 PUBLISHED** -- the first version
+- 2026-09-06 (latest): **Hero killed on their own turn locked the combat on
+  "Hero Turn"; ROOT-CAUSED + FIXED in core Lua, live on disk, UNTESTED
+  end-to-end.** First real exercise of the Hero Death rule: it fired and
+  despawned the hero (kill path now VERIFIED), but the queue's current entry
+  then resolved to zero tokens, so `ShouldShowEndTurn` was false for every
+  client and nothing could advance. Fix: removal auto-ends an emptied current
+  turn (`ActivatedAbilityRemoveCreatureBehavior.EndTurnIfEntryEmptied`,
+  `DMHub Game Rules/AbilityRemoveCreature.lua`) and the bubble shows End
+  Turn for a zero-token current entry to anyone who can control initiative
+  (`Draw Steel Core Rules/MCDMInitiativeBar.lua`). The locked game
+  (`BroadEnormousVigorousSalorna`) was unlocked over MCP with
+  `GameHud.instance:NextInitiative`. Design in [Dying on your own turn](#dying-on-your-own-turn-the-orphaned-turn-lock-root-caused--fixed-2026-09-06-lua-live-on-disk-untested-end-to-end).
+  Both mods' file watchers were dead and had to be re-armed before the
+  change was visible to a reload (recipe in that section). Needs a Lua
+  reload (F4) in the running client; UNCOMMITTED in the codex repo. Still to
+  test: a hero dying on their own turn in a fresh EotW combat auto-advancing
+  without any click.
+
+- 2026-09-06: **Module version 9 PUBLISHED -- it fixes v8's
+  `balancing` wire shape.**
+  - dataid `e9f6386c-1a55-4fd4-be17-27a34e403de1`, streamed 16,508B, snapshot
+    139,379B, blobs `Nbz938ZxMTDGysfBU0sy4A==` (4,804B) and
+    `rPS499QYlOGXHZp/G1/+uw==` (24,732B, unchanged from v8). Published as
+    `python tools/eotw_publish/publish_eotw.py --assets-dir "C:/dev/eotw" --assets-dir "C:/dev/dmhub/draw-steel-codex/data" --publish --force`.
+  - **What changed vs v8**: the encounter document `645e4522` and nothing else
+    (`--verify-against d8b02254` reported exactly one differing row before the
+    publish; every other table, the map, the 9 pregens, the codemods and the
+    `venla-deliantomb` dependency matched). The difference is not new authoring
+    -- it is the SHAPE of `groups[].balancing`. v8 carried it as
+    `{"2": {monsters: ...}}`, Firebase's sparse-array rendering (0-based key 2
+    = hero count 3), which is precisely the wire shape
+    `validate_engine_shapes` exists to catch: an array encoded as a
+    numeric-keyed object decodes to **null** for a `List<>` field on the
+    installing engine, so v8's per-hero-count balancing most likely did not
+    survive install at all. It shipped because v8 used `--force`. The YAML on
+    disk holds the dense 7-entry array the codex deliberately builds
+    (`EncounterPanel.lua:932` seeds indices 1..7 so index == hero count
+    survives serialization), so simply republishing from `C:\dev\eotw`
+    corrects it; the engine shape preflight now reports OK rather than being
+    forced past. Re-verified after publishing: `--verify-against e9f6386c`
+    matches on every table including `documents rows VALUES MATCH`.
+  - `--force` was still needed for the same standing warning v6-v8 shipped
+    under (floor object `62b484a3` -> asset `5939fe95`, low severity: the
+    placed object embeds its own copy of the art).
+  - UNTESTED: a game installing v9 and the balancing actually applying at a
+    non-default hero count -- the fix is reasoned from the wire shape and the
+    preflight, not observed in a running install.
+
+- 2026-09-06: **`C:\dev\eotw` is now a git repository.** The EotW
+  authoring directory -- the sole home of `room-1.yaml` (the week's encounter),
+  `start.yaml` (the Start keyword) and `hero-death.yaml` (the Hero Death rule),
+  plus their `_meta.yaml` descriptors -- had been loose files on disk with no
+  version control and no backup, while local-assets write-back can silently
+  rewrite any of them during a playtest. `git init -b master` + an initial
+  commit of all six files (`4f7cec2`), followed by a `.gitattributes` carrying
+  `* -text` (`f0fa701`) so git never converts the line endings of files the
+  engine writes itself. No remote; local history only. Nothing else changed --
+  the engine and the publisher both just read the directory. The "shows up as a
+  git diff" claim in [Playtesting against local asset directories](#playtesting-against-local-asset-directories-decided--built-2026-08-30-engine-needs-build-untested)
+  was false when written and is now true; it has been corrected either way.
+
+- 2026-08-31: **Module version 8 PUBLISHED** -- the first version
   carrying the re-authored encounter.
   - dataid `d8b02254-b767-4bbc-9484-400a4df1070c`, streamed 16,029B, snapshot
     139,379B, blobs `uIqrikBFqDAIX/LFuI1o1w==` (4,504B) and
@@ -3143,6 +3593,92 @@ Deliverable: end-to-end -- lobby to fought encounter with AI-run monsters.
     (likely the R2 migration); the upload endpoint returned 200 for both blobs.
   - UNTESTED: a game actually installing v7, and the Hero Death rule firing on a
     real hero kill.
+
+- 2026-09-07: **Defeat screen with heroes still standing, then an unrequested exit to the titlescreen. DIAGNOSED from the host log (game `VengefulMountainousDuskSniper`, 2 clients: host `4V4KWXdW7ScFIiEyuknO4bqmQSc2` + player `ZaRxAuEiu6gAkLygFuGMys8ZvAy1`, 3 heroes). Not a code fault; OPEN DESIGN QUESTION.**
+  - The exit (not changed): the log shows `the heroes are defeated; showing the defeat
+    screen`, then a `proceedRequested` patch RECEIVED from the server (no
+    local `DO>> PatchData` send precedes it, and the host never writes that
+    key -- the host's own Proceed runs the teardown directly), then `a
+    player pressed Proceed; ending the encounter` and the normal relay ->
+    auto-exit -> cleanup chain. So the OTHER client pressed Proceed, which
+    is exactly the documented player-Proceed relay: any player's Proceed
+    dismisses the screen and exits everyone. Working as designed; whether
+    one player should be able to end it for everyone is a design question
+    (options: require the host, require every present player, or a
+    countdown).
+  - The "defeat with heroes alive": the game's DO was already wiped by the
+    finished-game cleanup, so the final hero stamina could not be read. The
+    only defeat paths are a script-declared defeat (none is authored for
+    this encounter) and `CountLiveCombatants` returning `heroes == 0`,
+    which counts `CurrentHitpoints() > 0` -- so every hero at 0 or fewer
+    Stamina (DYING, not dead) read as down. User confirmed this was the
+    problem. FIXED same day: `EncounterOfTheWeek.lua` now uses its own
+    `CountLivingHeroes(queue)` (`not props:IsDead()`) for the all-heroes
+    defeat; design updated above. Syntax-checked, deployed; UNTESTED live.
+    The Proceed policy question (one player ends it for everyone) was
+    DECIDED 2026-09-08: per-client dismissal (next entry).
+
+- 2026-09-08: **Victory screen closed before the user pressed Proceed. DECIDED + BUILT: per-client dismissal. Syntax-checked, deployed (git folder = repo), reloaded clean; UNTESTED live.**
+  - Cause: the screen show/hide was purely a function of the shared
+    initiative queue, so any other client's Proceed (relayed to the host's
+    teardown) hid it everywhere. User direction: it must never close until
+    the local user is ready.
+  - Fix: `DSVictoryScreen.lua` -- new optional override field
+    `holdUntilLocalProceed()`; when true, the outcome leaving the queue
+    flags the screen `held` instead of hiding it, and Proceed on a held
+    screen calls `proceed(_, alreadyEnded=true)` then hides locally.
+    `EncounterOfTheWeek.lua` -- `m_localProceeded` set on every local press;
+    the hold returns `not m_localProceeded`; `UpdateEncounterConclusion`
+    exits only when `m_outcomeSeen and m_localProceeded` and the queue is
+    hidden. Design folded into "Victory/defeat auto-detection, player
+    Proceed, and auto-exit".
+  - Live test to run: two clients; one presses Proceed, confirm the other's
+    screen stays (tooltip reads "Dismiss the victory screen.") and only that
+    client exits; the second presses later and exits, even after the first
+    client's titlescreen has wiped the game.
+
+- 2026-09-06: **Live game stuck after the last monster died -- no victory screen. DIAGNOSED + FIXED (self-healing on both layers); Core Rules half VERIFIED live, EotW half UNTESTED.**
+  - Symptom: `live:CheckVictory()` read true, nothing awarded, every client
+    idle (no busy stamps, no prompts), `MapScript.IsElectedHost(mapid)` false
+    on the host. `MapScript.GetBuiltin("builtin:eotw-encounter")` returned
+    nil: the attached record's code no longer resolved, so the driver
+    destroyed the instance (the last `mapscripts-<mapid>` patch was the
+    `ReleaseHostPresence` clear of `hosts`) and the host tick --
+    `CheckEncounterOutcome` included -- never ran again.
+  - Cause: a mid-game Lua hot-reload. A local edit to
+    `EncounterOfTheWeek.lua` force-reloaded the EotW mod (frame 163245),
+    then a full reload of every mod (frame 163247) re-executed
+    `Draw Steel Core Rules/MapScript.lua`, which recreated
+    `MapScript.builtins` with only the two shipped scripts. The EotW mod was
+    NOT re-executed in that pass (`Loaded ... in 0ms`, no file lines), so
+    its `RegisterMapScriptBuiltin()` registration was lost. Any reload
+    order in which Core Rules runs after EotW lost it.
+  - Live unblock: re-ran the `MapScript.RegisterBuiltin{...}` call via
+    `execute_lua`; the driver re-created the instance on its next tick, the
+    host was re-elected, and the award fired within ~7s ("victory condition
+    met; showing the victory screen"). The other player then pressed
+    Proceed and the relay + auto-exit + cleanup path all ran (log lines
+    "a player pressed Proceed", "returning to the titlescreen", "cleaning up
+    finished game"). One stray line in that flow: "conclusion leave-game not
+    accepted: game ... is not registered" -- the lobby had already dropped
+    the roster record; harmless, not chased.
+  - Fix 1 (general, `Draw Steel Core Rules/MapScript.lua`): the builtin
+    registry now lives in the global `g_mapScriptBuiltinRegistry`
+    (`{list, byId}`) and is REUSED when the file reloads, so registrations
+    made by any other mod survive a Core Rules reload; the driver's 0.5s
+    reconcile then recreates any attached record whose code resolves again.
+    New `MapScript.IsRecordRunning(guid)` (backed by the exposed
+    `MapScript._runtimeInstances`) lets a managing mod verify its script is
+    actually running. VERIFIED live: a throwaway builtin registered via
+    `execute_lua` was still resolvable after `reload_lua`.
+  - Fix 2 (EotW, `EncounterOfTheWeek.lua`):
+    `EncounterOfTheWeekGame.EnsureMapScriptRunning()`, called from every
+    client's 1s driver: any client re-registers the builtin if
+    `MapScript.GetBuiltin` lost it; the HOST of an EotW game additionally
+    re-attaches the record if the map lost it and logs once (not per tick)
+    if the record is attached but `IsRecordRunning` is false. UNTESTED in a
+    game: the EotW mod is not loaded at the titlescreen, so it could not be
+    exercised after the reload; syntax-checked with `luac -p`.
 
 - 2026-08-31: **Victory/defeat banner lingers ~5s after the killing blow, and every combatant who STARTED the encounter now gets a victory-screen card. BUILT + syntax-checked + reloaded live; kill-path UNTESTED.**
   - **Linger**: `OUTCOME_LINGER_SECONDS = 5` in
@@ -3867,3 +4403,21 @@ Deliverable: end-to-end -- lobby to fought encounter with AI-run monsters.
   Files: `Monster AI/MonsterAI.lua`, `Monster AI/MonsterAIPanel.lua`,
   `EncounterOfTheWeek/EncounterOfTheWeek.lua`. Lua syntax and ASCII checks pass;
   runtime fault-injection verification remains to be done.
+
+- **2026-09-07 (later): Monster Info forced on; monster stamina bars forced
+  to bar-only.** User direction: Monster Info is automatically on in EotW,
+  and all players see monster stamina bars but not exact amounts. The
+  earlier same-day build had forced `enemystambardisplay = "val"` (bar plus
+  value); corrected to `"bar"`. Two new `g_forcedGameSettings` entries:
+  `monsterinfo = true`, `monsterinfoautolearn = true`. Only
+  `EncounterOfTheWeek/EncounterOfTheWeek.lua` changed (luac-clean, ASCII
+  clean, live via gitfolder). Confirmed in the running app that all four
+  ids (`enemystambardisplay`, `hpbarsonlyincombat`, `monsterinfo`,
+  `monsterinfoautolearn`) are declared and game-scoped, so the host's
+  `EnforceStrictRules()` writes resolve; the running game was not an EotW
+  game, so the enforcement itself is UNTESTED. Existing EotW games will
+  switch themselves on the host's next `MapScriptHostThink` tick. Design
+  text: "Players always see monster stamina bars, not amounts" and "Monster
+  Info is always on" under "Strict rules enforcement". Next: live two-client
+  verification per those sections (Monster Info needs its engine build
+  first).

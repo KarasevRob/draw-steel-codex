@@ -520,20 +520,21 @@ function gui.Button(options)
 					local oldClick = args[clickid]
 					args[clickid] = function(element)
 						gui.ModalMessage{
+							owner = element,
 							title = cfg.title,
 							message = cfg.message,
 							options = {
 								{
 									text = "Cancel",
 									execute = function()
-										gui.CloseModal()
+										gui.CloseModal(element)
 									end,
 								},
 								{
 									text = cfg.actionText,
 									execute = function()
 										oldClick(element)
-										gui.CloseModal()
+										gui.CloseModal(element)
 									end,
 								},
 							},
@@ -842,20 +843,21 @@ function gui.DeleteItemButton(options)
             local oldClick = args[clickid]
             args[clickid] = function(element)
                 gui.ModalMessage{
+                    owner = element,
                     title = "Confirm Delete",
                     message = "Are you sure you want to delete this item?",
                     options = {
                         {
                             text = "Cancel",
                             execute = function()
-                                gui.CloseModal()
+                                gui.CloseModal(element)
                             end,
                         },
                         {
                             text = "Delete",
                             execute = function()
                                 oldClick(element)
-                                gui.CloseModal()
+                                gui.CloseModal(element)
                             end,
                         },
                     },
@@ -1921,7 +1923,7 @@ function gui.Slider(args)
 				local w = trackWidth()
 				if w ~= lastTrackWidth and w > 0 then
 					lastTrackWidth = w
-					element.dragBounds = { x1 = 0, y1 = handley, x2 = w, y2 = handley }
+					element.dragBounds = core.Vector4(0, handley, w, handley)
 					mainPanel:FireEventTree('updateValue')
 				end
 			end,
@@ -4470,6 +4472,22 @@ function gui.SearchInput(options)
 		return str
 	end
 
+	--the last string handed to "search". Both edit and change route
+	--through here, and change also fires on defocus with unchanged text;
+	--re-firing then would make list-rebuilding handlers destroy the
+	--tile the user just pressed on before mouse-up reaches it (the
+	--"first click only defocuses the search" bug), so only fire on a
+	--real change.
+	local lastSearch = nil
+	local FireSearch = function(element)
+		local str = ParseString(element.text)
+		if str == lastSearch then
+			return
+		end
+		lastSearch = str
+		element:FireEvent("search", str)
+	end
+
 	local args = {
 		classes = {"searchInput"},
 		placeholderText = "Search...",
@@ -4482,12 +4500,8 @@ function gui.SearchInput(options)
 		hpad = 24,
 		editlag = 0.25,
 
-		edit = function(element)
-			element:FireEvent("search",ParseString(element.text))
-		end,
-		change = function(element)
-			element:FireEvent("search", ParseString(element.text))
-		end,
+		edit = FireSearch,
+		change = FireSearch,
 
 		--the magnifier, inside the field's left edge. floating and the
 		--offset are structural, so they stay inline (the engine does not

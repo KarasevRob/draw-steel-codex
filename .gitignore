@@ -66,6 +66,7 @@ docs/superpowers/
 # Tooling caches
 .superpowers/
 .understand-anything/
+node_modules/
 
 # Agent scratch and local working files
 .agents/
@@ -76,3 +77,8 @@ emmylua_patch.py
 
 # Source rulebook PDFs -- large and not ours to redistribute
 *.pdf
+
+# Local scratch: throwaway tooling and working files
+tmp/
+__pycache__/
+Draw Steel Importers/New File.lua

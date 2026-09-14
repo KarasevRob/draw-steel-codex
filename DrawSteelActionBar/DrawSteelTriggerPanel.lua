@@ -51,7 +51,7 @@ local function BuildRetargetCandidates(powerMod, symbols)
             targets[#targets+1] = potential
             for _,reasonedFilter in ipairs(reasonedFilters) do
                 if trim(reasonedFilter.formula or "") ~= "" and not GoblinScriptTrue(ExecuteGoblinScript(reasonedFilter.formula, potential.properties:LookupSymbol(symbols), 1)) then
-                    reasons[potential.charid] = StringInterpolateGoblinScript(reasonedFilter.reason, symbols)
+                    reasons[potential.charid] = ActivatedAbility.FormatFilterReason(reasonedFilter, symbols)
                     break
                 end
             end
@@ -86,6 +86,7 @@ local function RunTriggerRetargetChoice(element, triggerToken, trigger)
     }
     local powerMod = trigger.powerRollModifier.powerRollModifier
     local targets, retargetReasons = BuildRetargetCandidates(powerMod, symbols)
+    RuleUtils.RemoveRetargetStrikeTargets(targets, trigger)
 
     local sourceToken = triggerToken
     local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, triggerToken.properties:LookupSymbol(symbols), 10))
@@ -95,6 +96,11 @@ local function RunTriggerRetargetChoice(element, triggerToken, trigger)
         range = trigger.originalAbilityRange
     elseif rangeType == "distance" then
         range = powerMod:try_get("changeTargetDistance", 10)
+    end
+    --the new target must be one the striking creature could actually
+    --hit: inside the strike's distance and in its line of effect.
+    if rangeType == "ability" then
+        RuleUtils.AddRetargetRangeReasons(targets, retargetReasons, sourceToken, range)
     end
 
     local controller = element:Get("abilityController")
@@ -108,6 +114,7 @@ local function RunTriggerRetargetChoice(element, triggerToken, trigger)
         radius = range,
         targets = targets,
         reasons = retargetReasons,
+        prompt = RuleUtils.RetargetPromptText(sourceToken, range, rangeType),
         choose = function(newTargetToken)
             if triggerToken == nil or not triggerToken.valid then
                 return
@@ -673,6 +680,7 @@ mod.shared.CreateTriggerPanel = function()
                                             caster = casterToken.properties:LookupSymbol{},
                                         }
                                         local targets, retargetReasons = BuildRetargetCandidates(trigger.powerRollModifier.powerRollModifier, symbols)
+                                        RuleUtils.RemoveRetargetStrikeTargets(targets, trigger)
 
                                         local sourceToken = g_token
                                         local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
@@ -683,12 +691,18 @@ mod.shared.CreateTriggerPanel = function()
                                         elseif rangeType == "distance" then
                                             range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
                                         end
+                                        --the new target must be one the striking creature could actually
+                                        --hit: inside the strike's distance and in its line of effect.
+                                        if rangeType == "ability" then
+                                            RuleUtils.AddRetargetRangeReasons(targets, retargetReasons, sourceToken, range)
+                                        end
 
                                         element:Get("abilityController"):FireEventTree("chooseTarget", {
                                             sourceToken = sourceToken,
                                             radius = range,
                                             targets = targets,
                                             reasons = retargetReasons,
+                                            prompt = RuleUtils.RetargetPromptText(sourceToken, range, rangeType),
                                             choose = function(newTargetToken)
                                                 if g_token == nil then
                                                     return
@@ -700,6 +714,8 @@ mod.shared.CreateTriggerPanel = function()
                                                     execute = function()
                                                         trigger.triggered = true
                                                         trigger.retargetid = newTargetToken.charid
+                                                        --choosing the new target commits the trigger, so the card leaves the drawer.
+                                                        trigger.dismissed = true
 
                                                         g_token.properties:DispatchAvailableTrigger(trigger)
                                                     end,
@@ -895,6 +911,7 @@ mod.shared.CreateTriggerPanel = function()
                                                 caster = casterToken.properties:LookupSymbol{},
                                             }
                                             local targets, retargetReasons = BuildRetargetCandidates(trigger.powerRollModifier.powerRollModifier, symbols)
+                                            RuleUtils.RemoveRetargetStrikeTargets(targets, trigger)
 
                                             local sourceToken = g_token
                                             local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
@@ -905,12 +922,18 @@ mod.shared.CreateTriggerPanel = function()
                                             elseif rangeType == "distance" then
                                                 range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
                                             end
+                                            --the new target must be one the striking creature could actually
+                                            --hit: inside the strike's distance and in its line of effect.
+                                            if rangeType == "ability" then
+                                                RuleUtils.AddRetargetRangeReasons(targets, retargetReasons, sourceToken, range)
+                                            end
 
                                             element:Get("abilityController"):FireEventTree("chooseTarget", {
                                                 sourceToken = sourceToken,
                                                 radius = range,
                                                 targets = targets,
                                                 reasons = retargetReasons,
+                                                prompt = RuleUtils.RetargetPromptText(sourceToken, range, rangeType),
                                                 choose = function(newTargetToken)
                                                     if g_token == nil then
                                                         return
@@ -923,6 +946,8 @@ mod.shared.CreateTriggerPanel = function()
 
                                                             trigger.triggered = index
                                                             trigger.retargetid = newTargetToken.charid
+                                                            --choosing the new target commits the trigger, so the card leaves the drawer.
+                                                            trigger.dismissed = true
 
                                                             g_token.properties:DispatchAvailableTrigger(trigger)
                                                         end,
@@ -1115,6 +1140,7 @@ mod.shared.CreateTriggerPanel = function()
                                             caster = casterToken.properties:LookupSymbol{},
                                         }
                                         local targets, retargetReasons = BuildRetargetCandidates(trigger.powerRollModifier.powerRollModifier, symbols)
+                                        RuleUtils.RemoveRetargetStrikeTargets(targets, trigger)
 
                                         local sourceToken = g_token
                                         local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
@@ -1125,12 +1151,18 @@ mod.shared.CreateTriggerPanel = function()
                                         elseif rangeType == "distance" then
                                             range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
                                         end
+                                        --the new target must be one the striking creature could actually
+                                        --hit: inside the strike's distance and in its line of effect.
+                                        if rangeType == "ability" then
+                                            RuleUtils.AddRetargetRangeReasons(targets, retargetReasons, sourceToken, range)
+                                        end
 
                                         element:Get("abilityController"):FireEventTree("chooseTarget", {
                                             sourceToken = sourceToken,
                                             radius = range,
                                             targets = targets,
                                             reasons = retargetReasons,
+                                            prompt = RuleUtils.RetargetPromptText(sourceToken, range, rangeType),
                                             choose = function(newTargetToken)
                                                 if g_token == nil then
                                                     return
@@ -1142,6 +1174,8 @@ mod.shared.CreateTriggerPanel = function()
                                                     execute = function()
                                                         trigger.triggered = true
                                                         trigger.retargetid = newTargetToken.charid
+                                                        --choosing the new target commits the trigger, so the card leaves the drawer.
+                                                        trigger.dismissed = true
 
                                                         g_token.properties:DispatchAvailableTrigger(trigger)
                                                     end,
@@ -1620,6 +1654,7 @@ mod.shared.CreateTriggerPanel = function()
                                                 caster = casterToken.properties:LookupSymbol{},
                                             }
                                             local targets, retargetReasons = BuildRetargetCandidates(trigger.powerRollModifier.powerRollModifier, symbols)
+                                            RuleUtils.RemoveRetargetStrikeTargets(targets, trigger)
 
                                             local sourceToken = g_token
                                             local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
@@ -1630,12 +1665,18 @@ mod.shared.CreateTriggerPanel = function()
                                             elseif rangeType == "distance" then
                                                 range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
                                             end
+                                            --the new target must be one the striking creature could actually
+                                            --hit: inside the strike's distance and in its line of effect.
+                                            if rangeType == "ability" then
+                                                RuleUtils.AddRetargetRangeReasons(targets, retargetReasons, sourceToken, range)
+                                            end
 
                                             element:Get("abilityController"):FireEventTree("chooseTarget", {
                                                 sourceToken = sourceToken,
                                                 radius = range,
                                                 targets = targets,
                                                 reasons = retargetReasons,
+                                                prompt = RuleUtils.RetargetPromptText(sourceToken, range, rangeType),
                                                 choose = function(newTargetToken)
                                                     if g_token == nil then
                                                         return
@@ -1648,6 +1689,8 @@ mod.shared.CreateTriggerPanel = function()
 
                                                             trigger.triggered = index
                                                             trigger.retargetid = newTargetToken.charid
+                                                            --choosing the new target commits the trigger, so the card leaves the drawer.
+                                                            trigger.dismissed = true
 
                                                             g_token.properties:DispatchAvailableTrigger(trigger)
                                                         end,
