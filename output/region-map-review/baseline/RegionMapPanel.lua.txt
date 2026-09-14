@@ -1,0 +1,1980 @@
+local mod = dmhub.GetModLoading()
+
+RegionMapAddon = rawget(_G, "RegionMapAddon") or {}
+local Addon = RegionMapAddon
+Addon.Panel = nil
+
+local Model = Addon.Model
+local Styles = Addon.Styles
+if Model == nil or Model.ready ~= true or Styles == nil or Styles.ready ~= true then
+    print("REGION_MAP: model or styles module unavailable; panel initialization skipped")
+    return
+end
+
+local Panel = {}
+local PANEL_NAME = Addon.panelName
+local LABEL_LIMIT = Model.LABEL_LIMIT
+local TEXT_LIMIT = Model.TEXT_LIMIT
+local MIN_ZOOM = Model.MIN_ZOOM
+local MAX_ZOOM = Model.MAX_ZOOM
+
+local Clamp = Model.Clamp
+local IsFinite = Model.IsFinite
+local Field = Model.Field
+local RecordRevision = Model.RecordRevision
+local TrimSingleLine = Model.TrimSingleLine
+local TextLength = Model.TextLength
+local CurrentUserName = Model.CurrentUserName
+local Audit = Model.Audit
+local MarkUndo = Model.MarkUndo
+local UploadRecord = Model.UploadRecord
+local LabelsTable = Model.LabelsTable
+local TombstonesTable = Model.TombstonesTable
+local IsTombstoned = Model.IsTombstoned
+local GetMap = Model.GetMap
+local CanViewMap = Model.CanViewMap
+local VisibleMaps = Model.VisibleMaps
+local ResolveFallbackMap = Model.ResolveFallbackMap
+local NameIsAvailable = Model.NameIsAvailable
+local LabelVisibility = Model.LabelVisibility
+local CanViewLabel = Model.CanViewLabel
+local CanEditLabel = Model.CanEditLabel
+local LabelsForMap = Model.LabelsForMap
+local LabelCount = Model.LabelCount
+local LabelStateForMap = Model.LabelStateForMap
+local StateDocument = Model.StateDocument
+local GetParty = Model.GetParty
+local LabelRenderSnapshot = Model.LabelRenderSnapshot
+local PartyRenderSnapshot = Model.PartyRenderSnapshot
+local CanMoveParty = Model.CanMoveParty
+local WriteParty = Model.WriteParty
+local UnplaceParty = Model.UnplaceParty
+local SetPlayersCanMoveParty = Model.SetPlayersCanMoveParty
+local ReadPreferences = Model.ReadPreferences
+local ReadCamera = Model.ReadCamera
+local SaveCamera = Model.SaveCamera
+local ShowLabelsForMap = Model.ShowLabelsForMap
+local SaveShowLabels = Model.SaveShowLabels
+local SaveSelectedMap = Model.SaveSelectedMap
+local BuildStyles = Styles.Build
+local SubscribeToTheme = Styles.Subscribe
+local UnsubscribeFromTheme = Styles.Unsubscribe
+
+local function DiscardDrawerDraft(data)
+    data.drawerDraft = nil
+end
+
+local function EnsureDrawerDraft(data, mode, recordId, defaults)
+    local draft = data.drawerDraft
+    if draft == nil or draft.mode ~= mode or draft.recordId ~= recordId then
+        local retainedSearch = mode == "labels" and draft ~= nil and draft.mode == "labels"
+            and draft.search or data.labelSearch
+        draft = {
+            mode = mode,
+            recordId = recordId,
+            dirty = false,
+            dirtyFields = {},
+        }
+        for key, value in pairs(defaults or {}) do draft[key] = value end
+        if mode == "labels" then draft.search = retainedSearch or "" end
+        data.drawerDraft = draft
+        return draft
+    end
+
+    draft.dirtyFields = draft.dirtyFields or {}
+    for key, value in pairs(defaults or {}) do
+        if not draft.dirtyFields[key] then draft[key] = value end
+    end
+    return draft
+end
+
+local function UpdateDrawerDraft(data, field, value)
+    local draft = data.drawerDraft
+    if draft == nil then return end
+    draft[field] = value
+    draft.dirtyFields = draft.dirtyFields or {}
+    draft.dirtyFields[field] = true
+    draft.dirty = true
+end
+
+local function MarkDrawerDraftSaved(data, ...)
+    local draft = data.drawerDraft
+    if draft == nil then return end
+    draft.dirtyFields = draft.dirtyFields or {}
+    for index = 1, select("#", ...) do
+        draft.dirtyFields[select(index, ...)] = nil
+    end
+    draft.dirty = next(draft.dirtyFields) ~= nil
+end
+
+local function CalculateImageLayout(viewWidth, viewHeight, imageWidth, imageHeight, camera)
+    if not IsFinite(viewWidth) or not IsFinite(viewHeight) or not IsFinite(imageWidth) or not IsFinite(imageHeight)
+        or viewWidth <= 0 or viewHeight <= 0 or imageWidth <= 0 or imageHeight <= 0 then
+        return nil
+    end
+    local fitScale = math.min(viewWidth / imageWidth, viewHeight / imageHeight)
+    local zoom = Clamp(camera.zoom or MIN_ZOOM, MIN_ZOOM, MAX_ZOOM)
+    local width = imageWidth * fitScale * zoom
+    local height = imageHeight * fitScale * zoom
+    local centerX = camera.centerX or 0.5
+    local centerY = camera.centerY or 0.5
+    if width <= viewWidth then
+        centerX = 0.5
+    else
+        local halfVisible = viewWidth / (2 * width)
+        centerX = Clamp(centerX, halfVisible, 1 - halfVisible)
+    end
+    if height <= viewHeight then
+        centerY = 0.5
+    else
+        local halfVisible = viewHeight / (2 * height)
+        centerY = Clamp(centerY, halfVisible, 1 - halfVisible)
+    end
+    camera.zoom = zoom
+    camera.centerX = centerX
+    camera.centerY = centerY
+    return {
+        x = viewWidth * 0.5 - centerX * width,
+        y = viewHeight * 0.5 - centerY * height,
+        width = width,
+        height = height,
+        viewWidth = viewWidth,
+        viewHeight = viewHeight,
+    }
+end
+
+local function ImageToPanel(layout, u, v)
+    return layout.x + u * layout.width, layout.y + v * layout.height
+end
+
+local function PanelToImage(layout, x, y)
+    local u = (x - layout.x) / layout.width
+    local v = (y - layout.y) / layout.height
+    if u < 0 or u > 1 or v < 0 or v > 1 then
+        return nil
+    end
+    return u, v
+end
+
+
+local function ErrorMessage(title, message)
+    gui.ModalMessage { title = title, message = message }
+end
+
+local function CreateRegionMapPanel()
+    local root
+    local mapDropdown
+    local labelsButton
+    local addLabelButton
+    local movePartyButton
+    local presentButton
+    local mapActionsButton
+    local canvas
+    local imagePanel
+    local markerOverlay
+    local partyPanel
+    local partyDisc
+    local partyGlyph
+    local partyText
+    local emptyPanel
+    local emptyTitle
+    local emptyBody
+    local emptyCreateButton
+    local loadingPanel
+    local loadingLabel
+    local loadingActions
+    local drawer
+    local inlineEditor
+    local statusLabel
+    local noticeLabel
+    local footer
+    local fitButton
+    local zoomInButton
+    local zoomOutButton
+    local showLabelsButton
+
+    local RefreshAll
+    local UpdateCanvasLayout
+    local UpdateMarkers
+    local RebuildDrawer
+    local PresentCurrentMap
+    local SetSelectedMap
+    local SetTool
+    local SelectMarker
+    local CancelTransientInteraction
+    local ApplySelectedMap
+
+    local function CurrentMap()
+        return GetMap(root.data.selectedMapId)
+    end
+
+    local function SetNotice(message, duration)
+        root.data.noticeToken = root.data.noticeToken + 1
+        local token = root.data.noticeToken
+        noticeLabel.text = message or ""
+        noticeLabel:SetClass("collapsed", message == nil or message == "")
+        if footer ~= nil and footer.valid then
+            footer:SetClass("hasNotice", message ~= nil and message ~= "")
+        end
+        if message ~= nil and message ~= "" and duration ~= nil then
+            dmhub.Schedule(duration, function()
+                if mod.unloaded or root == nil or not root.valid or root.data.noticeToken ~= token then
+                    return
+                end
+                noticeLabel.text = ""
+                noticeLabel:SetClass("collapsed", true)
+                if footer ~= nil and footer.valid then footer:SetClass("hasNotice", false) end
+            end)
+        end
+    end
+
+    local function CloseDrawer()
+        root.data.drawerMode = nil
+        DiscardDrawerDraft(root.data)
+        drawer.children = {}
+        drawer:SetClass("collapsed", true)
+    end
+
+    local function CancelInlineEditor()
+        root.data.inlineDraft = nil
+        inlineEditor.children = {}
+        inlineEditor:SetClass("collapsed", true)
+    end
+
+    local function SetControlEnabled(control, enabled)
+        control.interactable = enabled == true
+        control:SetClass("disabled", enabled ~= true)
+    end
+
+    local function SaveCurrentCamera()
+        local map = CurrentMap()
+        if map ~= nil then
+            SaveCamera(map, root.data.camera)
+        end
+    end
+
+    local function FitCurrentMap(save)
+        if CurrentMap() == nil then return end
+        root.data.camera = { zoom = MIN_ZOOM, centerX = 0.5, centerY = 0.5 }
+        UpdateCanvasLayout()
+        if save ~= false then SaveCurrentCamera() end
+    end
+
+    local function ScreenPointFromMouse(element)
+        local point = element.mousePoint
+        local width = element.renderedWidth or 0
+        local height = element.renderedHeight or 0
+        if point == nil or width <= 0 or height <= 0 then return nil end
+        return point.x * width, (1 - point.y) * height
+    end
+
+    local function ImagePointFromMouse(element)
+        local x, y = ScreenPointFromMouse(element)
+        if x == nil or root.data.layout == nil then return nil end
+        return PanelToImage(root.data.layout, x, y)
+    end
+
+    local function UpdateInlineEditorPosition()
+        local draft = root.data.inlineDraft
+        local layout = root.data.layout
+        if draft == nil or layout == nil then return end
+        local x, y = ImageToPanel(layout, draft.u, draft.v)
+        x = Clamp(x, 130, math.max(130, layout.viewWidth - 130))
+        y = Clamp(y + 18, 8, math.max(8, layout.viewHeight - 112))
+        inlineEditor.selfStyle.x = x
+        inlineEditor.selfStyle.y = y
+    end
+
+    local function CommitLabelPosition(labelId, mapId, u, v, description)
+        local label = LabelsTable()[labelId]
+        local map = GetMap(mapId)
+        if not CanEditLabel(label) or map == nil or label.mapId ~= map.id or IsTombstoned(map.id) then
+            return false
+        end
+        MarkUndo(label)
+        label.u = Clamp(u, 0, 1)
+        label.v = Clamp(v, 0, 1)
+        label.revision = tonumber(Field(label, "revision", 0)) + 1
+        Audit(label, false)
+        UploadRecord(Addon.labelTableName, label, description or "Move region map label")
+        return true
+    end
+
+    local function CreateLabelMarker(label)
+        return gui.Label {
+            classes = { "regionMapLabel" },
+            floating = true,
+            halign = "left",
+            valign = "top",
+            pivot = { 0.5, 0.5 },
+            draggable = true,
+            dragMove = false,
+            dragThreshold = 3,
+            swallowPress = true,
+            data = { labelId = label.id },
+            press = function(element)
+                local current = LabelsTable()[element.data.labelId]
+                if not CanViewLabel(current) then return end
+                SelectMarker("label", current.id)
+                gui.SetFocus(canvas)
+                if root.data.tool == "navigate" and CanEditLabel(current) then
+                    element.data.dragU = current.u
+                    element.data.dragV = current.v
+                else
+                    element.data.dragU = nil
+                    element.data.dragV = nil
+                end
+            end,
+            dragging = function(element)
+                local layout = root.data.layout
+                if element.data.dragU == nil or root.data.tool ~= "navigate" or layout == nil then return end
+                element.data.previewU = Clamp(element.data.dragU + element.dragDelta.x / layout.width, 0, 1)
+                element.data.previewV = Clamp(element.data.dragV + element.dragDelta.y / layout.height, 0, 1)
+                UpdateCanvasLayout()
+            end,
+            drag = function(element)
+                local u = element.data.previewU
+                local v = element.data.previewV
+                element.data.dragU = nil
+                element.data.dragV = nil
+                element.data.previewU = nil
+                element.data.previewV = nil
+                if u == nil or v == nil then return end
+                if CommitLabelPosition(element.data.labelId, root.data.selectedMapId, u, v, "Move region map label") then
+                    UpdateMarkers()
+                    SetNotice("Saving...", 1.2)
+                else
+                    RefreshAll()
+                end
+            end,
+        }
+    end
+
+    partyGlyph = gui.Label {
+        classes = { "regionMapPartyGlyph", "collapsed", "hidden" },
+        interactable = false,
+        text = "P",
+    }
+    partyDisc = gui.Panel {
+        classes = { "regionMapPartyDisc", "collapsed", "hidden" },
+        interactable = false,
+        partyGlyph,
+    }
+    partyText = gui.Label {
+        classes = { "regionMapPartyText", "collapsed", "hidden" },
+        interactable = false,
+        text = "Party",
+    }
+    partyPanel = gui.Panel {
+        classes = { "regionMapParty", "collapsed", "hidden" },
+        floating = true,
+        halign = "left",
+        valign = "top",
+        pivot = { 0.5, 0.5 },
+        clip = true,
+        draggable = true,
+        dragMove = false,
+        dragThreshold = 3,
+        swallowPress = true,
+        data = {},
+        press = function(element)
+            local party = GetParty()
+            if party == nil or party.mapId ~= root.data.selectedMapId then return end
+            SelectMarker("party")
+            gui.SetFocus(canvas)
+            if root.data.tool == "navigate" and CanMoveParty() then
+                element.data.dragU = party.u
+                element.data.dragV = party.v
+            else
+                element.data.dragU = nil
+                element.data.dragV = nil
+            end
+        end,
+        dragging = function(element)
+            local layout = root.data.layout
+            if element.data.dragU == nil or root.data.tool ~= "navigate" or layout == nil then return end
+            element.data.previewU = Clamp(element.data.dragU + element.dragDelta.x / layout.width, 0, 1)
+            element.data.previewV = Clamp(element.data.dragV + element.dragDelta.y / layout.height, 0, 1)
+            UpdateCanvasLayout()
+        end,
+        drag = function(element)
+            local u = element.data.previewU
+            local v = element.data.previewV
+            element.data.dragU = nil
+            element.data.dragV = nil
+            element.data.previewU = nil
+            element.data.previewV = nil
+            if u == nil or v == nil then return end
+            if WriteParty(root.data.selectedMapId, u, v, "Move Party on region map") then
+                UpdateMarkers()
+                SetNotice("Saving...", 1.2)
+            else
+                RefreshAll()
+            end
+        end,
+        partyDisc,
+        partyText,
+    }
+
+    UpdateMarkers = function(state)
+        local map = state ~= nil and state.map or CurrentMap()
+        local desired = {}
+        local children = {}
+        if map ~= nil and ShowLabelsForMap(map.id) then
+            local labels = state ~= nil and state.labels or LabelsForMap(map.id, false)
+            for _, label in ipairs(labels) do
+                desired[label.id] = true
+                local marker = root.data.labelPanels[label.id]
+                if marker == nil or not marker.valid then
+                    marker = CreateLabelMarker(label)
+                    root.data.labelPanels[label.id] = marker
+                end
+                local snapshot = LabelRenderSnapshot(label)
+                marker.text = label.text
+                marker.data.labelId = snapshot.labelId
+                marker.data.mapId = snapshot.mapId
+                marker.data.u = snapshot.u
+                marker.data.v = snapshot.v
+                marker:SetClass("selected", root.data.selectedMarkerKind == "label" and root.data.selectedMarkerId == label.id)
+                marker:SetClass("retained", root.data.retainedRevision == Field(map, "imageRevision", 1))
+                local editable
+                if state ~= nil then
+                    editable = state.editableLabelIds[label.id] == true
+                else
+                    editable = CanEditLabel(label)
+                end
+                marker.draggable = root.data.tool == "navigate" and editable
+                children[#children + 1] = marker
+            end
+        end
+        for id, marker in pairs(root.data.labelPanels) do
+            if not desired[id] then
+                if marker.valid then marker:DestroySelf() end
+                root.data.labelPanels[id] = nil
+            end
+        end
+
+        local party
+        if state ~= nil then
+            party = state.party
+        else
+            party = GetParty()
+        end
+        local canMoveParty
+        if state ~= nil then
+            canMoveParty = state.canMoveParty
+        else
+            canMoveParty = CanMoveParty()
+        end
+        root.data.partySnapshot = PartyRenderSnapshot(party)
+        local partyVisible = map ~= nil and party ~= nil and party.mapId == map.id
+            and (dmhub.isDM or Field(map, "published", false))
+        for _, element in ipairs({ partyPanel, partyDisc, partyGlyph, partyText }) do
+            element:SetClass("collapsed", not partyVisible)
+            element:SetClass("hidden", not partyVisible)
+        end
+        partyPanel:SetClass("selected", root.data.selectedMarkerKind == "party")
+        partyPanel.draggable = partyVisible and root.data.tool == "navigate" and canMoveParty
+        -- Keep the singular Party panel parented even while hidden so a later
+        -- remote placement can reveal the same live control safely.
+        children[#children + 1] = partyPanel
+        markerOverlay.children = children
+        UpdateCanvasLayout()
+    end
+
+    UpdateCanvasLayout = function()
+        if root == nil or not root.valid then return end
+        local map = root.data.selectedMapSnapshot
+        local viewWidth = canvas.renderedWidth or 0
+        local viewHeight = canvas.renderedHeight or 0
+        local imageWidth = root.data.imageWidth
+        local imageHeight = root.data.imageHeight
+        if map == nil or not IsFinite(imageWidth) or not IsFinite(imageHeight)
+            or imageWidth <= 0 or imageHeight <= 0 or viewWidth <= 0 or viewHeight <= 0 then
+            root.data.layout = nil
+            return
+        end
+        local layout = CalculateImageLayout(viewWidth, viewHeight, imageWidth, imageHeight, root.data.camera)
+        root.data.layout = layout
+        imagePanel.selfStyle.x = layout.x
+        imagePanel.selfStyle.y = layout.y
+        imagePanel.selfStyle.width = layout.width
+        imagePanel.selfStyle.height = layout.height
+
+        local fontSize = Clamp(14 * root.data.camera.zoom, 14, 28)
+        for _, marker in pairs(root.data.labelPanels) do
+            if marker.valid and marker.data.mapId == map.id then
+                local u = marker.data.previewU or marker.data.u
+                local v = marker.data.previewV or marker.data.v
+                marker.selfStyle.x, marker.selfStyle.y = ImageToPanel(layout, u, v)
+                marker.selfStyle.fontSize = fontSize
+            end
+        end
+        local party = root.data.partySnapshot
+        if party ~= nil and party.mapId == map.id and not partyPanel:HasClass("collapsed") then
+            partyPanel.selfStyle.x, partyPanel.selfStyle.y = ImageToPanel(layout,
+                partyPanel.data.previewU or party.u, partyPanel.data.previewV or party.v)
+        end
+        UpdateInlineEditorPosition()
+    end
+
+    local function LoadCameraForMap(map, forceFit)
+        local camera, restored = ReadCamera(map)
+        if forceFit or not restored then
+            camera = { zoom = MIN_ZOOM, centerX = 0.5, centerY = 0.5 }
+        end
+        root.data.camera = camera
+        root.data.cameraMapId = map.id
+        root.data.cameraImageRevision = Field(map, "imageRevision", 1)
+        root.data.pendingFit = forceFit or not restored
+    end
+
+    CancelTransientInteraction = function()
+        CancelInlineEditor()
+        root.data.tool = "navigate"
+        root.data.toolTargetId = nil
+        root.data.selectedMarkerKind = nil
+        root.data.selectedMarkerId = nil
+
+        if addLabelButton ~= nil and addLabelButton.valid then
+            addLabelButton:SetClass("selected", false)
+        end
+        if movePartyButton ~= nil and movePartyButton.valid then
+            movePartyButton:SetClass("selected", false)
+        end
+        if canvas ~= nil and canvas.valid then
+            canvas.data.dragStartCamera = nil
+            canvas.data.dragMoved = false
+            canvas.data.panPreviousX = nil
+            canvas.data.panPreviousY = nil
+        end
+        if partyPanel ~= nil and partyPanel.valid then
+            partyPanel.data.dragU = nil
+            partyPanel.data.dragV = nil
+            partyPanel.data.previewU = nil
+            partyPanel.data.previewV = nil
+        end
+        for _, marker in pairs(root.data.labelPanels or {}) do
+            if marker.valid then
+                marker.data.dragU = nil
+                marker.data.dragV = nil
+                marker.data.previewU = nil
+                marker.data.previewV = nil
+            end
+        end
+    end
+
+    ApplySelectedMap = function(map, forceFit)
+        local previousMapId = root.data.selectedMapId
+        local nextMapId = map and map.id or nil
+        if previousMapId ~= nextMapId then
+            CancelTransientInteraction()
+            if root.data.drawerMode == "map" or root.data.drawerMode == "labels" then
+                CloseDrawer()
+            end
+            root.data.selectedMapId = nextMapId
+            if map ~= nil then
+                LoadCameraForMap(map, forceFit == true)
+                SaveSelectedMap(map.id)
+            end
+            return true
+        end
+        if map ~= nil and forceFit == true then
+            LoadCameraForMap(map, true)
+            SaveSelectedMap(map.id)
+        end
+        return false
+    end
+
+    SetSelectedMap = function(mapId, forceFit)
+        local map = GetMap(mapId)
+        if not CanViewMap(map) then return false end
+        ApplySelectedMap(map, forceFit == true)
+        RefreshAll()
+        return true
+    end
+
+    SelectMarker = function(kind, id)
+        root.data.selectedMarkerKind = kind
+        root.data.selectedMarkerId = id
+        if kind == "label" then
+            local label = LabelsTable()[id]
+            if CanViewLabel(label) then
+                root.data.labelRevisions[id] = RecordRevision(label)
+            else
+                root.data.labelRevisions[id] = nil
+            end
+        end
+        UpdateMarkers()
+        if root.data.drawerMode == "labels" then RebuildDrawer() end
+    end
+
+    local function NudgeSelected(horizontal, vertical, coarse)
+        local layout = root.data.layout
+        local map = CurrentMap()
+        if layout == nil or map == nil then return end
+        local pixels = coarse and 16 or 2
+        if root.data.selectedMarkerKind == "label" then
+            local label = LabelsTable()[root.data.selectedMarkerId]
+            if CanEditLabel(label) and label.mapId == map.id then
+                if CommitLabelPosition(label.id, map.id, label.u + horizontal * pixels / layout.width,
+                    label.v + vertical * pixels / layout.height, "Nudge region map label") then
+                    UpdateMarkers()
+                    SetNotice("Saving...", 1)
+                end
+                return
+            end
+        elseif root.data.selectedMarkerKind == "party" and CanMoveParty() then
+            local party = GetParty()
+            if party ~= nil and party.mapId == map.id then
+                if WriteParty(map.id, party.u + horizontal * pixels / layout.width,
+                    party.v + vertical * pixels / layout.height, "Nudge Party on region map") then
+                    UpdateMarkers()
+                    SetNotice("Saving...", 1)
+                end
+                return
+            end
+        end
+        local panPixels = coarse and 64 or 16
+        root.data.camera.centerX = root.data.camera.centerX + horizontal * panPixels / layout.width
+        root.data.camera.centerY = root.data.camera.centerY + vertical * panPixels / layout.height
+        UpdateCanvasLayout()
+        SaveCurrentCamera()
+    end
+
+    local function CommitNewLabel(text, visibility, mapId, u, v)
+        text = TrimSingleLine(text)
+        local map = GetMap(mapId)
+        if map == nil or not CanViewMap(map) or IsTombstoned(map.id) then
+            ErrorMessage("Map unavailable", "This region map is no longer available.")
+            return false
+        end
+        if text == "" or TextLength(text) > TEXT_LIMIT then
+            ErrorMessage("Label text", "Labels must contain 1-80 characters on one line.")
+            return false
+        end
+        if LabelCount(map.id) >= LABEL_LIMIT then
+            ErrorMessage("Label limit", "This map has reached the limit of 250 labels.")
+            return false
+        end
+        visibility = dmhub.isDM and visibility == "director" and "director" or "shared"
+        local label = RegionMapLabelRecord.new {
+            id = dmhub.GenerateGuid(), schemaVersion = Addon.schemaVersion,
+            mapId = map.id, u = Clamp(u, 0, 1), v = Clamp(v, 0, 1), text = text,
+            ownerId = dmhub.loginUserid, ownerName = CurrentUserName(),
+            createdByDirector = dmhub.isDM, visibility = visibility,
+            revision = 1, hidden = false,
+        }
+        Audit(label, true)
+        UploadRecord(Addon.labelTableName, label, "Add region map label")
+        root.data.selectedMarkerKind = "label"
+        root.data.selectedMarkerId = label.id
+        root.data.labelRevisions[label.id] = RecordRevision(label)
+        SetNotice("Saving...", 1.2)
+        return true
+    end
+
+    local function OpenNewLabelEditor(mapId, u, v)
+        local map = GetMap(mapId)
+        if map == nil or not CanViewMap(map) then return end
+        if LabelCount(map.id) >= LABEL_LIMIT then
+            ErrorMessage("Label limit", "This map has reached the limit of 250 labels.")
+            SetTool("navigate")
+            return
+        end
+        root.data.inlineDraft = { mapId = map.id, u = u, v = v }
+        local textInput
+        local directorOnly
+        local function SaveDraft()
+            local draft = root.data.inlineDraft
+            if draft == nil then return end
+            local visibility = dmhub.isDM and directorOnly ~= nil and directorOnly.value and "director" or "shared"
+            if CommitNewLabel(textInput.text, visibility, draft.mapId, draft.u, draft.v) then
+                CancelInlineEditor()
+                SetTool("navigate")
+                UpdateMarkers()
+            end
+        end
+        textInput = gui.Input {
+            classes = { "regionMapFormInput" }, placeholderText = "Label text",
+            characterLimit = TEXT_LIMIT, enter = SaveDraft,
+            escape = function() CancelInlineEditor(); SetTool("navigate") end,
+        }
+        local children = { textInput }
+        if dmhub.isDM then
+            directorOnly = gui.Check {
+                classes = { "sizeS" }, text = "Director only", value = false,
+                width = "100%", height = "auto", minHeight = 28, tmargin = 4,
+            }
+            children[#children + 1] = directorOnly
+        end
+        children[#children + 1] = gui.Panel {
+            classes = { "regionMapInlineButtons" },
+            gui.Button { classes = { "regionMapInlineButton", "sizeS" }, text = "Save", click = SaveDraft },
+            gui.Button { classes = { "regionMapInlineButton", "sizeS" }, text = "Cancel", click = function() CancelInlineEditor(); SetTool("navigate") end },
+        }
+        inlineEditor.children = children
+        inlineEditor:SetClass("collapsed", false)
+        UpdateInlineEditorPosition()
+        dmhub.Schedule(0.05, function()
+            if not mod.unloaded and textInput.valid then gui.SetFocus(textInput) end
+        end)
+    end
+
+    local function PlaceCurrentTool(u, v)
+        local map = CurrentMap()
+        if map == nil or u == nil or v == nil then
+            SetNotice("Choose a point on the map image.", 2)
+            return
+        end
+        if root.data.tool == "addLabel" then
+            OpenNewLabelEditor(map.id, u, v)
+        elseif root.data.tool == "moveParty" then
+            if WriteParty(map.id, u, v, "Place Party on region map") then
+                SetNotice("Saving...", 1.2)
+                SetTool("navigate")
+                SelectMarker("party")
+            else
+                ErrorMessage("Party", "Only the Director can move Party.")
+                SetTool("navigate")
+            end
+        elseif root.data.tool == "moveLabel" then
+            local id = root.data.toolTargetId
+            if CommitLabelPosition(id, map.id, u, v, "Reposition region map label") then
+                SetNotice("Saving...", 1.2)
+                SetTool("navigate")
+                SelectMarker("label", id)
+            else
+                SetTool("navigate")
+                RefreshAll()
+            end
+        end
+    end
+
+    SetTool = function(tool, targetId)
+        tool = tool or "navigate"
+        if tool ~= "navigate" and tool ~= "addLabel" and tool ~= "moveParty" and tool ~= "moveLabel" then
+            tool = "navigate"
+        end
+        root.data.tool = tool
+        root.data.toolTargetId = targetId
+        addLabelButton:SetClass("selected", tool == "addLabel")
+        movePartyButton:SetClass("selected", tool == "moveParty")
+        if tool ~= "addLabel" and root.data.inlineDraft ~= nil then CancelInlineEditor() end
+        UpdateMarkers()
+    end
+
+    local function CenterOnLabel(label)
+        local map = CurrentMap()
+        if map == nil or not CanViewLabel(label) or label.mapId ~= map.id then return end
+        root.data.camera.centerX = label.u
+        root.data.camera.centerY = label.v
+        UpdateCanvasLayout()
+        SaveCurrentCamera()
+        SelectMarker("label", label.id)
+    end
+
+    local function DrawerHeader(title)
+        return gui.Panel {
+            classes = { "regionMapDrawerHeader" },
+            gui.Label { classes = { "regionMapDrawerTitle" }, text = title },
+            gui.Button { classes = { "closeButton" }, tooltip = "Close", click = CloseDrawer },
+        }
+    end
+
+    local function FormLabel(text)
+        return gui.Label { classes = { "regionMapFormLabel" }, text = text }
+    end
+
+    local function ValidateMapName(rawName, exceptId)
+        local name = TrimSingleLine(rawName)
+        if name == "" or TextLength(name) > TEXT_LIMIT then
+            ErrorMessage("Map name", "Map names must contain 1-80 characters on one line.")
+            return nil
+        end
+        if not NameIsAvailable(name, exceptId) then
+            ErrorMessage("Map name", "Another region map already uses that name.")
+            return nil
+        end
+        return name
+    end
+
+    local function CreateMapRecord(name, imageId)
+        if not dmhub.isDM then return end
+        name = ValidateMapName(name)
+        if name == nil then return end
+        if type(imageId) ~= "string" or imageId == "" then
+            ErrorMessage("Map image", "Choose or upload an image before creating the map.")
+            return
+        end
+        local map = RegionMapRecord.new {
+            id = dmhub.GenerateGuid(), schemaVersion = Addon.schemaVersion,
+            name = name, imageId = imageId, imageRevision = 1,
+            published = false, revision = 1, hidden = false,
+        }
+        Audit(map, true)
+        root.data.pendingSelectMapId = map.id
+        UploadRecord(Addon.mapTableName, map, "Create region map")
+        CloseDrawer()
+        SetNotice("Saving...", 1.2)
+    end
+
+    local function ReplaceMapImage(map, imageId, picker)
+        if not dmhub.isDM or map == nil or GetMap(map.id) == nil then return end
+        if type(imageId) ~= "string" or imageId == "" or imageId == map.imageId then
+            picker.value = map.imageId
+            local draft = root.data.drawerDraft
+            if draft ~= nil and draft.mode == "map" and draft.recordId == map.id then
+                draft.imageId = map.imageId
+                MarkDrawerDraftSaved(root.data, "imageId")
+            end
+            return
+        end
+        local count = LabelCount(map.id)
+        local party = GetParty()
+        local objectsText = string.format("%d labels", count)
+        if party ~= nil and party.mapId == map.id then objectsText = objectsText .. " and Party" end
+        gui.ModalMessage {
+            title = "Replace map image?",
+            message = objectsText .. " will keep their relative positions. Review their alignment after replacement.",
+            options = {
+                {
+                    text = "Replace Image",
+                    execute = function()
+                        local current = GetMap(map.id)
+                        if current == nil or IsTombstoned(map.id) then return end
+                        MarkUndo(current)
+                        current.imageId = imageId
+                        current.imageRevision = tonumber(Field(current, "imageRevision", 1)) + 1
+                        current.revision = tonumber(Field(current, "revision", 0)) + 1
+                        Audit(current, false)
+                        UploadRecord(Addon.mapTableName, current, "Replace region map image")
+                        root.data.retainedRevision = current.imageRevision
+                        local draft = root.data.drawerDraft
+                        if draft ~= nil and draft.mode == "map" and draft.recordId == map.id then
+                            draft.imageId = imageId
+                            MarkDrawerDraftSaved(root.data, "imageId")
+                        end
+                        SetNotice("Saving...", 1.2)
+                    end,
+                },
+                {
+                    text = "Cancel",
+                    execute = function()
+                        if picker.valid then picker.value = map.imageId end
+                        local draft = root.data.drawerDraft
+                        if draft ~= nil and draft.mode == "map" and draft.recordId == map.id then
+                            draft.imageId = map.imageId
+                            MarkDrawerDraftSaved(root.data, "imageId")
+                        end
+                    end,
+                },
+            },
+        }
+    end
+
+    local function SetMapPublished(map, published)
+        if not dmhub.isDM or map == nil then return end
+        local function Commit()
+            local current = GetMap(map.id)
+            if current == nil then return end
+            MarkUndo(current)
+            current.published = published == true
+            current.revision = tonumber(Field(current, "revision", 0)) + 1
+            Audit(current, false)
+            UploadRecord(Addon.mapTableName, current, published and "Publish region map" or "Unpublish region map")
+            SetNotice("Saving...", 1.2)
+        end
+        if published then
+            Commit()
+            return
+        end
+        local message = "Players will immediately lose access to this map."
+        local party = GetParty()
+        if party ~= nil and party.mapId == map.id then
+            message = message .. " If Party is here, its location will no longer be shared."
+        end
+        gui.ModalMessage {
+            title = string.format("Unpublish %s?", map.name), message = message,
+            options = {
+                { text = "Unpublish Map", execute = Commit },
+                { text = "Cancel", execute = function() end },
+            },
+        }
+    end
+
+    local function DeleteMap(map)
+        if not dmhub.isDM or map == nil then return end
+        local current = GetMap(map.id)
+        if current == nil then return end
+        local count = LabelCount(current.id)
+        local party = GetParty()
+        local message = string.format("This permanently removes this map and its %d labels.", count)
+        if party ~= nil and party.mapId == current.id then
+            message = message .. " If Party is here, its location becomes unknown."
+        end
+        message = message .. " The image asset remains in your library."
+        gui.ModalMessage {
+            title = string.format("Delete %s?", current.name), message = message,
+            options = {
+                {
+                    text = "Delete Map",
+                    execute = function()
+                        current = GetMap(map.id)
+                        if current == nil then return end
+                        if TombstonesTable()[current.id] == nil then
+                            local tombstone = RegionMapTombstoneRecord.new {
+                                id = current.id, schemaVersion = Addon.schemaVersion,
+                                mapId = current.id, mapName = current.name,
+                                deletedBy = dmhub.loginUserid, deletedByName = CurrentUserName(),
+                                deletedAt = ServerTimestamp(), hidden = false,
+                            }
+                            UploadRecord(Addon.tombstoneTableName, tombstone, "Delete region map")
+                        end
+
+                        MarkUndo(current)
+                        current.published = false
+                        current.revision = tonumber(Field(current, "revision", 0)) + 1
+                        Audit(current, false)
+                        UploadRecord(Addon.mapTableName, current, "Withdraw deleted region map")
+
+                        local presentDoc = GameHud.GetPresentDialogDoc(PANEL_NAME)
+                        local presentArgs = presentDoc and presentDoc.data and presentDoc.data.dialog
+                            and presentDoc.data.dialog.args or nil
+                        if presentArgs ~= nil and presentArgs.regionMapId == current.id then
+                            GameHud.HidePresentedDialog()
+                        end
+                        local rawParty = StateDocument().data.party
+                        if type(rawParty) == "table" and rawParty.mapId == current.id then
+                            UnplaceParty("Unplace Party from deleted region map")
+                        end
+                        current.hidden = true
+                        UploadRecord(Addon.mapTableName, current, "Hide deleted region map")
+
+                        for _, label in pairs(LabelsTable()) do
+                            if label ~= nil and not Field(label, "hidden", false) and label.mapId == current.id then
+                                MarkUndo(label)
+                                label.hidden = true
+                                label.revision = tonumber(Field(label, "revision", 0)) + 1
+                                Audit(label, false)
+                                UploadRecord(Addon.labelTableName, label, "Delete region map label")
+                            end
+                        end
+                        root.data.selectedMapId = nil
+                        CloseDrawer()
+                        SetNotice("Saving...", 1.2)
+                        RefreshAll()
+                    end,
+                },
+                { text = "Cancel", execute = function() end },
+            },
+        }
+    end
+
+    local function OpenCreateMapDrawer()
+        if not dmhub.isDM then return end
+        root.data.drawerMode = "create"
+        RebuildDrawer()
+    end
+
+    local function BuildCreateDrawerBody()
+        local draft = EnsureDrawerDraft(root.data, "create", nil, { name = "" })
+        local nameInput = gui.Input {
+            classes = { "regionMapFormInput" }, placeholderText = "Map name", characterLimit = TEXT_LIMIT,
+            text = draft.name or "",
+            edit = function(element) UpdateDrawerDraft(root.data, "name", element.text) end,
+            change = function(element) UpdateDrawerDraft(root.data, "name", element.text) end,
+        }
+        local imageEditor = gui.IconEditor {
+            classes = { "regionMapImageEditor" }, library = "journal", categoriesHidden = true,
+            allowPaste = true, allowNone = true, hideIcon = true, stretch = true,
+            aspect = 9 / 16, value = draft.imageId,
+            change = function(element) UpdateDrawerDraft(root.data, "imageId", element.value) end,
+        }
+        return {
+            FormLabel("Map"), nameInput, FormLabel("Image"), imageEditor,
+            gui.Label {
+                classes = { "regionMapFormLabel" },
+                text = "Add an image, then publish it when it is ready for players.",
+            },
+            gui.Button {
+                id = "region-map-create-save",
+                classes = { "regionMapFormButton", "sizeS" }, text = "Create Map",
+                click = function()
+                    local currentDraft = root.data.drawerDraft
+                    CreateMapRecord(currentDraft and currentDraft.name or nameInput.text,
+                        currentDraft and currentDraft.imageId or imageEditor.value)
+                end,
+            },
+        }
+    end
+
+    local function BuildMapActionsBody(map)
+        if map == nil then return {} end
+        local draft = EnsureDrawerDraft(root.data, "map", map.id, {
+            name = map.name,
+            imageId = map.imageId,
+        })
+        local nameInput = gui.Input {
+            classes = { "regionMapFormInput" }, text = draft.name or map.name, characterLimit = TEXT_LIMIT,
+            edit = function(element) UpdateDrawerDraft(root.data, "name", element.text) end,
+            change = function(element) UpdateDrawerDraft(root.data, "name", element.text) end,
+        }
+        local function Rename()
+            local current = GetMap(map.id)
+            if current == nil then RefreshAll(); return end
+            local currentDraft = root.data.drawerDraft
+            local name = ValidateMapName(currentDraft and currentDraft.name or nameInput.text, map.id)
+            if name == nil then return end
+            if name == current.name then
+                MarkDrawerDraftSaved(root.data, "name")
+                return
+            end
+            MarkUndo(current)
+            current.name = name
+            current.revision = tonumber(Field(current, "revision", 0)) + 1
+            Audit(current, false)
+            UploadRecord(Addon.mapTableName, current, "Rename region map")
+            if currentDraft ~= nil then currentDraft.name = name end
+            MarkDrawerDraftSaved(root.data, "name")
+            SetNotice("Saving...", 1.2)
+        end
+        nameInput.events = nameInput.events or {}
+        nameInput.events.enter = Rename
+        local imageEditor
+        imageEditor = gui.IconEditor {
+            classes = { "regionMapImageEditor" }, library = "journal", categoriesHidden = true,
+            allowPaste = true, allowNone = false, hideIcon = true, stretch = true,
+            aspect = 9 / 16, value = draft.imageId or map.imageId,
+            change = function(element)
+                UpdateDrawerDraft(root.data, "imageId", element.value)
+                ReplaceMapImage(map, element.value, element)
+            end,
+        }
+        return {
+            FormLabel("Map"), nameInput,
+            gui.Button { classes = { "regionMapFormButton", "sizeS" }, text = "Rename Map", click = Rename },
+            gui.Button {
+                classes = { "regionMapFormButton", "sizeS" },
+                text = "Present to Players",
+                click = function() PresentCurrentMap() end,
+            },
+            FormLabel("Replace Image"), imageEditor,
+            gui.Button {
+                classes = { "regionMapFormButton", "sizeS" },
+                text = Field(map, "published", false) and "Unpublish Map" or "Publish Map",
+                click = function() SetMapPublished(map, not Field(map, "published", false)) end,
+            },
+            gui.Check {
+                text = "Players can move Party", value = PlayersCanMoveParty(),
+                classes = { "sizeS" }, width = "100%", height = "auto", minHeight = 30, tmargin = 8,
+                change = function(element) SetPlayersCanMoveParty(element.value); SetNotice("Saving...", 1.2) end,
+            },
+            gui.Button { classes = { "regionMapFormButton", "sizeS" }, text = "New Map", click = OpenCreateMapDrawer },
+            gui.Button {
+                classes = { "regionMapFormButton", "regionMapDangerButton", "sizeS" }, text = "Delete Map",
+                click = function() DeleteMap(map) end,
+            },
+        }
+    end
+
+    local function BuildNudgeRow()
+        return gui.Panel {
+            width = "100%", height = "auto", minHeight = 34, flow = "horizontal", tmargin = 5,
+            gui.Button { classes = { "regionMapCanvasControl" }, text = "<", tooltip = "Nudge left", click = function() NudgeSelected(-1, 0, false) end },
+            gui.Button { classes = { "regionMapCanvasControl" }, text = "^", tooltip = "Nudge up", click = function() NudgeSelected(0, -1, false) end },
+            gui.Button { classes = { "regionMapCanvasControl" }, text = "v", tooltip = "Nudge down", click = function() NudgeSelected(0, 1, false) end },
+            gui.Button { classes = { "regionMapCanvasControl" }, text = ">", tooltip = "Nudge right", click = function() NudgeSelected(1, 0, false) end },
+        }
+    end
+
+    local function BuildLabelEditor(label, draft)
+        if not CanViewLabel(label) then return {} end
+        local result = {
+            FormLabel(string.format("Created by %s", Field(label, "ownerName", "Unknown user"))),
+            gui.Label {
+                classes = { "regionMapLabelRowMeta" },
+                text = LabelVisibility(label) == "director"
+                    and "Visible to: Director only" or "Visible to: Everyone",
+            },
+        }
+        if not CanEditLabel(label) then return result end
+
+        local textInput = gui.Input {
+            classes = { "regionMapFormInput" }, text = draft.text or label.text, characterLimit = TEXT_LIMIT,
+            edit = function(element) UpdateDrawerDraft(root.data, "text", element.text) end,
+            change = function(element) UpdateDrawerDraft(root.data, "text", element.text) end,
+        }
+        local visibilityDropdown
+        if dmhub.isDM and Field(label, "createdByDirector", false) then
+            visibilityDropdown = gui.Dropdown {
+                classes = { "regionMapFormInput" },
+                options = {
+                    { id = "shared", text = "Everyone" },
+                    { id = "director", text = "Director only" },
+                },
+                idChosen = draft.visibility or LabelVisibility(label),
+                change = function(element) UpdateDrawerDraft(root.data, "visibility", element.idChosen) end,
+            }
+        end
+        local function SaveLabel()
+            local current = LabelsTable()[label.id]
+            if not CanEditLabel(current) then RefreshAll(); return end
+            local currentDraft = root.data.drawerDraft
+            local text = TrimSingleLine(currentDraft and currentDraft.text or textInput.text)
+            if text == "" or TextLength(text) > TEXT_LIMIT then
+                ErrorMessage("Label text", "Labels must contain 1-80 characters on one line.")
+                return
+            end
+            MarkUndo(current)
+            current.text = text
+            local requestedVisibility = currentDraft and currentDraft.visibility
+                or (visibilityDropdown and visibilityDropdown.idChosen or "shared")
+            if Field(current, "createdByDirector", false) then
+                current.visibility = requestedVisibility == "director" and "director" or "shared"
+            else
+                current.visibility = "shared"
+            end
+            current.revision = tonumber(Field(current, "revision", 0)) + 1
+            Audit(current, false)
+            UploadRecord(Addon.labelTableName, current, "Edit region map label")
+            if currentDraft ~= nil then
+                currentDraft.text = text
+                currentDraft.visibility = current.visibility
+            end
+            MarkDrawerDraftSaved(root.data, "text", "visibility")
+            SetNotice("Saving...", 1.2)
+        end
+        textInput.events = textInput.events or {}
+        textInput.events.enter = SaveLabel
+        result[#result + 1] = FormLabel("Label text")
+        result[#result + 1] = textInput
+        if visibilityDropdown ~= nil then
+            result[#result + 1] = FormLabel("Visible to")
+            result[#result + 1] = visibilityDropdown
+        end
+        result[#result + 1] = gui.Button { classes = { "regionMapFormButton", "sizeS" }, text = "Save", click = SaveLabel }
+        result[#result + 1] = BuildNudgeRow()
+        result[#result + 1] = gui.Button {
+            classes = { "regionMapFormButton", "sizeS" }, text = "Move on map",
+            click = function() SetTool("moveLabel", label.id); CloseDrawer(); gui.SetFocus(canvas) end,
+        }
+        result[#result + 1] = gui.Button {
+            classes = { "regionMapFormButton", "regionMapDangerButton", "sizeS" }, text = "Delete Label",
+            click = function()
+                gui.ModalMessage {
+                    title = "Delete label?", message = "Delete this label from the region map?",
+                    options = {
+                        {
+                            text = "Delete Label",
+                            execute = function()
+                                local current = LabelsTable()[label.id]
+                                if not CanEditLabel(current) then return end
+                                MarkUndo(current)
+                                current.hidden = true
+                                current.revision = tonumber(Field(current, "revision", 0)) + 1
+                                Audit(current, false)
+                                UploadRecord(Addon.labelTableName, current, "Delete region map label")
+                                root.data.selectedMarkerKind = nil
+                                root.data.selectedMarkerId = nil
+                                SetNotice("Saving...", 1.2)
+                            end,
+                        },
+                        { text = "Cancel", execute = function() end },
+                    },
+                }
+            end,
+        }
+        return result
+    end
+
+    local function BuildLabelsDrawerBody(map)
+        if map == nil then return {} end
+        local selectedLabel = root.data.selectedMarkerKind == "label"
+            and LabelsTable()[root.data.selectedMarkerId] or nil
+        if selectedLabel ~= nil and (not CanViewLabel(selectedLabel) or selectedLabel.mapId ~= map.id) then
+            selectedLabel = nil
+        end
+        local recordId = selectedLabel and selectedLabel.id
+            or (root.data.selectedMarkerKind == "party" and "party" or nil)
+        local defaults = { search = root.data.labelSearch or "" }
+        if selectedLabel ~= nil then
+            defaults.text = selectedLabel.text
+            defaults.visibility = LabelVisibility(selectedLabel)
+        end
+        local draft = EnsureDrawerDraft(root.data, "labels", recordId, defaults)
+        local result = {}
+        result[#result + 1] = gui.Input {
+            classes = { "searchInput", "regionMapFormInput" }, placeholderText = "Search labels",
+            characterLimit = TEXT_LIMIT, text = draft.search or "",
+            edit = function(element) UpdateDrawerDraft(root.data, "search", element.text) end,
+            change = function(element) UpdateDrawerDraft(root.data, "search", element.text) end,
+            enter = function(element)
+                root.data.labelSearch = TrimSingleLine(element.text)
+                draft.search = root.data.labelSearch
+                MarkDrawerDraftSaved(root.data, "search")
+                RebuildDrawer()
+            end,
+        }
+        local search = string.lower(TrimSingleLine(root.data.labelSearch or ""))
+        local shown = 0
+        for _, label in ipairs(LabelsForMap(map.id, false)) do
+            if search == "" or string.find(string.lower(label.text), search, 1, true) ~= nil then
+                shown = shown + 1
+                local selected = root.data.selectedMarkerKind == "label" and root.data.selectedMarkerId == label.id
+                local meta = LabelVisibility(label) == "director" and "Director only" or "Shared"
+                local row = gui.Panel {
+                    classes = { "regionMapLabelRow" }, data = { labelId = label.id },
+                    click = function(element)
+                        local current = LabelsTable()[element.data.labelId]
+                        if CanViewLabel(current) then CenterOnLabel(current); RebuildDrawer() end
+                    end,
+                    gui.Label { classes = { "regionMapLabelRowText" }, interactable = false, text = label.text },
+                    gui.Label {
+                        classes = { "regionMapLabelRowMeta" }, interactable = false,
+                        text = string.format("%s - %s", Field(label, "ownerName", "Unknown user"), meta),
+                    },
+                }
+                row:SetClass("selected", selected)
+                result[#result + 1] = row
+            end
+        end
+        if shown == 0 then
+            result[#result + 1] = FormLabel("No labels on this map.")
+        end
+        if selectedLabel ~= nil then
+            for _, child in ipairs(BuildLabelEditor(selectedLabel, draft)) do result[#result + 1] = child end
+        elseif root.data.selectedMarkerKind == "party" and CanMoveParty() then
+            result[#result + 1] = FormLabel("Party")
+            result[#result + 1] = BuildNudgeRow()
+        end
+        return result
+    end
+
+    RebuildDrawer = function()
+        local mode = root.data.drawerMode
+        if mode == nil then CloseDrawer(); return end
+        local map = CurrentMap()
+        local title
+        local bodyChildren
+        if mode == "create" and dmhub.isDM then
+            title = "New Map"
+            bodyChildren = BuildCreateDrawerBody()
+        elseif mode == "map" and dmhub.isDM and map ~= nil then
+            title = "More map actions"
+            bodyChildren = BuildMapActionsBody(map)
+        elseif mode == "labels" and map ~= nil then
+            title = "Labels"
+            bodyChildren = BuildLabelsDrawerBody(map)
+        else
+            CloseDrawer()
+            return
+        end
+        drawer.children = {
+            DrawerHeader(title),
+            gui.Panel {
+                classes = { "regionMapDrawerBody" },
+                vscroll = true,
+                children = bodyChildren,
+            },
+        }
+        drawer:SetClass("collapsed", false)
+    end
+
+    PresentCurrentMap = function()
+        local map = CurrentMap()
+        if not dmhub.isDM or map == nil then return end
+        if not Field(map, "published", false) then
+            ErrorMessage("Present", "Publish this map before presenting it.")
+            return
+        end
+        local nonce = dmhub.GenerateGuid()
+        root.data.ignorePresentNonce = nonce
+        GameHud.PresentDialogToUsers(root, PANEL_NAME, {
+            regionMapId = map.id, nonce = nonce, ttl = 10,
+        })
+        SetNotice("Presented", 2)
+    end
+
+    local function HandlePresentation()
+        local doc = GameHud.GetPresentDialogDoc(PANEL_NAME)
+        if doc == nil or doc.data == nil or doc.data.dialog == nil then return end
+        local args = doc.data.dialog.args
+        if type(args) ~= "table" or type(args.regionMapId) ~= "string" or type(args.nonce) ~= "string" then return end
+        if args.ttl ~= nil and doc.data.timestamp ~= nil and TimestampAgeInSeconds(doc.data.timestamp) > args.ttl then return end
+        if args.nonce == root.data.ignorePresentNonce then
+            root.data.lastPresentNonce = args.nonce
+            return
+        end
+        if args.nonce == root.data.lastPresentNonce then return end
+        local map = GetMap(args.regionMapId)
+        if map == nil or not Field(map, "published", false) or not CanViewMap(map) then return end
+        root.data.lastPresentNonce = args.nonce
+        SetSelectedMap(map.id, true)
+    end
+
+    local function RefreshSelector(maps, party)
+        local options = {}
+        local signatureParts = {}
+        for _, map in ipairs(maps) do
+            local tags = {}
+            if dmhub.isDM and not Field(map, "published", false) then tags[#tags + 1] = "Draft" end
+            if party ~= nil and party.mapId == map.id and (dmhub.isDM or Field(map, "published", false)) then
+                tags[#tags + 1] = "Party"
+            end
+            local text = map.name
+            if #tags > 0 then text = text .. " [" .. table.concat(tags, ", ") .. "]" end
+            options[#options + 1] = { id = map.id, text = text }
+            signatureParts[#signatureParts + 1] = tostring(map.id) .. "\001" .. text
+        end
+        if #options == 0 then
+            options[1] = { id = "", text = "No region maps" }
+            signatureParts[1] = "\001No region maps"
+        end
+        local signature = table.concat(signatureParts, "\002")
+        local selectedId = root.data.selectedMapId or ""
+        local previousSuppression = root.data.suppressMapSelectionChange
+        root.data.suppressMapSelectionChange = true
+        if root.data.selectorSignature ~= signature then
+            mapDropdown.options = options
+            root.data.selectorSignature = signature
+        end
+        if mapDropdown.idChosen ~= selectedId then
+            mapDropdown.idChosen = selectedId
+        end
+        root.data.suppressMapSelectionChange = previousSuppression
+    end
+
+    local function RefreshStatus(party, partyMap)
+        if root.data.tool == "addLabel" then
+            statusLabel.text = "Adding label - click the map or press Enter to place. Esc cancels."
+        elseif root.data.tool == "moveParty" then
+            statusLabel.text = "Moving Party - click the map or press Enter to place. Esc cancels."
+        elseif root.data.tool == "moveLabel" then
+            statusLabel.text = "Moving label - click the map or press Enter to place. Esc cancels."
+        elseif party == nil then
+            statusLabel.text = "Party location is unknown."
+        else
+            if not dmhub.isDM and (partyMap == nil or not Field(partyMap, "published", false)) then
+                statusLabel.text = "Party location is not shared."
+            elseif dmhub.isDM and partyMap ~= nil and not Field(partyMap, "published", false) then
+                statusLabel.text = "Party is on a draft map and is not visible to players."
+            else
+                statusLabel.text = string.format("Party is on %s.", partyMap and partyMap.name or "an unavailable map")
+            end
+        end
+    end
+
+    local function RefreshImage(map)
+        local imageRevision = map ~= nil and Field(map, "imageRevision", 1) or nil
+        local cameraChanged = map ~= nil and (root.data.loadedMapId ~= map.id
+            or root.data.loadedImageRevision ~= imageRevision)
+        local changed = map ~= nil and (cameraChanged
+            or root.data.loadedImageId ~= map.imageId)
+        if map == nil then
+            root.data.loadedMapId = nil
+            root.data.loadedImageId = nil
+            root.data.imageWidth = nil
+            root.data.imageHeight = nil
+            root.data.imageState = "none"
+            imagePanel:SetClass("collapsed", true)
+            loadingPanel:SetClass("collapsed", true)
+            return
+        end
+        if changed then
+            if cameraChanged and (root.data.cameraMapId ~= map.id
+                or root.data.cameraImageRevision ~= imageRevision) then
+                LoadCameraForMap(map, false)
+            end
+            root.data.loadedMapId = map.id
+            root.data.loadedImageId = map.imageId
+            root.data.loadedImageRevision = imageRevision
+            root.data.imageWidth = nil
+            root.data.imageHeight = nil
+            root.data.imageState = "loading"
+            root.data.imageLoadStarted = dmhub.Time()
+            imagePanel:SetClass("collapsed", false)
+            imagePanel.bgimageStreamed = map.imageId
+            loadingLabel.text = "Loading map..."
+            loadingActions:SetClass("collapsed", true)
+            loadingPanel:SetClass("collapsed", false)
+        end
+    end
+
+    local function ReconcileActiveInteraction(state)
+        local map = state.map
+        local cancelTool = false
+        if root.data.tool == "addLabel" then
+            cancelTool = map == nil or state.labelCount >= LABEL_LIMIT
+        elseif root.data.tool == "moveParty" then
+            cancelTool = map == nil or not state.canMoveParty
+        elseif root.data.tool == "moveLabel" then
+            local label = state.labelsById[root.data.toolTargetId]
+            cancelTool = map == nil or label == nil or not state.editableLabelIds[label.id]
+        end
+
+        local inlineDraft = root.data.inlineDraft
+        if inlineDraft ~= nil and (map == nil or inlineDraft.mapId ~= map.id
+            or not CanViewMap(map) or state.labelCount >= LABEL_LIMIT) then
+            cancelTool = true
+        end
+
+        if cancelTool then
+            CancelTransientInteraction()
+            return
+        end
+
+        if root.data.selectedMarkerKind == "label" then
+            local label = state.labelsById[root.data.selectedMarkerId]
+            if map == nil or label == nil or not CanViewLabel(label) then
+                root.data.selectedMarkerKind = nil
+                root.data.selectedMarkerId = nil
+            end
+        elseif root.data.selectedMarkerKind == "party" then
+            local party = state.party
+            local partyVisible = map ~= nil and party ~= nil and party.mapId == map.id
+                and (dmhub.isDM or Field(map, "published", false))
+            if not partyVisible then
+                root.data.selectedMarkerKind = nil
+                root.data.selectedMarkerId = nil
+            end
+        end
+    end
+
+    local function ResolveAuthoritativeState()
+        local maps = VisibleMaps()
+        local selected = GetMap(root.data.selectedMapId)
+        local forceFit = false
+        if not CanViewMap(selected) then selected = nil end
+        if root.data.pendingSelectMapId ~= nil then
+            local pending = GetMap(root.data.pendingSelectMapId)
+            if CanViewMap(pending) then
+                selected = pending
+                root.data.pendingSelectMapId = nil
+                forceFit = true
+            end
+        end
+        if selected == nil then
+            selected = ResolveFallbackMap(maps, ReadPreferences().selectedMapId, dmhub.isDM)
+        end
+        ApplySelectedMap(selected, forceFit)
+        if selected ~= nil and root.data.loadedMapId == nil then
+            LoadCameraForMap(selected, false)
+        end
+        local map = selected
+        root.data.selectedMapSnapshot = map ~= nil and {
+            id = map.id,
+            imageId = map.imageId,
+            imageRevision = Field(map, "imageRevision", 1),
+            published = Field(map, "published", false),
+        } or nil
+        local party = GetParty()
+        local labels = {}
+        local labelCount = 0
+        local labelsById = {}
+        local editableLabelIds = {}
+        if map ~= nil then
+            labels, labelCount, labelsById, editableLabelIds = LabelStateForMap(map.id)
+        end
+        return {
+            maps = maps,
+            map = map,
+            party = party,
+            partyMap = party ~= nil and GetMap(party.mapId) or nil,
+            canMoveParty = CanMoveParty(),
+            labels = labels,
+            labelCount = labelCount,
+            labelsById = labelsById,
+            editableLabelIds = editableLabelIds,
+        }
+    end
+
+    local function RefreshPersistentControls(state)
+        local map = state.map
+        RefreshSelector(state.maps, state.party)
+        emptyPanel:SetClass("collapsed", map ~= nil)
+        if map == nil then
+            if dmhub.isDM then
+                emptyTitle.text = "Create your first region map"
+                emptyBody.text = "Add an image, then publish it when it is ready for players."
+                emptyCreateButton:SetClass("collapsed", false)
+            else
+                emptyTitle.text = "No region maps have been shared yet."
+                emptyBody.text = ""
+                emptyCreateButton:SetClass("collapsed", true)
+            end
+        end
+        SetControlEnabled(labelsButton, map ~= nil)
+        SetControlEnabled(addLabelButton, map ~= nil and state.labelCount < LABEL_LIMIT)
+        SetControlEnabled(movePartyButton, map ~= nil and state.canMoveParty)
+        SetControlEnabled(presentButton, dmhub.isDM and map ~= nil)
+        SetControlEnabled(mapActionsButton, dmhub.isDM and map ~= nil)
+        SetControlEnabled(fitButton, map ~= nil)
+        SetControlEnabled(zoomInButton, map ~= nil)
+        SetControlEnabled(zoomOutButton, map ~= nil)
+        SetControlEnabled(showLabelsButton, map ~= nil)
+        showLabelsButton:FireEvent("setIcon", map ~= nil and ShowLabelsForMap(map.id)
+            and "phosphor/eye.png" or "phosphor/eye-slash.png")
+        RefreshStatus(state.party, state.partyMap)
+    end
+
+    local function ApplyResponsiveState(width)
+        local narrow = (tonumber(width) or root.renderedWidth or 999) < 560
+        if root.data.narrowHost == narrow then return end
+        root.data.narrowHost = narrow
+        root:SetClassTree("narrowHost", narrow)
+        drawer:SetClass("compact", narrow)
+    end
+
+    local function ReconcileDrawer()
+        if root.data.drawerMode ~= nil then RebuildDrawer() end
+        ApplyResponsiveState(root.renderedWidth)
+    end
+
+    local function QueueDeferredRefresh()
+        if root.data.refreshScheduled then return end
+        root.data.refreshScheduled = true
+        root:ScheduleEvent("regionMapDeferredRefresh", 0.01)
+    end
+
+    RefreshAll = function()
+        if mod.unloaded or root == nil or not root.valid then return end
+        if root.data.refreshing then
+            root.data.refreshPending = true
+            return
+        end
+        root.data.refreshing = true
+        root.data.refreshPending = false
+        local success, message = pcall(function()
+            local state = ResolveAuthoritativeState()
+            ReconcileActiveInteraction(state)
+            RefreshImage(state.map)
+            UpdateMarkers(state)
+            RefreshPersistentControls(state)
+            ReconcileDrawer()
+        end)
+        local refreshPending = root.data.refreshPending
+        root.data.refreshing = false
+        root.data.refreshPending = false
+        if success and refreshPending then QueueDeferredRefresh() end
+        if not success then error(message) end
+    end
+
+    imagePanel = gui.Panel {
+        classes = { "regionMapImage", "collapsed" },
+        floating = true, halign = "left", valign = "top", interactable = false,
+        events = {
+            imageLoaded = function(element)
+                if root.data.loadedImageId == nil then return end
+                local width = tonumber(element.bgimageWidth)
+                local height = tonumber(element.bgimageHeight)
+                if (width == nil or width <= 0 or height == nil or height <= 0)
+                    and element.bgsprite ~= nil and element.bgsprite.dimensions ~= nil then
+                    width = tonumber(element.bgsprite.dimensions.x)
+                    height = tonumber(element.bgsprite.dimensions.y)
+                end
+                if width ~= nil and height ~= nil and width > 0 and height > 0 then
+                    root.data.imageWidth = width
+                    root.data.imageHeight = height
+                    root.data.imageState = "ready"
+                    loadingPanel:SetClass("collapsed", true)
+                    if root.data.pendingFit then
+                        root.data.pendingFit = false
+                        FitCurrentMap(true)
+                    else
+                        UpdateCanvasLayout()
+                    end
+                    local retainedRevision = root.data.retainedRevision
+                    if retainedRevision ~= nil and retainedRevision == root.data.loadedImageRevision then
+                        UpdateMarkers()
+                        dmhub.Schedule(2, function()
+                            if not mod.unloaded and root.valid
+                                and root.data.retainedRevision == retainedRevision then
+                                root.data.retainedRevision = nil
+                                UpdateMarkers()
+                            end
+                        end)
+                    end
+                end
+            end,
+        },
+    }
+
+    markerOverlay = gui.Panel {
+        width = "100%", height = "100%", floating = true, flow = "none", interactable = false,
+        partyPanel,
+    }
+    inlineEditor = gui.Panel {
+        classes = { "regionMapInlineEditor", "collapsed" },
+        floating = true, halign = "left", valign = "top", pivot = { 0.5, 0 }, popupsInheritStyles = true,
+    }
+
+    emptyTitle = gui.Label { classes = { "regionMapEmptyTitle" }, text = "" }
+    emptyBody = gui.Label { classes = { "regionMapEmptyBody" }, text = "" }
+    emptyCreateButton = gui.Button {
+        id = "region-map-empty-create",
+        classes = { "regionMapFormButton", "sizeS" }, text = "Create Map", click = OpenCreateMapDrawer,
+    }
+    emptyPanel = gui.Panel {
+        classes = { "regionMapEmpty" }, emptyTitle, emptyBody, emptyCreateButton,
+    }
+
+    loadingLabel = gui.Label {
+        classes = { "regionMapLoadingText" },
+        text = "Loading map...",
+    }
+    local retryButton = gui.Button {
+        classes = { "sizeS" }, text = "Retry", width = 82, height = "auto", minHeight = 30,
+        click = function()
+            local map = CurrentMap()
+            if map ~= nil then
+                root.data.loadedImageId = nil
+                RefreshImage(map)
+            end
+        end,
+    }
+    local replaceFailedButton = gui.Button {
+        classes = dmhub.isDM and { "sizeS" } or { "collapsed", "sizeS" },
+        text = "Replace Image", width = 120, height = "auto", minHeight = 30, lmargin = 5,
+        click = function()
+            if dmhub.isDM then root.data.drawerMode = "map"; RebuildDrawer() end
+        end,
+    }
+    loadingActions = gui.Panel {
+        classes = { "collapsed" }, width = "auto", height = "auto", minHeight = 32, flow = "horizontal", tmargin = 5,
+        retryButton, replaceFailedButton,
+    }
+    loadingPanel = gui.Panel {
+        classes = { "regionMapLoading", "collapsed" }, loadingLabel, loadingActions,
+    }
+
+    fitButton = gui.Button {
+        classes = { "regionMapCanvasControl" }, icon = "phosphor/arrows-out-simple-fill.png",
+        tooltip = "Fit", click = function() FitCurrentMap(true) end,
+    }
+    zoomOutButton = gui.Button {
+        classes = { "regionMapCanvasControl" }, icon = "phosphor/magnifying-glass-minus-bold.png",
+        tooltip = "Zoom out",
+        click = function()
+            if CurrentMap() ~= nil then
+                root.data.camera.zoom = Clamp(root.data.camera.zoom / 1.25, MIN_ZOOM, MAX_ZOOM)
+                UpdateCanvasLayout(); SaveCurrentCamera()
+            end
+        end,
+    }
+    zoomInButton = gui.Button {
+        classes = { "regionMapCanvasControl" }, icon = "phosphor/magnifying-glass-plus-bold.png",
+        tooltip = "Zoom in",
+        click = function()
+            if CurrentMap() ~= nil then
+                root.data.camera.zoom = Clamp(root.data.camera.zoom * 1.25, MIN_ZOOM, MAX_ZOOM)
+                UpdateCanvasLayout(); SaveCurrentCamera()
+            end
+        end,
+    }
+    showLabelsButton = gui.Button {
+        classes = { "regionMapCanvasControl" }, icon = "phosphor/eye.png", tooltip = "Show Labels",
+        click = function()
+            local map = CurrentMap()
+            if map ~= nil then
+                SaveShowLabels(map.id, not ShowLabelsForMap(map.id))
+                UpdateMarkers()
+                showLabelsButton:FireEvent("setIcon", ShowLabelsForMap(map.id)
+                    and "phosphor/eye.png" or "phosphor/eye-slash.png")
+            end
+        end,
+    }
+    local canvasControls = gui.Panel {
+        classes = { "regionMapCanvasControls" }, floating = true,
+        fitButton, zoomOutButton, zoomInButton, showLabelsButton,
+    }
+
+    canvas = gui.Panel {
+        id = "region-map-canvas",
+        classes = { "regionMapCanvas" },
+        bgimage = "panels/square.png", clip = true, flow = "none",
+        draggable = true, dragMove = false, dragThreshold = 4,
+        canFocus = true, captureEscape = true, thinkTime = 0.02,
+        data = {
+            keyEdges = {}, dragStartCamera = nil, dragMoved = false,
+            panPreviousX = nil, panPreviousY = nil,
+            previousWidth = 0, previousHeight = 0,
+        },
+        events = {
+            press = function(element)
+                gui.SetFocus(element)
+                element.data.dragStartCamera = {
+                    centerX = root.data.camera.centerX,
+                    centerY = root.data.camera.centerY,
+                }
+                element.data.dragMoved = false
+            end,
+            dragging = function(element)
+                local start = element.data.dragStartCamera
+                local layout = root.data.layout
+                if start == nil or layout == nil then return end
+                if math.abs(element.dragDelta.x) >= 4 or math.abs(element.dragDelta.y) >= 4 then
+                    element.data.dragMoved = true
+                end
+                root.data.camera.centerX = start.centerX - element.dragDelta.x / layout.width
+                root.data.camera.centerY = start.centerY - element.dragDelta.y / layout.height
+                UpdateCanvasLayout()
+            end,
+            drag = function(element)
+                element.data.dragStartCamera = nil
+                SaveCurrentCamera()
+            end,
+            click = function(element)
+                local moved = element.data.dragMoved
+                element.data.dragMoved = false
+                if moved or root.data.tool == "navigate" then return end
+                local u, v = ImagePointFromMouse(element)
+                PlaceCurrentTool(u, v)
+            end,
+            escape = function()
+                if root.data.inlineDraft ~= nil then CancelInlineEditor() end
+                SetTool("navigate")
+            end,
+            think = function(element)
+                local width = element.renderedWidth or 0
+                local height = element.renderedHeight or 0
+                if math.abs(width - element.data.previousWidth) > 0.5
+                    or math.abs(height - element.data.previousHeight) > 0.5 then
+                    element.data.previousWidth = width
+                    element.data.previousHeight = height
+                    UpdateCanvasLayout()
+                    drawer:SetClass("compact", (root.renderedWidth or 999) < 560)
+                end
+
+                local mouseX, mouseY = ScreenPointFromMouse(element)
+                local layout = root.data.layout
+                local wheel = dmhub.mouseWheel
+                if mouseX ~= nil and layout ~= nil and wheel ~= 0 then
+                    local beforeU = (mouseX - layout.x) / layout.width
+                    local beforeV = (mouseY - layout.y) / layout.height
+                    local oldZoom = root.data.camera.zoom
+                    root.data.camera.zoom = wheel > 0
+                        and Clamp(oldZoom * 1.15, MIN_ZOOM, MAX_ZOOM)
+                        or Clamp(oldZoom / 1.15, MIN_ZOOM, MAX_ZOOM)
+                    if root.data.camera.zoom ~= oldZoom then
+                        local newLayout = CalculateImageLayout(width, height, root.data.imageWidth,
+                            root.data.imageHeight, root.data.camera)
+                        if newLayout ~= nil then
+                            root.data.camera.centerX = beforeU + (width * 0.5 - mouseX) / newLayout.width
+                            root.data.camera.centerY = beforeV + (height * 0.5 - mouseY) / newLayout.height
+                            UpdateCanvasLayout(); SaveCurrentCamera()
+                        end
+                    end
+                end
+
+                local panning = element:GetMouseButton(1) or element:GetMouseButton(2)
+                if panning and mouseX ~= nil and layout ~= nil then
+                    if element.data.panPreviousX ~= nil then
+                        local dx = mouseX - element.data.panPreviousX
+                        local dy = mouseY - element.data.panPreviousY
+                        if dx ~= 0 or dy ~= 0 then
+                            root.data.camera.centerX = root.data.camera.centerX - dx / layout.width
+                            root.data.camera.centerY = root.data.camera.centerY - dy / layout.height
+                            UpdateCanvasLayout()
+                        end
+                    end
+                    element.data.panPreviousX = mouseX
+                    element.data.panPreviousY = mouseY
+                else
+                    if element.data.panPreviousX ~= nil then SaveCurrentCamera() end
+                    element.data.panPreviousX = nil
+                    element.data.panPreviousY = nil
+                end
+
+                local function KeyEdge(key)
+                    local down = dmhub.KeyPressed(key)
+                    local previous = element.data.keyEdges[key]
+                    element.data.keyEdges[key] = down
+                    return down and not previous
+                end
+                if element.hasFocus and root.data.inlineDraft == nil then
+                    if KeyEdge("Return") or KeyEdge("KeypadEnter") then
+                        if root.data.tool ~= "navigate" and layout ~= nil then
+                            local u, v = PanelToImage(layout, width * 0.5, height * 0.5)
+                            PlaceCurrentTool(u, v)
+                        end
+                    end
+                    local horizontal = 0
+                    local vertical = 0
+                    if KeyEdge("LeftArrow") then horizontal = horizontal - 1 end
+                    if KeyEdge("RightArrow") then horizontal = horizontal + 1 end
+                    if KeyEdge("UpArrow") then vertical = vertical - 1 end
+                    if KeyEdge("DownArrow") then vertical = vertical + 1 end
+                    if horizontal ~= 0 or vertical ~= 0 then
+                        local coarse = dmhub.KeyPressed("LeftShift") or dmhub.KeyPressed("RightShift")
+                        NudgeSelected(horizontal, vertical, coarse)
+                    end
+                end
+
+                if root.data.imageState == "loading" and root.data.imageLoadStarted ~= nil
+                    and dmhub.Time() - root.data.imageLoadStarted > 10 then
+                    root.data.imageState = "failed"
+                    loadingLabel.text = "Map image could not be loaded."
+                    loadingActions:SetClass("collapsed", false)
+                    loadingPanel:SetClass("collapsed", false)
+                end
+            end,
+        },
+        imagePanel, markerOverlay, emptyPanel, loadingPanel, inlineEditor, canvasControls,
+    }
+
+    mapDropdown = gui.Dropdown {
+        id = "region-map-selector",
+        classes = { "regionMapSelector" }, options = {}, idChosen = "",
+        change = function(element)
+            if root.data.suppressMapSelectionChange then return end
+            if element.idChosen == "" or element.idChosen == root.data.selectedMapId then return end
+            SetSelectedMap(element.idChosen, false)
+        end,
+    }
+    labelsButton = gui.Button {
+        classes = { "regionMapToolbarButton", "sizeL" }, icon = "phosphor/note-pencil.png", tooltip = "Labels",
+        click = function()
+            root.data.drawerMode = root.data.drawerMode == "labels" and nil or "labels"
+            RebuildDrawer()
+        end,
+    }
+    addLabelButton = gui.Button {
+        classes = { "regionMapToolbarButton", "sizeL" }, icon = "phosphor/plus-bold.png", tooltip = "Add Label",
+        click = function()
+            local map = CurrentMap()
+            if map ~= nil and LabelCount(map.id) >= LABEL_LIMIT then
+                ErrorMessage("Label limit", "This map has reached the limit of 250 labels.")
+                return
+            end
+            SetTool(root.data.tool == "addLabel" and "navigate" or "addLabel")
+            CloseDrawer(); gui.SetFocus(canvas)
+        end,
+    }
+    movePartyButton = gui.Button {
+        classes = { "regionMapToolbarButton", "sizeL" }, icon = "phosphor/users-three.png", tooltip = "Move Party",
+        click = function()
+            if not CanMoveParty() then ErrorMessage("Party", "Only the Director can move Party."); return end
+            SetTool(root.data.tool == "moveParty" and "navigate" or "moveParty")
+            CloseDrawer(); gui.SetFocus(canvas)
+        end,
+    }
+    presentButton = gui.Button {
+        id = "region-map-present",
+        classes = dmhub.isDM and { "sizeS" } or { "sizeS", "collapsed" },
+        text = "Present",
+        hmargin = 4, valign = "center", click = PresentCurrentMap,
+    }
+    mapActionsButton = gui.Button {
+        classes = dmhub.isDM and { "regionMapToolbarButton", "sizeL" }
+            or { "regionMapToolbarButton", "sizeL", "collapsed" },
+        icon = "ui-icons/ph-dots-three-vertical.png", tooltip = "More map actions",
+        click = function()
+            root.data.drawerMode = root.data.drawerMode == "map" and nil or "map"
+            RebuildDrawer()
+        end,
+    }
+    local toolbar = gui.Panel {
+        id = "region-map-toolbar",
+        classes = { "regionMapToolbar" },
+        mapDropdown, labelsButton, addLabelButton, movePartyButton, presentButton, mapActionsButton,
+    }
+
+    drawer = gui.Panel {
+        id = "region-map-drawer",
+        classes = { "regionMapDrawer", "collapsed" }, floating = true, popupsInheritStyles = true,
+    }
+    local content = gui.Panel { classes = { "regionMapContent" }, canvas, drawer }
+    statusLabel = gui.Label {
+        classes = { "regionMapStatus" }, text = "Party location is unknown.",
+    }
+    noticeLabel = gui.Label {
+        classes = { "regionMapNotice", "collapsed" }, text = "",
+    }
+    footer = gui.Panel { classes = { "regionMapFooter" }, statusLabel, noticeLabel }
+
+    root = gui.Panel {
+        id = "region-map-panel",
+        classes = { "regionMapRoot" },
+        styles = ThemeEngine.MergeStyles(BuildStyles()),
+        popupsInheritStyles = true,
+        monitorAssets = { Addon.mapTableName, Addon.labelTableName, Addon.tombstoneTableName },
+        monitorGame = { StateDocument().path, GameHud.PresentDialogPath() },
+        data = {
+            persistAfterPresentation = true,
+            selectedMapId = nil, pendingSelectMapId = nil,
+            selectedMapSnapshot = nil, partySnapshot = nil,
+            camera = { zoom = MIN_ZOOM, centerX = 0.5, centerY = 0.5 },
+            cameraMapId = nil, cameraImageRevision = nil,
+            layout = nil, imageWidth = nil, imageHeight = nil, imageState = "none",
+            labelPanels = {}, selectedMarkerKind = nil, selectedMarkerId = nil,
+            drawerMode = nil, drawerDraft = nil, labelSearch = "", inlineDraft = nil,
+            tool = "navigate", toolTargetId = nil,
+            labelRevisions = {}, partyRevision = nil,
+            lastPresentNonce = nil, ignorePresentNonce = nil,
+            noticeToken = 0, themeSubscription = nil,
+            selectorSignature = nil, suppressMapSelectionChange = false,
+            narrowHost = nil,
+            refreshing = false, refreshPending = false, refreshScheduled = false,
+        },
+        events = {
+            create = function(element)
+                SubscribeToTheme(element)
+                local prefs = ReadPreferences()
+                root.data.selectedMapId = type(prefs.selectedMapId) == "string" and prefs.selectedMapId or nil
+                root.data.partyRevision = RecordRevision(GetParty())
+                HandlePresentation()
+                RefreshAll()
+            end,
+            destroy = function(element)
+                UnsubscribeFromTheme(element)
+            end,
+            refreshAssets = function()
+                local selectedLabelId = root.data.selectedMarkerKind == "label"
+                    and root.data.selectedMarkerId or nil
+                local selectedLabel = selectedLabelId ~= nil and LabelsTable()[selectedLabelId] or nil
+                if CanViewLabel(selectedLabel) then
+                    local previous = root.data.labelRevisions[selectedLabelId]
+                    local revision = RecordRevision(selectedLabel)
+                    if previous ~= nil and revision ~= previous
+                        and Field(selectedLabel, "updatedBy", "") ~= dmhub.loginUserid then
+                        SetNotice(string.format("%s changed this label.",
+                            Field(selectedLabel, "updatedByName", "Someone")), 3)
+                    end
+                    root.data.labelRevisions[selectedLabelId] = revision
+                elseif selectedLabelId ~= nil then
+                    root.data.labelRevisions[selectedLabelId] = nil
+                end
+                RefreshAll()
+            end,
+            refreshGame = function()
+                local party = GetParty()
+                local revision = RecordRevision(party)
+                if root.data.partyRevision ~= nil and revision ~= root.data.partyRevision and party ~= nil
+                    and Field(party, "updatedBy", "") ~= dmhub.loginUserid then
+                    SetNotice(string.format("%s moved Party.", Field(party, "updatedByName", "Someone")), 3)
+                end
+                root.data.partyRevision = revision
+                HandlePresentation()
+                RefreshAll()
+            end,
+            regionMapDeferredRefresh = function()
+                root.data.refreshScheduled = false
+                RefreshAll()
+            end,
+            rendered = function(element, width)
+                ApplyResponsiveState(width)
+            end,
+        },
+        toolbar, content, footer,
+    }
+
+    return root
+end
+
+Panel.CalculateImageLayout = CalculateImageLayout
+Panel.ImageToPanel = ImageToPanel
+Panel.PanelToImage = PanelToImage
+Panel.Create = CreateRegionMapPanel
+Panel.ready = true
+Addon.Panel = Panel

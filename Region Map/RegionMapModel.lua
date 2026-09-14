@@ -1,0 +1,894 @@
+local mod = dmhub.GetModLoading()
+
+RegionMapAddon = rawget(_G, "RegionMapAddon") or {}
+local Addon = RegionMapAddon
+Addon.Model = nil
+
+Addon.schemaVersion = 1
+Addon.mapTableName = "RegionMapRecords"
+Addon.labelTableName = "RegionMapLabelRecords"
+Addon.tombstoneTableName = "RegionMapTombstones"
+Addon.stateDocumentId = "regionMapState"
+Addon.preferencesSettingId = "regionmap:preferences"
+Addon.panelName = "Region Map"
+
+local LABEL_LIMIT = 250
+local TEXT_LIMIT = 80
+local MIN_ZOOM = 1
+local MAX_ZOOM = 20
+local MAX_REVISION = 9007199254740991
+
+RegionMapRecord = RegisterGameType("RegionMapRecord")
+RegionMapRecord.tableName = Addon.mapTableName
+
+RegionMapLabelRecord = RegisterGameType("RegionMapLabelRecord")
+RegionMapLabelRecord.tableName = Addon.labelTableName
+
+RegionMapTombstoneRecord = RegisterGameType("RegionMapTombstoneRecord")
+RegionMapTombstoneRecord.tableName = Addon.tombstoneTableName
+
+setting {
+    id = Addon.preferencesSettingId,
+    description = "Region Map local view state.",
+    storage = "pergamepreference",
+    default = {},
+}
+
+mod:RegisterDocumentForCheckpointBackups(Addon.stateDocumentId)
+
+local Model = {}
+local function Clamp(value, low, high)
+    return math.max(low, math.min(high, value))
+end
+
+local function IsFinite(value)
+    return type(value) == "number" and value == value and value > -math.huge and value < math.huge
+end
+
+local function IsPositiveInteger(value)
+    return IsFinite(value) and value >= 1 and value <= MAX_REVISION and value % 1 == 0
+end
+
+local function Field(object, key, default)
+    if type(object) ~= "table" and type(object) ~= "userdata" then return default end
+    local ok, value = pcall(function()
+        if type(object.try_get) == "function" then return object:try_get(key, default) end
+        return object[key]
+    end)
+    if not ok or value == nil then return default end
+    return value
+end
+
+local function RecordRevision(record)
+    local value = Field(record, "revision", 0)
+    if value == 0 or IsPositiveInteger(value) then return value end
+    return 0
+end
+
+local function TrimSingleLine(value)
+    value = tostring(value or "")
+    value = value:gsub("[\r\n]+", " ")
+    value = value:gsub("^%s+", "")
+    value = value:gsub("%s+$", "")
+    return value
+end
+
+local function TextLength(value)
+    local ok, length = pcall(utf8.len, value)
+    if ok and length ~= nil then
+        return length
+    end
+    return math.huge
+end
+
+local function ValidText(value)
+    return type(value) == "string" and value ~= "" and TrimSingleLine(value) == value
+        and TextLength(value) <= TEXT_LIMIT
+end
+
+-- This is an intentionally limited, locale-independent case fold for map
+-- names. It covers ASCII, Latin-1, Latin Extended-A, and Cyrillic. Unsupported
+-- code points are preserved exactly. Canonically equivalent UTF-8 sequences
+-- remain distinct because the addon has no public Unicode normalization API.
+local function FoldMapNameCodepoint(codepoint)
+    if codepoint >= 0x0041 and codepoint <= 0x005A then
+        return utf8.char(codepoint + 0x20)
+    end
+
+    if (codepoint >= 0x00C0 and codepoint <= 0x00D6)
+        or (codepoint >= 0x00D8 and codepoint <= 0x00DE) then
+        return utf8.char(codepoint + 0x20)
+    end
+    if codepoint == 0x00DF or codepoint == 0x1E9E then
+        return "ss"
+    end
+
+    if codepoint >= 0x0100 and codepoint <= 0x012E and codepoint % 2 == 0 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint == 0x0130 then
+        return "i" .. utf8.char(0x0307)
+    end
+    if codepoint >= 0x0132 and codepoint <= 0x0136 and codepoint % 2 == 0 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint >= 0x0139 and codepoint <= 0x0147 and codepoint % 2 == 1 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint == 0x0149 then
+        return utf8.char(0x02BC) .. "n"
+    end
+    if codepoint >= 0x014A and codepoint <= 0x0176 and codepoint % 2 == 0 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint == 0x0178 then
+        return utf8.char(0x00FF)
+    end
+    if codepoint >= 0x0179 and codepoint <= 0x017D and codepoint % 2 == 1 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint == 0x017F then
+        return "s"
+    end
+
+    if codepoint >= 0x0400 and codepoint <= 0x040F then
+        return utf8.char(codepoint + 0x50)
+    end
+    if codepoint >= 0x0410 and codepoint <= 0x042F then
+        return utf8.char(codepoint + 0x20)
+    end
+    if codepoint >= 0x0460 and codepoint <= 0x0480 and codepoint % 2 == 0 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint >= 0x048A and codepoint <= 0x04BE and codepoint % 2 == 0 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint == 0x04C0 then
+        return utf8.char(0x04CF)
+    end
+    if codepoint >= 0x04C1 and codepoint <= 0x04CD and codepoint % 2 == 1 then
+        return utf8.char(codepoint + 1)
+    end
+    if codepoint >= 0x04D0 and codepoint <= 0x052E and codepoint % 2 == 0 then
+        return utf8.char(codepoint + 1)
+    end
+
+    return utf8.char(codepoint)
+end
+
+local function MapNameKey(value)
+    value = tostring(value or "")
+    local folded = {}
+    local ok = pcall(function()
+        for _, codepoint in utf8.codes(value) do
+            folded[#folded + 1] = FoldMapNameCodepoint(codepoint)
+        end
+    end)
+    if not ok then
+        -- Preserve the old safe behavior for malformed byte strings.
+        return string.lower(value)
+    end
+    return table.concat(folded)
+end
+
+local function CurrentUserName()
+    local name = TrimSingleLine(dmhub.userDisplayName)
+    return name ~= "" and name or "Unknown user"
+end
+
+local function Audit(record, creating)
+    local now = ServerTimestamp()
+    if creating then
+        record.createdBy = dmhub.loginUserid
+        record.createdByName = CurrentUserName()
+        record.createdAt = now
+    end
+    record.updatedBy = dmhub.loginUserid
+    record.updatedByName = CurrentUserName()
+    record.updatedAt = now
+    record.mutationId = dmhub.GenerateGuid()
+end
+
+local pendingWrites = {}
+local function UploadRecord(tableName, record, description, callbacks, creating)
+    if mod.unloaded then return nil end
+    local key = tableName .. ":" .. record.id
+    local previous = pendingWrites[key]
+    if previous ~= nil and previous.status == "pending" then return nil end
+    local operation = {
+        status = "pending", record = DeepCopy(record), description = description,
+        tableName = tableName, mutationId = Field(record, "mutationId", nil), creating = creating == true,
+    }
+    pendingWrites[key] = operation
+    local function Finish(status, message)
+        if operation.status ~= "pending" then return end
+        operation.status, operation.error = status, message
+        if mod.unloaded then return end
+        if callbacks ~= nil then
+            local callback
+            if status == "confirmed" then callback = callbacks.success else callback = callbacks.failure end
+            if callback ~= nil then callback(operation) end
+        end
+    end
+    local ok, result = pcall(dmhub.SetAndUploadTableItem, tableName, DeepCopy(record), {
+        success = function() Finish("confirmed") end,
+        failure = function(message) Finish("failed", tostring(message)) end,
+    })
+    if not ok or result == nil then
+        Finish("failed", not ok and tostring(result) or nil)
+        return nil
+    end
+    return operation
+end
+
+local function PendingWrite(tableName, id)
+    local operation = pendingWrites[tableName .. ":" .. tostring(id)]
+    return operation ~= nil and operation.status == "pending" and operation or nil
+end
+
+local function MapsTable()
+    -- Region Map owns visibility through its validated hidden/publication
+    -- fields. GetTableVisible excludes rows created with caller-assigned IDs,
+    -- which Region Map requires for stable cross-record references.
+    return dmhub.GetTable(Addon.mapTableName) or {}
+end
+
+local function LabelsTable()
+    return dmhub.GetTable(Addon.labelTableName) or {}
+end
+
+local function TombstonesTable()
+    return dmhub.GetTable(Addon.tombstoneTableName) or {}
+end
+
+local invalidDataReports = {}
+local function RejectMalformed(kind, id, reason)
+    local key = string.format("%s:%s:%s", kind, tostring(id or "<unknown>"), reason)
+    if not invalidDataReports[key] then
+        invalidDataReports[key] = true
+        print(string.format("REGION_MAP: ignoring malformed %s %s (%s)",
+            kind, tostring(id or "<unknown>"), reason))
+    end
+    return false
+end
+
+local function IsTombstoned(mapId)
+    if type(mapId) ~= "string" or mapId == "" then
+        return true
+    end
+    local operation = pendingWrites[Addon.tombstoneTableName .. ":" .. mapId]
+    if operation ~= nil and operation.status ~= "confirmed" then return false end
+    local tombstone = TombstonesTable()[mapId]
+    return tombstone ~= nil and not Field(tombstone, "hidden", false)
+end
+
+local function IsValidMap(map)
+    if map == nil or Field(map, "hidden", false) then
+        return false
+    end
+    local id = Field(map, "id", nil)
+    local operation = id and pendingWrites[Addon.mapTableName .. ":" .. tostring(id)]
+    if operation and operation.creating and operation.status ~= "confirmed" then return false end
+    if Field(map, "schemaVersion", 0) ~= Addon.schemaVersion then
+        return RejectMalformed("map", id, "unsupported schema")
+    end
+    if type(id) ~= "string" or id == "" then
+        return RejectMalformed("map", id, "missing id")
+    end
+    if IsTombstoned(id) then
+        return false
+    end
+    local name = Field(map, "name", "")
+    local imageId = Field(map, "imageId", "")
+    if not ValidText(name) then
+        return RejectMalformed("map", id, "invalid name")
+    end
+    if type(imageId) ~= "string" or imageId == "" then
+        return RejectMalformed("map", id, "missing image")
+    end
+    local imageRevision = Field(map, "imageRevision", nil)
+    if not IsPositiveInteger(imageRevision) then
+        return RejectMalformed("map", id, "invalid image revision")
+    end
+    if type(Field(map, "published", nil)) ~= "boolean" then
+        return RejectMalformed("map", id, "invalid publication state")
+    end
+    return true
+end
+
+local function GetMap(mapId)
+    local map = MapsTable()[mapId]
+    return IsValidMap(map) and map or nil
+end
+
+local function CanViewMap(map)
+    return IsValidMap(map) and (dmhub.isDM or Field(map, "published", false))
+end
+
+local function VisibleMaps()
+    local result = {}
+    for _, map in pairs(MapsTable()) do
+        if CanViewMap(map) then
+            result[#result + 1] = map
+        end
+    end
+    table.sort(result, function(a, b)
+        local aname = MapNameKey(Field(a, "name", ""))
+        local bname = MapNameKey(Field(b, "name", ""))
+        if aname ~= bname then
+            return aname < bname
+        end
+        return a.id < b.id
+    end)
+    return result
+end
+
+local function ResolveFallbackMap(maps, rememberedId, isDirector)
+    if type(rememberedId) == "string" then
+        for _, map in ipairs(maps) do
+            if map.id == rememberedId then
+                return map
+            end
+        end
+    end
+
+    for _, map in ipairs(maps) do
+        if Field(map, "published", false) then
+            return map
+        end
+    end
+
+    if isDirector then
+        for _, map in ipairs(maps) do
+            if not Field(map, "published", false) then
+                return map
+            end
+        end
+    end
+    return nil
+end
+
+-- Only accessible maps participate, so a hidden draft cannot affect player copy.
+local function MapDisplayNames(maps)
+    local groups, result = {}, {}
+    for _, map in ipairs(maps) do
+        local key = MapNameKey(map.name)
+        groups[key] = groups[key] or {}
+        groups[key][#groups[key] + 1] = map
+        result[map.id] = map.name
+    end
+    for _, group in pairs(groups) do
+        if #group > 1 then
+            for _, map in ipairs(group) do
+                local length = math.min(6, #map.id)
+                local unique = false
+                while not unique and length <= #map.id do
+                    unique = true
+                    local prefix = map.id:sub(1, length)
+                    for _, other in ipairs(group) do
+                        if other.id ~= map.id and other.id:sub(1, length) == prefix then
+                            unique = false
+                            break
+                        end
+                    end
+                    if not unique then length = length + 1 end
+                end
+                result[map.id] = map.name .. " [" .. map.id:sub(1, length) .. "]"
+            end
+        end
+    end
+    return result
+end
+
+local function IsValidLabel(label)
+    if label == nil or Field(label, "hidden", false) then
+        return false
+    end
+    local id = Field(label, "id", nil)
+    local operation = id and pendingWrites[Addon.labelTableName .. ":" .. tostring(id)]
+    if operation and operation.creating and operation.status ~= "confirmed" then return false end
+    if Field(label, "schemaVersion", 0) ~= Addon.schemaVersion then
+        return RejectMalformed("label", id, "unsupported schema")
+    end
+    local text = Field(label, "text", "")
+    local u = Field(label, "u", nil)
+    local v = Field(label, "v", nil)
+    if type(id) ~= "string" or id == "" then
+        return RejectMalformed("label", id, "missing id")
+    end
+    local mapId = Field(label, "mapId", nil)
+    if type(mapId) ~= "string" or GetMap(mapId) == nil then
+        return RejectMalformed("label", id, "missing map")
+    end
+    if not ValidText(text) then
+        return RejectMalformed("label", id, "invalid text")
+    end
+    if type(Field(label, "createdByDirector", nil)) ~= "boolean" then
+        return RejectMalformed("label", id, "missing creator role")
+    end
+    local visibility = Field(label, "visibility", nil)
+    if visibility ~= "shared" and visibility ~= "director" then
+        return RejectMalformed("label", id, "invalid visibility")
+    end
+    if type(Field(label, "ownerId", nil)) ~= "string" then
+        return RejectMalformed("label", id, "missing owner")
+    end
+    if not IsFinite(u) or not IsFinite(v) or u < 0 or u > 1 or v < 0 or v > 1 then
+        return RejectMalformed("label", id, "invalid coordinates")
+    end
+    return true
+end
+
+local function LabelVisibility(label)
+    if not Field(label, "createdByDirector", false) then return "shared" end
+    return Field(label, "visibility", "shared")
+end
+
+local function CanViewLabel(label)
+    return IsValidLabel(label) and CanViewMap(GetMap(Field(label, "mapId", nil)))
+        and (LabelVisibility(label) ~= "director" or dmhub.isDM)
+end
+
+local function CanEditLabel(label)
+    return CanViewLabel(label) and (dmhub.isDM or Field(label, "ownerId", "") == dmhub.loginUserid)
+end
+
+local function LabelsForMap(mapId, includeDirectorOnly)
+    local result = {}
+    for _, label in pairs(LabelsTable()) do
+        if IsValidLabel(label) and label.mapId == mapId and (includeDirectorOnly or CanViewLabel(label)) then
+            result[#result + 1] = label
+        end
+    end
+    table.sort(result, function(a, b)
+        local atext = string.lower(Field(a, "text", ""))
+        local btext = string.lower(Field(b, "text", ""))
+        if atext ~= btext then
+            return atext < btext
+        end
+        return a.id < b.id
+    end)
+    return result
+end
+
+-- A local creation guard, not a distributed quota. Never truncate existing labels.
+local function LabelCount(mapId)
+    return #LabelsForMap(mapId, true)
+end
+
+local function LabelStateForMap(mapId)
+    local allLabels = LabelsForMap(mapId, true)
+    local visibleLabels = {}
+    local labelsById = {}
+    local editableLabelIds = {}
+    for _, label in ipairs(allLabels) do
+        labelsById[label.id] = label
+        editableLabelIds[label.id] = CanEditLabel(label)
+        if CanViewLabel(label) then
+            visibleLabels[#visibleLabels + 1] = label
+        end
+    end
+    return visibleLabels, #allLabels, labelsById, editableLabelIds
+end
+
+local function StateDocument()
+    return mod:GetDocumentSnapshot(Addon.stateDocumentId)
+end
+
+local function StateData()
+    local data = StateDocument().data
+    if type(data) ~= "table" then return nil end
+    if data.schemaVersion == nil and next(data) == nil then return data end
+    if data.schemaVersion ~= Addon.schemaVersion then
+        RejectMalformed("state", Addon.stateDocumentId, "unsupported schema")
+        return nil
+    end
+    return data
+end
+
+local function GetParty()
+    local data = StateData()
+    local party = data and data.party
+    if party == nil then
+        return nil
+    end
+    if type(party) ~= "table" or type(party.mapId) ~= "string" or GetMap(party.mapId) == nil then
+        RejectMalformed("Party state", nil, "missing map")
+        return nil
+    end
+    if not IsFinite(party.u) or not IsFinite(party.v) or party.u < 0 or party.u > 1 or party.v < 0 or party.v > 1 then
+        RejectMalformed("Party state", party.mapId, "invalid coordinates")
+        return nil
+    end
+    return party
+end
+
+local function LabelRenderSnapshot(label)
+    return {
+        labelId = label.id,
+        mapId = label.mapId,
+        u = label.u,
+        v = label.v,
+    }
+end
+
+local function PartyRenderSnapshot(party)
+    if party == nil then return nil end
+    return {
+        mapId = party.mapId,
+        u = party.u,
+        v = party.v,
+    }
+end
+
+local function PlayersCanMoveParty()
+    local data = StateData()
+    return data ~= nil and data.playerCanMoveParty == true
+end
+
+local function CanMoveParty()
+    return not mod.unloaded and StateData() ~= nil and (dmhub.isDM or PlayersCanMoveParty())
+end
+
+local function WriteParty(mapId, u, v, description)
+    local map = GetMap(mapId)
+    if map == nil or not CanMoveParty() or (not dmhub.isDM and not Field(map, "published", false)) then
+        return false
+    end
+    if not IsFinite(u) or not IsFinite(v) then
+        return false
+    end
+    local doc = StateDocument()
+    local old = doc.data.party
+    if RecordRevision(old) >= MAX_REVISION then return false end
+    doc:BeginChange()
+    doc.data.schemaVersion = Addon.schemaVersion
+    doc.data.party = {
+        mapId = mapId,
+        u = Clamp(u, 0, 1),
+        v = Clamp(v, 0, 1),
+        revision = RecordRevision(old) + 1,
+        updatedBy = dmhub.loginUserid,
+        updatedByName = CurrentUserName(),
+        updatedAt = ServerTimestamp(),
+    }
+    doc:CompleteChange(description or "Move Party on region map")
+    return true
+end
+
+local function UnplaceParty(description, expectedMapId)
+    if mod.unloaded or not dmhub.isDM or StateData() == nil then return false end
+    local doc = StateDocument()
+    if expectedMapId ~= nil and Field(doc.data.party, "mapId", nil) ~= expectedMapId then return false end
+    if doc.data.party == nil then
+        return
+    end
+    doc:BeginChange()
+    doc.data.schemaVersion = Addon.schemaVersion
+    doc.data.party = nil
+    doc.data.partyUpdatedBy = dmhub.loginUserid
+    doc.data.partyUpdatedByName = CurrentUserName()
+    doc.data.partyUpdatedAt = ServerTimestamp()
+    doc:CompleteChange(description or "Unplace Party on region map")
+end
+
+local function SetPlayersCanMoveParty(value)
+    if mod.unloaded or not dmhub.isDM or StateData() == nil then
+        return false
+    end
+    local doc = StateDocument()
+    doc:BeginChange()
+    doc.data.schemaVersion = Addon.schemaVersion
+    doc.data.playerCanMoveParty = value == true
+    doc:CompleteChange("Change Region Map Party permission")
+end
+
+local function ReadPreferences()
+    local prefs = dmhub.GetSettingValue(Addon.preferencesSettingId)
+    return type(prefs) == "table" and DeepCopy(prefs) or {}
+end
+
+local function WritePreferences(prefs)
+    dmhub.SetSettingValue(Addon.preferencesSettingId, prefs)
+end
+
+local function CameraKey(map)
+    local revision = Field(map, "imageRevision", nil)
+    if not IsPositiveInteger(revision) then return nil end
+    return string.format("%s:%.0f", map.id, revision)
+end
+
+local function ReadCamera(map)
+    local prefs = ReadPreferences()
+    local camera = type(prefs.cameras) == "table" and prefs.cameras[CameraKey(map)] or nil
+    if type(camera) ~= "table" or not IsFinite(camera.zoom) or not IsFinite(camera.centerX) or not IsFinite(camera.centerY) then
+        return { zoom = MIN_ZOOM, centerX = 0.5, centerY = 0.5 }, false
+    end
+    return {
+        zoom = Clamp(camera.zoom, MIN_ZOOM, MAX_ZOOM),
+        centerX = Clamp(camera.centerX, 0, 1),
+        centerY = Clamp(camera.centerY, 0, 1),
+    }, true
+end
+
+local function SaveCamera(map, camera)
+    if map == nil or camera == nil then return end
+    local prefs = ReadPreferences()
+    prefs.cameras = type(prefs.cameras) == "table" and prefs.cameras or {}
+    prefs.cameras[CameraKey(map)] = {
+        zoom = camera.zoom,
+        centerX = camera.centerX,
+        centerY = camera.centerY,
+    }
+    WritePreferences(prefs)
+end
+
+local function ShowLabelsForMap(mapId)
+    local prefs = ReadPreferences()
+    if type(prefs.showLabels) ~= "table" or prefs.showLabels[mapId] == nil then
+        return true
+    end
+    return prefs.showLabels[mapId] == true
+end
+
+local function SaveShowLabels(mapId, value)
+    local prefs = ReadPreferences()
+    prefs.showLabels = type(prefs.showLabels) == "table" and prefs.showLabels or {}
+    prefs.showLabels[mapId] = value == true
+    WritePreferences(prefs)
+end
+
+local function SaveSelectedMap(mapId)
+    local prefs = ReadPreferences()
+    prefs.selectedMapId = mapId
+    WritePreferences(prefs)
+end
+
+Model.LABEL_LIMIT = LABEL_LIMIT
+Model.TEXT_LIMIT = TEXT_LIMIT
+Model.MIN_ZOOM = MIN_ZOOM
+Model.MAX_ZOOM = MAX_ZOOM
+
+local function CanCommit(guard)
+    return not mod.unloaded and (guard == nil or guard())
+end
+
+local function EditableMap(mapId, guard)
+    if not CanCommit(guard) or not dmhub.isDM then return nil end
+    return GetMap(mapId)
+end
+
+local function NextRevision(record)
+    local revision = Field(record, "revision", 0)
+    if revision ~= 0 and not IsPositiveInteger(revision) then return nil end
+    if revision >= MAX_REVISION then return nil end
+    return revision + 1
+end
+
+local function UpdateMap(mapId, changes, description, guard, callbacks)
+    local current = EditableMap(mapId, guard)
+    if current == nil or NextRevision(current) == nil then return false end
+    local result = DeepCopy(current)
+    if changes.name ~= nil then
+        if not ValidText(changes.name) then return false end
+        result.name = changes.name
+    end
+    if changes.imageId ~= nil then
+        if type(changes.imageId) ~= "string" or changes.imageId == ""
+            or current.imageRevision >= MAX_REVISION then return false end
+        result.imageId = changes.imageId
+        result.imageRevision = current.imageRevision + 1
+    end
+    if changes.published ~= nil then
+        if type(changes.published) ~= "boolean" then return false end
+        result.published = changes.published
+    end
+    result.revision = NextRevision(current)
+    Audit(result, false)
+    return UploadRecord(Addon.mapTableName, result, description, callbacks) ~= nil
+end
+
+local function UpdateLabel(labelId, changes, description, guard, callbacks)
+    local current = LabelsTable()[labelId]
+    if not CanCommit(guard) or not CanEditLabel(current) or NextRevision(current) == nil then return false end
+    local map = GetMap(current.mapId)
+    if changes.mapId ~= nil and changes.mapId ~= current.mapId then return false end
+    if changes.imageRevision ~= nil and changes.imageRevision ~= map.imageRevision then return false end
+    local result = DeepCopy(current)
+    if changes.text ~= nil then
+        if not ValidText(changes.text) then return false end
+        result.text = changes.text
+    end
+    if changes.u ~= nil or changes.v ~= nil then
+        if not IsFinite(changes.u) or not IsFinite(changes.v) then return false end
+        result.u, result.v = Clamp(changes.u, 0, 1), Clamp(changes.v, 0, 1)
+    end
+    if changes.visibility ~= nil then
+        result.visibility = dmhub.isDM and Field(current, "createdByDirector", false)
+            and changes.visibility == "director" and "director" or "shared"
+    end
+    if changes.hidden == true then result.hidden = true end
+    result.revision = NextRevision(current)
+    Audit(result, false)
+    return UploadRecord(Addon.labelTableName, result, description, callbacks) ~= nil
+end
+
+
+local function CreateMap(name, imageId, id, guard, callbacks)
+    if not CanCommit(guard) or not dmhub.isDM or not ValidText(name)
+        or type(imageId) ~= "string" or imageId == "" then return nil end
+    local previous = id and pendingWrites[Addon.mapTableName .. ":" .. id]
+    local existing = id and MapsTable()[id]
+    if id ~= nil and IsTombstoned(id) then return nil end
+    if existing ~= nil and (previous == nil or previous.status ~= "failed"
+        or Field(existing, "mutationId", nil) ~= previous.mutationId) then return nil end
+    if previous and previous.status == "failed" and previous.record.name == name
+        and previous.record.imageId == imageId then
+        return UploadRecord(Addon.mapTableName, previous.record, "Create region map", callbacks, true)
+    end
+    local record = RegionMapRecord.new {
+        id = id or dmhub.GenerateGuid(), schemaVersion = Addon.schemaVersion,
+        name = name, imageId = imageId, imageRevision = 1, revision = 1,
+        published = false, hidden = false,
+    }
+    Audit(record, true)
+    return UploadRecord(Addon.mapTableName, record, "Create region map", callbacks, true)
+end
+
+local function CreateLabel(mapId, text, visibility, u, v, id, guard, callbacks)
+    local map = GetMap(mapId)
+    if not CanCommit(guard) or not CanViewMap(map) or not ValidText(text)
+        or not IsFinite(u) or not IsFinite(v) or LabelCount(mapId) >= LABEL_LIMIT then return nil end
+    local previous = id and pendingWrites[Addon.labelTableName .. ":" .. id]
+    local existing = id and LabelsTable()[id]
+    if existing ~= nil and (previous == nil or previous.status ~= "failed"
+        or Field(existing, "mutationId", nil) ~= previous.mutationId) then return nil end
+    local effectiveVisibility = dmhub.isDM and visibility == "director" and "director" or "shared"
+    if previous and previous.status == "failed" and previous.record.text == text
+        and previous.record.u == u and previous.record.v == v
+        and previous.record.visibility == effectiveVisibility then
+        return UploadRecord(Addon.labelTableName, previous.record, "Add region map label", callbacks, true)
+    end
+    local record = RegionMapLabelRecord.new {
+        id = id or dmhub.GenerateGuid(), schemaVersion = Addon.schemaVersion, mapId = mapId,
+        text = text, u = Clamp(u, 0, 1), v = Clamp(v, 0, 1),
+        ownerId = dmhub.loginUserid, ownerName = CurrentUserName(),
+        createdByDirector = dmhub.isDM,
+        visibility = dmhub.isDM and visibility == "director" and "director" or "shared",
+        revision = 1, hidden = false,
+    }
+    Audit(record, true)
+    return UploadRecord(Addon.labelTableName, record, "Add region map label", callbacks, true)
+end
+
+-- Cleanup is independent per record. A failed hide cannot hold up other hides.
+local function HideDeletedRecord(tableName, id)
+    if type(id) ~= "string" or id == "" then return end
+    if mod.unloaded or not dmhub.isDM or PendingWrite(tableName, id) ~= nil then return end
+    local record = (dmhub.GetTable(tableName) or {})[id]
+    if record == nil or Field(record, "id", nil) ~= id
+        or Field(record, "schemaVersion", 0) ~= Addon.schemaVersion then return end
+    local previous = pendingWrites[tableName .. ":" .. id]
+    if Field(record, "hidden", false) and (previous == nil or previous.status ~= "failed")
+        and (tableName ~= Addon.mapTableName or not Field(record, "published", false)) then return end
+    local revision = NextRevision(record)
+    if revision == nil then return end
+    local result = DeepCopy(record)
+    result.hidden, result.revision = true, revision
+    if tableName == Addon.mapTableName then result.published = false end
+    Audit(result, false)
+    UploadRecord(tableName, result, "Hide deleted region map content", {
+        failure = function(operation)
+            print("REGION_MAP: cleanup can be retried for " .. id .. ": " .. tostring(operation.error))
+        end,
+    })
+end
+
+local function FinishDeletion(mapId, afterWithdraw)
+    if mod.unloaded or not dmhub.isDM or not IsTombstoned(mapId) then return end
+    -- These live-document actions are best effort; the tombstone already hides
+    -- the map and dangling Party references regardless of their outcome.
+    local ok, message = pcall(function()
+        if afterWithdraw ~= nil then afterWithdraw(mapId) end
+    end)
+    if not ok then print("REGION_MAP: presentation cleanup: " .. tostring(message)) end
+    ok, message = pcall(UnplaceParty, "Unplace Party from deleted region map", mapId)
+    if not ok then print("REGION_MAP: Party cleanup: " .. tostring(message)) end
+    HideDeletedRecord(Addon.mapTableName, mapId)
+    for id, label in pairs(LabelsTable()) do
+        if Field(label, "mapId", nil) == mapId then HideDeletedRecord(Addon.labelTableName, id) end
+    end
+end
+
+local function DeleteMap(mapId, guard, callbacks, afterWithdraw)
+    local current = EditableMap(mapId, guard)
+    if current == nil then return false end
+    local tombstone = RegionMapTombstoneRecord.new {
+        id = mapId, schemaVersion = Addon.schemaVersion, mapId = mapId,
+        deletedBy = dmhub.loginUserid, deletedByName = CurrentUserName(),
+        deletedAt = ServerTimestamp(), hidden = false,
+    }
+    Audit(tombstone, true)
+    return UploadRecord(Addon.tombstoneTableName, tombstone, "Delete region map", {
+        success = function(operation)
+            FinishDeletion(mapId, afterWithdraw)
+            -- Only the tombstone has been acknowledged; cleanup may still be pending.
+            if callbacks and callbacks.success then callbacks.success(operation) end
+        end,
+        failure = callbacks and callbacks.failure,
+    }) ~= nil
+end
+
+local function ResumeDeletions(afterWithdraw)
+    if mod.unloaded or not dmhub.isDM then return end
+    for id, tombstone in pairs(TombstonesTable()) do
+        if Field(tombstone, "schemaVersion", 0) == Addon.schemaVersion and IsTombstoned(id) then
+            FinishDeletion(id, afterWithdraw)
+        end
+    end
+end
+
+-- Escape each opening bracket separately, including literal closing noparse tags.
+Model.LiteralText = function(value)
+    return (tostring(value or ""):gsub("<", "<noparse><</noparse>"))
+end
+Model.ResumeDeletions = ResumeDeletions
+Model.CreateMap = CreateMap
+Model.CreateLabel = CreateLabel
+Model.DeleteMap = DeleteMap
+Model.CanCommit = CanCommit
+Model.EditableMap = EditableMap
+Model.NextRevision = NextRevision
+Model.UpdateMap = UpdateMap
+Model.UpdateLabel = UpdateLabel
+Model.StateData = StateData
+Model.ValidText = ValidText
+Model.MAX_REVISION = MAX_REVISION
+Model.Clamp = Clamp
+Model.IsFinite = IsFinite
+Model.IsPositiveInteger = IsPositiveInteger
+Model.Field = Field
+Model.RecordRevision = RecordRevision
+Model.TrimSingleLine = TrimSingleLine
+Model.TextLength = TextLength
+Model.MapNameKey = MapNameKey
+Model.CurrentUserName = CurrentUserName
+Model.Audit = Audit
+Model.UploadRecord = UploadRecord
+Model.PendingWrite = PendingWrite
+Model.MapsTable = MapsTable
+Model.LabelsTable = LabelsTable
+Model.TombstonesTable = TombstonesTable
+Model.IsTombstoned = IsTombstoned
+Model.IsValidMap = IsValidMap
+Model.GetMap = GetMap
+Model.CanViewMap = CanViewMap
+Model.VisibleMaps = VisibleMaps
+Model.ResolveFallbackMap = ResolveFallbackMap
+Model.MapDisplayNames = MapDisplayNames
+Model.IsValidLabel = IsValidLabel
+Model.LabelVisibility = LabelVisibility
+Model.CanViewLabel = CanViewLabel
+Model.CanEditLabel = CanEditLabel
+Model.LabelsForMap = LabelsForMap
+Model.LabelCount = LabelCount
+Model.LabelStateForMap = LabelStateForMap
+Model.StateDocument = StateDocument
+Model.GetParty = GetParty
+Model.LabelRenderSnapshot = LabelRenderSnapshot
+Model.PartyRenderSnapshot = PartyRenderSnapshot
+Model.PlayersCanMoveParty = PlayersCanMoveParty
+Model.CanMoveParty = CanMoveParty
+Model.WriteParty = WriteParty
+Model.UnplaceParty = UnplaceParty
+Model.SetPlayersCanMoveParty = SetPlayersCanMoveParty
+Model.ReadPreferences = ReadPreferences
+Model.WritePreferences = WritePreferences
+Model.CameraKey = CameraKey
+Model.ReadCamera = ReadCamera
+Model.SaveCamera = SaveCamera
+Model.ShowLabelsForMap = ShowLabelsForMap
+Model.SaveShowLabels = SaveShowLabels
+Model.SaveSelectedMap = SaveSelectedMap
+Model.ready = true
+Addon.Model = Model
