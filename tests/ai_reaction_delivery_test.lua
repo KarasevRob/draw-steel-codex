@@ -1,7 +1,12 @@
 --Run from C:/dev/dmhub: dependencies/lua/bin/lua.exe draw-steel-codex/tests/ai_reaction_delivery_test.lua
 --Exercise the production protocol with independent host/player snapshots and
 --a controllable transport. The scalar codec stands in for the engine's JSON API.
+--Snapshots cross the transport the way the server stores them: a
+--ServerTimestamp() placeholder on a property leaf resolves to the clock.
+local now = 0
+local placeholder = "__serverTimestamp"
 local function clone(v)
+    if v == placeholder then return now*1000 end
     if type(v) ~= "table" then return v end
     local result = {}
     for k,x in pairs(v) do result[k] = clone(x) end
@@ -25,13 +30,29 @@ end
 --The same suite can run in an isolated engine environment with its actual JSON
 --codec. All tokens, transport, and UI remain test doubles in either environment.
 if AIReactionTestJSON then encode=AIReactionTestJSON.encode; decode=AIReactionTestJSON.decode end
-local now, serial = 0, 0
+local serial = 0
 dmhub = {userid = "host", ToJson = encode, FromJson = decode, Time = function() return now end,
     LookupTokenId = function() return nil end, LookupToken = function(p) return p.token end,
     GetCharacterById = function(id) return {properties={charid=id}} end,
     GenerateGuid = function() serial = serial + 1; return "event-" .. serial end}
-function ServerTimestamp() return now*1000 end
-function TimestampAgeInSeconds(t) return now-t/1000 end
+--ServerTimestamp() is a placeholder the server resolves only on property
+--leaves. The plain leaves this suite writes are modeled as already resolved,
+--but a placeholder inside a JSON-encoded record would never be resolved, so
+--the codec rejects one; string records must use dmhub.serverTimeMilliseconds.
+function ServerTimestamp() return placeholder end
+local rawEncode = encode
+encode = function(v)
+    local function scan(x)
+        if x == placeholder then error("ServerTimestamp() placeholder inside a JSON-encoded record") end
+        if type(x) == "table" then for _,y in pairs(x) do scan(y) end end
+    end
+    scan(v)
+    return rawEncode(v)
+end
+dmhub.ToJson = encode
+setmetatable(dmhub, {__index = function(_, k) if k == "serverTimeMilliseconds" then return now*1000 end end})
+function TimestampAgeInSeconds(t) if type(t) ~= "number" then return 0 end return now-t/1000 end
+function EventTimestampAge(t) if type(t) == "number" or t == placeholder then return TimestampAgeInSeconds(t) end end
 table.shallow_copy = function(t) local r = {}; for k,v in pairs(t) do r[k]=v end; return r end
 string.starts_with = function(s,prefix) return s:sub(1,#prefix)==prefix end
 creature = {}
@@ -123,6 +144,25 @@ reset(); queue(); player.TriggerEvent=function() calls=calls+1; error("injected 
 deliver(); acknowledge(); deliver()
 _,_,err=host:GetAIActivityReactionStatus("activity")
 check(calls==1 and err:find("injected"),"evaluation errors are reported and never retried")
+--A trigger evaluated on the host's own client writes the marker locally, so
+--the host reads its own unresolved ServerTimestamp() placeholder until the
+--server echoes the number. That is a live marker, never an expired one.
+reset()
+host:BeginPendingAIActivityReaction("activity","local-prompt","Hero Death")
+host.availableTriggers={["local-prompt"]={}}
+check(host.pendingAIActivityReactions["local-prompt"].timestamp==placeholder,"writer holds the placeholder before echo")
+local n,description,failure=host:GetAIActivityReactionStatus("activity")
+check(failure==nil and n==1 and description:find("answer Hero Death"),"unresolved local marker counts as pending, not expired")
+check(host:CountPendingAIActivityReactions("activity")==1,"unresolved local marker is counted")
+now=20
+_,_,failure=host:GetAIActivityReactionStatus("activity")
+check(failure==nil,"unresolved local marker never trips the delivery deadline")
+host:CompletePendingAIActivityReaction("activity","local-prompt")
+check(host:CountPendingAIActivityReactions("activity")==0,"local completion also holds the placeholder and is terminal")
+--Damaged marker timestamps still fail loudly instead of hanging the AI.
+reset(); host.pendingAIActivityReactions={junk={activityId="activity",timestamp="garbage",state="awaiting_choice"}}
+_,_,failure=host:GetAIActivityReactionStatus("activity")
+check(failure and failure:find("could not be confirmed"),"junk marker timestamp is reported")
 --Actual prompts can wait longer than the delivery timeout, then remain pending
 --after acceptance until the cast's completion callback arrives.
 reset(); queue()
@@ -163,6 +203,10 @@ gui={ModalMessage=function(args) modalMessage=args.message end}
 MonsterAI={active=true, IsAIRunning=function() return true end, StopAI=function() MonsterAI.active=false end}
 function MonsterAI:LogDecision() end
 function MonsterAI:CountPendingMinionDeathConfirmations() return 0 end
+--The "AI is waiting on a player" notice replicates through a shared
+--document and is shown by the tip banner; neither is under test here.
+MonsterAI.SetWaiting=function() end
+MonsterAI.ClearWaiting=function() end
 dmhub.allTokens={host.token}
 local aiSource="draw-steel-codex/Monster AI/MonsterAI.lua"
 assert(load(source(aiSource,"function MonsterAI:CountPendingActivityReactions", "--Count squad deaths")))()

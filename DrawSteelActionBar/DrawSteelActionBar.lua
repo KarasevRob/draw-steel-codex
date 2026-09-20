@@ -1048,7 +1048,9 @@ end
 --crashes on math.floor(nil). We only need movingToken/movingPath to reach the
 --diagram, so we build a minimal, preview-safe text ourselves. See
 --MOVEMENT_CROSS_SECTION_REFERENCE.md.
-local g_movementDiagramShown = false
+--Cross-section tooltip state (movement diagram + attack diagram) in ONE table: this
+--chunk sits at Lua's 200-local ceiling, so a new top-level local does not parse.
+local CrossSection = { movementShown = false, attackShown = false }
 
 --- @param token CharacterToken the moving token
 --- @param path LuaPath the previewed movement path
@@ -1114,18 +1116,106 @@ local function ShowMovementDiagram(token, path, label, alternates, damages, text
         movingPathAlternates = alternates,
         movingPathDamages = damages,
     })
-    g_movementDiagramShown = true
+    CrossSection.movementShown = true
 end
 
 local function ClearMovementDiagram()
-    if not g_movementDiagramShown then
+    if not CrossSection.movementShown then
         return
     end
-    g_movementDiagramShown = false
+    CrossSection.movementShown = false
     --truthiness check: GameHud.instance is false (not nil) while the hud rebuilds.
     if GameHud.instance then
         GameHud.instance:FinishTokenMoving()
     end
+end
+
+--Attack cross-section: while hovering a target during ability targeting, a side-on
+--diagram of the terrain between the attacker and the target with the sightline the
+--cover rules used (see MovementCrossSection.SetAttackCrossSection). Only shown when
+--the engine reports something vertical worth seeing (the creatures at different
+--altitudes or airborne, ground rising/falling between them, a solid or height-limited
+--wall crossed, or cover that came from the terrain) -- a flat shot shows nothing, so
+--ordinary targeting is unchanged. Rides the same "tiletooltip" event + diagram panel
+--as the movement diagram (GameHud.lua), anchored outside the attacker/target box so it
+--never covers the arrow.
+--
+--Teardown is deliberately unconditional and called from every exit: unhover, both
+--line-of-sight mark helpers (adopt AND clear -- clicking a target adopts the hover
+--arrow as a persistent ray without ever unhovering, which used to leave the diagram
+--on screen), and cancelCasting. The engine scene is released on every call, not just
+--when we believe we own the tooltip, so a lost flag can never strand the render texture.
+function CrossSection.ClearAttack()
+    dmhub.ClearAttackCrossSection()
+    if not CrossSection.attackShown then
+        return
+    end
+    CrossSection.attackShown = false
+    --truthiness check: GameHud.instance is false (not nil) while the hud rebuilds.
+    if GameHud.instance then
+        GameHud.instance:FinishTokenMoving()
+    end
+end
+
+--- @param sourceToken CharacterToken the attacker (or the relay the arrow is drawn from)
+--- @param targetToken CharacterToken the hovered target
+function CrossSection.ShowAttack(sourceToken, targetToken)
+    if sourceToken == nil or targetToken == nil or not GameHud.instance then
+        CrossSection.ClearAttack()
+        return
+    end
+    if not sourceToken.valid or not targetToken.valid or sourceToken.floorIndex ~= targetToken.floorIndex
+       or sourceToken.charid == targetToken.charid then
+        CrossSection.ClearAttack()
+        return
+    end
+    local dialog = GameHud.instance.dialog
+    local sheet = dialog and dialog.sheet
+    if sheet == nil then
+        CrossSection.ClearAttack()
+        return
+    end
+
+    local result = dmhub.SetAttackCrossSection{attacker = sourceToken, target = targetToken}
+    if result == nil or not result.interesting then
+        dmhub.ClearAttackCrossSection()
+        CrossSection.ClearAttack()
+        return
+    end
+
+    local text
+    local delta = (targetToken.altitude or 0) - (sourceToken.altitude or 0)
+    if delta > 0 then
+        text = string.format(tr("Target is %d higher"), delta)
+    elseif delta < 0 then
+        text = string.format(tr("Target is %d lower"), -delta)
+    else
+        text = tr("Line of Effect")
+    end
+
+    local what = result.description
+    if what == "ridge" then
+        what = tr("the terrain")
+    elseif what == "none" or what == nil or what == "" then
+        what = nil
+    end
+    if result.cover == 0 then
+        text = string.format("%s\n<color=#aaffaaff>%s</color>", text, tr("Clear line of effect"))
+    elseif result.cover == 3 then
+        text = string.format("%s\n<color=#ffaaaaff>%s</color>", text, cond(what ~= nil, string.format(tr("No line of effect: blocked by %s"), what), tr("No line of effect")))
+    else
+        text = string.format("%s\n<color=#ffdd88ff>%s</color>", text, cond(what ~= nil, string.format(tr("Cover from %s"), what), tr("Cover")))
+    end
+
+    local anchor, halign, valign = GameHud.AttackTooltipPlacement(sourceToken, targetToken)
+    sheet:FireEvent("tiletooltip", {
+        loc = anchor,
+        halign = halign,
+        valign = valign,
+        text = text,
+        attackDiagram = result,
+    })
+    CrossSection.attackShown = true
 end
 
 --Tiered-jump hover state: markers on the tiles where lower-tier (shortfall)
@@ -8552,18 +8642,23 @@ local function ReplaceTargetLineOfSightRays(rays, ability, range)
     local t = {}
     for i, ray in ipairs(rays) do
         local key = string.format("%s-%s", ray.a.id, ray.b.id)
-        if m_targetLineOfSightRays[key] ~= nil then
-            t[key] = m_targetLineOfSightRays[key]
-        else
-            t[key] = dmhub.MarkLineOfSight(ray.a, ray.b, ray.a.properties:GetPierceWalls(), GetArrowColor(ability, ray.a, ray.b), EffectiveArrowRange(ray.a, ray.b, range, ability))
-            AddModifierLabelsToMarker(t[key], ray.a, ray.b, ability, range)
-            --Mark player-locked attacker->target pairings so they stand out
-            --from the auto-assigned ones.
-            if ray.locked then
-                t[key]:AddLabel("Locked", "buff")
+        --One minion can hold two slots on the same creature (gang-up), so rays
+        --can repeat a pair. Without this guard the second pass overwrites t[key]
+        --and the first marker leaks -- nothing can ever destroy it again.
+        if t[key] == nil then
+            if m_targetLineOfSightRays[key] ~= nil then
+                t[key] = m_targetLineOfSightRays[key]
+            else
+                t[key] = dmhub.MarkLineOfSight(ray.a, ray.b, ray.a.properties:GetPierceWalls(), GetArrowColor(ability, ray.a, ray.b), EffectiveArrowRange(ray.a, ray.b, range, ability))
+                AddModifierLabelsToMarker(t[key], ray.a, ray.b, ability, range)
+                --Mark player-locked attacker->target pairings so they stand out
+                --from the auto-assigned ones.
+                if ray.locked then
+                    t[key]:AddLabel("Locked", "buff")
+                end
             end
+            m_targetLineOfSightRays[key] = nil
         end
-        m_targetLineOfSightRays[key] = nil
     end
 
     FreeTargetLineOfSightRays()
@@ -8597,6 +8692,10 @@ local m_markLineOfSightToken = nil
 
 --if m_markLineOfSight is set, it will be adopted as a persistent marking.
 local function AdoptLineOfSightMark()
+    --The hover arrow becomes a persistent ray, so the hover is over even though no
+    --unhighlight fires (the cursor never left the token). The attack cross-section
+    --belongs to the hover, so it goes now.
+    CrossSection.ClearAttack()
     if m_markLineOfSight == nil then
         return
     end
@@ -8608,6 +8707,9 @@ local function AdoptLineOfSightMark()
 end
 
 local function ClearLineOfSightMark()
+    --Before the early return: the diagram can outlive the arrow (a path that nils the
+    --mark by hand leaves nothing for this to destroy, but the tooltip is still up).
+    CrossSection.ClearAttack()
     if m_markLineOfSight == nil then
         return
     end
@@ -9800,19 +9902,69 @@ local SetTargetsInRadius = function(tokens)
     g_pointForceTargets = tokens
 end
 
+--The strip of candidate portraits under a "choose a target" prompt: hover rings
+--the token on the map, left-click picks it, right-click pans to it. The prompt
+--passes its pick handler to settokens; portraits are inert without one.
 local function CreateTokenSelectionContainer()
     local resultPanel
-    
+
+    --The token currently wearing the locate ring, so replacing or destroying a
+    --hovered portrait never strands a ring on the map.
+    local m_locatedCharid = nil
+
+    local function SetLocateRing(charid, on)
+        local tok = charid ~= nil and dmhub.GetTokenById(charid) or nil
+        if tok == nil or not tok.valid or tok.bottomsheet == nil or not tok.bottomsheet.valid then
+            return
+        end
+        tok.bottomsheet:SetClassTree("locate", on)
+    end
+
+    local function ClearLocate()
+        if m_locatedCharid ~= nil then
+            SetLocateRing(m_locatedCharid, false)
+            m_locatedCharid = nil
+        end
+    end
+
     resultPanel = gui.Panel {
         styles = {
             {
                 selectors = {"selectable"},
                 opacity = 0,
+                bgcolor = "#ffffff22",
+                borderColor = "white",
             },
             {
                 selectors = {"selectable", "hover"},
                 opacity = 1,
-            }
+            },
+            --A candidate the prompt gave a reason against (out of range, already
+            --hit): shown at all times rather than on hover, so it reads as
+            --different before it is clicked. The reason is in its tooltip.
+            {
+                selectors = {"selectable", "invalidTarget"},
+                opacity = 1,
+                bgcolor = "#C7313133",
+                borderColor = "#C73131",
+            },
+            --A blocked candidate still lights up under the pointer, or it reads as
+            --inert when it is in fact pressable.
+            {
+                selectors = {"selectable", "invalidTarget", "hover"},
+                priority = 5,
+                borderColor = "#FF9090",
+            },
+            --Held briefly when the prompt refuses a press, so a blocked candidate
+            --is not a dead click. Priority because it has to beat invalidTarget,
+            --which is always present on the same portrait.
+            {
+                selectors = {"selectable", "refused"},
+                priority = 5,
+                opacity = 1,
+                bgcolor = "#C73131AA",
+                borderColor = "#FFFFFF",
+            },
         },
         width = "auto",
         height = "auto",
@@ -9830,15 +9982,29 @@ local function CreateTokenSelectionContainer()
         maxWidth = 800,
         wrap = true,
         disable = function(element)
+            ClearLocate()
             element.mapfocus = false
         end,
-        settokens = function(element, tokens)
+        destroy = function(element)
+            ClearLocate()
+        end,
+        --- @param tokens nil|CharacterToken[] The candidates to show; nil empties the strip.
+        --- @param options nil|{choose: nil|fun(token: CharacterToken):boolean, reasons: nil|table<string,string>}
+        --- choose is the prompt's pick handler, returning false if it refuses the
+        --- candidate; reasons[charid] explains a candidate the prompt would refuse.
+        settokens = function(element, tokens, options)
+            ClearLocate()
+
             if tokens == nil then
                 element.mapfocus = false
                 element.children = {}
                 element:SetClass("collapsed", true)
                 return
             end
+
+            options = options or {}
+            local choose = options.choose
+            local reasons = options.reasons or {}
 
             local children = {}
 
@@ -9851,26 +10017,64 @@ local function CreateTokenSelectionContainer()
                 })
 
                 local tok = token
+                local reason = reasons[tok.charid]
 
 
                 local child = gui.Panel{
-                    classes = {"selectable"},
+                    classes = {"selectable", cond(reason ~= nil, "invalidTarget")},
                     width = "auto",
                     height = "auto",
                     bgimage = true,
-                    bgcolor = "#ffffff22",
                     borderWidth = 1,
-                    borderColor = "white",
                     image,
                     press = function(element)
+                        if not tok.valid or choose == nil then
+                            return
+                        end
+                        --choose returns false when the prompt refuses this
+                        --candidate (a player under strict targeting).
+                        if choose(tok) == false then
+                            element:SetClass("refused", true)
+                            element:ScheduleEvent("unrefuse", 0.4)
+                        end
+                    end,
+                    unrefuse = function(element)
+                        element:SetClass("refused", false)
+                    end,
+                    --Left-click picks, so panning to a candidate moved here: the
+                    --ring is no use when the token is off the edge of the screen.
+                    rightClick = function(element)
                         if tok.valid then
-                            dmhub.CenterOnToken(tok.charid)
+                            dmhub.CenterOnToken(tok.charid, { smooth = true })
+                        end
+                    end,
+                    --The engine's own pulse is a brief white flash that is easy to
+                    --miss, so the sustained locate ring does the real pointing.
+                    hover = function(element)
+                        if not tok.valid then
+                            return
+                        end
+                        ClearLocate()
+                        m_locatedCharid = tok.charid
+                        dmhub.PulseHighlightToken(tok.charid)
+                        SetLocateRing(tok.charid, true)
+                    end,
+                    dehover = function(element)
+                        if m_locatedCharid == tok.charid then
+                            ClearLocate()
                         end
                     end,
                     linger = function(element)
-                        if tok.valid then
-                            gui.Tooltip(creature.GetTokenDescription(tok))(element)
+                        if not tok.valid then
+                            return
                         end
+                        local text = creature.GetTokenDescription(tok)
+                        if reason ~= nil then
+                            text = string.format("%s\n\n%s", text, reason)
+                        end
+                        --Right-click panning is invisible unless it is advertised.
+                        text = string.format("%s\n\nRight click to center the map here.", text)
+                        gui.Tooltip(text)(element)
                     end,
                 }
 
@@ -9954,6 +10158,52 @@ local function MakeCastControlsOnResolveHandler(casterToken)
             end
         end
     end
+end
+
+--Hides the ability controller, remembering what was in flight at that moment.
+--Hiding it cancels the cast it was showing, and the disable event that does so
+--lands a frame or two late, so the record lets that late event tell "the cast I
+--was asked to tear down" from "a cast that claimed the controller since".
+--State lives on the module table because this file is at Lua's 200-local limit.
+DrawSteelActionBar.RequestControllerCollapse = function()
+    DrawSteelActionBar._collapseAt = dmhub.Time()
+    DrawSteelActionBar._collapseInvoker = g_invokerInfo
+    DrawSteelActionBar._collapseAbility = g_currentAbility
+    if g_abilityController ~= nil then
+        g_abilityController:SetClass("collapsed", true)
+    end
+end
+
+--Whether the hide now being processed should leave the cast alone: a different
+--cast claimed the controller since the hide was asked for, or a target prompt is
+--still open, which means the cast is mid-resolution. One-shot -- the record is
+--consumed here, so it can never suppress a later, unrelated cancel.
+DrawSteelActionBar.HideShouldSkipCancel = function()
+    local requestedAt = DrawSteelActionBar._collapseAt
+    if requestedAt == nil then
+        return false
+    end
+    local invoker = DrawSteelActionBar._collapseInvoker
+    local ability = DrawSteelActionBar._collapseAbility
+    DrawSteelActionBar._collapseAt = nil
+    DrawSteelActionBar._collapseInvoker = nil
+    DrawSteelActionBar._collapseAbility = nil
+
+    if dmhub.Time() - requestedAt > 1 then
+        return false
+    end
+    if g_invokerInfo ~= invoker or g_currentAbility ~= ability then
+        return true
+    end
+    --A prompt still on screen means the cast is mid-resolution. Held as the panel
+    --itself, not a counter: a bar rebuilt mid-prompt would leak a count forever,
+    --and a leaked count silently suppresses every later cancel.
+    local prompt = DrawSteelActionBar._openPrompt
+    if prompt ~= nil and not prompt.valid then
+        DrawSteelActionBar._openPrompt = nil
+        return false
+    end
+    return prompt ~= nil
 end
 
 CreateAbilityController = function()
@@ -10732,6 +10982,11 @@ CreateAbilityController = function()
         end,
 
         disable = function(element)
+            --Never cancel a cast that claimed the controller after the hide was
+            --asked for: this event arrives too late to tell them apart itself.
+            if DrawSteelActionBar.HideShouldSkipCancel() then
+                return
+            end
             element:FireEvent("cancelCasting")
         end,
 
@@ -11124,6 +11379,9 @@ CreateAbilityController = function()
             if g_actionBar ~= nil then g_actionBar:SetClassTree("invokingAbility", false) end
             if g_abilityController ~= nil then g_abilityController.mapfocus = false end
 
+            --Explicit, not just via ClearLineOfSightMark: the central teardown for every
+            --way a cast ends, so nothing can strand the diagram.
+            CrossSection.ClearAttack()
             ClearLineOfSightMark()
             ClearRadiusMarkers()
 
@@ -11184,6 +11442,49 @@ CreateAbilityController = function()
             local choose = options.choose or function(target) end
             local cancel = options.cancel or function() end
 
+            --True once a target has been picked: the teardown behaves differently
+            --for a prompt that was answered than for one that was abandoned.
+            local m_picked = false
+            --Assigned below; PickTarget tears it down before handing the pick on.
+            local targetChooser
+            --This prompt's cleanup, assigned before anything can call it and run
+            --exactly once: a pick runs it up front, since destroying the panel only
+            --queues its destroy event to the end of the frame.
+            local TeardownPrompt
+            local m_tornDown = false
+
+            --The one place a pick is committed, for both ways of making one:
+            --clicking the token on the map, and pressing its portrait in the strip
+            --under the prompt. Returns false when the candidate is refused, so the
+            --caller can show that the click was seen.
+            local function PickTarget(targetToken)
+                --A second press can arrive before the strip's children are gone
+                --(their destroy is deferred), and committing twice would answer
+                --the prompt twice -- for a prompt loop, eating two targets.
+                if m_picked then
+                    return true
+                end
+                --a reasoned filter keeps a target visible (with a tooltip
+                --reason) but blocks players from choosing it under strict
+                --targeting. Directors bypass this.
+                if targetToken ~= nil and reasons[targetToken.charid] ~= nil
+                    and (not dmhub.isDM) and dmhub.GetSettingValue("strict:targeting") then
+                    return false
+                end
+                m_picked = true
+
+                --Tear down BEFORE handing the pick on: the teardown clears radius
+                --markers, prompt text and target highlights, so running it after
+                --would wipe the UI of whatever the pick opens next.
+                TeardownPrompt()
+                if targetChooser ~= nil and targetChooser.valid then
+                    targetChooser:DestroySelf()
+                end
+
+                choose(targetToken)
+                return true
+            end
+
             gui.SetFocus(nil)
 
             --The chooser lives inside the action bar, and "refresh" hides the
@@ -11206,11 +11507,59 @@ CreateAbilityController = function()
                 end
             end
 
+            TeardownPrompt = function()
+                if m_tornDown then
+                    return
+                end
+                m_tornDown = true
+                if DrawSteelActionBar._openPrompt == targetChooser then
+                    DrawSteelActionBar._openPrompt = nil
+                end
+                if g_castMessage ~= nil then
+                    g_castMessage.data.promptText = ''
+                    g_castMessage:FireEvent("refresh")
+                end
+                if g_tokenSelectionContainer ~= nil and g_tokenSelectionContainer.valid then
+                    g_tokenSelectionContainer:FireEvent("settokens", nil)
+                end
+                --Collapsing is safe on both paths: the cast a pick goes on to start
+                --claims the controller back, and the hide records itself so the late
+                --disable does not cancel that new cast.
+                DrawSteelActionBar.RequestControllerCollapse()
+                ClearRadiusMarkers()
+                for _, tok in ipairs(targets) do
+                    if tok ~= nil and tok.valid and tok.sheet ~= nil then
+                        tok.sheet.data.targetInfo = nil
+                        tok.sheet.data.targetValid = nil
+                        tok.sheet:FireEvent("untarget")
+                    end
+                end
+                gui.SetFocus(nil)
+                g_actionBar:SetClassTree("choosingTarget", false)
+                if pushedSourceToken then
+                    pushedSourceToken = false
+                    TryPopCasterToken()
+                    if g_actionBar ~= nil and g_actionBar.valid then
+                        g_actionBar:FireEvent("refresh")
+                    end
+                end
+                --Last, for the same reason a pick hands on last: whatever an
+                --abandoned prompt starts must not be cleared by the rest of this.
+                if not m_picked then
+                    cancel()
+                end
+            end
+
             g_actionBar:FireEvent("refresh")
 
             g_actionBar:SetClassTree("choosingTarget", true)
 
-            g_tokenSelectionContainer:FireEvent("settokens", targets)
+            g_tokenSelectionContainer:FireEvent("settokens", targets, {
+                choose = function(tok)
+                    return PickTarget(tok)
+                end,
+                reasons = reasons,
+            })
 
             g_castMessage.data.promptText = promptText
             g_castMessage:FireEvent("refresh")
@@ -11221,7 +11570,8 @@ CreateAbilityController = function()
             --which may have been left visible by a previous shift-move cast.
             m_shiftController:SetClass("collapsed", true)
 
-            local targetChooser = gui.Panel {
+
+            targetChooser = gui.Panel {
                 width = 1,
                 height = 1,
                 escapeActivates = true,
@@ -11234,28 +11584,7 @@ CreateAbilityController = function()
                     element:DestroySelf()
                 end,
                 destroy = function()
-                    if g_castMessage ~= nil then
-                        g_castMessage.data.promptText = ''
-                        g_castMessage:FireEvent("refresh")
-                    end
-                    if g_abilityController ~= nil then g_abilityController:SetClass("collapsed", true) end
-                    ClearRadiusMarkers()
-                    cancel()
-                    for _, tok in ipairs(targets) do
-                        if tok ~= nil and tok.valid and tok.sheet ~= nil then
-                            tok.sheet.data.targetInfo = nil
-                            tok.sheet:FireEvent("untarget")
-                        end
-                    end
-                    gui.SetFocus(nil)
-                    g_actionBar:SetClassTree("choosingTarget", false)
-                    if pushedSourceToken then
-                        pushedSourceToken = false
-                        TryPopCasterToken()
-                        if g_actionBar ~= nil and g_actionBar.valid then
-                            g_actionBar:FireEvent("refresh")
-                        end
-                    end
+                    TeardownPrompt()
                 end,
             }
 
@@ -11264,16 +11593,7 @@ CreateAbilityController = function()
                 type = "ActivatedAbility",
                 guid = dmhub.GenerateGuid(),
                 execute = function(targetToken, info) --info has {targetEffects = {list of effect panels}}
-                    --a reasoned filter keeps a target visible (with a tooltip
-                    --reason) but blocks players from choosing it under strict
-                    --targeting. Directors bypass this.
-                    if targetToken ~= nil and reasons[targetToken.charid] ~= nil
-                        and (not dmhub.isDM) and dmhub.GetSettingValue("strict:targeting") then
-                        return
-                    end
-                    choose(targetToken)
-                    cancel = function() end
-                    gui.SetFocus(nil)
+                    PickTarget(targetToken)
                 end,
             }
 
@@ -11296,6 +11616,7 @@ CreateAbilityController = function()
 
             g_actionBar:AddChild(targetChooser)
             gui.SetFocus(targetChooser)
+            DrawSteelActionBar._openPrompt = targetChooser
         end,
 
         --- @param invokerInfo nil|{oncast=nil|function, oncancel=nil|function}
@@ -11378,6 +11699,7 @@ CreateAbilityController = function()
                     m_markLineOfSight:AddLabel("Locked", "buff")
                     m_markLineOfSightToken = targetToken
                     m_markLineOfSightSourceToken = g_squadPendingLockMinion
+                    CrossSection.ShowAttack(g_squadPendingLockMinion, targetToken)
                 end
                 return
             end
@@ -11420,9 +11742,17 @@ CreateAbilityController = function()
                     m_markLineOfSightSourceToken = originToken
                 end
             end
+
+            --The attack cross-section for the arrow just drawn (collapses itself for a flat shot).
+            if m_markLineOfSightToken == targetToken and m_markLineOfSightSourceToken ~= nil then
+                CrossSection.ShowAttack(m_markLineOfSightSourceToken, targetToken)
+            end
         end,
 
         unhighlightTargetToken = function(element, targetToken)
+            if targetToken == nil or targetToken == m_markLineOfSightToken then
+                CrossSection.ClearAttack()
+            end
             if m_markLineOfSight ~= nil and (targetToken == nil or targetToken == m_markLineOfSightToken) then
                 m_markLineOfSight:Destroy()
                 m_markLineOfSight = nil
@@ -13080,6 +13410,9 @@ CreateAbilityController = function()
                         i, tostring(t.loc and t.loc.floor or "nil")))
                 end
 
+                --Same adoption AdoptLineOfSightMark performs; the hover is over either way,
+                --so the attack cross-section goes with it.
+                CrossSection.ClearAttack()
                 if m_markLineOfSight ~= nil then
                     SetTargetLineOfSightRayForKey(
                         string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id),
@@ -13141,6 +13474,7 @@ CreateAbilityController = function()
 
                 m_targetLineOfSightRays = {}
 
+                CrossSection.ClearAttack()
                 m_markLineOfSight = nil
                 m_markLineOfSightToken = nil
                 m_markLineOfSightSourceToken = nil
@@ -13178,6 +13512,9 @@ local function CalculateSpellTargetFocusing(symbols)
     local potentialTargetTokens = {}
     if g_currentAbility == nil then return potentialTargetTokens end
     local spell = g_currentAbility
+    --DIAG: slider position, hoisted for the trace at the end of the function.
+    --A stuck "Objects" is what explains an armed=0 pass. nil = never resolved.
+    local diagTargetMode = nil
     if (spell.targetType == 'self' or spell.targetType == 'target' or spell.targetType == 'all' or spell.targetType == 'areatemplate') and g_synthesizedSpellsPanel:HasClass("collapsed") then
 
         local locs = nil
@@ -13200,6 +13537,8 @@ local function CalculateSpellTargetFocusing(symbols)
         --withhold the caster's own side ("Enemies"). See ActivatedAbility
         --GetTargetingMode in MCDMActivatedAbility.lua.
         local targeting, enemiesOnly = g_currentAbility:GetTargetingMode()
+        --not `targeting`: that collapses "enemies" and "creatures" both to false.
+        diagTargetMode = g_currentAbility:GetTargetMode()
         if g_currentAbility.targetAllegiance == "dead" then
             allTokens = dmhub.allTokensIncludingObjects
         elseif g_currentAbility.objectTarget == false then
@@ -13428,9 +13767,10 @@ local function CalculateSpellTargetFocusing(symbols)
             validCount = validCount + 1
         end
     end
-    local diagLine = string.format("TARGETDIAG:: ability=%s caster=%s armed=%d valid=%d chosen=%d",
+    local diagLine = string.format("TARGETDIAG:: ability=%s caster=%s mode=%s armed=%d valid=%d chosen=%d",
         tostring(spell.name),
         tostring(g_token ~= nil and (g_token.name or g_token.charid) or "nil"),
+        tostring(diagTargetMode),
         #potentialTargetTokens, validCount, #g_targetsChosen)
     if diagLine ~= g_lastTargetDiagLine then
         g_lastTargetDiagLine = diagLine

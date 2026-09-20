@@ -48,7 +48,7 @@ local function FindPendingPlayerTurnClaimTrigger(queue)
                     local abilityName = trigger.abilityName
                     if not trigger.dismissed and type(abilityName) == "string"
                         and g_playerTurnClaimAbilities[string.lower(abilityName)] then
-                        return trigger
+                        return trigger, token
                     end
                 end
             end
@@ -113,6 +113,12 @@ local function MonsterAIThread(process)
     MonsterAI.active = true
     g_status = nil
     local failedTriggers = {}
+    --Set while the watcher holds initiative open for a hero's turn-claim
+    --trigger; lets the loop clear the notice once without a document read
+    --per iteration.
+    local turnClaimWaiting = false
+    MonsterAI.ClearWaiting()
+    creature.SetAIActivityInProgress(nil)
     while true do
         g_thread = coroutine.running()
         coroutine.yield(0.1)
@@ -123,6 +129,8 @@ local function MonsterAIThread(process)
                     or g_terminate and "stop requested from the Monster AI panel"
                     or "background process stop requested",
             })
+            pcall(MonsterAI.ClearWaiting)
+            pcall(creature.SetAIActivityInProgress, nil)
             return
         end
 
@@ -132,6 +140,20 @@ local function MonsterAIThread(process)
 
         local queue = dmhub.initiativeQueue
 
+        --Drop the turn-claim notice the moment the claim stops being pending:
+        --the hero used the trigger (their turn is now live, so the selection
+        --block below is skipped), dismissed it, or the queue moved on. Checked
+        --here, ahead of every early exit, so the banner never outlives the
+        --wait; only paid while a wait is on.
+        if turnClaimWaiting then
+            local stillPending = queue ~= nil and (not queue.hidden)
+                and (not queue:IsPlayersTurn()) and queue:CurrentInitiativeId() == nil
+                and FindPendingPlayerTurnClaimTrigger(queue) ~= nil
+            if not stillPending then
+                turnClaimWaiting = false
+                MonsterAI.ClearWaiting()
+            end
+        end
 
         --check for registered triggered abilities.
         local handledTrigger = false
@@ -197,8 +219,15 @@ local function MonsterAIThread(process)
         if (not handledTrigger) and queue ~= nil and (not queue.hidden)
             and not GameHud.BetweenTurnTransitionInProgress() and (not queue:IsPlayersTurn()) then
             local initiativeid = queue:CurrentInitiativeId()
-            if initiativeid == nil and FindPendingPlayerTurnClaimTrigger(queue) ~= nil then
-                return
+            if initiativeid == nil then
+                local claimTrigger, claimToken = FindPendingPlayerTurnClaimTrigger(queue)
+                if claimTrigger ~= nil then
+                    --Tell the table why the monsters are not moving.
+                    MonsterAI.SetWaiting("turnclaim", string.format("Waiting for %s's %s",
+                        claimToken.name, claimTrigger.abilityName))
+                    turnClaimWaiting = true
+                    return
+                end
             end
 
             if initiativeid == nil then

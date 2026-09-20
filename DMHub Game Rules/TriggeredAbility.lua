@@ -1430,9 +1430,26 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 		}
 	end
 
+	local isMandatory = self:IsMandatory(cond(symbols.remote, nil, casterToken))
+
+	--The AI reaction marker exists to hold a monster's activity open while a
+	--HERO MAKES A CHOICE: the prompt card that appears on the player's client,
+	--and the cast their acceptance starts (which may run on another machine).
+	--A mandatory trigger asks the player nothing -- it fires by itself, inline
+	--with the event that provoked it -- so there is no choice to wait for, and
+	--marking it is a liability rather than a safeguard: nothing but its own
+	--cast can ever complete the marker, so if that completion is lost the AI
+	--hangs on it until the 600s expiry with no prompt card to explain it and
+	--no orphan check to catch it (GetAIActivityReactionStatus skips the
+	--"no matching player prompt" test once an entry is resolving). Report
+	--WTUDE5S5 hung exactly that way: a mandatory Pain for pain applied an
+	--ongoing effect, the behavior's closing game.Refresh rebuilt the caster's
+	--properties from the synced record before the frame's combined write had
+	--flushed, and the completion at FinishCast then found no marker to
+	--complete while the server echo restored the one it could not see.
 	local aiActivityId = symbols ~= nil and symbols.aiActivityId or nil
 	local aiReactionId = nil
-	if casterToken.playerControlled and type(aiActivityId) == "string" and aiActivityId ~= "" then
+	if (not isMandatory) and casterToken.playerControlled and type(aiActivityId) == "string" and aiActivityId ~= "" then
 		aiReactionId = dmhub.GenerateGuid()
 		argOptions.aiActivityId = aiActivityId
 		argOptions.aiReactionId = aiReactionId
@@ -1441,8 +1458,8 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 		aiActivityId = nil
 	end
 
-	print("MANDATORY::", json(symbols.remote), "mandatory =", self:IsMandatory(cond(symbols.remote, nil, casterToken)))
-	if self:IsMandatory(cond(symbols.remote, nil, casterToken)) then
+	print("MANDATORY::", json(symbols.remote), "mandatory =", isMandatory)
+	if isMandatory then
 		-- For mandatory triggers with a usage limit, pay the full cost upfront
 		-- before entering the coroutine. This prevents the same trigger from
 		-- firing multiple times in a single movement loop.
@@ -1473,6 +1490,17 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
             for i,tok in ipairs(targets) do
                 if tok.token.charid ~= casterToken.charid then
                     targetids[#targetids+1] = tok.token.charid
+                end
+            end
+
+            --A trigger whose subject is the caster themself (My Life For Yours on your
+            --own damage) resolves to just the caster, which the filter above empties --
+            --leaving the card with no portrait at all. Name the caster instead.
+            if #targetids == 0 then
+                for i,tok in ipairs(targets) do
+                    if tok.token ~= nil then
+                        targetids[#targetids+1] = tok.token.charid
+                    end
                 end
             end
 
@@ -1574,6 +1602,13 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
                 trigger.free = false
             end
 
+            --One burst raises one of these prompts per damaged subject, but the reactor
+            --has only the one triggered action, so the panel folds them into a single
+            --card. Free and passive may fire per subject -- PowerRollTriggerChoosesTarget.
+            if (not trigger.free) and (not trigger.noDeduplicate) then
+                trigger.mergeKey = string.format("%s/%s", tostring(self:try_get("guid") or self.name), casterToken.charid)
+            end
+
 			casterToken:ModifyProperties{
 				description = "Trigger",
 				undoable = false,
@@ -1602,16 +1637,23 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
             --GetAvailableTriggers rebuilds its table and momentarily omits us.
             local missingSince = nil
 
+            --Why the watch ended, for the TRIGGERGUARD:: line in the cleanup
+            --below. Prompts that vanish with no explanation (report 5G7XGRU3)
+            --were undiagnosable because every exit path looked the same.
+            local exitReason = nil
+
 			while trigger ~= nil and (not trigger.triggered) and (not trigger.dismissed) and sustain do
 				coroutine.yield()
 
 				trigger = nil
                 if casterToken == nil or (not casterToken.valid) then
+                    exitReason = "caster token invalid"
                     break
                 end
 
                 if expireAt ~= nil then
                     if dmhub.Time() >= expireAt then
+                        exitReason = "turn changed; 6s grace elapsed"
                         sustain = false
                     end
                 elseif (not self.hostile) and casterToken.properties:GetResourceRefreshId("turn") ~= turnid and (dmhub.initiativeQueue == nil or (not dmhub.initiativeQueue:ChoosingTurn())) then
@@ -1660,6 +1702,13 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
                 end
 
                 if trigger == nil or not casterToken.valid then
+                    if not casterToken.valid then
+                        exitReason = "caster token invalid"
+                    elseif wasDismissed then
+                        exitReason = "cleared (dismissed or cleared elsewhere)"
+                    else
+                        exitReason = "record missing from availableTriggers for >5s"
+                    end
                     break
                 end
 
@@ -1674,14 +1723,16 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
                     --rather than escaping the coroutine and stranding the panel.
                     local ok, err = pcall(function()
                         if not self:CanAfford(casterToken) then
+                            exitReason = "can no longer afford the cost"
                             sustain = false
                         end
 
-                        if trim(self.conditionFormula) ~= "" then
+                        if sustain and trim(self.conditionFormula) ~= "" then
                             local condition = ExecuteGoblinScript(self.conditionFormula,
                                 casterToken.properties:LookupSymbol(symbols), 0, "Trigger condition")
                             if tonumber(condition) == 0 then
                                 --we no longer sustain the trigger condition
+                                exitReason = "condition formula no longer met"
                                 sustain = false
                             end
                         end
@@ -1689,6 +1740,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 
                     if not ok then
                         printf("Error evaluating trigger sustain condition: %s", tostring(err))
+                        exitReason = "error evaluating sustain condition: " .. tostring(err)
                         sustain = false
                     end
                 end
@@ -1701,6 +1753,18 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
             --This coroutine is done watching the prompt; from here any entry
             --that somehow survives the cleanup below is orphaned.
             g_liveTriggerWatchers[guid] = nil
+
+			--One line per prompt lifetime saying how it ended, so a prompt that
+			--vanished can be explained from the log.
+			if trigger ~= nil and trigger.triggered then
+				exitReason = "accepted"
+			elseif trigger ~= nil and trigger.dismissed then
+				exitReason = "dismissed"
+			elseif exitReason == nil then
+				exitReason = "unknown"
+			end
+			printf("TRIGGERGUARD:: prompt %s (%s) on %s ended: %s", tostring(guid), tostring(self.name),
+				tostring(casterToken ~= nil and casterToken.charid or "?"), exitReason)
 
 			--Guaranteed cleanup: remove the panel entry by guid on EVERY exit
 			--path (triggered, dismissed, sustain lost, caster invalid, transient
@@ -2101,12 +2165,18 @@ function TriggeredAbility.ActivateOrphanedTrigger(casterToken, triggerid)
 	end
 
 	local casterCreature = casterToken.properties
-	local availableTriggers = casterCreature:try_get("availableTriggers")
-	local record = availableTriggers ~= nil and availableTriggers[triggerid] or nil
+	--Typed read: by the time this deferral fires, an echo can have replaced
+	--the record with an untyped stub (report VFB3EC4V crashed on record:try_get
+	--below). A stub is treated as "already consumed"; Repair removes it. (An
+	--earlier fix re-typed the stub in place with setmetatable; that would run
+	--the cast from a record missing most of its fields, so the stub is dropped
+	--instead and the accessor guarantees a typed record here.)
+	local record = casterCreature:GetAvailableTriggerRecord(triggerid)
 	if record == nil then
 		--already consumed.
 		return
 	end
+
 	local aiReactionOptions = {
 		aiActivityId = record:try_get("aiActivityId", false),
 		aiReactionId = record.id,

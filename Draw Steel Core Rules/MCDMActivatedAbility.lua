@@ -32,6 +32,18 @@ local g_settingTargetObjects = setting {
     storage = "preference",
 }
 
+--Which ability a stored "Objects" was chosen on. objectTarget is set on nearly
+--every strike, so letting that position persist preference-wide leaves them all
+--with no creature to click, for good. Nil at load, so a restart clears it.
+--Reports NZZ7QH5W / 5FFRQ2DF / 9TYWTXFB.
+local g_targetModeAbilityKey = nil
+
+--- @param ability ActivatedAbility
+--- @return string Not every ability carries a guid, so fall back to the name.
+local function TargetModeKey(ability)
+    return ability:try_get("guid") or ability:try_get("name") or ""
+end
+
 local g_targetModeText = {
     ["enemies"] = "Enemies",
     [false]     = "Creatures",
@@ -100,6 +112,14 @@ end
 function ActivatedAbility:GetTargetMode()
     local value = g_settingTargetObjects:Get()
     local options = self:TargetModeOptions()
+
+    --another ability's "Objects" says nothing about this one: use our default.
+    if value == true and g_targetModeAbilityKey ~= TargetModeKey(self) then
+        if options == nil then
+            return false
+        end
+        return options[1].id
+    end
 
     if options == nil then
         --no slider: "enemies" has no meaning here, so it reads as any creature.
@@ -2325,9 +2345,18 @@ function ActivatedAbility:Render(options, params)
 
                             },
 
-                            --Implementation chip
+                            --Implementation chip.
+                            --Synthetic abilities minted purely to carry a roll
+                            --surface (characteristic tests, target tests -- all
+                            --flagged isTest) are not compendium content, so an
+                            --automation status on them is meaningless noise.
+                            --Collapsed rather than omitted: the children here
+                            --are a positional list and a nil entry would
+                            --truncate it.
 
                             gui.Panel {
+
+                                classes = {cond(self:try_get("isTest", false), "collapsed")},
 
                                 width = "auto",
                                 height = "auto",
@@ -2760,6 +2789,10 @@ function ActivatedAbility:Render(options, params)
                             options = modeOptions,
                             value = self:GetTargetMode(),
                             change = function(element)
+                                --see g_targetModeAbilityKey.
+                                if element.value == true then
+                                    g_targetModeAbilityKey = TargetModeKey(self)
+                                end
                                 g_settingTargetObjects:Set(element.value)
                             end,
                         },
@@ -3270,6 +3303,38 @@ function ActivatedAbility:UsesSquadCoordination(casterToken)
     return false
 end
 
+--- An invoke can narrow a squad-coordinated cast to the minions it selected,
+--- so ask this before counting a member in. With nothing stamped the whole
+--- squad takes part, as an ordinary squad cast always has.
+--- @param casterToken CharacterToken the minion leading the cast
+--- @param memberToken CharacterToken the squad member being considered
+--- @return boolean
+function ActivatedAbility.SquadMemberParticipates(casterToken, memberToken)
+    if casterToken == nil or casterToken.properties == nil or memberToken == nil then
+        return true
+    end
+
+    local selected = casterToken.properties:try_get("_tmp_squadParticipants")
+    if selected == nil then
+        return true
+    end
+
+    --A selection stamped on an earlier turn is left over from an invoke that
+    --errored before it could clear up. Drop it, or that minion's squad stays
+    --narrowed for the rest of the session.
+    local invokeBehavior = rawget(_G, "ActivatedAbilityInvokeAbilityBehavior")
+    local turnKeyFunction = invokeBehavior ~= nil and invokeBehavior.SquadSuppressionTurnKey or nil
+    local stampedTurn = casterToken.properties:try_get("_tmp_squadParticipantsTurn")
+    local currentTurn = turnKeyFunction ~= nil and turnKeyFunction() or nil
+    if stampedTurn ~= nil and currentTurn ~= nil and stampedTurn ~= currentTurn then
+        casterToken.properties._tmp_squadParticipants = nil
+        casterToken.properties._tmp_squadParticipantsTurn = nil
+        return true
+    end
+
+    return selected[memberToken.charid] == true
+end
+
 --True for squad-coordinated strikes (signature abilities and free strikes). Excludes
 --maneuvers because their target-stacking and target-multiplicity differs.
 function ActivatedAbility:UsesSquadStrike(casterToken)
@@ -3313,6 +3378,35 @@ function ActivatedAbility:ConsumeResources(casterToken, options)
         return
     end
 
+    --The squad spends its action together, even when some members cannot attack.
+    --Only pay the action component here; attacking members already paid above.
+    --This runs before the roll, so critical-hit actions remain available afterward.
+    local squad = casterToken.properties:try_get("_tmp_minionSquad")
+    local participants = {[casterToken.charid] = true}
+    for _,pair in ipairs((options.symbols or {}).targetPairs or {}) do
+        participants[pair.a] = true
+    end
+    for _,tok in ipairs(squad and squad.tokens or {}) do
+        if tok ~= nil and tok.valid and not tok.properties:IsDead()
+            and tok.properties:IsActiveInSquad() and not participants[tok.charid]
+            and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
+            local cost = options.costOverride or self:GetCost(tok)
+            for _,entry in ipairs(cost.details) do
+                for _,payment in ipairs(entry.paymentOptions) do
+                    if payment.resourceid == CharacterResource.actionResourceId
+                        and (tok.properties:GetResourceUsage(payment.resourceid, "turn") or 0) < 1 then
+                        tok:ModifyProperties{
+                            description = "Squad Expends Action",
+                            execute = function()
+                                tok.properties:ConsumeResource(payment.resourceid, "turn", payment.quantity or 1, self.name)
+                            end,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
     if not casterToken.properties:HasManeuverOrActionRule() then
         return
     end
@@ -3331,7 +3425,8 @@ function ActivatedAbility:ConsumeResources(casterToken, options)
     for _,tok in ipairs(squad.tokens) do
         if tok ~= nil and tok.valid
             and (not tok.properties:IsDead())
-            and tok.properties:IsActiveInSquad() then
+            and tok.properties:IsActiveInSquad()
+            and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
 
             local consumeAction = (tok.properties:GetResourceUsage(actionId, "turn") or 0) < 1
             local consumeManeuver = (tok.properties:GetResourceUsage(maneuverId, "turn") or 0) < 1
@@ -3538,7 +3633,8 @@ function ActivatedAbility:GetTargetingRays(casterToken, range, symbols, targets)
         local squad = casterToken.properties._tmp_minionSquad
         local squadTokens = {}
         for _, tok in ipairs(squad.tokens) do
-            if tok ~= nil and tok.valid and tok.properties:IsActiveInSquad() then
+            if tok ~= nil and tok.valid and tok.properties:IsActiveInSquad()
+                and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
                 squadTokens[#squadTokens + 1] = tok
             end
         end
@@ -3853,7 +3949,8 @@ function ActivatedAbility:CustomTargetShape(casterToken, range, symbols, targets
         local squad = casterToken.properties._tmp_minionSquad
         local squadTokens = {}
         for _, tok in ipairs(squad.tokens) do
-            if tok ~= nil and tok.valid and tok.properties:IsActiveInSquad() then
+            if tok ~= nil and tok.valid and tok.properties:IsActiveInSquad()
+                and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
                 squadTokens[#squadTokens + 1] = tok
             end
         end
@@ -3959,6 +4056,39 @@ end
 
 local g_numTargetsFunction = ActivatedAbility.GetNumTargets
 
+--- Returns nil when no invoke narrowed the squad, so callers keep their
+--- existing whole-squad count. Dead and broken-off picks are left out so a
+--- stale selection cannot inflate the strike.
+--- @param casterToken CharacterToken
+--- @param squad SquadInfo
+--- @return number|nil
+local function SelectedSquadMemberCount(casterToken, squad)
+    if casterToken == nil or casterToken.properties == nil then
+        return nil
+    end
+    if casterToken.properties:try_get("_tmp_squadParticipants") == nil then
+        return nil
+    end
+
+    local count = 0
+    for _, tok in ipairs(squad.tokens or {}) do
+        if tok ~= nil and tok.valid and tok.properties ~= nil
+            and (not tok.properties:IsDead())
+            and tok.properties:IsActiveInSquad()
+            and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
+            count = count + 1
+        end
+    end
+
+    --Never zero: the lead minion is always one of the selection, and a zero
+    --here would silently cancel the strike's targeting.
+    if count < 1 then
+        count = 1
+    end
+
+    return count
+end
+
 --GetNumTargets re-runs on every targeting recompute, so throttle its diagnostic
 --below to one line per caster/squad/game update instead of flooding the log.
 local g_lastNoSquadAttackerDiag = nil
@@ -3975,6 +4105,7 @@ function ActivatedAbility:GetNumTargets(casterToken, symbols)
         if casterToken.properties:HasManeuverOrActionRule() and squad ~= nil and squad.tokens ~= nil then
             local count = 0
             local rejectInvalid, rejectDead, rejectSkipped, rejectInactive = 0, 0, 0, 0
+            local rejectNotSelected = 0
             for _, tok in ipairs(squad.tokens) do
                 if tok == nil or not tok.valid or tok.properties == nil then
                     rejectInvalid = rejectInvalid + 1
@@ -3984,6 +4115,8 @@ function ActivatedAbility:GetNumTargets(casterToken, symbols)
                     rejectSkipped = rejectSkipped + 1
                 elseif not tok.properties:IsActiveInSquad() then
                     rejectInactive = rejectInactive + 1
+                elseif not ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
+                    rejectNotSelected = rejectNotSelected + 1
                 else
                     count = count + 1
                 end
@@ -3998,11 +4131,11 @@ function ActivatedAbility:GetNumTargets(casterToken, symbols)
                 if g_lastNoSquadAttackerDiag ~= diagKey then
                     g_lastNoSquadAttackerDiag = diagKey
                     print(string.format(
-                        "SQUADDIAG:: no squad attackers for %s ability=%s squad=%s tokens=%d invalid=%d dead=%d turnskipped=%d inactive=%d; falling back to 1 attacker",
+                        "SQUADDIAG:: no squad attackers for %s ability=%s squad=%s tokens=%d invalid=%d dead=%d turnskipped=%d inactive=%d notselected=%d; falling back to 1 attacker",
                         tostring(casterToken.name or casterToken.charid),
                         tostring(self.name),
                         tostring(squad.name),
-                        #squad.tokens, rejectInvalid, rejectDead, rejectSkipped, rejectInactive))
+                        #squad.tokens, rejectInvalid, rejectDead, rejectSkipped, rejectInactive, rejectNotSelected))
                 end
                 count = 1
             end
@@ -4010,7 +4143,16 @@ function ActivatedAbility:GetNumTargets(casterToken, symbols)
             return count * result
         end
 
-        return (squad.activeMinions or squad.liveMinions) * result
+        --Squads without the Maneuver-or-Action rule size the strike off the
+        --squad's own live count, so narrow that the same way when an invoke
+        --selected only some of the minions.
+        local activeCount = (squad.activeMinions or squad.liveMinions) or 1
+        local selectedCount = SelectedSquadMemberCount(casterToken, squad)
+        if selectedCount ~= nil then
+            activeCount = selectedCount
+        end
+
+        return activeCount * result
     end
 
     return result

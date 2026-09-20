@@ -977,7 +977,14 @@ function monster.OnCreateFromBestiary(self, token, groupid)
         --clear out any squad information for minions.
         self.squadpos = nil
 
-        if g_lastGroupId ~= groupid or g_lastSquadMonsterType ~= self.monster_type or g_lastSquadGameUpdate ~= dmhub.gameupdateid then
+        --Compare against the squad's MINION type, not our own: a captain
+        --(non-minion) placed with a minion group must join the squad already
+        --handed out to those minions. The engine's click-to-place walks the
+        --group's monsters in hash order, so the captain may come before or
+        --after its minions; keying the reset on self.monster_type gave a
+        --captain that spawned after them a fresh squad of its own.
+        local squadMonsterType = minionName or self.monster_type
+        if g_lastGroupId ~= groupid or g_lastSquadMonsterType ~= squadMonsterType or g_lastSquadGameUpdate ~= dmhub.gameupdateid then
             --we are a new minion type or the game has been updated, so reset the last squad id.
             g_lastSquadId = nil
             g_lastSquadMonsterType = nil
@@ -4510,10 +4517,14 @@ creature.RegisterSymbol {
     symbol = "effectcaster",
     lookup = function(c)
         return function(condName, caster)
+            --A scoped symbol such as Caster arrives as a lookup function; ask it for its creature.
+            if type(caster) == "function" then
+                caster = caster("self")
+            end
             if caster == nil then
                 return 0
             end
-            
+
             -- Get the caster's token ID for comparison
             local casterTokenId = dmhub.LookupTokenId(caster)
             if casterTokenId == nil then
@@ -4664,7 +4675,11 @@ end
 --_tmp_ field on the creature, which survives reloads and would pin future clicks.
 local g_pendingQueuedRoll = {}
 
-function creature:RollCustomPowerTableTest(title, characteristics, skills, tiers)
+--options (optional): { modifiers = { modifierEntry, ... } } -- extra
+--entries for the roll dialog's modifier list, in the same shape
+--GetModifiersForPowerRoll returns ({ modifier, hint, context }). The
+--journal uses it for a power roll's rider chips (TestRiders).
+function creature:RollCustomPowerTableTest(title, characteristics, skills, tiers, options)
     local attrid = nil
     local bestModifier = nil
     for id, _ in pairs(characteristics) do
@@ -4717,6 +4732,9 @@ function creature:RollCustomPowerTableTest(title, characteristics, skills, tiers
                 mod.modifier.description = string.format(tr("Not skilled in %s"), table.concat(skillNames, " or "))
             end
         end
+    end
+    for _, extra in ipairs((options or {}).modifiers or {}) do
+        modifiers[#modifiers + 1] = extra
     end
 
     --Respect the global roll gate. This drives the singleton rollDialog

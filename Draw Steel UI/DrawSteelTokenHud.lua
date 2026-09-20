@@ -652,6 +652,23 @@ TokenHud.RegisterPanel{
                         dmhub.initiativeQueue:SelectTurn(initiativeid)
                         dmhub:UploadInitiativeQueue()
 
+                        --Claiming the turn from the swords also selects the
+                        --token, so the action bar shows the creature whose
+                        --turn just started. Only select if it is not already
+                        --part of the selection: SelectToken clears the rest of
+                        --the selection, which we don't want to disturb when the
+                        --token is already selected.
+                        local alreadySelected = false
+                        for _,tok in ipairs(dmhub.selectedTokens) do
+                            if tok.charid == token.charid then
+                                alreadySelected = true
+                                break
+                            end
+                        end
+                        if not alreadySelected then
+                            dmhub.SelectToken(token.charid)
+                        end
+
                         local tokens = GameHud.GetTokensForInitiativeId(GameHud.instance, GameHud.instance.initiativeInterface, initiativeid)
                         for i,tok in ipairs(tokens) do
                             if tok.properties ~= nil then
@@ -1054,6 +1071,12 @@ TokenHud.RegisterPanel{
 
                 local adjacent = {}
                 if token:Distance(path) <= movingToken.tileSize then
+                    --Vertical reach: the altitude spans must overlap or touch, mirroring the
+                    --leaveadjacent dispatch in creature:OnMove (Creature.lua). The old one-sided
+                    --(mover <= observer + 1) test flagged any mover below the observer, however
+                    --far down, so an elevated enemy showed a threat that never provoked.
+                    local moverTileSize = movingToken.tileSize
+                    local observerTileSize = token.tileSize
                     local locsOccupying = token.locsOccupying
                     local steps = path.steps
                     local adjacentLocs = token.properties:AdjacentLocations()
@@ -1064,7 +1087,7 @@ TokenHud.RegisterPanel{
 
                         for _,loc in ipairs(locs) do
                             for _,adj in ipairs(adjacentLocs) do
-                                if loc.x == adj.x and loc.y == adj.y and loc.floor == adj.floor and (loc.altitude <= adj.altitude + 1) then
+                                if loc.x == adj.x and loc.y == adj.y and loc.floor == adj.floor and ((loc.altitude + moverTileSize) >= adj.altitude and loc.altitude <= (adj.altitude + observerTileSize)) then
                                     isadjacent = true
                                     break
                                 end
@@ -1074,7 +1097,7 @@ TokenHud.RegisterPanel{
                         --locations directly occupied are also considered 'adjacent'
                         for _,loc in ipairs(locs) do
                             for _,adj in ipairs(locsOccupying) do
-                                if loc.x == adj.x and loc.y == adj.y and loc.floor == adj.floor and (loc.altitude <= adj.altitude + 1) then
+                                if loc.x == adj.x and loc.y == adj.y and loc.floor == adj.floor and ((loc.altitude + moverTileSize) >= adj.altitude and loc.altitude <= (adj.altitude + observerTileSize)) then
                                     isadjacent = true
                                     break
                                 end
@@ -1914,6 +1937,17 @@ TokenUI.RegisterStatusBar{
     width = 1,
     seek = 10, --bar goes up or down 10 hp /second
 
+    --refresh when the players' monster knowledge changes, so a stamina
+    --reveal (Monster Info: third kill, Director reveal, or an Encounter of
+    --the Week montage outcome) puts the number on the bar at once.
+    monitorGame = function()
+        local knowledge = rawget(_G, "MonsterKnowledge")
+        if knowledge ~= nil and knowledge.DocumentPath ~= nil then
+            return knowledge.DocumentPath()
+        end
+        return nil
+    end,
+
     tempColor = {
         {
             color = "white",
@@ -1933,7 +1967,7 @@ TokenUI.RegisterStatusBar{
             gradient = Styles.damagedGradient,
         },
     },
-    Calculate = function(creature)
+    Calculate = function(creature, token)
         if dmhub.GetSettingValue("hpbarsonlyincombat") then
             local q = dmhub.initiativeQueue
             if q == nil or q.hidden then
@@ -1949,6 +1983,15 @@ TokenUI.RegisterStatusBar{
         if dmhub.isDM == false then
             local settingVal = dmhub.GetSettingValue("enemystambardisplay")
             if settingVal and #settingVal then showAs = settingVal end
+            --Monster Info: once the players know this monster's stamina
+            --exactly (third kill, a Director reveal, or a montage outcome
+            --such as "You know the Stamina of Goblins"), the bar shows the
+            --number whatever the game setting says. rawget: the Draw Steel
+            --Core Rules mod may not be loaded.
+            local knowledge = rawget(_G, "MonsterKnowledge")
+            if showAs ~= "val" and knowledge ~= nil and knowledge.PlayersKnowStaminaExactly(creature, token) then
+                showAs = "val"
+            end
         end
 
         return {

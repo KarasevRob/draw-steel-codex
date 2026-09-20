@@ -7,7 +7,9 @@
 --- @field versionStatusEvent nil|EventSourceLua (Read-only) Event source that fires 'appVersionStatus' on listening panels whenever versionStatus is recomputed, i.e. when the cached or fresh /AppVersions record is applied. nil before the monitor exists.
 --- @field commandLineArguments string[] The command line arguments passed to the app.
 --- @field tokenAnimations TokenAnimationsLuaInterface Registry of token animations. RegisterTeleport / RegisterDeath / RegisterTransformation register category-specific animation functions.
+--- @field tokenFrames TokenFramesLuaInterface Registry of premium token frame materials. Register{...} defines a frame (albedo + normal + roughness maps and lighting parameters); a token uses it by setting token.portraitFrameMaterial to the id (and token.portraitFrame to the material's albedo asset).
 --- @field systemHardwareRating number The power level of the system hardware. 1 or greater is a relatively high power system.
+--- @field loadingScreenHeld boolean (Read-only) True while a Lua hold keeps the game loading screen up. See HoldLoadingScreen.
 --- @field gameLoadingProgress number Game loading progress. nil = not loading a game. 0 = just started loading, 1 = fully loaded.
 --- @field whiteLabel WhiteLabel The current 'white label' version of the engine this is. May be 'dmhub' or 'mcdm'
 --- @field whiteLabelEntityName string The name of the publisher of the product the engine is running as.
@@ -118,7 +120,7 @@
 --- @field isDMOrPlayerHost boolean (read-only) true if the current user has GM status in the game OR is a player host (see dmhub.playerHostMode). Read this instead of dmhub.isDM at sites that need hosting capability (running game setup, the Monster AI, host-only writes) rather than the Director experience.
 --- @field directorlessGame boolean (read-only) true if this game is directorless -- nobody plays the Director. A property of the GAME (set when it is created), so it is the same for every client and is already true when the game loads. In such a game the host's machine keeps real hosting authority (dmhub.isDMOrPlayerHost) while their user is presented and treated as a player (see dmhub.playerHostMode).
 --- @field playerHostMode boolean (read-only) Player-host mode: true when this is a directorless game AND this client has real hosting status. dmhub.isDM reads false here (player vision, rules enforcement, player UI) while dmhub.isDMOrPlayerHost keeps reporting the real hosting status. Derived from the game record, so it is correct from load with no arming step -- set GameInfo.directorless at creation (lobby:CreateGame{directorless = true}) rather than switching it on in-session. To let one client act as Director anyway for debugging, see dmhub.playerHostModeSuppressed.
---- @field playerHostModeSuppressed boolean Debug/recovery escape hatch: while true, THIS client acts as the Director in a directorless game instead of as a player host. Client-only and session-scoped -- it does not touch the game record, so no other player is affected. Changing it flips dmhub.isDM, which forces the same full view-as-player refresh the Director's 'view as player' command uses, so expect the game to reload; it is a debugging action, not a normal-play one. Setting it has no effect (and causes no refresh) in a game that is not directorless.
+--- @field playerHostModeSuppressed boolean Debug/recovery escape hatch: while true, THIS client acts as the Director in a directorless game instead of as a player host. Client-only and session-scoped -- it does not touch the game record, so no other player is affected. Changing it flips dmhub.isDM, which forces the same full view-as-player refresh the Director's 'view as player' command uses, so expect the game to reload; it is a debugging action, not a normal-play one. Setting it has no effect (and causes no refresh) in a game that is not directorless. Starts true when the app was launched with the `--director` command-line flag (a debug Director window into a directorless game, e.g. New Director Window on a player host), so such a client is the Director from its first frame with no refresh.
 --- @field inGame boolean (read-only) true if we are currently in-game
 --- @field isLobbyGame boolean (read-only) true if in lobby
 --- @field gameid string (Read-only) The gameid of the current game.
@@ -132,7 +134,7 @@
 --- @field patronTier number The Patreon tier level of the current user. 0 means not a patron.
 --- @field patreonUserId string The Patreon user id linked to this account, or nil if no Patreon account is linked. Mirrored live from /Patrons, so it is available immediately with no round trip. Use this -- NOT patronTier -- to tell whether a Patreon account is linked: patronTier is a hardcoded 3 on MCDM white-label builds.
 --- @field patreonOrgEntitlements {orgid: string, entitled: boolean, active: boolean, cents: number, campaignId: string}[] A list of the creator organizations this account has Patreon entitlements to, each {orgid, entitled, active, cents, campaignId}. Mirrored live from /Patrons, so it updates within seconds of the user pledging -- no refresh call needed. Gate on `entitled`, not `active`: a lapsed patron of an org whose creator chose to let entitlements persist keeps entitled = true. Empty if no Patreon is linked.
---- @field patreonDevGrantActive boolean True while the hidden admin "patreondevgrant" preference is on AND this is an admin account: every creator organization then reads as a top-tier, entitled pledge and patronTier reports the top DMHub tier. Explicit SetPatreonOrgOverride entries still win for their org. Always false for non-admins.
+--- @field patreonDevGrantActive boolean True while the hidden admin "patreondevgrant" preference is on AND this is an admin account: every creator organization then reads as a top-tier, entitled pledge (patreonOrgEntitlements, IsEntitledToOrg, map pack tiers, Patreon-included modules) and patronTier reports the top DMHub tier. Explicit SetPatreonOrgOverride entries still win for their org. Always false for non-admins, whatever the preference says.
 --- @field patreonOrgOverrides table<string, integer> The session Patreon overrides in force, as a table of orgid -> cents (see SetPatreonOrgOverride). Empty when none.
 --- @field patreonLinkedAt number Unix timestamp in milliseconds of when this account's Patreon was linked, or 0 if it is not linked.
 --- @field patreonPledgeTier number The raw Patreon tier recorded for this account (0-4), ignoring the MCDM white-label override that makes patronTier always report 3. DMHub campaign only: this is the DMHub Patreon's patron ladder and says nothing about whether the user is a patron of any creator organization in the app -- for that, use patreonOrgEntitlements / IsEntitledToOrg. A user can be tier 4 here with no MCDM membership at all, and vice versa. Use for reporting the user's actual DMHub pledge; use patronTier to gate features.
@@ -190,6 +192,12 @@ dmhub = {}
 
 --- TestFunction
 function dmhub.TestFunction() end
+
+--- Keep the game loading screen up past the point the game has finished loading. Call BEFORE entering the game (it survives the switch into the game and every codemod reload). While held, the engine runs the lobby:EnterGame arrival callback behind the loading screen instead of after it clears, and the screen stays until ReleaseLoadingScreen() -- or a 20s safety timeout -- so arrival work (map travel, token placement, presenting a full-screen dialog) is never seen happening. Leaving the game clears the hold.
+function dmhub.HoldLoadingScreen() end
+
+--- Release a HoldLoadingScreen() hold: the loading screen fades out over whatever is on screen now. Harmless when nothing is held.
+function dmhub.ReleaseLoadingScreen() end
 
 --- Returns the image-editing applications detected as installed on the user's machine, each as a table with 'name' (friendly display name) and 'path' (full path to the executable on Windows, or the .app bundle on macOS), sorted by name. Detection works on Windows (via the registry uninstall and 'App Paths' keys) and macOS (by scanning /Applications and ~/Applications for known editor bundles); Linux returns an empty list. Intended to populate an editor chooser so the user can pick an installed editor without browsing for it.
 --- @return {name: string, path: string}[]
@@ -763,6 +771,14 @@ function dmhub.SetMovementCrossSection(args) end
 --- Hides the movement cross-section diagram (see dmhub.SetMovementCrossSection) and releases its render texture so nothing stays resident while idle. Safe to call when nothing is active.
 function dmhub.ClearMovementCrossSection() end
 
+--- Builds (or updates) the offscreen attack cross-section diagram: the side-on terrain profile along the straight line from attacker to target, both creatures at their altitudes, and the sightline the cover calculation uses (green = clear, yellow = the target has cover, red = fully blocked; cut where it is blocked). Returns the special bgimage key (image), the render texture's pixel size (width, height), the cover result (cover: 0 none, 1 half, 2 three-quarters, 3 full -- the same value dmhub.GetCoverInfo reports), what blocks the line (description, e.g. 'wall' or 'ridge') and whether there is anything vertical worth showing (interesting: false for a flat shot across open ground -- the caller normally hides the diagram then). Returns nil when the pair can't be drawn (different floors, same tile, no active map). Call dmhub.ClearAttackCrossSection to release it. Independent of the movement cross-section.
+--- @param args {attacker: CharacterToken, target: CharacterToken}
+--- @return nil|{image: string, width: number, height: number, cover: number, description: string, interesting: boolean}
+function dmhub.SetAttackCrossSection(args) end
+
+--- Hides the attack cross-section diagram (see dmhub.SetAttackCrossSection) and releases its render texture. Safe to call when nothing is active.
+function dmhub.ClearAttackCrossSection() end
+
 --- Installs a Movement Restriction Mode on this client: while installed, tokens can only be moved within the given tiles. Pathfinding treats any step ending outside the set as impassable, so the drag preview and movement-radius markers clip to the allowed area, and drops outside it are refused -- including for the DM (the dmillegalmoves setting does not bypass it). Forced movement (pushes/slides) is exempt. The restriction applies to all tokens on this client until dmhub.ClearMovementRestriction is called or the game session ends. Calling again replaces the previous set.
 --- @param args {locs: Loc[]}
 function dmhub.SetMovementRestriction(args) end
@@ -949,8 +965,8 @@ function dmhub.CloudError(msg) end
 --- @param msg? string
 function dmhub.Error(msg) end
 
---- Execute another instance of the app connected to the same game.
---- @param options? any
+--- Execute another instance of the app. By default the child connects to the same game; options.asplayer logs it in as the secondary (player) account, options.args appends verbatim extra command-line arguments, and options.connect = false boots the child to the titlescreen instead of into this game (it then relies on options.args to find its way).
+--- @param options nil|{asplayer: nil|boolean, args: nil|string, connect: nil|boolean}
 function dmhub.DuplicateWindowInNewProcess(options) end
 
 --- Forces other user's cameras to move to this user's camera position.
@@ -1190,10 +1206,8 @@ function dmhub.AddObjectFolder() end
 --- Leaves the current game back to the titlescreen
 function dmhub.LeaveGame() end
 
---- Opens the player settings dialog with the given arguments.
---- args.tab opens straight on a named tab; args.search seeds the search box;
---- args.onClose is called once when the settings close, however they close.
---- @param args? {tab?: string, search?: string, onClose?: fun()}
+--- Opens the player settings dialog with the given arguments. args.tab opens straight on a named tab; args.search seeds the search box; args.onClose is called once when the settings close, however they close.
+--- @param args? any
 function dmhub.ShowPlayerSettings(args) end
 
 --- Undo the last user editing action.

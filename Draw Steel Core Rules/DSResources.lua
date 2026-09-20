@@ -5,6 +5,7 @@ CharacterResource.epicResourceId = "e7b04a7e-61fc-4e17-b999-d95d7e751abb"
 CharacterResource.maliceResourceId = "101bab52-7f7c-4bab-92c2-9f8e0cfb7ec8"
 CharacterResource.surgeResourceId = "8b0ae5fe-0eb3-45fa-9e6d-b9de68f5cc6d"
 CharacterResource.triggerResourceId = "b9bc06dd-80f1-4f33-bc55-25c114e3300c"
+CharacterResource.freeTriggeredActionResourceId = "5e551b7d-17fb-4099-a303-bafb3c146f98"
 CharacterResource.actionResourceId = "d19658a2-4d7b-4504-af9e-1a5410fb17fd"
 CharacterResource.maneuverResourceId = "a513b9a6-f311-4b0f-88b8-4e9c7bf92d0b"
 CharacterResource.heroTokenId = "2166c5fe-260e-4691-9743-06cf097a59f3"
@@ -13,6 +14,18 @@ CharacterResource.recoveryResourceId = "5bd90f9b-46be-4cf2-8ca6-a96430d62949"
 CharacterResource.freeManeuverResourceId = "d81ce1e9-96a3-4705-9180-1c80f72a86cf"
 CharacterResource.respiteActivityId = "5758da29-8660-47d3-805b-7c6038f476a1"
 CharacterResource.rampageId = "9f418676-96be-402b-92da-0f50294146b3"
+
+--Whether this ability is a Draw Steel triggered action or free triggered action,
+--as declared by its "Action" field in the ability editor. Only these two are
+--suppressed by "Cannot Use Triggered Abilities" (the Dazed / Surprised rule).
+--A TriggeredAbility whose action is "No Action" is not an action the creature
+--takes: automatic effects, and prompt plumbing such as the "Spend Recovery"
+--trigger that Healing Grace and similar abilities fire on their targets.
+--- @return boolean
+function ActivatedAbility:IsTriggeredAction()
+    local resource = self:ActionResource()
+    return resource == CharacterResource.triggerResourceId or resource == CharacterResource.freeTriggeredActionResourceId
+end
 
 monster.resourceid = CharacterResource.maliceResourceId
 character.resourceid = CharacterResource.heroicResourceId
@@ -176,6 +189,43 @@ end
 --- @return {color: string, when: string, who: string, value: number, note: string}
 function creature:GetHeroTokenHistory()
     return CharacterResource.GetGlobalResourceHistory(CharacterResource.heroTokenId)
+end
+
+--A hero may spend 1 Hero Token to re-roll a test, and must use the new roll --
+--so one re-roll per test. Expressed as a roll-dialog re-roll rule (see the
+--"Re-roll rules" block in DSRollDialog.lua): it replaces the dialog's free
+--Re-roll button with a Hero Token one for the duration of that roll.
+--RollDialog.GetDefaultRerollRule hands this to every test a hero makes; a roll
+--can also ask for it by name via its own `rerollRule` option.
+--- @return table
+function CharacterResource.HeroTokenTestRerollRule()
+    return {
+        text = "Re-roll",
+        icon = "drawsteel/hero-token.png",
+        tooltip = "1 Hero Token: Re-roll. You must use the new roll.",
+        maxRerolls = 1,
+        spentTooltip = "You have already re-rolled this test. You must use the new roll.",
+
+        CanReroll = function(state)
+            if CharacterResource.GetGlobalResource(CharacterResource.heroTokenId) < 1 then
+                return false, "You have no Hero Tokens to spend."
+            end
+            return true
+        end,
+
+        --Read-modify-write on the shared pool, the same way the Hero Tokens box
+        --on the character panel spends them. Re-read here rather than trusting
+        --what CanReroll saw, so a token spent elsewhere between the hover and
+        --the press cannot take the pool negative.
+        Pay = function(state)
+            local tokens = CharacterResource.GetGlobalResource(CharacterResource.heroTokenId)
+            if tokens < 1 then
+                return false
+            end
+            CharacterResource.SetGlobalResource(CharacterResource.heroTokenId, tokens - 1, "Re-rolled a test")
+            return true
+        end,
+    }
 end
 
 function creature:GetEpicResources()

@@ -454,7 +454,36 @@ function GameHud.MovementTooltipPlacement(token, path)
 		minx, miny, maxx, maxy = p.x, p.y, p.x, p.y
 	end
 	minx, miny, maxx, maxy = minx - pad, miny - pad, maxx + pad, maxy + pad
+	return GameHud.TooltipPlacementOutsideBox(minx, miny, maxx, maxy)
+end
 
+--Where to put the attack cross-section tooltip during ability targeting: outside the
+--box spanning the attacker and the hovered target, so it never sits on either creature
+--or on the targeting arrow between them. Same side-picking rule as the movement tooltip.
+--- @param sourceToken CharacterToken the attacker
+--- @param targetToken CharacterToken the hovered target
+--- @return Vector2 anchor, string halign, string valign
+function GameHud.AttackTooltipPlacement(sourceToken, targetToken)
+	local minx, miny, maxx, maxy = nil, nil, nil, nil
+	for _,tok in ipairs{sourceToken, targetToken} do
+		local p = tok:PosAtLoc(tok.loc)
+		local pad = (tok.tileSize or 1)*0.5 + 0.15
+		if minx == nil then
+			minx, miny, maxx, maxy = p.x - pad, p.y - pad, p.x + pad, p.y + pad
+		else
+			if p.x - pad < minx then minx = p.x - pad end
+			if p.x + pad > maxx then maxx = p.x + pad end
+			if p.y - pad < miny then miny = p.y - pad end
+			if p.y + pad > maxy then maxy = p.y + pad end
+		end
+	end
+	return GameHud.TooltipPlacementOutsideBox(minx, miny, maxx, maxy)
+end
+
+--Picks the roomiest side of a world-space box (inside dmhub.cameraUsableBounds) for a
+--tooltip anchored just outside it. Shared by the movement and attack diagram tooltips.
+--- @return Vector2 anchor, string halign, string valign
+function GameHud.TooltipPlacementOutsideBox(minx, miny, maxx, maxy)
 	--Keep the hovered tile inside the box too: during ability targeting it can be well
 	--outside the path -- a jump that lands short at a wall while the user aims past it --
 	--and a tooltip just off the path box would then sit on the cursor. mouseLoc is nil
@@ -533,8 +562,35 @@ local function CreateMovementDiagramPanel()
 			--the tooltip (and this panel) is torn down by FinishTokenMoving; release
 			--the offscreen render texture so nothing stays resident while idle.
 			dmhub.ClearMovementCrossSection()
+			dmhub.ClearAttackCrossSection()
 		end,
 		args = function(element, args)
+			--The attack cross-section (ability targeting hovering a target): the action bar
+			--has already built the engine scene and checked it is worth showing; we just
+			--display the returned image (see CrossSection.ShowAttack in DrawSteelActionBar.lua).
+			if args ~= nil and args.attackDiagram ~= nil then
+				dmhub.ClearMovementCrossSection()
+				element.data.signature = "attack"
+				if GameHud.TooltipsSuppressed() or not dmhub.GetSettingValue("showmovementcrosssection") then
+					element:SetClass("collapsed", true)
+					dmhub.ClearAttackCrossSection()
+					return
+				end
+				local result = args.attackDiagram
+				local scale = 1
+				if result.width > g_diagramMaxWidth then
+					scale = g_diagramMaxWidth / result.width
+				end
+				element:SetClass("collapsed", false)
+				element.selfStyle.width = result.width * scale
+				element.selfStyle.height = result.height * scale
+				element.selfStyle.bgcolor = "white"
+				element.bgimage = result.image
+				return
+			end
+
+			dmhub.ClearAttackCrossSection()
+
 			if args == nil or args.movingToken == nil or args.movingPath == nil or
 			   GameHud.TooltipsSuppressed() or
 			   not dmhub.GetSettingValue("showmovementcrosssection") then
@@ -1134,6 +1190,10 @@ local function CreateLobbyHud(dialog, tokenInfo)
 		return nil
 	end
 
+	gamehud.GetCurrentlyPresentedDialogPanel = function()
+		return nil
+	end
+
 	local mainDialogPanel = gamehud:MainDialogPanel()
 
     local m_recordedPopup = nil
@@ -1401,6 +1461,17 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 
     gamehud.GetCurrentlyPresentedDialog = function()
         return m_presentedDialogArgs
+    end
+
+    --The presented panel itself. It is mounted on the documents layer
+    --alongside the rails and the panel windows, so anything else living
+    --there (the chat speech bubble) asks for it to work out whether it is
+    --in front of the presentation or buried behind it.
+    gamehud.GetCurrentlyPresentedDialogPanel = function()
+        if m_presentedDialog ~= nil and m_presentedDialog.valid then
+            return m_presentedDialog
+        end
+        return nil
     end
 
 
@@ -2293,6 +2364,8 @@ function Tip.ResetAll()
 	gh.activeTipId = nil
 	gh._tipState = nil
 	gh._tipLastScan = nil
+	gh.activeNoticeId = nil
+	gh._noticeDismissed = nil
 	local banner = gh:try_get("tipBanner")
 	if banner ~= nil and banner.valid then
 		banner:SetClass("visible", false)
@@ -2310,6 +2383,27 @@ function Tip.Clear(id)
 	if gh:try_get("activeTipId") == id then
 		gh:_ClearActiveTip()
 	end
+end
+
+--Notice channel. A notice is a live STATUS shown on the same banner as the
+--tips ("Waiting for Shadow's Hesitation Is Weakness"), not a learn-once
+--tip: it is never marked learned, it outranks every tip, it appears within
+--a driver tick of its source returning text, and it leaves the moment the
+--source returns nil. Sources are polled by the driver at its 1Hz cadence,
+--so a source may read replicated state (a shared document, token
+--properties) without any monitor of its own. Dismiss hides only the
+--current text of the current notice; new text shows again.
+--Stored on Tip so hot-reloading this file keeps sources registered from
+--other modules (the Monster AI registers its "waiting on a player" notice).
+Tip.notices = Tip.notices or {}
+
+---@param spec {id: string, priority: nil|number, text: fun(): nil|string}
+function Tip.RegisterNotice(spec)
+	Tip.notices[spec.id] = spec
+end
+
+function Tip.UnregisterNotice(id)
+	Tip.notices[id] = nil
 end
 
 --First tip: camera movement. Cleared automatically the moment the camera
@@ -2696,12 +2790,91 @@ function GameHud:_ClearActiveTip()
 end
 
 function GameHud:HideTip()
+	--A notice on screen: Dismiss hides this text of this notice only. The
+	--driver shows the notice again as soon as its text changes.
+	local activeNotice = self:try_get("activeNoticeId")
+	if activeNotice ~= nil then
+		local banner = self:try_get("tipBanner")
+		self._noticeDismissed = {
+			id = activeNotice,
+			text = banner ~= nil and banner.valid and banner.data.currentText or "",
+		}
+		self:_HideNoticeBanner()
+		return
+	end
+
 	--Dismiss-button / explicit hide: treat the active tip as learned so it
 	--won't reappear next session.
 	local active = self:_ClearActiveTip()
 	if active ~= nil then
 		Tip.MarkLearned(active)
 	end
+end
+
+--Internal: take the active notice off the banner. Does not touch the
+--dismissed record; callers decide whether this is a dismiss or an end.
+function GameHud:_HideNoticeBanner()
+	self.activeNoticeId = nil
+	local banner = self:try_get("tipBanner")
+	if banner ~= nil and banner.valid then
+		banner:SetClass("visible", false)
+		banner.interactable = false
+	end
+end
+
+--Poll every notice source; return the highest-priority one with text.
+function GameHud:_TipFindNotice()
+	local best, bestText = nil, nil
+	for _, spec in pairs(Tip.notices) do
+		local ok, text = pcall(spec.text)
+		if ok and type(text) == "string" and text ~= "" then
+			if best == nil or (spec.priority or 0) > (best.priority or 0) then
+				best = spec
+				bestText = text
+			end
+		end
+	end
+	return best, bestText
+end
+
+--Notice half of the driver tick. Returns true when a notice owns the
+--banner this tick (shown, dismissed, or blocked by a dialog), in which case
+--the tip half must not run.
+function GameHud:_TipDriverNoticeTick()
+	local notice, noticeText = self:_TipFindNotice()
+	local activeNotice = self:try_get("activeNoticeId")
+	if notice == nil then
+		if activeNotice ~= nil then
+			self:_HideNoticeBanner()
+		end
+		self._noticeDismissed = nil
+		return false
+	end
+
+	--A notice outranks a tip: suppress the tip without marking it learned.
+	if self:try_get("activeTipId") ~= nil then
+		self:_ClearActiveTip()
+		self._tipLastScan = nil
+	end
+
+	local dismissed = self:try_get("_noticeDismissed")
+	local isDismissed = dismissed ~= nil and dismissed.id == notice.id
+		and dismissed.text == noticeText
+	if isDismissed or self:_TipIsBlockedByDialog() then
+		if activeNotice ~= nil then
+			self:_HideNoticeBanner()
+		end
+		return true
+	end
+
+	local banner = self:try_get("tipBanner")
+	local currentText = banner ~= nil and banner.valid and banner.data.currentText or nil
+	if activeNotice ~= notice.id or currentText ~= noticeText
+		or (banner ~= nil and banner.valid and not banner:HasClass("visible")) then
+		self.activeNoticeId = notice.id
+		self:ShowTip(noticeText)
+	end
+	return true
 end
 
 --Panel classes that, when present anywhere in the HUD tree, suppress the
@@ -2734,6 +2907,10 @@ end
 --a tip is actively displayed or when the scan has actually found a tip to
 --show; never speculatively.
 function GameHud:_TipDriverTick()
+	if self:_TipDriverNoticeTick() then
+		return
+	end
+
 	local active = self:try_get("activeTipId")
 
 	if active ~= nil then

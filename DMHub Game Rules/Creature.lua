@@ -6323,8 +6323,22 @@ function creature:DispatchTeleportOpportunityAttacks(observers)
     end
 end
 
+--Whether an effect on this creature forbids triggered actions (the "Cannot Use
+--Triggered Abilities" custom attribute, set by e.g. the "Can't use triggered
+--actions" ongoing effect). This covers triggered AND free triggered actions, as
+--the Dazed/Surprised rules do. Consulted by every path that offers a creature a
+--reaction: opportunity attacks (below), event-driven triggered abilities
+--(CharacterModifier:TriggerEvent) and power-roll/casting triggers
+--(PowerTableTriggers). Only abilities whose Action is Triggered Action or Free
+--Triggered Action (ActivatedAbility:IsTriggeredAction) are suppressed; triggers
+--with no action, mandatory triggers and hostile triggers are not actions the
+--creature chooses to take, so they ignore it.
+function creature:TriggeredActionsForbidden()
+    return self:CalculateNamedCustomAttribute("Cannot Use Triggered Abilities") > 0
+end
+
 function creature:CanUseTriggeredAbilities()
-    return (not self:IsDead()) and self:CalculateNamedCustomAttribute("Cannot Use Triggered Abilities") == 0
+    return (not self:IsDead()) and (not self:TriggeredActionsForbidden())
 end
 
 --Observer-side gate for opportunity attacks specifically. Deliberately narrower than
@@ -9894,8 +9908,11 @@ function creature:TriggerEvent(eventName, info, alreadyTriggeredOnOthers, localF
 	local mods = self:GetActiveModifiers()
 	local result = false
 
+    --Remote (relayed) events always collect the per-ability gate results so
+    --the TRIGGERRELAY:: trail shows why a relayed event did or did not prompt.
+    local remote = info ~= nil and info.remote == true
     local debugLog = nil
-    if creature.debugTriggerHandler then
+    if creature.debugTriggerHandler or remote then
         debugLog = {}
     end
 
@@ -9907,6 +9924,16 @@ function creature:TriggerEvent(eventName, info, alreadyTriggeredOnOthers, localF
 	end
 
 	result = self:RemoveOngoingEffectsOnTrigger(eventName, info) or result
+
+    if remote then
+        local parts = {}
+        for _,entry in ipairs(debugLog) do
+            parts[#parts+1] = string.format("%s -> %s", tostring(entry.name), entry.success and "ok" or tostring(entry.reason))
+        end
+        local token = dmhub.LookupToken(self)
+        print("TRIGGERRELAY:: EVAL", eventName, "on", token and token.name or "?", token and token.charid or "?",
+            #parts == 0 and "(no ability reached the gates)" or table.concat(parts, "; "))
+    end
 
     if creature.debugTriggerHandler then
         creature.debugTriggerHandler(self, eventName, info, debugLog)
@@ -9920,6 +9947,28 @@ function creature:TriggerEvent(eventName, info, alreadyTriggeredOnOthers, localF
 end
 
 local g_aiActivityReactionExpirySeconds = 600
+
+--The Monster AI activity (a move or an ability cast) currently in flight on
+--this client, or nil. MonsterAI sets it around each action it takes; while it
+--is set, every event DispatchEvent raises on a player-controlled creature
+--carries it as info.aiActivityId, so a prompt the action provokes -- the
+--Talent's Repulsive Ward on the damage a monster strike deals, an opportunity
+--attack on its move -- becomes a pending AI reaction the host waits on before
+--the AI proceeds (see BeginPendingAIActivityReaction below). Only the client
+--running the AI ever sets this; the AI thread clears it on start and stop.
+local g_aiActivityInProgress = nil
+
+function creature.SetAIActivityInProgress(activityId)
+    if type(activityId) == "string" and activityId ~= "" then
+        g_aiActivityInProgress = activityId
+    else
+        g_aiActivityInProgress = nil
+    end
+end
+
+function creature.GetAIActivityInProgress()
+    return g_aiActivityInProgress
+end
 
 --Serialization helpers for event payloads that cross the network (the
 --triggeredEvents and remoteInvokes queues written via ModifyProperties).
@@ -9948,6 +9997,34 @@ local g_serializableUserTypes = {
     LuaUnicodeString = true,
     LuaPath = true,
 }
+
+--Age in seconds of a relay record's timestamp. Records are written with
+--ServerTimestamp(), so the writer's own copy holds the "__serverTimestamp"
+--placeholder string (age 0) until the server echoes the resolved number; both
+--forms are live. Anything else is not a timestamp and returns nil.
+function EventTimestampAge(timestamp)
+    if type(timestamp) == "number" or timestamp == "__serverTimestamp" then
+        return TimestampAgeInSeconds(timestamp)
+    end
+    return nil
+end
+
+--Compact one-line description of a relay record for the TRIGGERRELAY:: trail.
+local function DescribeRelayEvent(event)
+    if type(event) ~= "table" then
+        return "<" .. type(event) .. ">"
+    end
+    local info = event.info
+    local keys = {}
+    if type(info) == "table" then
+        for k,_ in pairs(info) do keys[#keys+1] = tostring(k) end
+        table.sort(keys)
+    end
+    local age = EventTimestampAge(event.timestamp)
+    return string.format("event=%s to=%s timestamp=%s age=%s info={%s}",
+        tostring(event.eventName), tostring(event.userid), tostring(event.timestamp),
+        age ~= nil and string.format("%.1fs", age) or "n/a", table.concat(keys, ","))
+end
 
 function SerializeEventValue(value, visited)
     local valtype = type(value)
@@ -10040,6 +10117,13 @@ end
 local g_aiReactionDeliverySeconds = 15
 local g_aiReactionRetrySeconds = 3
 
+--Records are one JSON string, so the server never sees a ServerTimestamp()
+--placeholder inside them and would leave it unresolved. Stamp them with the
+--synchronized client clock instead; TimestampAgeInSeconds uses the same units.
+local function AIReactionTimestamp()
+    return dmhub.serverTimeMilliseconds
+end
+
 local function ReadAIReactionMessage(value)
     if type(value) ~= "string" then return nil end
     local ok, result = pcall(dmhub.FromJson, value)
@@ -10067,8 +10151,13 @@ local function WriteAIReactionMessage(props, field, id, value)
     }
 end
 
---Legacy events can arrive from older clients. Inspect each record separately:
---a malformed head or a different recipient must not block everyone behind it.
+--Drain the relay queue other clients write to via DispatchEvent. Inspect each
+--record separately so a bad head or a different recipient never blocks the rest.
+--Only records addressed to this user are evaluated; records for other users
+--are left alone until they expire. In particular a record this client just
+--wrote still carries the "__serverTimestamp" placeholder until the server
+--echo -- it is live, not malformed (see EventTimestampAge). Every decision is
+--logged with a TRIGGERRELAY:: prefix so a lost prompt can be traced end to end.
 function creature:PumpTriggeredEvents()
     local token = dmhub.LookupToken(self)
     local events = self:try_get("triggeredEvents")
@@ -10076,27 +10165,34 @@ function creature:PumpTriggeredEvents()
     self._tmp_pumpingTriggeredEvents = true
     local consumed = {}
     for _,event in pairs(events) do
+        local age = type(event) == "table" and EventTimestampAge(event.timestamp) or nil
         local valid = type(event) == "table" and type(event.userid) == "string"
-            and type(event.eventName) == "string" and type(event.timestamp) == "number"
-        if not valid or TimestampAgeInSeconds(event.timestamp) >= 30 or event.userid == dmhub.userid then
+            and type(event.eventName) == "string" and age ~= nil
+        local mine = valid and event.userid == dmhub.userid
+        if not valid then
+            --Junk we cannot even address. Old clients wrote records of the same
+            --shape, so this only fires for genuinely damaged data.
+            consumed[event] = "malformed relay record"
+            print("TRIGGERRELAY:: DROP malformed on", token.name, token.charid, DescribeRelayEvent(event))
+        elseif age >= 30 then
+            consumed[event] = "relay record expired before evaluation"
+            if mine then
+                print("TRIGGERRELAY:: DROP expired on", token.name, token.charid, DescribeRelayEvent(event))
+            end
+        elseif mine then
             consumed[event] = true
-            if valid and event.userid == dmhub.userid and TimestampAgeInSeconds(event.timestamp) < 30 then
-                local ok, err = pcall(function()
-                    local info = DeserializeEventValue(event.info or {})
-                    info.remote = true
-                    self:TriggerEvent(event.eventName, info, true, "skipLocal")
-                end)
-                if not ok then
-                    consumed[event] = tostring(err)
-                    print("AI:: LEGACY EVENT FAILED", event.eventName, tostring(err))
-                end
-            elseif not valid then
-                consumed[event] = "malformed legacy movement event"
-                print("AI:: MALFORMED LEGACY EVENT DISCARDED", token.charid)
-            else
-                consumed[event] = "legacy movement event expired before evaluation"
+            print("TRIGGERRELAY:: RECV on", token.name, token.charid, DescribeRelayEvent(event))
+            local ok, err = pcall(function()
+                local info = DeserializeEventValue(event.info or {})
+                info.remote = true
+                self:TriggerEvent(event.eventName, info, true, "skipLocal")
+            end)
+            if not ok then
+                consumed[event] = tostring(err)
+                print("TRIGGERRELAY:: EVAL ERROR on", token.name, token.charid, event.eventName, tostring(err))
             end
         end
+        --else: addressed to another user; leave it for them.
     end
     if next(consumed) ~= nil then
         token:ModifyProperties{
@@ -10128,7 +10224,7 @@ function creature:QueueAIReactionEvent(eventName, info, controller, abilityNames
     local id = dmhub.GenerateGuid()
     local message = {
         id = id, activityId = info.aiActivityId, eventName = eventName,
-        userid = controller, timestamp = ServerTimestamp(), attempt = 1,
+        userid = controller, timestamp = AIReactionTimestamp(), attempt = 1,
         info = SerializeEventValue(info), ability = table.concat(abilityNames, ", "),
     }
     --Keep a private intact copy even if the shared request is lost or damaged.
@@ -10167,13 +10263,13 @@ function creature:PumpAIReactionEvents()
                 end
             else
                 local receipt = {id = id, activityId = request.activityId,
-                    timestamp = ServerTimestamp(), state = "evaluating"}
+                    timestamp = AIReactionTimestamp(), state = "evaluating"}
                 local valid = request.id == id and type(request.timestamp) == "number"
                     and type(request.activityId) == "string" and type(request.eventName) == "string"
                     and type(request.info) == "table" and request.info.aiActivityId == request.activityId
                 if not valid or TimestampAgeInSeconds(request.timestamp) >= g_aiReactionDeliverySeconds then
                     receipt.state = "failed"
-                    receipt.reason = valid and "movement event arrived after its delivery deadline" or "malformed movement event"
+                    receipt.reason = valid and "reaction event arrived after its delivery deadline" or "malformed reaction event"
                 end
                 localReceipts[id] = dmhub.ToJson(receipt)
                 WriteAIReactionMessage(self, "aiReactionReceipts", id, receipt)
@@ -10210,15 +10306,15 @@ function creature:GetAIReactionDeliveryStatus(activityId)
             local age = valid and TimestampAgeInSeconds(request.timestamp) or math.huge
             if receipt ~= nil and (receipt.id ~= id or receipt.activityId ~= activityId) then receipt = nil end
             if not valid then
-                failure = "malformed movement delivery record"
+                failure = "malformed reaction delivery record"
             elseif receipt ~= nil and receipt.state == "failed" then
-                failure = receipt.reason or "movement event evaluation failed"
+                failure = receipt.reason or "reaction event evaluation failed"
             elseif receipt == nil or receipt.state ~= "evaluated" then
                 pending = pending + 1
                 description = "client to evaluate " .. request.ability
                 if age >= g_aiReactionDeliverySeconds then
-                    failure = receipt ~= nil and "movement event evaluation was interrupted"
-                        or "no movement event acknowledgment after 15 seconds"
+                    failure = receipt ~= nil and "reaction event evaluation was interrupted"
+                        or "no reaction event acknowledgment after 15 seconds"
                 elseif receipt == nil and self:try_get("_tmp_aiReactionOutbox", {})[id] ~= nil
                     and age >= (request.attempt or 1)*g_aiReactionRetrySeconds then
                     request.attempt = (request.attempt or 1) + 1
@@ -10232,6 +10328,13 @@ function creature:GetAIReactionDeliveryStatus(activityId)
 end
 
 function creature:DispatchEvent(eventName, info)
+
+    --Stamp the Monster AI's in-flight activity on the event so any prompt it
+    --raises on a hero is tracked as a reaction the AI waits on. A mover's
+    --OnMove stamps its own id ahead of us; the two agree.
+    if g_aiActivityInProgress ~= nil and type(info) == "table" and info.aiActivityId == nil then
+        info.aiActivityId = g_aiActivityInProgress
+    end
 
     local triggeredOnOthers = false
     if info == nil or info.subject == nil then
@@ -10336,7 +10439,7 @@ function creature:DispatchEvent(eventName, info)
 			local triggeredEvents = self:get_or_add("triggeredEvents", {})
 
             --clear out any old or invalid events.
-            while #triggeredEvents > 0 and (triggeredEvents[1] == nil or triggeredEvents[1].timestamp == nil or TimestampAgeInSeconds(triggeredEvents[1].timestamp) > 30) do
+            while #triggeredEvents > 0 and (triggeredEvents[1] == nil or EventTimestampAge(triggeredEvents[1].timestamp) == nil or EventTimestampAge(triggeredEvents[1].timestamp) > 30) do
                 table.remove(triggeredEvents, 1)
             end
 
@@ -10347,6 +10450,8 @@ function creature:DispatchEvent(eventName, info)
 				info = info,
 			}
 
+            print("TRIGGERRELAY:: SEND", eventName, "for", token.name, token.charid, "to", activecontroller,
+                "abilities=" .. table.concat(abilityNames, ", "), "queued=" .. #triggeredEvents)
 		end,
 	}
 end
@@ -10381,6 +10486,9 @@ end
 --- @field targets string[]
 --- @field candidateTargets boolean True when targets are candidates of which the reactor picks one, rather than all being affected.
 --- @field chosenTargetId false|string With candidateTargets, the candidate the reactor picked.
+--- @field mergeKey false|string Groups prompts one event raised for several subjects, which share a single triggered action.
+--- @field mergedInto false|string Set on every prompt of a merged group but the one fronting it; the panel hides these.
+--- @field mergeMembers false|table<string,string> On the front prompt of a merged group: subject charid -> the prompt id that owns it.
 --- @field powerRollModifier false|CharacterModifier
 --- @field triggered boolean|number
 --- @field dismissed boolean
@@ -10399,7 +10507,7 @@ end
 --- @field auraControllerId false|string
 --- @field execSymbols false|table SerializeEventValue-encoded event symbols for orphan recovery.
 --- @field execTargets false|table SerializeEventValue-encoded targets for orphan recovery.
---- @field aiActivityId false|string The Monster AI movement activity waiting for this prompt.
+--- @field aiActivityId false|string The Monster AI activity (move or cast) waiting for this prompt.
 ActiveTrigger = RegisterGameType("ActiveTrigger")
 ActiveTrigger.id = ""
 ActiveTrigger.charid = ""
@@ -10422,6 +10530,16 @@ ActiveTrigger.targets = {}
 --pick. Otherwise every target is affected. See NeedsTargetChoice / GetTargetId.
 ActiveTrigger.candidateTargets = false
 ActiveTrigger.chosenTargetId = false
+
+--One event can raise this prompt for several subjects at once (My Life For
+--Yours when a blast damages three allies and the Censor), yet they all spend
+--the same single triggered action, so the panel folds them into one card with
+--a subject picker. mergeKey groups them; the first prompt on the list fronts
+--the group and carries mergeMembers, the rest carry mergedInto and are hidden.
+--Accepting the front card routes the pick -- see DispatchAvailableTrigger.
+ActiveTrigger.mergeKey = false
+ActiveTrigger.mergedInto = false
+ActiveTrigger.mergeMembers = false
 ActiveTrigger.triggered = false
 ActiveTrigger.dismissed = false
 ActiveTrigger.ping = false
@@ -10477,9 +10595,11 @@ ActiveTrigger.invocation = false
 --existed have 0 here and fall back to timestamp.
 ActiveTrigger.expiryTimestamp = 0
 
---A movement event marker is replaced by one marker per prompt on the player's
---token. The AI host can see these records, so it can wait across clients without
---keeping the prompt card alive after the player has made a choice.
+--An AI activity's event marker is replaced by one marker per prompt on the
+--player's token. The AI host can see these records, so it can wait across
+--clients without keeping the prompt card alive after the player has made a
+--choice. The activity is a monster move (opportunity attacks) or an ability
+--cast (Repulsive Ward and other prompts its damage or effects provoke).
 function creature:BeginPendingAIActivityReaction(activityId, reactionId, abilityName)
     if type(activityId) ~= "string" or activityId == "" or type(reactionId) ~= "string" or reactionId == "" then
         return
@@ -10560,7 +10680,10 @@ function creature:GetAIActivityReactionStatus(activityId)
             pending = pending + 1
             description = entry.state == "resolving" and "reaction to finish: " .. (entry.ability or "reaction")
                 or "player to answer " .. (entry.ability or "reaction")
-            local age = type(entry.timestamp) == "number" and TimestampAgeInSeconds(entry.timestamp) or math.huge
+            --The marker is a plain table leaf, so the writer's own copy holds the
+            --ServerTimestamp() placeholder until the server echo. That is a live
+            --record of age zero, not an expired one (see EventTimestampAge).
+            local age = EventTimestampAge(entry.timestamp) or math.huge
             if entry.state == "failed" then
                 failure = entry.reason or "reaction evaluation failed"
             elseif age > g_aiActivityReactionExpirySeconds then
@@ -10577,8 +10700,8 @@ function creature:CountPendingAIActivityReactions(activityId)
     local result = 0
     for _,entry in pairs(self:try_get("pendingAIActivityReactions", {})) do
         if type(entry) == "table" and entry.activityId == activityId and entry.state ~= "completed"
-            and entry.timestamp ~= nil
-            and TimestampAgeInSeconds(entry.timestamp) <= g_aiActivityReactionExpirySeconds then
+            and EventTimestampAge(entry.timestamp) ~= nil
+            and EventTimestampAge(entry.timestamp) <= g_aiActivityReactionExpirySeconds then
             result = result + 1
         end
     end
@@ -10821,6 +10944,35 @@ function ActiveTrigger:EnhancementOptions(token)
 end
 
 
+--Keys of availableTriggers entries already reported as untyped, so a stub that
+--lingers until Repair removes it logs once rather than every frame.
+local g_reportedUntypedTriggers = {}
+
+--An availableTriggers entry that is not a typed ActiveTrigger (no metatable)
+--is a hollow stub: a stale sub-field write that landed after the record was
+--cleared, or a same-frame patch fold, recreated the key holding one or two
+--fields and no __typeName. It has none of ActiveTrigger's methods, so any
+--consumer that calls one on it crashes (report VFB3EC4V: ActivateOrphanedTrigger
+--calling record:try_get). Consumers must never see one; creature:Repair
+--deletes it on the next validation pass. Logged once per key so the source
+--of the stale write can be traced (see TRIGGERGUARD:: lines).
+local function IsUntypedTrigger(key, value)
+	if type(value) == "table" and getmetatable(value) ~= nil then
+		return false
+	end
+
+	if not g_reportedUntypedTriggers[key] then
+		g_reportedUntypedTriggers[key] = true
+		local fields = {}
+		if type(value) == "table" then
+			for k,_ in pairs(value) do fields[#fields+1] = tostring(k) end
+			table.sort(fields)
+		end
+		printf("TRIGGERGUARD:: untyped availableTriggers entry %s (%s) fields={%s}; ignoring until Repair removes it", tostring(key), type(value), table.concat(fields, ","))
+	end
+	return true
+end
+
 --- @return nil|table<string,ActiveTrigger>
 function creature:GetAvailableTriggers(excludeDismissed)
 	local availableTriggers = self:try_get("availableTriggers")
@@ -10831,7 +10983,7 @@ function creature:GetAvailableTriggers(excludeDismissed)
 	local hasExpired = false
 	local hasValid = false
 	for key,value in pairs(availableTriggers) do
-		if TriggerExpired(value) or value.id ~= key then
+		if IsUntypedTrigger(key, value) or TriggerExpired(value) or value.id ~= key then
 			hasExpired = true
 		elseif (not value.dismissed) or (not excludeDismissed) then
 			hasValid = true
@@ -10848,7 +11000,7 @@ function creature:GetAvailableTriggers(excludeDismissed)
 
 	local result = {}
 	for key,value in pairs(availableTriggers) do
-		if value.id == key and ((not value.dismissed) or (not excludeDismissed)) then
+		if (not IsUntypedTrigger(key, value)) and value.id == key and ((not value.dismissed) or (not excludeDismissed)) then
 			if not TriggerExpired(value) then
 				result[key] = value
 			end
@@ -10858,19 +11010,171 @@ function creature:GetAvailableTriggers(excludeDismissed)
 	return result
 end
 
+--The typed record for a prompt id, or nil if there is none or the stored
+--entry is an untyped stub (see IsUntypedTrigger). For readers that must see
+--the raw stored record rather than GetAvailableTriggers' filtered view --
+--the deferred acceptance consumers, which re-read the record 0.25s after the
+--accept was recorded, by which time an echo may have replaced it.
+--- @return nil|ActiveTrigger
+function creature:GetAvailableTriggerRecord(triggerid)
+	local availableTriggers = self:try_get("availableTriggers")
+	local record = availableTriggers ~= nil and availableTriggers[triggerid] or nil
+	if record == nil or IsUntypedTrigger(triggerid, record) then
+		return nil
+	end
+	return record
+end
+
+--Drop one subject from a merged group's front card: that creature has left
+--play, so it is no longer a candidate. Returns false once none are left.
+local function RemoveMergedCandidate(front, charid)
+	if front.mergeMembers == false then
+		return true
+	end
+
+	local members = {}
+	for id,promptid in pairs(front.mergeMembers) do
+		if id ~= charid then
+			members[id] = promptid
+		end
+	end
+	front.mergeMembers = members
+
+	local targets = {}
+	for _,id in ipairs(front.targets) do
+		if id ~= charid then
+			targets[#targets+1] = id
+		end
+	end
+	front.targets = targets
+
+	local modes = {}
+	for _,entry in ipairs(front.modes) do
+		local copy = DeepCopy(entry)
+		if copy.targets ~= nil then
+			local kept = {}
+			for _,id in ipairs(copy.targets) do
+				if id ~= charid then
+					kept[#kept+1] = id
+				end
+			end
+			copy.targets = kept
+		end
+
+		--a mode nobody is left to use drops off the card with them.
+		if copy.targets == nil or #copy.targets > 0 then
+			modes[#modes+1] = copy
+		end
+	end
+	front.modes = modes
+
+	front.candidateTargets = #front.targets > 1
+	return #front.targets > 0
+end
+
+--The prompt fronting a merged group is going away (its own subject died or
+--stopped qualifying). Hand the group to a surviving member so the others keep
+--their single card instead of scattering back into one card each. goneCharid
+--is a subject leaving play in the same breath, which no heir may inherit.
+local function PromoteMergedTriggerGroup(availableTriggers, cleared, goneCharid)
+	if cleared == nil or cleared.mergeMembers == false then
+		return
+	end
+
+	--subjects the departing prompt itself owned; they leave with it.
+	local gone = {}
+	if goneCharid ~= nil then
+		gone[goneCharid] = true
+	end
+	for charid,id in pairs(cleared.mergeMembers) do
+		if id == cleared.id then
+			gone[charid] = true
+		end
+	end
+
+	local heir = nil
+	for charid,id in pairs(cleared.mergeMembers) do
+		if heir == nil and (not gone[charid]) then
+			local other = availableTriggers[id]
+			if other ~= nil and (not other.dismissed) and (not other.triggered) then
+				heir = other
+			end
+		end
+	end
+
+	if heir == nil then
+		return
+	end
+
+	local members = {}
+	for charid,id in pairs(cleared.mergeMembers) do
+		local other = availableTriggers[id]
+		if (not gone[charid]) and other ~= nil and (not other.dismissed) then
+			members[charid] = id
+		end
+	end
+
+	local function surviving(list)
+		local result = {}
+		for _,charid in ipairs(list or {}) do
+			if members[charid] ~= nil then
+				result[#result+1] = charid
+			end
+		end
+		return result
+	end
+
+	--the heir carries the whole group's candidates and modes, so its own
+	--`triggered` still reads as a position in this list -- ModeIndexForTriggered
+	--maps it back to the ability's modeList either way.
+	heir.targets = surviving(cleared.targets)
+
+	local modes = {}
+	for _,entry in ipairs(cleared.modes) do
+		local copy = DeepCopy(entry)
+		copy.targets = surviving(entry.targets)
+		if #copy.targets > 0 then
+			modes[#modes+1] = copy
+		end
+	end
+	heir.modes = modes
+
+	heir.mergeMembers = members
+	heir.candidateTargets = #heir.targets > 1
+	heir.mergedInto = false
+
+	for _,id in pairs(members) do
+		if id ~= heir.id then
+			local other = availableTriggers[id]
+			if other ~= nil then
+				other.mergedInto = heir.id
+			end
+		end
+	end
+end
+
 -- called when another token is deleted.
 --- @param charid string The character id of the token being deleted.
 function creature:OnTokenDelete(charid)
     local clears = nil
+    local shrinks = nil
 	local availableTriggers = self:get_or_add("availableTriggers", {})
     for key,value in pairs(availableTriggers) do
         if table.contains(value.targets, charid) then
-            clears = clears or {}
-            clears[#clears+1] = key
+            --A merged group's front card lists every subject, so one death must take
+            --that candidate off the card rather than the whole card with it, which
+            --would scatter the group. Only the dead subject's own prompt is cleared.
+            if value.mergeMembers ~= false and value.mergeMembers[charid] ~= value.id then
+                shrinks = shrinks or {}
+                shrinks[#shrinks+1] = value
+            else
+                clears = clears or {}
+                clears[#clears+1] = key
+            end
         end
     end
 
-    if clears == nil then
+    if clears == nil and shrinks == nil then
         return
     end
 
@@ -10879,12 +11183,157 @@ function creature:OnTokenDelete(charid)
         token:ModifyProperties{
             description = "Clear Available Triggers",
             execute = function()
-                for _,key in ipairs(clears) do
+                for _,front in ipairs(shrinks or {}) do
+                    if not RemoveMergedCandidate(front, charid) then
+                        availableTriggers[front.id] = nil
+                    end
+                end
+
+                for _,key in ipairs(clears or {}) do
+                    PromoteMergedTriggerGroup(availableTriggers, availableTriggers[key], charid)
                     availableTriggers[key] = nil
                 end
             end,
         }
     end
+end
+
+--The position in `modes` that selects the ability's modeList entry `modeIndex`,
+--as an ActiveTrigger.triggered value. The inverse of ModeIndexForTriggered:
+--each prompt of a merged group hides the modes its own subject fails, so one
+--mode sits at different positions in different members' lists.
+local function TriggeredValueForModeIndex(record, modeIndex)
+	if modeIndex == nil or modeIndex <= 1 then
+		return true
+	end
+
+	for i,entry in ipairs(record.modes) do
+		if entry.modeIndex == modeIndex then
+			return i
+		end
+	end
+
+	return true
+end
+
+--Fold a newly raised prompt into the group of prompts the same event already
+--raised for other subjects, if there is one. The new prompt is still stored --
+--its own coroutine goes on watching it, and it is what actually runs if its
+--subject is the one picked -- but it is marked mergedInto so the panel draws
+--only the group's front card. See ActiveTrigger.mergeKey.
+local function MergeTriggerIntoGroup(availableTriggers, triggerInfo)
+	if triggerInfo.mergeKey == false or availableTriggers[triggerInfo.id] ~= nil then
+		return
+	end
+
+	local leader = nil
+	for _,other in pairs(availableTriggers) do
+		if other.mergeKey == triggerInfo.mergeKey and other.mergedInto == false and (not other.dismissed) and (not other.triggered) then
+			leader = other
+			break
+		end
+	end
+
+	if leader == nil then
+		return
+	end
+
+	if leader.mergeMembers == false then
+		--First merge into this prompt: it fronts the group from here on. Copy
+		--before mutating -- a prompt with no targets or modes of its own reads
+		--the game type's shared default table, which must never be written to.
+		leader.targets = table.shallow_copy(leader.targets)
+
+		local members = {}
+		for _,charid in ipairs(leader.targets) do
+			members[charid] = leader.id
+		end
+		leader.mergeMembers = members
+		leader.candidateTargets = true
+
+		local modes = {}
+		for i,entry in ipairs(leader.modes) do
+			local copy = DeepCopy(entry)
+			copy.targets = table.shallow_copy(leader.targets)
+			modes[i] = copy
+		end
+		leader.modes = modes
+	end
+
+	local members = leader.mergeMembers
+	for _,charid in ipairs(triggerInfo.targets) do
+		if members[charid] == nil then
+			members[charid] = triggerInfo.id
+			leader.targets[#leader.targets+1] = charid
+		end
+	end
+
+	--A mode's condition is evaluated against each subject, so one member can
+	--offer a mode another cannot. Carry the subjects each mode is on offer for:
+	--that is what the mode's card shows portraits of, and all its picker offers.
+	for _,entry in ipairs(triggerInfo.modes) do
+		local existing = nil
+		for _,leaderEntry in ipairs(leader.modes) do
+			if leaderEntry.modeIndex == entry.modeIndex then
+				existing = leaderEntry
+				break
+			end
+		end
+
+		if existing == nil then
+			existing = DeepCopy(entry)
+			existing.targets = {}
+			leader.modes[#leader.modes+1] = existing
+		elseif entry.unavailable ~= true and existing.unavailable == true then
+			--on offer for at least one subject, so the card is not greyed out.
+			existing.unavailable = nil
+			existing.conditionReason = nil
+		end
+
+		for _,charid in ipairs(triggerInfo.targets) do
+			if not table.contains(existing.targets, charid) then
+				existing.targets[#existing.targets+1] = charid
+			end
+		end
+	end
+
+	triggerInfo.mergedInto = leader.id
+end
+
+--Hand an accepted front card over to the member that owns the picked subject,
+--and withdraw the rest of the group. Every prompt in the group has its own
+--subject and its own watching coroutine, so the pick decides which one runs;
+--the others are dismissed exactly as they would have been had the player
+--accepted one of several separate cards. See ActiveTrigger.mergeKey.
+local function RouteMergedTriggerAccept(availableTriggers, triggerInfo)
+	if triggerInfo.mergeMembers == false or (not triggerInfo.triggered) then
+		return
+	end
+
+	local targetid = triggerInfo:GetTargetId()
+	local memberid = targetid ~= nil and triggerInfo.mergeMembers[targetid] or nil
+	local member = nil
+	if memberid ~= nil and memberid ~= triggerInfo.id then
+		member = availableTriggers[memberid]
+	end
+
+	local modeIndex = triggerInfo:ModeIndexForTriggered(triggerInfo.triggered)
+
+	for _,id in pairs(triggerInfo.mergeMembers) do
+		local other = availableTriggers[id]
+		if other ~= nil and other ~= member and other.id ~= triggerInfo.id and (not other.triggered) then
+			other.dismissed = true
+		end
+	end
+
+	if member == nil then
+		--the front card is itself the prompt for the picked subject; it runs.
+		return
+	end
+
+	member.triggered = TriggeredValueForModeIndex(member, modeIndex)
+	triggerInfo.triggered = false
+	triggerInfo.dismissed = true
 end
 
 --- @param triggerInfo ActiveTrigger
@@ -10897,6 +11346,11 @@ function creature:DispatchAvailableTrigger(triggerInfo)
 
 
 	local availableTriggers = self:get_or_add("availableTriggers", {})
+
+	if triggerInfo ~= nil then
+		RouteMergedTriggerAccept(availableTriggers, triggerInfo)
+		MergeTriggerIntoGroup(availableTriggers, triggerInfo)
+	end
 
     --A dispatch of a trigger that is already on the list is the user interacting
     --with it (activating, dismissing, picking an enhancement, retargeting). That
@@ -10988,6 +11442,8 @@ function creature:ClearAvailableTrigger(triggerInfo)
 	if cleared ~= nil and cleared.aiActivityId ~= false and (cleared.triggered == false or cleared.dismissed) then
 		self:CompletePendingAIActivityReaction(cleared.aiActivityId, cleared.id)
 	end
+
+	PromoteMergedTriggerGroup(availableTriggers, cleared)
 
 	local deletes = {}
 	for key,value in pairs(availableTriggers) do

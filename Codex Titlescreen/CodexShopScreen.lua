@@ -2580,8 +2580,8 @@ local function ShowDiceTryRoll(item)
 		borderColor = "#f6ddb6",
 
 		--Override the roll dice with this item's set so we can roll dice the
-		--player doesn't own yet (the equipped-dice setting silently reverts
-		--unowned sets). Cleared when the modal closes. pcall-guarded: the C#
+		--player doesn't own yet (the preview otherwise rolls whatever set is
+		--equipped). Cleared when the modal closes. pcall-guarded: the C#
 		--method ships with this change, so a Lua-only reload against an older
 		--binary just rolls the equipped set instead of erroring.
 		create = function(element)
@@ -3682,7 +3682,12 @@ local ShowItemDetailsInternal = function(args)
 
 					showProductDetails = function(element, item)
 						element.data.item = item
-						element:SetClass("collapsed", item.itemType ~= "Dice")
+						--Gate on ownership, not on the view mode. These buttons
+						--write diceequipped/diceequipped2/diceequippedd6/
+						--diceslotsequipped straight into the account settings and
+						--nothing downstream revalidates, so the panel must never be
+						--reachable for a set the account does not own.
+						element:SetClass("collapsed", item.itemType ~= "Dice" or not shop:ItemInInventory(item.id))
 						element:FireEvent("rebuildEquip")
 					end,
 
@@ -4751,6 +4756,14 @@ local function CreateShopScreenInternal(arguments)
 					dmhub.SetSettingValue(itemsAck, itemsAcknowledged)
 				end
 
+				--Leave any open item details before switching mode, exactly as
+				--showCart does. The inventory/store distinction is only the
+				--"inventory" class applied tree-wide, so a details page left
+				--mounted here would simply re-skin into inventory mode and show
+				--the inventory-only controls over a store item.
+				element:FireEventTree("showProducts")
+				element:FireEventTree("hideProductDetails")
+
 				element:SetClassTree("inventory", true)
 
 				ExecuteSearch("")
@@ -4768,6 +4781,12 @@ local function CreateShopScreenInternal(arguments)
 
 				m_allProducts = productDatabase
 				m_assetToItemInstance = {}
+
+				--Symmetric with showInventory: land on the grid rather than
+				--re-skinning an open details page into store mode.
+				element:FireEventTree("showProducts")
+				element:FireEventTree("hideProductDetails")
+
 				element:SetClassTree("inventory", false)
 
 				ExecuteSearch("")
@@ -5115,22 +5134,32 @@ local function CreateShopScreenInternal(arguments)
 
 							gui.Input{
 								placeholderText = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
-								characterLimit = 36,
+								--deliberately longer than the 36-character code: users paste codes
+								--with whitespace around them, and the field truncates before the edit
+								--handler ever sees the text, so a tight limit would eat the last
+								--characters of an otherwise valid code. We trim below instead.
+								characterLimit = 80,
 								width = 400,
 								textAlignment = "left",
 								edit = function(element)
+									--auto-trim pasted codes. textNoNotify avoids re-entering this handler.
+									local trimmed = trim(element.text)
+									if trimmed ~= element.text then
+										element.textNoNotify = trimmed
+									end
+
 									element.parent:FireEventTree("cleargift")
-									if #element.text ~= 0 and #element.text ~= 36 then
+									if #trimmed ~= 0 and #trimmed ~= 36 then
 										element.parent:FireEventTree("message", "Incorrect number of characters")
-									elseif #element.text == 36 then
+									elseif #trimmed == 36 then
 										element.parent:FireEventTree("message", "Searching...")
-										shop:QueryGiftCode(element.text, function(coupon)
+										shop:QueryGiftCode(trimmed, function(coupon)
 											if coupon == nil then
 												element.parent:FireEventTree("message", "Invalid gift code")
 												return
 											end
 
-											if element == nil or (not element.valid) or coupon.code ~= element.text then
+											if element == nil or (not element.valid) or coupon.code ~= trimmed then
 												--user edited the input since the request was sent.
 												return
 											end
@@ -5147,7 +5176,7 @@ local function CreateShopScreenInternal(arguments)
 											end
 
 											element.parent:FireEventTree("message", "Your gift code is ready to be redeemed!")
-											element.parent:FireEventTree("showgift", item, element.text)
+											element.parent:FireEventTree("showgift", item, trimmed)
 										end,
 										function(error)
 											element.parent:FireEventTree("message", string.format("Error: %s", error))

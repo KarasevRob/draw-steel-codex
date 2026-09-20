@@ -58,6 +58,14 @@ function gui.IconEditor(args)
 	local allowLiveEdit = args.liveEdit or false
 	args.liveEdit = nil
 
+	local captions = args.captions or false
+	args.captions = nil
+
+	local function FileBaseName(path)
+		local name = string.match(path or "", "([^/\\]+)$") or ""
+		return (string.gsub(name, "%.[^%.]*$", ""))
+	end
+
 	local resultPanel = nil
 
 	local category = ''
@@ -230,9 +238,66 @@ function gui.IconEditor(args)
 
 		local CreateImage = function()
 			local m_imageid = nil
+
+			local function SetCaption(label, node)
+				local text = node ~= nil and node.description or ""
+				label:SetClass("placeholder", text == "")
+				label.text = cond(text == "", "Name this image", text)
+			end
+
+			local caption = nil
+			local captionInput = nil
+			if captions then
+				captionInput = gui.Input{
+					classes = {"imageCaptionInput", "hidden"},
+					floating = true,
+					width = "100%",
+					height = 18,
+					fontSize = 12,
+					halign = "center",
+					valign = "bottom",
+					characterLimit = 64,
+					restoreOriginalTextOnEscape = true,
+					submit = function(element)
+						local node = assets.imagesTable[m_imageid]
+						if node ~= nil then
+							node.description = element.text
+							node:Upload()
+						end
+						element:SetClass("hidden", true)
+						caption:SetClass("hidden", false)
+						SetCaption(caption, node)
+					end,
+					defocus = function(element)
+						element:SetClass("hidden", true)
+						caption:SetClass("hidden", false)
+						SetCaption(caption, assets.imagesTable[m_imageid])
+					end,
+				}
+
+				caption = gui.Label{
+					classes = {"imageCaption"},
+					floating = true,
+					click = function(element)
+						local node = assets.imagesTable[m_imageid]
+						if node == nil then
+							return
+						end
+						element:SetClass("hidden", true)
+						captionInput.text = node.description or ""
+						captionInput:SetClass("hidden", false)
+						captionInput.hasInputFocus = true
+					end,
+				}
+			end
+
 			local iconImage = gui.Panel{
 				classes = {"iconImage", "image"},
 				style = iconImageStyle,
+				children = {
+					caption,
+					captionInput,
+				},
 			}
 
 			local resultImage
@@ -276,10 +341,17 @@ function gui.IconEditor(args)
 
                         iconImage:SetClass("deleted", false)
                         resultImage:SetClass("selected", m_imageid == value)
+
+                        if caption ~= nil then
+                            local node = assets.imagesTable[imageid]
+                            captionInput:SetClass("hidden", true)
+                            caption:SetClass("hidden", node == nil)
+                            SetCaption(caption, node)
+                        end
 					end,
 				},
 				children = {
-					iconImage
+					iconImage,
 				},
 				events = {
 					click = function(element)
@@ -514,6 +586,28 @@ function gui.IconEditor(args)
 						table.sort(imageIds)
 					else
 						imageIds = dmhub.SearchImages((category or "") .. element.text, library)
+						if captions then
+							local order = {}
+							for i, id in ipairs(imageIds) do
+								local node = assets.imagesTable[id]
+								local name = node ~= nil and node.description or ""
+								order[id] = {
+									key = string.lower(name),
+									index = i,
+								}
+							end
+							--Named first, alphabetical; unnamed keep the engine's order at the end.
+							table.sort(imageIds, function(a, b)
+								local ka, kb = order[a], order[b]
+								if (ka.key == "") ~= (kb.key == "") then
+									return kb.key == ""
+								end
+								if ka.key ~= kb.key then
+									return ka.key < kb.key
+								end
+								return ka.index < kb.index
+							end)
+						end
 					end
 					if allowNone and element.text == "" then
 						table.insert(imageIds, 1, '')
@@ -749,6 +843,7 @@ function gui.IconEditor(args)
 							local assetid = nil
 							assetid = assets:UploadImageAsset{
 								path = path,
+								description = FileBaseName(path),
 								imageType = imageType,
 								error = function(text)
 									dmhub.Debug('Could not load image: ' .. text)
@@ -880,6 +975,11 @@ function gui.IconEditor(args)
 		
 		popupPanel = gui.Panel{
 			classes = {"framedPanel"},
+			monitorAssets = "images",
+			refreshAssets = function(element)
+				lastSearch = nil
+				searchInput:FireEvent("change")
+			end,
 			styles = ThemeEngine.MergeStyles({
 				{
 					selectors = {"imageBackground", "hover"},
@@ -894,6 +994,22 @@ function gui.IconEditor(args)
 				{
 					selectors = {"iconImage", "deleted"},
 					brightness = 0.2,
+				},
+				{
+					selectors = {"imageCaption"},
+					color = "white",
+					bgcolor = "#000000AA",
+					height = 12,
+					bgimage = true,
+					width = "100%",
+					halign = "center",
+					valign = "bottom",
+					textAlignment = "bottom",
+					fontSize = 8,
+				},
+				{
+					selectors = {"imageCaption", "placeholder"},
+					color = "@fgMuted",
 				},
 				{
 					selectors = {"label", "uploadingImageLabel"},
@@ -1012,6 +1128,7 @@ function gui.IconEditor(args)
 			dmhub.Debug("Upload file: " .. f)
 			assetid = assets:UploadImageAsset{
 				path = f,
+				description = FileBaseName(f),
 				imageType = imageType,
 				error = function(text)
 					dmhub.Debug('Could not load image')

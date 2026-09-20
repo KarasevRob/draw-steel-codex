@@ -53,9 +53,23 @@ shadow-elves.lua
 3. Score all registered start-of-turn Malice abilities, use the highest-scoring affordable option that meets its threshold, and wait for it to resolve.
 4. For each token in that initiative entry:
    - If the actual actor is outside the usable map view, pan and sync the camera before it begins. Shared initiative entries can therefore pan again as each distinct monster acts without recentering monsters that are already visible.
-   - Minions: find their Signature Ability and execute it as a coordinated squad strike (`ExecuteSquadStrike`). Reconsider up to 6 action cycles so critical-hit extra actions are used. Each cycle selects a surviving member with an affordable signature; only affordable members join its target pairs, and movement uses the remaining turn budget.
+   - Minions: find their Signature Ability and execute it as a coordinated squad strike (`ExecuteSquadStrike`). Reassess members who advanced before firing so they can join the same volley, including sharing targets within the normal limit. The rules layer spends the action for every active squad member, including nonparticipants. Reconsider up to 6 action cycles so critical-hit extra actions are used. Each cycle selects a surviving member with an affordable signature; only affordable members join its target pairs, and movement uses the remaining turn budget.
    - Non-minions: iterate up to 6 times calling `FindAndExecuteMove()`, which scores every registered move and executes the best one. A scoring or execution error quarantines that move for the actor; `"failed"` continues to another cycle, while `"none"` or `"unsafe"` stops the actor.
 5. After all tokens act, initiative advances automatically.
+
+When no registered or synthesized move scores above zero, the actor advances
+toward the enemy with the cheapest complete traversable route to an unoccupied
+adjacent space with line of sight. It takes the furthest reachable step on that
+route using its remaining movement, then reconsiders attacks on the next cycle.
+Existing strike planning includes moving into charge position and takes priority
+over this fallback. If ordinary movement cannot advance it further, it casts
+`Use Move Action` in Advance mode for another speed's worth of movement, provided
+the main action is affordable and a route exists. Minions without a reachable
+signature target use the same fallback; squad target caps still take priority.
+
+Run `../dependencies/lua/bin/lua.exe tests/ai_advance_test.lua` and
+`../dependencies/lua/bin/lua.exe tests/ai_minion_critical_test.lua` from the codex
+root to check route selection, action economy, attack priority, and squad retries.
 
 ### Player reactions during AI movement
 
@@ -528,3 +542,40 @@ Currently implemented in `MonsterAIMonsters.lua`:
 - The scoring info table returned from `score()` is passed directly to `execute()` as `scoringInfo`. You can store arbitrary data in it (e.g., a pre-computed target list).
 - Minions are handled automatically via `ExecuteSquadStrike` -- you generally don't need to register moves for them.
 - The DM can enable/disable individual moves per monster type via the Monster AI panel.
+
+### Charge routes and failed movement
+
+Ground charges use `PlanCharge` on candidate landing squares within melee range,
+not on the occupied target square. Generic straight-line previews interpret the
+input altitude as an offset above ground and must not receive a target token's
+absolute altitude for charge planning. Execution revalidates the landing and uses
+its charge segment's zero-altitude `loc` with straight-line walking; the absolute
+`expectedLoc`/destination is used to verify arrival. Jump-assisted charge plans
+are not currently selected by the AI. Synthetic leap combos retain their separate
+probe and ability execution.
+
+Failed charge routes are excluded for that actor's turn, including when another
+strike registration considers the same route. Failed movement records a transient
+failure even when a band callback discards `ExecuteAbility`'s return value; the
+move loop quarantines the failed registration and considers alternatives. A
+failed minion charge cancels that member's target assignment without cancelling
+other members' strikes.
+
+Run `../dependencies/lua/bin/lua.exe tests/ai_charge_test.lua` and
+`../dependencies/lua/bin/lua.exe tests/ai_advance_test.lua` from the codex root for
+charge altitude, route failure, and fallback regression coverage.
+
+### Altitude-aware targeting
+
+Use `MonsterAI.TargetDistance(actor, target)` for creature range and adjacency
+checks. It combines the engine's horizontal footprint distance with the gap
+between occupied vertical squares, in native units. Absolute token altitude
+includes floor elevation and mounted riders; `tileSize` supplies creature height.
+Use `ai:TargetDistanceFromLoc(actor, target, loc)` for a proposed movement location.
+Ordinary strikes, charge landings, squad assignments, bursts, and direct casts
+check altitude; direct casts and secondary token prompts revalidate actual range.
+Map-wide abilities and placed-area membership keep their existing targeting rules.
+
+Run `../dependencies/lua/bin/lua.exe tests/ai_altitude_test.lua` for range boundaries,
+creature size, theoretical movement, and direct-cast validation. The charge and
+minion tests also cover targets that are vertically out of reach.

@@ -215,6 +215,25 @@ end
 
 local g_registerGameTypes = {}
 
+--Game types the engine registered as placeholders while deserializing data whose type
+--had not been registered yet (see ScriptSerialize.ObjToLua in C#). An entry is cleared
+--when the type is registered for real; anything still here after all code mods have
+--loaded is a typo in a serialized __typeName or a missing/disabled mod.
+local g_placeholderGameTypes = {}
+
+--Remembers the placeholder TABLE, not just the name: a later plain assignment such as
+--`Follower = follower` (an alias for a renamed type) resolves the name without going
+--through RegisterGameType, and must not be reported as still unregistered.
+function MarkPlaceholderGameType(typeName)
+	g_placeholderGameTypes[typeName] = rawget(_G, typeName)
+end
+
+function IsPlaceholderGameType(typeName)
+	local placeholder = g_placeholderGameTypes[typeName]
+	return placeholder ~= nil and rawequal(rawget(_G, typeName), placeholder)
+end
+
+
 local IsDerivedFrom
 IsDerivedFrom = function(a,b)
 	if a == nil or b == nil then
@@ -237,6 +256,9 @@ end
 ---@param baseTypeName? string
 ---@return T
 function RegisterGameType(typeName, baseTypeName)
+
+	--a real registration supersedes any engine placeholder of this name.
+	g_placeholderGameTypes[typeName] = nil
 
 	if baseTypeName ~= nil and baseTypeName ~= typeName and g_registerGameTypes[baseTypeName] == nil then
 		RegisterGameType(baseTypeName)

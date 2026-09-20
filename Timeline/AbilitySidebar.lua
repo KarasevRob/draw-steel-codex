@@ -177,12 +177,13 @@ local function HeartbeatAbilityShare()
 end
 
 -- Begin sharing ability data for the given token.
-local function BeginAbilitySharing(token, ability)
+local function BeginAbilitySharing(token, ability, section)
     g_sharingToken = token
     g_sharingData = {
         casterTokenId = token.charid,
         ability = ability,
         userid = dmhub.loginUserid,
+        section = section,
     }
 
     WriteAbilityShare()
@@ -2768,6 +2769,22 @@ function CharacterPanel.AcquireAbilityRollDialog(token, ability, symbols, displa
     local aiDriven = token ~= nil and token.valid and token.properties ~= nil
         and token.properties._tmp_aicontrol > 0
 
+    --An AI-driven cast never passes through the action bar's targeting UI,
+    --which is the only place sharing normally begins (HighlightAbilitySection
+    --with a caster), so without this the other players never see the Monster
+    --AI's card or its roll. Begin sharing here, now that DisplayAbility has
+    --made this the displayed ability. Gated on the hosting machine and the
+    --AI flag rather than token.canControl: canControl is elevation-aware, and
+    --this cast coroutine does not inherit the AI turn's host elevation past
+    --its first yield, so on a player host it reads false for the monster.
+    if aiDriven and displayed and g_sharingData == nil and g_displayedAbility ~= nil
+        and IsDMOrPlayerHost()
+        and dmhub.GetSettingValue("privaterolls") ~= "dm"
+        and IsTokenOnCurrentTurn(token)
+    then
+        BeginAbilitySharing(token, g_displayedAbility, "main")
+    end
+
     local dialog = CharacterPanel.EmbedDialogInAbility(aiDriven)
     if dialog ~= nil then
         if dialog.data ~= nil then
@@ -2882,6 +2899,43 @@ function CharacterPanel.HighlightAbilitySection(options)
         g_sharingData.section = options.section
         WriteAbilityShare()
     end
+end
+
+--Share the currently displayed ability with the whole table regardless of
+--whose initiative turn it is. HighlightAbilitySection only begins sharing
+--for the token on the current turn (ShouldShareAbility), which is right for
+--combat but leaves rolls made OUTSIDE the initiative queue -- an Encounter of
+--the Week montage roll -- invisible to everyone else. Callers that show a
+--roll every client should watch call this right after DisplayAbility; the
+--embedded dialog's BroadcastDialogState then flows to the read-only remote
+--card exactly as it does on a hero's combat turn, and the share is cleared
+--by the normal hideAbility path. Returns true when sharing began (or was
+--already in progress for this token).
+function CharacterPanel.ShareDisplayedAbility(token, ability)
+    if token == nil or not token.valid or not token.canControl then
+        return false
+    end
+    if g_displayedAbility == nil or (ability ~= nil and g_displayedAbility ~= ability) then
+        return false
+    end
+    if g_sharingData ~= nil then
+        return g_sharingToken ~= nil and g_sharingToken.charid == token.charid
+    end
+    BeginAbilitySharing(token, g_displayedAbility)
+    return true
+end
+
+--The shared ability document, for panels outside this file that want to
+--follow a shared roll (monitorGame on the path, then read the data): the
+--EotW montage stage highlights the tier the live dice are landing on from
+--dialogState.rollId / rollState / highlightedTier, the same fields the
+--remote card's tier table uses.
+function CharacterPanel.AbilityShareDocPath()
+    return mod:GetDocumentPath(g_abilityShareDocId)
+end
+
+function CharacterPanel.GetAbilityShareData()
+    return mod:GetDocumentSnapshot(g_abilityShareDocId).data
 end
 
 -- Update the shared ability data with targeting and modifier information.
