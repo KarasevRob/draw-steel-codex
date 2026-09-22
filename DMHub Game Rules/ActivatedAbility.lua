@@ -1848,6 +1848,9 @@ function ActivatedAbility:SwitchModes(i)
 
     -- Preserve invoke-specific fields through mode switch.
     result.invoker = self:try_get("invoker")
+    -- Including the forced-strike targeting marker: losing it here would put
+    -- the slider back on "Enemies" the moment the player flipped mode.
+    result._tmp_aimedByOpposingCreature = self:try_get("_tmp_aimedByOpposingCreature")
     result.skippable = self:try_get("skippable")
     result.countsAsCast = self:try_get("countsAsCast")
     result.promptOverride = self:try_get("promptOverride")
