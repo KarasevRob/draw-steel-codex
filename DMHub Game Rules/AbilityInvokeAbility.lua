@@ -1173,6 +1173,16 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
 
     options = options or {}
 
+    --When the invoked ability has its own channeledResource, the player chooses how much
+    --of that resource to spend, so a charges value handed down by the invoker must not
+    --carry over. Otherwise In All This Confusion opened with 1 Insight spent (report 5Y6BKQZ4).
+    if symbols ~= nil and symbols.charges ~= nil and abilityClone:try_get("channeledResource", "none") ~= "none" then
+        --Work on a copy: some callers pass in their own cast's symbols, and changing
+        --charges there would change that cast's charges too.
+        symbols = table.shallow_copy(symbols)
+        symbols.charges = abilityClone:DefaultCharges()
+    end
+
     --When the invoke opted out of squad coordination, mirror the abilityClone flag
     --onto the cast caster's properties as a transient depth counter so any cloned/
     --bifurcated/synthesized variant produced downstream is also covered.
