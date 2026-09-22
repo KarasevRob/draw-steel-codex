@@ -1168,11 +1168,12 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
 
     options = options or {}
 
-    --A channeled ability's charges are how much of ITS resource the caster chose to spend,
-    --so one inherited from the invoker is meaningless. A non-channeled trigger's default 1
-    --leaked in here and pre-spent 1 Insight on In All This Confusion (report 5Y6BKQZ4).
+    --When the invoked ability has its own channeledResource, the player chooses how much
+    --of that resource to spend, so a charges value handed down by the invoker must not
+    --carry over. Otherwise In All This Confusion opened with 1 Insight spent (report 5Y6BKQZ4).
     if symbols ~= nil and symbols.charges ~= nil and abilityClone:try_get("channeledResource", "none") ~= "none" then
-        --Copy first: some callers pass their own cast's symbols table.
+        --Work on a copy: some callers pass in their own cast's symbols, and changing
+        --charges there would change that cast's charges too.
         symbols = table.shallow_copy(symbols)
         symbols.charges = abilityClone:DefaultCharges()
     end
