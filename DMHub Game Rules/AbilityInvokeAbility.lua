@@ -1025,6 +1025,11 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                             abilityClone.hideSightlines = true
                         end
 
+                        --Set on the clone because ExecuteInvoke only receives the ability, not this behavior.
+                        if self:try_get("autoSelectInheritedTargets", false) then
+                            abilityClone._tmp_autoSelectInheritedTargets = true
+                        end
+
                         -- Apply forced movement bonuses if this is a forced movement ability
                         local forcedMovementType = abilityClone:try_get("forcedMovement")
                         if forcedMovementType ~= nil then
@@ -1301,6 +1306,9 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
 
     installCastCallbacks(abilityClone)
 
+    --Read once: abilityClone can be swapped for an AI or synthesized choice further down.
+    local autoSelectInherited = abilityClone:try_get("_tmp_autoSelectInheritedTargets", false) == true
+
     local canceled = false
 
     while not finishedCasting do
@@ -1323,6 +1331,43 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
                 canceled = true
             end,
         }
+
+        --prompt_inherit offers the invoking ability's targets, cut down by the optional subset
+        --filter. Worked out before the AI hook below so AI prompt handlers can read
+        --symbols.allowedtargets too.
+        local inheritedSubset = nil
+        if targeting == "prompt_inherit" then
+            inheritedSubset = {}
+            local allowedtargets = {}
+            local inheritedTargets = options.targets or {}
+            --Optional GoblinScript run per inherited target; targets that fail it are left out.
+            --It sees Target and Caster, so Target.PassesPotency("M", Caster.Average) works here.
+            local subsetFilter = options.targetingFormula
+            for _, target in ipairs(inheritedTargets) do
+                if target.token ~= nil then
+                    local passesFilter = true
+                    if subsetFilter ~= nil and trim(subsetFilter) ~= "" then
+                        local filterSymbols = {
+                            target = GenerateSymbols(target.token.properties),
+                            caster = GenerateSymbols(casterToken.properties),
+                            parenttarget = symbols.parenttarget,
+                        }
+                        passesFilter = GoblinScriptTrue(ExecuteGoblinScript(subsetFilter, invokerToken.properties:LookupSymbol(filterSymbols), 0, "Invoke Subset Filter"))
+                    end
+                    if passesFilter then
+                        allowedtargets[target.token.charid] = true
+                        inheritedSubset[#inheritedSubset+1] = target
+                    end
+                end
+            end
+            symbols.allowedtargets = allowedtargets
+
+            --Nobody qualifies, so there is nothing to offer: end without a prompt or a cost.
+            if autoSelectInherited and #inheritedSubset == 0 then
+                print("INVOKE:: no inherited target passes the subset filter, skipping", abilityClone.name)
+                break
+            end
+        end
 
         print("AI:: PUSH:: IN INVOKE token", creature.GetTokenDescription(invokerToken), "targeting =", targeting, "ai", invokerToken.properties._tmp_aicontrol, "promptCallback =", invokerToken.properties._tmp_aipromptCallback, "for", abilityClone.name, coroutine.running())
         --Set when an AI prompt callback answered the prompt: the targets are already
@@ -1351,35 +1396,13 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
             abilityClone.countsAsCast = true
             abilityClone.skippable = true
 
-            if targeting == "prompt_inherit" then
-                local allowedtargets = {}
-                local inheritedTargets = options.targets or {}
-                --Optional subset filter: a GoblinScript formula evaluated per
-                --inherited target. Targets that fail are excluded so the player
-                --can only pick from the filtered subset. Sees Target and Caster;
-                --PassesPotency is a creature function, so a formula like
-                --Target.PassesPotency("M", Caster.Average) works with no ability.
-                local subsetFilter = options.targetingFormula
-                for _, target in ipairs(inheritedTargets) do
-                    if target.token ~= nil then
-                        local passesFilter = true
-                        if subsetFilter ~= nil and trim(subsetFilter) ~= "" then
-                            local filterSymbols = {
-                                target = GenerateSymbols(target.token.properties),
-                                caster = GenerateSymbols(casterToken.properties),
-                                parenttarget = symbols.parenttarget,
-                            }
-                            passesFilter = GoblinScriptTrue(ExecuteGoblinScript(subsetFilter, invokerToken.properties:LookupSymbol(filterSymbols), 0, "Invoke Subset Filter"))
-                        end
-                        if passesFilter then
-                            allowedtargets[target.token.charid] = true
-                        end
-                    end
-                end
-                symbols.allowedtargets = allowedtargets
+            if inheritedSubset ~= nil and autoSelectInherited then
+                --Same hand-off as "formula" targeting: the targets arrive preselected, and a prompt
+                --text keeps the action bar on Confirm/Skip, so the player only accepts or declines.
+                gamehud.actionBarPanel:FireEventTree("invokeAbility", casterToken, abilityClone, symbols, invokerCallback, {instantCast = true, targets = inheritedSubset})
+            else
+                gamehud.actionBarPanel:FireEventTree("invokeAbility", casterToken, abilityClone, symbols, invokerCallback)
             end
-
-            gamehud.actionBarPanel:FireEventTree("invokeAbility", casterToken, abilityClone, symbols, invokerCallback)
         else
             abilityClone.countsAsCast = options.countsAsCast or false
             local targets
@@ -1521,6 +1544,11 @@ ActivatedAbilityInvokeAbilityBehavior.chooseAbilityEmptyText = "You have no abil
 ActivatedAbilityInvokeAbilityBehavior.suppressInvokedActionCost = false
 ActivatedAbilityInvokeAbilityBehavior.targeting = "prompt"
 ActivatedAbilityInvokeAbilityBehavior.inheritRange = false
+
+--"Prompt Player (Inherit)" only. When true, every inherited target that passes the subset
+--filter is preselected, so the player just confirms or skips (set a prompt text, or it casts
+--without asking). If no target passes, the invoke is skipped: no prompt and no cost.
+ActivatedAbilityInvokeAbilityBehavior.autoSelectInheritedTargets = false
 
 function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
 
@@ -1862,6 +1890,7 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
 	}
 
     local targetingFormulaPanel
+    local autoSelectInheritedCheck
 
 	result[#result+1] = gui.Panel{
 		classes = {"formPanel"},
@@ -1882,6 +1911,7 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
 			change = function(element)
 				self.targeting = element.idChosen
                 targetingFormulaPanel:FireEvent("refreshTargeting")
+                autoSelectInheritedCheck:FireEvent("refreshTargeting")
 			end,
 		}
 	}
@@ -1924,6 +1954,21 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
     }
 
     result[#result+1] = targetingFormulaPanel
+
+    autoSelectInheritedCheck = gui.Check{
+        text = "Select All Matching Targets",
+        value = self:try_get("autoSelectInheritedTargets", false),
+        create = function(element)
+            element:SetClass("collapsed", self.targeting ~= "prompt_inherit")
+        end,
+        refreshTargeting = function(element)
+            element:FireEvent("create")
+        end,
+        change = function(element)
+            self.autoSelectInheritedTargets = element.value
+        end,
+    }
+    result[#result+1] = autoSelectInheritedCheck
 
     result[#result+1] = gui.Check{
         text = "Auto-select targets when possible",
