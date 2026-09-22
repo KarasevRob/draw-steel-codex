@@ -1168,6 +1168,15 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
 
     options = options or {}
 
+    --A channeled ability's charges are how much of ITS resource the caster chose to spend,
+    --so one inherited from the invoker is meaningless. A non-channeled trigger's default 1
+    --leaked in here and pre-spent 1 Insight on In All This Confusion (report 5Y6BKQZ4).
+    if symbols ~= nil and symbols.charges ~= nil and abilityClone:try_get("channeledResource", "none") ~= "none" then
+        --Copy first: some callers pass their own cast's symbols table.
+        symbols = table.shallow_copy(symbols)
+        symbols.charges = abilityClone:DefaultCharges()
+    end
+
     --When the invoke opted out of squad coordination, mirror the abilityClone flag
     --onto the cast caster's properties as a transient depth counter so any cloned/
     --bifurcated/synthesized variant produced downstream is also covered.
