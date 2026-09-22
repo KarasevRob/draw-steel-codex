@@ -606,15 +606,13 @@ local function MakeTitleRule()
 end
 
 --------------------------------------------------------------------------------
---Hero: full-bleed key art drifting very slowly, a left-hand scrim, and the
+--Hero: full-bleed key art (still), a left-hand scrim, and the
 --title, pitch, tags and buy button over it.
 --------------------------------------------------------------------------------
 local function MakeHero(width, height)
-    local m_dims = nil
-    local m_time = 0
-
-    local art
-    art = gui.Panel{
+    --A still image, cover-cropped to the strip. v keeps the upper part of the
+    --art: key art is usually taller than this strip, and faces sit high.
+    local art = gui.Panel{
         floating = true,
         width = width,
         height = height,
@@ -622,23 +620,7 @@ local function MakeHero(width, height)
         bgcolor = "#ffffff00",
         interactable = false,
 
-        think = function(element)
-            if m_dims == nil then
-                return
-            end
-            m_time = m_time + element.thinkTime
-            --a very slow, shallow drift: a few percent of zoom, one cycle
-            --every couple of minutes.
-            --v stays in the upper part of the art: key art is usually taller
-            --than this strip, and faces sit high in the frame.
-            local u = 0.5 + 0.5 * math.sin(m_time / 19)
-            local v = 0.25 + 0.15 * math.sin(m_time / 27)
-            element.selfStyle.imageRect = CoverWindow(width, height, m_dims.width, m_dims.height, 1.06, u, v)
-        end,
-
         showArt = function(element, imageid)
-            m_dims = nil
-            element.thinkTime = nil
             element.selfStyle.bgcolor = "#ffffff00"
             if imageid == nil then
                 return
@@ -651,12 +633,8 @@ local function MakeHero(width, height)
                 if dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
                     return
                 end
-                m_dims = dims
-                element.selfStyle.imageRect = CoverWindow(width, height, dims.width, dims.height, 1.06, 0.5, 0.25)
+                element.selfStyle.imageRect = CoverWindow(width, height, dims.width, dims.height, 1, 0.5, 0.25)
                 element.selfStyle.bgcolor = "#ffffffff"
-                if not ReduceMotion() then
-                    element.thinkTime = 0.05
-                end
             end)
         end,
     }

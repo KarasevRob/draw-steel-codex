@@ -4865,6 +4865,13 @@ local function CreateShopScreenInternal(arguments)
 				element:FireEventTree("showProductDetails", item)
 				element:FireEventTree("refreshCart", m_shoppingCart)
 
+				--Opening a product starts at the top of its page. Not on a
+				--re-fire from inside the page (source == nil, e.g. a gallery
+				--press), which should keep the reader's place.
+				if source ~= nil then
+					element:FireEventTree("scrollToTop")
+				end
+
 				--Funnel attribution: which surface brought the user to this
 				--product page -- "featuredBanner" (top banner's View Dice),
 				--"productTile" (grid cards below), "cartRow", or "bundleLink".
@@ -5077,6 +5084,10 @@ local function CreateShopScreenInternal(arguments)
 				height = "100%-40",
 				vscroll = true,
 				flow = "vertical",
+
+				scrollToTop = function(element)
+					element.vscrollPosition = 1
+				end,
 
 				gui.Panel{
 					flow = "vertical",
