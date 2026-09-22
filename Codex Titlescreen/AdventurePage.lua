@@ -59,6 +59,10 @@ function AdventurePage.Has(item)
     return AdventurePage.Read(item) ~= nil
 end
 
+--The book fan shows the cover plus at most this many sample pages, three each
+--side, in fixed slots the editor names L1-L3 and R1-R3.
+AdventurePage.maxBookPages = 6
+
 --Image size lookups for any image id a page stores: asset guids, and the
 --"md5:<blob>" ids Fill from adventure writes. Two engine details this covers:
 --the size lookup wants a blob id WITHOUT the "md5:" prefix (bgimage wants it
@@ -334,7 +338,7 @@ function AdventurePage.AutoFill(item, callback)
                     --a single page-shaped image is usually another copy of the
                     --cover; fanning needs at least two real pages.
                     if #tall >= 2 then
-                        for i = 1, math.min(#tall, 6) do
+                        for i = 1, math.min(#tall, AdventurePage.maxBookPages) do
                             cfg.media.book.pages[#cfg.media.book.pages + 1] = tall[i].id
                         end
                     end
@@ -551,6 +555,56 @@ local function PickHeroImage(item, cfg, callback)
     end
 end
 
+--The rule under the hero title, after the dividers on the book covers: a thin
+--line with a diamond at its left end.
+local g_ruleWidth = 520
+local g_ruleDiamond = 10
+
+local function MakeTitleRule()
+    return gui.Panel{
+        flow = "none",
+        width = g_ruleWidth,
+        height = 16,
+        tmargin = 10,
+        --sits a little left of the title, like the cover rules overhang their text.
+        x = -10,
+        interactable = false,
+
+        --starts under the diamond's centre so the two read as one piece.
+        gui.Panel{
+            floating = true,
+            halign = "left",
+            valign = "center",
+            x = g_ruleDiamond / 2,
+            width = g_ruleWidth - g_ruleDiamond / 2,
+            height = 2,
+            bgimage = "panels/square.png",
+            bgcolor = g_textBody,
+            --solid from the diamond, fading out over the right-hand stretch.
+            gradient = gui.Gradient{
+                point_a = {x = 0, y = 0.5},
+                point_b = {x = 1, y = 0.5},
+                stops = {
+                    {position = 0, color = core.Color{r = 1, g = 1, b = 1, a = 1}},
+                    {position = 0.55, color = core.Color{r = 1, g = 1, b = 1, a = 1}},
+                    {position = 1, color = core.Color{r = 1, g = 1, b = 1, a = 0}},
+                },
+            },
+        },
+
+        gui.Panel{
+            floating = true,
+            halign = "left",
+            valign = "center",
+            width = g_ruleDiamond,
+            height = g_ruleDiamond,
+            rotate = 45,
+            bgimage = "panels/square.png",
+            bgcolor = g_textStrong,
+        },
+    }
+end
+
 --------------------------------------------------------------------------------
 --Hero: full-bleed key art drifting very slowly, a left-hand scrim, and the
 --title, pitch, tags and buy button over it.
@@ -649,9 +703,12 @@ local function MakeHero(width, height)
         },
     }
 
+    --the MCDM display face, as on the book covers.
     local title = gui.Label{
-        fontFace = g_serif,
+        fontFace = "display",
         fontSize = 56,
+        --nudged down toward the rule; a pure offset, so nothing else moves.
+        y = 8,
         color = g_textStrong,
         width = 560,
         height = "auto",
@@ -707,6 +764,7 @@ local function MakeHero(width, height)
             y = -52,
 
             title,
+            MakeTitleRule(),
             tagline,
             tagsRow,
             gui.Panel{
@@ -848,7 +906,8 @@ local g_maxArt = 3
 
 --The caption band along the stage's bottom: a scrim that melts into the art,
 --a headline ("3 maps included") and an optional smaller line under it.
-local function MakeCaption(width, stageH)
+--plain = true drops the scrim, for a slide with no art behind its caption.
+local function MakeCaption(width, stageH, plain)
     local headline = gui.Label{
         fontFace = g_serif,
         fontSize = 24,
@@ -873,9 +932,9 @@ local function MakeCaption(width, stageH)
         valign = "bottom",
         interactable = false,
         bgimage = "panels/square.png",
-        bgcolor = "#000000ff",
+        bgcolor = cond(plain, "#00000000", "#000000ff"),
         --position 0 is the BOTTOM of the panel.
-        gradient = gui.Gradient{
+        gradient = cond(plain, nil, gui.Gradient{
             point_a = {x = 0.5, y = 0},
             point_b = {x = 0.5, y = 1},
             stops = {
@@ -883,14 +942,14 @@ local function MakeCaption(width, stageH)
                 {position = 0.45, color = core.Color{r = 1, g = 1, b = 1, a = 0.72}},
                 {position = 1, color = core.Color{r = 1, g = 1, b = 1, a = 0}},
             },
-        },
+        }),
         gui.Panel{
             flow = "vertical",
             width = "auto",
             height = "auto",
             halign = "center",
             valign = "bottom",
-            bmargin = 22,
+            bmargin = cond(plain, 0, 22),
             headline,
             subline,
         },
@@ -903,11 +962,47 @@ local function MakeCaption(width, stageH)
     }
 end
 
---Tab 1: the cover front and centre with pages fanned out behind it,
---alternating left and right, each step further out, tilted and darker, so the
---spread fills the frame.
+--The cover card's size and height in the fan, set by sliders in the editor
+--and stored on media.book: coverScale (1 = same height as the pages) and
+--coverY (a fraction of a page's height, + moves it down). Takes the book
+--table, or the book slide, which carries both fields over.
+AdventurePage.coverScaleMin = 0.7
+AdventurePage.coverScaleMax = 1.4
+AdventurePage.coverYMin = -0.3
+AdventurePage.coverYMax = 0.3
+
+function AdventurePage.CoverScale(book)
+    local v = tonumber(book and book.coverScale) or 1
+    return math.max(AdventurePage.coverScaleMin, math.min(AdventurePage.coverScaleMax, v))
+end
+
+function AdventurePage.CoverY(book)
+    local v = tonumber(book and book.coverY) or 0
+    return math.max(AdventurePage.coverYMin, math.min(AdventurePage.coverYMax, v))
+end
+
+--The book fan: every card is the same height and takes its own image's
+--shape, so a page is always shown whole (US Letter PDFs, A4, odd scans alike).
+--A card starts as A4 (1 : sqrt 2, the recommended size) until its image's size
+--is known. The fan turns each card about a shared point below the cards' bottom
+--edge, so the pages spread like a hand of cards. Angle per step out from the
+--cover, and where the pivot sits (fraction of a card's height below its bottom edge).
+local g_pageAspect = 1 / math.sqrt(2)
+--shapes outside this range (a panorama, a strip) are cropped to its edge
+--rather than making a card absurdly wide or thin.
+local g_pageAspectMin = 0.5
+local g_pageAspectMax = 1.0
+local g_fanStepDegrees = 9
+--sideways shift per step out from the cover, so the fan is wide without
+--leaning further.
+local g_fanStepSpread = 70
+local g_fanPivotBelow = 0.25
+
+--Tab 1: the cover front and centre with the pages fanned out behind it,
+--alternating left and right, each step further out, tilted and darker. No
+--frame or background: the fan stands on the page and may overhang the stage.
 local function MakeBookSlide(width, stageH)
-    local caption = MakeCaption(width, stageH)
+    local caption = MakeCaption(width, stageH, true)
     local spread = gui.Panel{
         floating = true,
         flow = "none",
@@ -947,20 +1042,45 @@ local function MakeBookSlide(width, stageH)
                 if dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
                     return
                 end
-                --every page shares the cover's size and shape.
-                local pageH = math.floor(stageH * 0.8)
-                local pageW = math.floor(pageH * dims.width / dims.height)
-                local lift = -30
+                --cards sized so the fan sits above the caption.
+                local pageH = math.floor(stageH * 0.74)
+                local pageW = math.floor(pageH * g_pageAspect)
+                local lift = -40
+                local pivot = {x = 0.5, y = -g_fanPivotBelow}
 
-                local function Page(imageid, x, rotate, brightness)
+                --a card and its shadow, returned shadow first (it draws
+                --underneath). Both are A4 until the image's size arrives, then
+                --both take its width.
+                --scale and dy (pixels, + is down) are only used for the cover,
+                --which the editor can resize and move.
+                local function Card(imageid, x, rotate, brightness, shadowAlpha, scale, dy)
+                    local cardH = math.floor(pageH * (scale or 1))
+                    local cardW = math.floor(cardH * g_pageAspect)
+                    local cardY = lift + (dy or 0)
+                    local shadow = gui.Panel{
+                        floating = true,
+                        halign = "center",
+                        valign = "center",
+                        x = x + 8,
+                        y = cardY + 10,
+                        width = cardW,
+                        height = cardH,
+                        pivot = pivot,
+                        rotate = rotate,
+                        bgimage = "panels/square.png",
+                        bgcolor = string.format("#000000%02x", math.floor(shadowAlpha * 255)),
+                        cornerRadius = 4,
+                        interactable = false,
+                    }
                     local page = gui.Panel{
                         floating = true,
                         halign = "center",
                         valign = "center",
                         x = x,
-                        y = lift,
-                        width = pageW,
-                        height = pageH,
+                        y = cardY,
+                        width = cardW,
+                        height = cardH,
+                        pivot = pivot,
                         rotate = rotate,
                         bgimage = "panels/square.png",
                         bgcolor = "#ffffff10",
@@ -969,46 +1089,51 @@ local function MakeBookSlide(width, stageH)
                     --set through selfStyle: brightness given at construction does not stick.
                     page.selfStyle.brightness = brightness
                     page.selfStyle.saturation = 0.6 + 0.4 * brightness
-                    ShowCovered(page, imageid, pageW, pageH, 0.5)
-                    return page
-                end
-
-                --a soft dark slab under a page, offset down-right, as its shadow.
-                local function Shadow(x, rotate, alpha)
-                    return gui.Panel{
-                        floating = true,
-                        halign = "center",
-                        valign = "center",
-                        x = x + 10,
-                        y = lift + 14,
-                        width = pageW,
-                        height = pageH,
-                        rotate = rotate,
-                        bgimage = "panels/square.png",
-                        bgcolor = string.format("#000000%02x", math.floor(alpha * 255)),
-                        cornerRadius = 4,
-                        interactable = false,
-                    }
+                    page.bgimage = imageid
+                    AdventurePage.ImageDimensions(imageid, function(d)
+                        if mod.unloaded or not page.valid or page.bgimage ~= imageid then
+                            return
+                        end
+                        if d == nil or (d.width or 0) <= 0 or (d.height or 0) <= 0 then
+                            return
+                        end
+                        local aspect = math.max(g_pageAspectMin, math.min(g_pageAspectMax, d.width / d.height))
+                        local w = math.floor(cardH * aspect)
+                        page.selfStyle.width = w
+                        if shadow.valid then
+                            shadow.selfStyle.width = w
+                        end
+                        --whole image unless it was clamped above.
+                        page.selfStyle.imageRect = CoverWindow(w, cardH, d.width, d.height, 1, 0.5, 0.5)
+                        page.selfStyle.bgcolor = "#ffffffff"
+                    end)
+                    return shadow, page
                 end
 
                 --pages outermost first so each nearer page draws over the last.
+                --Slots are fixed (L1, R1, L2, R2, L3, R3): each filled one keeps
+                --its place, and an empty one ("") is simply left out.
                 local pages = slide.pages or {}
-                local steps = math.ceil(#pages / 2)
+                local steps = math.ceil(AdventurePage.maxBookPages / 2)
                 local children = {}
                 for step = steps, 1, -1 do
                     for side = -1, 1, 2 do
                         local index = (step - 1) * 2 + cond(side < 0, 1, 2)
                         local imageid = pages[index]
-                        if imageid ~= nil then
-                            local x = side * step * pageW * 0.46
-                            local rotate = -side * step * 3.5
-                            children[#children + 1] = Shadow(x, rotate, 0.35)
-                            children[#children + 1] = Page(imageid, x, rotate, 0.55 - 0.15 * (step - 1))
+                        if imageid ~= nil and imageid ~= "" then
+                            --positive turns counterclockwise, so left cards lean left.
+                            local rotate = -side * step * g_fanStepDegrees
+                            local x = side * step * g_fanStepSpread
+                            local shadow, page = Card(imageid, x, rotate, 0.6 - 0.12 * (step - 1), 0.35)
+                            children[#children + 1] = shadow
+                            children[#children + 1] = page
                         end
                     end
                 end
-                children[#children + 1] = Shadow(0, 0, 0.55)
-                children[#children + 1] = Page(cover, 0, 0, 1)
+                local coverShadow, coverPage = Card(cover, 0, 0, 1, 0.55,
+                    AdventurePage.CoverScale(slide), math.floor(AdventurePage.CoverY(slide) * pageH))
+                children[#children + 1] = coverShadow
+                children[#children + 1] = coverPage
                 spread.children = children
             end)
         end,
@@ -1151,6 +1276,12 @@ local function MakeMapsSlide(width, stageH)
         flow = "none",
         width = width,
         height = stageH,
+        --the dark, clipped frame the map pans inside (the stage itself is bare,
+        --so the book fan can overhang it).
+        clip = true,
+        bgimage = "panels/square.png",
+        bgcolor = "#0e0e10ff",
+        cornerRadius = 8,
 
         layerHost,
         caption,
@@ -1227,6 +1358,11 @@ local function MakeArtSlide(width, stageH)
         flow = "none",
         width = width,
         height = stageH,
+        --dark frame the art is letterboxed in.
+        clip = true,
+        bgimage = "panels/square.png",
+        bgcolor = "#0e0e10ff",
+        cornerRadius = 8,
 
         image,
         caption,
@@ -1264,6 +1400,7 @@ local function SlidesFromConfig(cfg)
     local book = media.book
     if type(book) == "table" and type(book.cover) == "string" and book.cover ~= "" then
         slides[#slides + 1] = {kind = "book", cover = book.cover, pages = book.pages or {}, subtitle = book.subtitle,
+                               coverScale = book.coverScale, coverY = book.coverY,
                                thumb = book.cover, label = "The book"}
     end
 
@@ -1300,10 +1437,8 @@ local function MakeMediaViewer(width, stageH)
         width = width,
         height = stageH,
         flow = "none",
-        clip = true,
-        bgimage = "panels/square.png",
-        bgcolor = "#0e0e10ff",
-        cornerRadius = 8,
+        --bare: each slide brings its own frame, and the book has none so its
+        --fan can stick out past the stage.
         styles = {
             {selectors = {"adventurePin"}, opacity = 0, transitionTime = 1.2},
             {selectors = {"adventurePin", "pinShown"}, opacity = 1, transitionTime = 1.2},
@@ -1637,7 +1772,11 @@ local function MakeBuyBox(width)
     local m_moduleid = nil
 
     local function ShowLines(lines)
-        insideList.text = table.concat(lines, "\n")
+        local bulleted = {}
+        for i, line in ipairs(lines) do
+            bulleted[i] = "\u{2022}  " .. line
+        end
+        insideList.text = table.concat(bulleted, "\n")
         insideSection:SetClass("collapsed", #lines == 0)
     end
 
