@@ -4306,6 +4306,14 @@ end
 --- @param maxInstances number
 --- @param newTokenid string
 function creature:CheckConditionInstances(conditionid, maxInstances, newTokenid)
+    --Track the new target now: the caster's list otherwise only fills in when the
+    --target token refreshes, so a multi-target cast (e.g. a two-target Mark) would
+    --not count its own earlier targets and would exceed the limit.
+    local newToken = dmhub.GetTokenById(newTokenid)
+    if newToken ~= nil then
+        self:NotifyConditionCaster(newToken, conditionid)
+    end
+
     local conditionCasterSource = self:try_get("_tmp_conditionCasterSource")
     if conditionCasterSource == nil then
         return
