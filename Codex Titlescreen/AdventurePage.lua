@@ -868,6 +868,39 @@ end
 local g_mapTypes = {"map", "maps"}
 local g_pdfTypes = {"pdfdocument"}
 
+--The kinds of content the page counts, keyed as cfg.counts stores them.
+AdventurePage.countTypes = {
+    maps = g_mapTypes,
+    monsters = {"monster"},
+    characters = {"character"},
+    treasures = {"object:tbl_gear"},
+    titles = {"object:titles"},
+    pdfs = g_pdfTypes,
+}
+
+--The module's counts with the editor's cfg.counts overrides applied. An
+--override replaces the module's number for that kind; a missing one keeps it.
+local function ApplyCountOverrides(counts, cfg)
+    local overrides = type(cfg) == "table" and cfg.counts or nil
+    if type(overrides) ~= "table" then
+        return counts
+    end
+    local result = {}
+    for kind, n in pairs(counts) do
+        result[kind] = n
+    end
+    for key, types in pairs(AdventurePage.countTypes) do
+        local n = tonumber(overrides[key])
+        if n ~= nil then
+            for _, kind in ipairs(types) do
+                result[kind] = nil
+            end
+            result[types[1]] = math.max(0, math.floor(n))
+        end
+    end
+    return result
+end
+
 --------------------------------------------------------------------------------
 --Media viewer: a stage plus a row of labelled tabs, one per slide:
 --  the book -- the cover, with pages fanned out behind it ("1 PDF included")
@@ -1001,7 +1034,9 @@ local function MakeBookSlide(width, stageH)
         showSlide = function(element, slide, counts)
             local pdfs = CountOf(counts or {}, g_pdfTypes)
             if pdfs > 0 then
-                caption:FireEvent("setCaption", Plural(pdfs, "PDF", "PDFs") .. " included", slide.subtitle)
+                --A single PDF is the adventure book itself, so it reads "Full PDF".
+                local headline = cond(pdfs == 1, "Full PDF", Plural(pdfs, "PDF", "PDFs"))
+                caption:FireEvent("setCaption", headline .. " included", slide.subtitle)
             else
                 caption:FireEvent("setCaption", slide.subtitle or "", nil)
             end
@@ -1541,7 +1576,7 @@ local function MakeMediaViewer(width, stageH)
                 if mod.unloaded or not element.valid or m_moduleid ~= moduleid then
                     return
                 end
-                m_counts = counts
+                m_counts = ApplyCountOverrides(counts, cfg)
                 if m_panels[m_selected] ~= nil then
                     m_panels[m_selected]:FireEvent("showSlide", m_slides[m_selected], m_counts)
                 end
@@ -1683,13 +1718,15 @@ end
 --Body, right column: the buy box -- price, button, what's inside.
 --------------------------------------------------------------------------------
 
---What the module's contentSummary counts become, in display order.
+--What the module's contentSummary counts become, in display order. A def
+--with text shows that fixed line (no number) whenever its count is above 0.
 local g_insideDefs = {
-    {one = "battle map", many = "battle maps", types = {"map", "maps"}},
-    {one = "monster", many = "monsters", types = {"monster"}},
-    {one = "character", many = "characters", types = {"character"}},
-    {one = "treasure", many = "treasures", types = {"object:tbl_gear"}},
-    {one = "handout (PDF)", many = "handouts (PDF)", types = {"pdfdocument"}},
+    {one = "battle map", many = "battle maps", types = g_mapTypes},
+    {one = "monster", many = "monsters", types = AdventurePage.countTypes.monsters},
+    {one = "NPC", many = "NPCs", types = AdventurePage.countTypes.characters},
+    {one = "treasure", many = "treasures", types = AdventurePage.countTypes.treasures},
+    {one = "title", many = "titles", types = AdventurePage.countTypes.titles},
+    {text = "Director PDF", types = g_pdfTypes},
 }
 
 local function InsideLines(counts)
@@ -1697,7 +1734,7 @@ local function InsideLines(counts)
     for _, def in ipairs(g_insideDefs) do
         local total = CountOf(counts, def.types)
         if total > 0 then
-            lines[#lines + 1] = Plural(total, def.one, def.many)
+            lines[#lines + 1] = def.text or Plural(total, def.one, def.many)
         end
     end
     return lines
@@ -1790,7 +1827,7 @@ local function MakeBuyBox(width)
                 if mod.unloaded or not element.valid or m_moduleid ~= moduleid then
                     return
                 end
-                ShowLines(InsideLines(counts))
+                ShowLines(InsideLines(ApplyCountOverrides(counts, cfg)))
             end)
         end,
     }

@@ -420,6 +420,33 @@ function AdventurePageEditor.Create()
     })
 
     ----------------------------------------------------------------------
+    --What's inside: per-kind overrides for the counts the page reads from
+    --the module (cfg.counts[key]). Empty means "use the module's number".
+    ----------------------------------------------------------------------
+    local g_countFields = {
+        {key = "pdfs", label = "PDFs:"},
+        {key = "maps", label = "Battle maps:"},
+        {key = "monsters", label = "Monsters:"},
+        {key = "characters", label = "NPCs:"},
+        {key = "treasures", label = "Treasures:"},
+        {key = "titles", label = "Titles:"},
+    }
+    local countFields = {}
+    for _, field in ipairs(g_countFields) do
+        countFields[#countFields + 1] = TextField(field.label,
+            function(cfg)
+                local n = cfg.counts ~= nil and cfg.counts[field.key] or nil
+                return n ~= nil and tostring(n) or ""
+            end,
+            function(cfg, v)
+                cfg.counts = cfg.counts or {}
+                cfg.counts[field.key] = tonumber(v)
+            end, {width = 80, limit = 4, placeholder = "auto"})
+    end
+    countFields[#countFields + 1] = Hint("Leave empty to count from the module. 1 PDF shows as \"Full PDF included\"; 0 hides a line.")
+    local insideSection = Section("What's inside", "the counts in the buy box and captions", countFields)
+
+    ----------------------------------------------------------------------
     --The book: seven named slots laid out like the fan on the store --
     --L3 L2 L1 Cover R1 R2 R3. Pages are stored as one list in fan order
     --(L1, R1, L2, R2, L3, R3); an empty slot is "" and is skipped on the store.
@@ -1199,6 +1226,7 @@ function AdventurePageEditor.Create()
         halign = "left",
         heroSection,
         aboutSection,
+        insideSection,
         bookSection,
         mapsSection,
         artSection,
