@@ -38,6 +38,13 @@ local g_settingTargetObjects = setting {
 --Reports NZZ7QH5W / 5FFRQ2DF / 9TYWTXFB.
 local g_targetModeAbilityKey = nil
 
+--Which ability the player deliberately clicked "Enemies" on while another
+--creature was directing the cast. Such a cast does not open on "Enemies" (see
+--GetTargetMode), but the position stays on the slider, and this is what makes
+--one click on it stick instead of being overridden straight back. Mirrors
+--g_targetModeAbilityKey above, including being nil at load.
+local g_targetModeEnemiesAbilityKey = nil
+
 --- @param ability ActivatedAbility
 --- @return string Not every ability carries a guid, so fall back to the name.
 local function TargetModeKey(ability)
@@ -112,6 +119,18 @@ end
 function ActivatedAbility:GetTargetMode()
     local value = g_settingTargetObjects:Get()
     local options = self:TargetModeOptions()
+
+    --"Enemies" is evaluated against the creature making the strike, so on a
+    --cast another creature is directing (a monster forcing its victim to strike
+    --"a creature of the attacker's choice") it withholds the victim's own
+    --allies -- precisely the creatures the attacker may name -- and reads as a
+    --prohibition. Such a cast opens on "Creatures" instead. The position itself
+    --is left on the slider, since a deliberate click on it is still a choice
+    --the player is entitled to make. Report 2P99A7MU.
+    if value == "enemies" and self:try_get("_tmp_aimedByOpposingCreature", false)
+        and g_targetModeEnemiesAbilityKey ~= TargetModeKey(self) then
+        value = false
+    end
 
     --another ability's "Objects" says nothing about this one: use our default.
     if value == true and g_targetModeAbilityKey ~= TargetModeKey(self) then
@@ -2793,6 +2812,10 @@ function ActivatedAbility:Render(options, params)
                                 if element.value == true then
                                     g_targetModeAbilityKey = TargetModeKey(self)
                                 end
+                                --see g_targetModeEnemiesAbilityKey.
+                                if element.value == "enemies" then
+                                    g_targetModeEnemiesAbilityKey = TargetModeKey(self)
+                                end
                                 g_settingTargetObjects:Set(element.value)
                             end,
                         },
@@ -3474,6 +3497,41 @@ function ActivatedAbility:CanTargetAdditionalTimes(casterToken, symbols, targets
     end
 
     return false
+end
+
+--A minion squad's critical hit gives every participating minion another main
+--action, not only the minion whose token made the power roll. The Critical Hit
+--global rule mod is a rollpower trigger whose action replenish applies to the
+--caster; when that roll came from a squad strike, MCDMAbilityRollBehavior stamps
+--the participants' ids on the trigger info, which becomes the triggered cast's
+--symbols. Widen the replenish to those minions. Spent nonparticipants stay spent.
+local g_replenishCast_base = ActivatedAbilityReplenishBehavior.Cast
+function ActivatedAbilityReplenishBehavior:Cast(ability, casterToken, targets, options)
+    local participantIds = options ~= nil and options.symbols ~= nil
+        and options.symbols.squadparticipantids or nil
+    if type(participantIds) == "table" and self.applyto == "caster"
+        and self:try_get("resourceid") == CharacterResource.actionResourceId
+        and casterToken ~= nil and casterToken.valid then
+        local present = {}
+        for _,target in ipairs(targets) do
+            if target.token ~= nil then
+                present[target.token.charid] = true
+            end
+        end
+        local widened = table.shallow_copy(targets)
+        for _,charid in ipairs(participantIds) do
+            if not present[charid] then
+                local tok = dmhub.GetCharacterById(charid)
+                if tok ~= nil and tok.valid and tok.properties ~= nil
+                    and tok.properties.minion and not tok.properties:IsDead() then
+                    present[charid] = true
+                    widened[#widened+1] = {token = tok}
+                end
+            end
+        end
+        targets = widened
+    end
+    return g_replenishCast_base(self, ability, casterToken, targets, options)
 end
 
 local function GetTargetsWithTokens(targets)

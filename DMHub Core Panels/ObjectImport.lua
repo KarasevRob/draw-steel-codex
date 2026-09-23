@@ -635,3 +635,221 @@ dmhub.ObjectDirectImport = function(path, point)
         end
     end)
 end
+
+--Split a placed object whose image contains multiple pieces separated by
+--transparency into separate placed objects, each staying at its current
+--spot on the map. Re-runs the sheet importer on the object's existing
+--image asset, uploads each region as a new object, spawns them at the
+--original's position offset by each region's location within the image,
+--then deletes the original.
+local function SplitPlacedObject(original)
+    dmhub.Coroutine(function()
+        local importer = dmhub.CreateObjectImporter{
+            imageids = { original.displayImageId },
+            threshold = 0,
+            breakup = true,
+        }
+
+        local startTime = dmhub.Time()
+        while importer.percentComplete < 1 do
+            coroutine.yield(0.1)
+            if dmhub.Time() > startTime + 60 then
+                importer:Destroy()
+                gui.ModalMessage{
+                    title = "Split Object",
+                    message = "Timed out reading the object's image.",
+                }
+                return
+            end
+        end
+
+        local sheet = importer.sheets[1]
+        local regions = nil
+        if sheet ~= nil then
+            regions = sheet.regions
+        end
+
+        if regions == nil or #regions < 2 then
+            importer:Destroy()
+            gui.ModalMessage{
+                title = "Split Object",
+                message = "This object's image is a single connected piece; there is nothing to split. Pieces must be separated by transparent space.",
+            }
+            return
+        end
+
+        local baseName = "Object"
+        pcall(function()
+            if original.name ~= nil and original.name ~= "" then
+                baseName = original.name
+            end
+        end)
+
+        --last point where backing out is free: the piece count is known, but no
+        --textures have been generated and nothing has been uploaded yet. The
+        --original is replaced, so make the user agree to the real piece count.
+        local decision = nil
+        DTConfirmationDialog.ShowModal(
+            "Split Object",
+            string.format("Split \"%s\" into %d separate objects? The original object is replaced by the pieces.", baseName, #regions),
+            "Split",
+            "Cancel",
+            function() decision = "confirm" end,
+            function() decision = "cancel" end)
+
+        while decision == nil do
+            coroutine.yield(0.1)
+        end
+
+        if decision ~= "confirm" then
+            importer:Destroy()
+            return
+        end
+
+        --touching sizeInfo forces the importer to generate the textures Upload needs.
+        local _ = importer.sizeInfo
+
+        --put the pieces in the same palette folder as the original's
+        --blueprint. imageid is the blueprint asset guid when the object was
+        --placed from the palette (an md5: value means an inline image with
+        --no blueprint, so the pieces go to the root).
+        local parentFolder = nil
+        pcall(function()
+            local assetid = original.imageid
+            if assetid ~= nil and string.sub(assetid, 1, 4) ~= "md5:" then
+                local node = assets:GetObjectNode(assetid)
+                if node ~= nil then
+                    parentFolder = node.parentFolder
+                end
+            end
+        end)
+
+        local descriptions = {}
+        for i, region in ipairs(regions) do
+            descriptions[region.imageid] = string.format("%s %d", baseName, i)
+        end
+
+        --capture the original's transform before it can change under us.
+        local originX = original.x
+        local originY = original.y
+        local objScale = original.scale
+        local objRotation = original.rotation
+        local objZOrder = original.zorder
+
+        --capture the original's Core properties (elevation, height, shadows,
+        --sublayer, keywords, ...) so the pieces keep them. The pivot is
+        --excluded: piece positions are computed as region centers, which
+        --assumes the default centered pivot.
+        local coreProps = {}
+        pcall(function()
+            local core = original:GetComponent("Core")
+            for _, f in ipairs(core.fields) do
+                --f.id is the raw C# field name SetProperty expects; f.name does
+                --not exist on component fields (unknown userdata reads yield nil).
+                local fieldName = f.id
+                if fieldName ~= "pivot_x" and fieldName ~= "pivot_y" then
+                    coreProps[#coreProps + 1] = { name = fieldName, value = f.currentValue }
+                end
+            end
+        end)
+
+        --object images render at 128 source pixels per tile; a piece's world
+        --offset is its region center relative to the image center (objects
+        --pivot at their center), scaled and rotated with the object.
+        local srcW = sheet.width
+        local srcH = sheet.height
+        local worldPerPixel = objScale / 128
+        local rad = math.rad(objRotation)
+        local cosr = math.cos(rad)
+        local sinr = math.sin(rad)
+
+        local operation = dmhub.CreateNetworkOperation()
+        operation.progress = 0
+        operation.description = "Splitting Object"
+        operation.status = "Uploading..."
+        operation:Update()
+
+        importer:Upload{
+            imageDescriptions = descriptions,
+            folder = parentFolder,
+            progress = function(percent, desc)
+                operation.progress = percent * 0.9
+                operation:Update()
+            end,
+            complete = function(guids, guidsByImage)
+                dmhub.Coroutine(function()
+                    local placed = 0
+                    for _, region in ipairs(regions) do
+                        local guid = guidsByImage[region.imageid]
+                        if guid ~= nil then
+                            --region x/y are bottom-origin pixels, matching world +y up.
+                            local dx = (region.x + region.width * 0.5 - srcW * 0.5) * worldPerPixel
+                            local dy = (region.y + region.height * 0.5 - srcH * 0.5) * worldPerPixel
+                            local worldX = originX + dx * cosr - dy * sinr
+                            local worldY = originY + dx * sinr + dy * cosr
+
+                            --wait for the freshly uploaded asset to become spawnable.
+                            for attempt = 1, 100 do
+                                local piece = game.currentFloor:SpawnObjectLocal(guid, {
+                                    posx = worldX,
+                                    posy = worldY,
+                                    zorder = objZOrder,
+                                })
+                                if piece ~= nil then
+                                    pcall(function()
+                                        local pieceCore = piece:GetComponent("Core")
+                                        for _, p in ipairs(coreProps) do
+                                            pcall(function() pieceCore:SetProperty(p.name, p.value) end)
+                                        end
+                                    end)
+                                    --explicit fallback in case the generic copy failed;
+                                    --these two also drive the placement math.
+                                    piece.scale = objScale
+                                    piece.rotation = objRotation
+                                    piece:Upload()
+                                    placed = placed + 1
+                                    break
+                                else
+                                    coroutine.yield(0.01)
+                                end
+                            end
+                        end
+                    end
+
+                    --only remove the original once every piece made it onto the map.
+                    if placed == #regions and original.valid then
+                        original:MarkUndo()
+                        original:Destroy()
+                    end
+
+                    operation.progress = 1
+                    operation:Update()
+                    importer:Destroy()
+                end)
+            end,
+            error = function()
+                operation.progress = 1
+                operation:Update()
+                importer:Destroy()
+                gui.ModalMessage{
+                    title = "Split Object",
+                    message = "Uploading the split pieces failed.",
+                }
+            end,
+        }
+    end)
+end
+
+--Splitting lives on the object properties panel rather than the map
+--right-click menu: it replaces the object, so reaching it should take a
+--deliberate step. ObjectPropertiesDialog.lua (same mod) calls this.
+mod.shared.SplitPlacedObject = SplitPlacedObject
+
+--Drop the old right-click entry. Contributors are keyed in a global table
+--that outlives a Lua reload, so removing the registration above is not
+--enough: a session that already registered it keeps it until restart.
+--Safe to delete once no running client can still hold the old key.
+local contributors = rawget(_G, "g_gameContextMenuContributors")
+if contributors ~= nil then
+    contributors["splitobject"] = nil
+end

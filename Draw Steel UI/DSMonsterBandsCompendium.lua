@@ -40,10 +40,6 @@ local SEARCH_W = 184        -- gui.Input renders ~20 units WIDER than requested
 local ROW_W = 190           -- inner minus the scroll handle, so a highlighted
                             -- row stops just short of the scrollbar
 
-local BLOCK_W = 800         -- monster stat block inside the dialog
-local DIALOG_W = 850        -- the dialog frame around it
-local DIALOG_H = 1000       -- capped against the real screen height at open time
-local BUTTON_ROW_H = 70     -- the dialog's Close row, excluded from the scroll area
 
 local g_styles = nil
 local function Styles()
@@ -83,15 +79,6 @@ local function Upload(g)
     dmhub.SetAndUploadTableItem(MonsterGroup.tableName, g)
 end
 
--- Bands = rows flagged bandScope="band". Until the flag is seeded, fall back to
--- "carries malice abilities", which separates the 61 bands from the 43
--- creature-type keyword rows almost perfectly (PRD 8.2).
-local function IsBand(v)
-    local scope = v:try_get("bandScope")
-    if scope ~= nil then return scope ~= "monster" end
-    return #(v:try_get("maliceAbilities", {})) > 0
-end
-
 -- The default malice group is not a band -- it is the fallback whose abilities
 -- every monster gets when its own band does not inherit them. It is flagged
 -- bandScope="monster" so it would otherwise be filtered out, but the old Malice
@@ -102,7 +89,7 @@ local function IsDefaultMaliceGroup(id)
 end
 
 local function ListedHere(id, v)
-    return IsBand(v) or IsDefaultMaliceGroup(id)
+    return v:IsBand() or IsDefaultMaliceGroup(id)
 end
 
 -- Monsters per band, by groupid.
@@ -146,90 +133,6 @@ local function LanguageOptions()
     end
     table.sort(opts, function(a, b) return a.text < b.text end)
     return opts
-end
-
-
--- Open a monster's stat block as a dialog of its own.
---
--- element.root:AddChild is the part that matters, and it is what the malice
--- cog does to open the ability editor: the root sits above the compendium's
--- frame, so a child of it draws over the compendium. A popup or a
--- TooltipFrame hangs off this button instead, which leaves it inside the
--- compendium's own stacking context -- i.e. behind it.
---
--- Two sizing rules the hard way: dialog geometry has to go in `style` (as
--- top-level params on a floating root child it is ignored, and the panel
--- renders full-screen and unframed), and heights have to be `maxHeight`
--- (every panel here hugs its content and discards an explicit `height`).
-local function ShowMonsterDialog(element, monsterid)
-    local monsterAsset = (assets.monsters or {})[monsterid]
-    if monsterAsset == nil then
-        return
-    end
-
-    -- Render merges these over its defaults. Width is a number, not "100%":
-    -- the block has a wide natural minimum and a percentage lets it push the
-    -- frame out to it. Without valign it centres in the scroll panel and
-    -- leaves a dead band above the header.
-    local body = monsterAsset:Render{
-        width = BLOCK_W,
-        height = "auto",
-        valign = "top",
-    }
-    if body == nil then
-        return
-    end
-
-    local dialog
-    local Close = function()
-        dialog:DestroySelf()
-    end
-
-    local dialogHeight = math.min(DIALOG_H, math.floor(dmhub.screenDimensionsBelowTitlebar.y * 0.8))
-    local viewportHeight = dialogHeight - BUTTON_ROW_H
-
-    dialog = gui.Panel{
-        classes = {"framedPanel"},
-        styles = ThemeEngine.GetStyles(),
-        floating = true,
-
-        style = {
-            width = DIALOG_W,
-            height = "auto",
-            maxHeight = dialogHeight,
-            halign = "center",
-            valign = "center",
-            flow = "vertical",
-            pad = 16,
-        },
-
-        captureEscape = true,
-        escapePriority = EscapePriority.EXIT_MODAL_DIALOG,
-        escape = Close,
-
-        -- Short stat blocks size to themselves; long ones stop here and
-        -- scroll rather than pushing Close off the bottom of the screen.
-        gui.Panel{
-            width = "100%",
-            height = "auto",
-            maxHeight = viewportHeight,
-            valign = "top",
-            flow = "vertical",
-            vscroll = true,
-
-            body,
-        },
-
-        gui.Button{
-            classes = {"sizeL"},
-            text = "Close",
-            halign = "center",
-            valign = "bottom",
-            click = Close,
-        },
-    }
-
-    element.root:AddChild(dialog)
 end
 
 
@@ -546,6 +449,12 @@ local function BandEditor(bandid)
             "The book's languages sentence, as printed")) }
         for i, l in ipairs(langList) do
             local idx = i
+            --The stored qualifier, defaulted the same way the dropdown below
+            --defaults it. Entries imported before qualifiers existed have none,
+            --so the dropdown opens on "most" and fires change at construction;
+            --without this guard that wrote "most" back and uploaded the band,
+            --i.e. merely LOOKING at a band edited the library.
+            local qualifier = l.qualifier or "most"
             out[#out + 1] = gui.Panel{
                 width = CONTENT_W - 30, height = "auto", flow = "horizontal",
                 lmargin = 18, vmargin = 2,
@@ -558,11 +467,16 @@ local function BandEditor(bandid)
                     end,
                 },
                 gui.Dropdown{
-                    classes = {"dropdown"},
-                    width = 150, height = 30, lmargin = 8,
+                    -- "form" as well as "dropdown": that pairing carries the
+                    -- vmargin and valign the language dropdown beside it gets,
+                    -- and without them this one rides 4px higher than its row.
+                    -- Width is the only thing worth overriding.
+                    classes = {"dropdown", "form"},
+                    width = 150, lmargin = 8,
                     options = MonsterGroup.languageQualifiers,
-                    idChosen = l.qualifier or "most",
+                    idChosen = qualifier,
                     change = function(element)
+                        if element.idChosen == qualifier then return end
                         langList[idx].qualifier = element.idChosen Upload(g)
                     end,
                 },
@@ -794,45 +708,7 @@ local function BandEditor(bandid)
     local function BuildRoster()
         local out = {}
 
-        -- Assign an existing monster to this band. Creating one from scratch is
-        -- the bestiary's job; this is for pointing a monster that already
-        -- exists at the right band.
-        out[#out + 1] = gui.Panel{
-            width = CONTENT_W - 30, height = "auto", flow = "horizontal",
-            lmargin = 18, vmargin = 2,
-            gui.Dropdown{
-                classes = {"dropdown", "form"},
-                sort = true, hasSearch = true,
-                textDefault = "+ Add a monster to this band...",
-                idChosen = "none",
-                create = function(element)
-                    local opts = {}
-                    for id, mon in pairs(assets.monsters or {}) do
-                        local p = mon.properties
-                        if p ~= nil and p:try_get("groupid") ~= bandid then
-                            opts[#opts + 1] = { id = id, text = mon.description or "(unnamed)" }
-                        end
-                    end
-                    table.sort(opts, function(a, b) return a.text < b.text end)
-                    element.options = opts
-                end,
-                change = function(element)
-                    local chosen = element.idChosen
-                    if chosen == nil or chosen == "none" then return end
-                    local mon = (assets.monsters or {})[chosen]
-                    if mon ~= nil and mon.properties ~= nil then
-                        mon.properties.groupid = bandid
-                        mon:Upload()
-                    end
-                    element.idChosen = "none"
-                    members = RosterFor(bandid)
-                    rosterBody:FireEvent("refreshSection")
-                end,
-            },
-        }
-
         for _, m in ipairs(members) do
-            local thisId = m.id
             out[#out + 1] = gui.Panel{
                 width = CONTENT_W - 30, height = 24, flow = "horizontal", lmargin = 18,
                 gui.Label{
@@ -848,13 +724,6 @@ local function BandEditor(bandid)
                     classes = {"label", "fgMuted", "sizeXs"},
                     text = string.format("EV %s", tostring(m.ev)),
                     width = 60, height = 22, valign = "center",
-                },
-                gui.Button{
-                    classes = { "settingsButton", "sizeXs" },
-                    halign = "right", valign = "center",
-                    press = function(element)
-                        ShowMonsterDialog(element, thisId)
-                    end,
                 },
             }
         end
@@ -1048,7 +917,7 @@ ShowMonsterBands = function(contentPanel)
             local t = dmhub.GetTable(MonsterGroup.tableName) or {}
             local first = nil
             for k, v in unhidden_pairs(t) do
-                if IsBand(v) then
+                if v:IsBand() then
                     if v.name == "Goblin" then first = k break end
                     if first == nil then first = k end
                 end

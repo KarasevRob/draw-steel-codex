@@ -3200,11 +3200,7 @@ mod.shared.ImportMapToFloorCo = function(info)
         end
     end
 
-@if MCDM
     local lightnode = lightnodeChoice or "2339211c-c35a-4e0a-a5fa-79d2e446bd3b"
-@else
-    local lightnode = lightnodeChoice or "-MGBXtOnKAXNhhLK89_9"
-@end
     if lightMode == "asset" and type(data.lights) == "table" and ObjectNodeHasComponent(lightnode, "Light") then
         local foundryGrid = gridSize(data)
         for _, light in ipairs(data.lights) do
@@ -3271,9 +3267,13 @@ mod.shared.FinishMapImport = function(mapName, info)
     end
 
 
+    --CreateMap takes the ENGINE ground level: the 0-based index of the first floor that is
+    --above ground (unlike map.groundLevel, which is 1-based). 0 = every imported floor is
+    --above ground. #floors here put the whole import underground, which made a canopy or
+    --roof added above it count as "above ground over underground players" and never render.
     local guid = game.CreateMap{
         description = mapName,
-        groundLevel = #floors,
+        groundLevel = 0,
         floors = floors,
     }
     dmhub.Coroutine(function()

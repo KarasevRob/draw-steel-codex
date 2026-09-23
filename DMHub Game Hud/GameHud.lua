@@ -272,6 +272,9 @@ local function DiagramProfileFromPath(token, path)
 		local entry = {
 			alt = step.altitude,
 			ground = step.withGroundAltitude.altitude,
+			--true when the mover stands on the deck of a platform object (a bridge / walkway):
+			--the diagram draws the deck as a thin slab over the real ground beneath it.
+			onPlatform = step.platformAltitude ~= nil and step.platformAltitude == step.altitude,
 			flags = {},
 		}
 
@@ -358,8 +361,10 @@ local function DiagramProfileFromPath(token, path)
 	                    stairsTraversal or path.mount or (airborne and crossesAura)
 	for i = 1, n do
 		local e = entries[i]
+		--Walking along a platform deck (a bridge) is flat, but there is a drop beneath it worth
+		--showing, so it counts as interesting even with no altitude change.
 		if e.ground ~= entries[1].ground or e.alt ~= entries[1].alt or
-		   e.climbWall ~= nil or e.wall ~= nil or e.flags.Fall then
+		   e.climbWall ~= nil or e.wall ~= nil or e.flags.Fall or e.onPlatform then
 			interesting = true
 		end
 	end
@@ -2252,17 +2257,10 @@ function GameHud:CreateFrozenLabel()
 			width = "auto",
 			height = "auto",
 			halign = "center",
-@if MCDM
 			fontFace = "Colvillain",
 			fontSize = 48,
 			fontWeight = "black",
 			color = "white",
-@else
-			fontFace = "sellyoursoul",
-			fontSize = 48,
-			color = "#bbbbff",
-			bold = true,
-@end
 
 		},
 		gui.Label{
@@ -2270,16 +2268,10 @@ function GameHud:CreateFrozenLabel()
 			width = "auto",
 			height = "auto",
 			halign = "center",
-@if MCDM
 			uppercase = true,
 			fontFace = "Colvillain",
 			fontSize = 18,
 			bold = false,
-@else
-			color = "#bbbbff",
-			fontSize = 12,
-			bold = true,
-@end
 		},
 	}
 

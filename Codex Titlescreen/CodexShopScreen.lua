@@ -40,6 +40,41 @@ local function ItemVisibleInShop(item)
     return ItemIsStorePreview(item)
 end
 
+--Which image an item shows on a given shop surface. Adventures ship two
+--shots -- an almost-square product image and a wide banner -- and the tile
+--and the details page want different ones, so ShopItem carries a tileImage
+--and a heroImage naming the entry in images[] each surface should use.
+--
+--Read defensively on three counts: the C# fields postdate some clients (an
+--unknown member on engine userdata reads as nil, and the pcall matches the
+--featured/hidden/preview guards above), an unset override is the empty
+--string, and an override can name an image that has since been deleted from
+--the gallery. Any of those falls back to images[1] -- what every surface
+--used before the fields existed, and what older clients still do.
+local function ItemImageForRole(item, field)
+    local images = item.images or {}
+    local ok, imageid = pcall(function() return item[field] end)
+    if ok and imageid ~= nil and imageid ~= "" then
+        for _,candidate in ipairs(images) do
+            if candidate == imageid then
+                return imageid
+            end
+        end
+    end
+
+    return images[1]
+end
+
+--The tile art: grid cards and cart rows.
+local function ItemTileImage(item)
+    return ItemImageForRole(item, "tileImage")
+end
+
+--The details page's main image.
+local function ItemHeroImage(item)
+    return ItemImageForRole(item, "heroImage")
+end
+
 --When true, the "Buy with Steam" button skips the actual Steam call and
 --triggers the success path locally after a 0.5s delay. Lets us iterate on
 --the post-purchase UI without doing a real Steam transaction (or any redeploy).
@@ -135,6 +170,11 @@ end
 local fontWeights = {"thin", "extralight", "light", "regular", "medium", "semibold", "bold", "heavy", "black"}
 
 local heightStretch = 175
+
+--The Go Back button hanging off an item page's top-left corner: its width
+--and the gap between it and the page's left edge.
+local g_backButtonWidth = 170
+local g_backButtonGap = 24
 
 local shopStyles = {
 	--Streamed art eases in when its texture arrives (see TrackCoverImage).
@@ -2138,6 +2178,30 @@ local MakeShopImageDisplay = function(options)
 	local footer = options.footer
 	options.footer = nil
 
+	--Which of the item's images this display shows, and how it fits the art:
+	--  "tile" (the default) -- grid cards and cart rows. Uses item.tileImage
+	--      and stretches it to the fixed tile box, exactly as tiles always
+	--      have.
+	--  "hero" -- the details page's main image. Uses item.heroImage, and on
+	--      the details page is handed the full banner box (baseWidth/Height)
+	--      instead of the tile's nearly-square one, so an adventure's wide
+	--      shot fills it the way the dice banner's art does.
+	--Footer thumbnails are fed their image directly (see refreshItem) and are
+	--the one surface that fits rather than fills: the strip mixes both shapes
+	--at a fixed thumbnail size.
+	local imageRole = options.imageRole or "tile"
+	options.imageRole = nil
+
+	--The base (unscaled) box this display fits its art into. Defaults to a
+	--shop tile; the details page's hero passes the full banner box so the art
+	--runs the width of the details panel like the dice showcase banner.
+	local baseW = options.baseWidth or g_tileBaseWidth
+	local baseH = options.baseHeight or g_tileBaseHeight
+	options.baseWidth = nil
+	options.baseHeight = nil
+
+	local fitAspect = footer
+
 	--Grid cards bleed the dice preview out to the visible edges of the card
 	--frame art so there is no grey border beside or above the image.
 	local fullBleed = options.fullBleed
@@ -2168,8 +2232,8 @@ local MakeShopImageDisplay = function(options)
 	local args = {
 		classes = {"shopImage"},
 
-		width = 325*uiscale,
-		height = (180 + heightStretch)*uiscale,
+		width = baseW*uiscale,
+		height = baseH*uiscale,
 
 		bgimage = "panels/square.png",
 		bgcolor = "clear",
@@ -2188,8 +2252,10 @@ local MakeShopImageDisplay = function(options)
 				--background (cropped to the die) instead of a flat product shot.
 				if item.itemType == "Dice" then
 					element:FireEvent("refreshDicePreview", item)
+				elseif imageRole == "hero" then
+					element:FireEvent("refreshImage", ItemHeroImage(item))
 				else
-					element:FireEvent("refreshImage", item.images[1])
+					element:FireEvent("refreshImage", ItemTileImage(item))
 				end
 			end
 		end,
@@ -2200,6 +2266,30 @@ local MakeShopImageDisplay = function(options)
 				uiscale = uiscale,
 				bgimage = imageid,
 			}
+
+			--Fill the display's box. shopIcon pins the TILE's dimensions, so
+			--a display given a different box (the details page's banner)
+			--has to restate them or its art would stay tile-sized inside it.
+			iconArgs.width = baseW
+			iconArgs.height = baseH
+
+			--Draw the art at its true aspect inside the box rather than
+			--stretching to fill it. shopIcon pins an explicit width/height,
+			--which makes its autosizeimage inert (CalculateAutoSize only runs
+			--when both dimensions are auto), so switch to auto dimensions
+			--capped at the box; the engine then scales the texture down to fit
+			--and preserves its aspect. The min* pair reserves a wide-banner
+			--shaped box for the frames before the texture arrives, so the
+			--surrounding layout doesn't collapse and then jump.
+			if fitAspect then
+				iconArgs.width = "auto"
+				iconArgs.height = "auto"
+				iconArgs.maxWidth = baseW
+				iconArgs.maxHeight = baseH
+				iconArgs.minWidth = baseW
+				iconArgs.minHeight = math.floor(baseW*9/16)
+			end
+
 			--Track/fade only when there is a real image; a nil bgimage never
 			--fires imageLoaded and would hold the first-open cover until its
 			--timeout.
@@ -2280,11 +2370,18 @@ local MakeShopItemText = function(options)
 	local removeButtonOnRight = options.removeButtonOnRight
 	options.removeButtonOnRight = nil
 
+	--The details page draws the item's name and description in the overlay
+	--along the bottom of its hero banner, so this block drops them and keeps
+	--only the artist, price and cart controls. Everywhere else (grid cards,
+	--cart rows) still shows the full set.
+	local titleInBanner = options.titleInBanner
+	options.titleInBanner = nil
+
 	local args = {
 		classes = {"shopTextDisplay"},
 
 		gui.Label{
-			classes = {"titleLabel"},
+			classes = {"titleLabel", cond(titleInBanner, "collapsed")},
 			refreshItem = function(element, item)
 				element.text = item.name
 			end,
@@ -2333,7 +2430,7 @@ local MakeShopItemText = function(options)
 		},
 
 		gui.Label{
-			classes = {"itemDetails"},
+			classes = {"itemDetails", cond(titleInBanner, "collapsed")},
 			markdown = true,
 			links = true,
 			hoverLink = function(element, link)
@@ -3241,17 +3338,120 @@ local ShowItemDetailsInternal = function(args)
 
 	local m_shopItemText = MakeShopItemText{
 		halign = "left",
-		height = cond(args.gift, 140, 530),
+		--The banner overlay carries the name and description in the normal
+		--details view, so what is left here is the artist, price and cart
+		--controls -- a much shorter block than the old two-column layout's.
+		titleInBanner = not args.gift,
+		--Shorter than the old 530: with the name and description moved to the
+		--banner overlay this block is just the artist, the price and the cart
+		--button (which floats to its bottom edge), so the old height left a
+		--large empty gap between the price and the button.
+		height = cond(args.gift, 140, 120),
 	}
 
 
 
 	local m_footerItems = {}
 
+	--The hero image. In the normal details view it runs the full width of the
+	--details panel, like the dice showcase banner above it, with the art
+	--fitted to its own aspect inside that box. The gift view keeps the small
+	--tile-sized display it has always had.
 	local m_imageDisplay = MakeShopImageDisplay{
-		halign = "left",
-		uiscale = cond(args.gift, 0.75, 1.5),
+		halign = cond(args.gift, "left", "center"),
+		uiscale = cond(args.gift, 0.75, 1),
+		imageRole = "hero",
+		baseWidth = cond(args.gift, nil, g_bannerDisplayWidth),
+		baseHeight = cond(args.gift, nil, g_bannerDisplayHeight),
 	}
+
+	--Scrim behind the banner's text: near-solid along the bottom edge behind
+	--the copy, fading to nothing at the top so the art reads through. Same
+	--trick as detailsBackingGradient below -- bgcolor supplies the hue, the
+	--gradient supplies the alpha. Note position 0 is the BOTTOM of the panel,
+	--not the top, so the dark stop comes first.
+	local heroTextScrim = core.Gradient{
+		point_a = {x = 0.5, y = 0},
+		point_b = {x = 0.5, y = 1},
+		stops = {
+			{position = 0,    color = core.Color{r = 1, g = 1, b = 1, a = 0.9}},
+			{position = 0.55, color = core.Color{r = 1, g = 1, b = 1, a = 0.68}},
+			{position = 1,    color = core.Color{r = 1, g = 1, b = 1, a = 0}},
+		},
+	}
+
+	--Non-Dice showcase banner: the hero image with the item's name and
+	--description in a dark band along its bottom edge, mirroring the dice
+	--banner's text overlay. The box is exactly the dice banner's and the art
+	--fills it, so the band sits flush on the art's bottom edge; art for this
+	--role wants to be authored at the banner's ~1.75:1 (g_bannerDisplayWidth x
+	--g_bannerDisplayHeight), as the dice banner art is. The band takes an
+	--explicit width rather than "100%": a floating child's percentage resolves
+	--against the containing dialog, not its own parent (see
+	--detailsBackingGradient below for the same trap).
+	local m_heroBanner
+	if args.gift then
+		m_heroBanner = m_imageDisplay
+	else
+		m_heroBanner = gui.Panel{
+			flow = "none",
+			width = g_bannerDisplayWidth,
+			height = g_bannerDisplayHeight,
+			halign = "center",
+
+			m_imageDisplay,
+
+			gui.Panel{
+				floating = true,
+				flow = "vertical",
+				halign = "left",
+				valign = "bottom",
+				width = g_bannerDisplayWidth,
+				height = "auto",
+				borderBox = true,
+				--Explicit zero margins: the band has to sit flush on the art's
+				--bottom edge, and an inherited margin floats it clear of it.
+				hmargin = 0,
+				vmargin = 0,
+				hpad = 28,
+				vpad = 18,
+				bgimage = "panels/square.png",
+				bgcolor = "#000000ff",
+				gradient = heroTextScrim,
+				interactable = false,
+
+				gui.Label{
+					classes = {"shopTitle"},
+					width = "auto",
+					height = "auto",
+					halign = "left",
+					textAlignment = "left",
+					refreshItem = function(element, item)
+						element.text = item.name
+					end,
+				},
+
+				gui.Label{
+					classes = {"shopDescription"},
+					width = 760,
+					height = "auto",
+					halign = "left",
+					textAlignment = "left",
+					tmargin = 6,
+					maxHeight = 110,
+					textOverflow = "ellipsis",
+					refreshItem = function(element, item)
+						local text = item.details
+						if text == nil then
+							text = ""
+						end
+						element.text = text
+						element:SetClass("collapsed", text == "")
+					end,
+				},
+			},
+		}
+	end
 
 	--Dice items are shown with the real banner component (background +
 	--foreground + die + name/details overlay) instead of the spinnable
@@ -3514,6 +3714,40 @@ local ShowItemDetailsInternal = function(args)
 
 		--text shows up top for gift display.
 		cond(args.gift, m_shopItemText),
+
+		--Go Back, hanging just off the page's top-left corner so it scrolls
+		--away with the top of the page. Styled as the page's own Go Back pill.
+		--Not in the gift view. (and/or rather than cond, which would build it
+		--there too.)
+		(not args.gift) and gui.Label{
+			classes = {"itemButton"},
+			floating = true,
+			halign = "left",
+			valign = "top",
+			x = -(g_backButtonWidth + g_backButtonGap),
+			vmargin = 0,
+			text = "Go Back",
+			width = g_backButtonWidth,
+
+			styles = {
+				--the icon follows the text when the pill inverts on hover.
+				{
+					selectors = {"itemButtonIcon", "parent:hover"},
+					bgcolor = "black",
+					transitionTime = 0.1,
+				},
+			},
+
+			press = function(element)
+				element:FireEventOnParents("showProductsPage")
+			end,
+
+			gui.Panel{
+				classes = {"itemButtonIcon"},
+				bgimage = "phosphor/arrow-left-bold.png",
+				interactable = false,
+			},
+		} or nil,
 
 		--Dice showcase: the configured banner, centered, with Add to Cart /
 		--Equip below it. Shown for Dice items; collapsed for everything else
@@ -3984,15 +4218,22 @@ local ShowItemDetailsInternal = function(args)
 
 		},
 
+		--Non-Dice showcase: the full-width hero banner (art + name/description
+		--overlay), the gallery thumbnails, then the info/cart column -- all
+		--stacked, the way the dice showcase above stacks its banner over its
+		--action row. Collapses for Dice items.
 		gui.Panel{
 			flow = "vertical",
-			width = cond(args.gift, 300, 600),
+			width = cond(args.gift, 300, "auto"),
 			height = "auto",
-			halign = "left",
-			m_imageDisplay,
+			halign = cond(args.gift, "left", "center"),
+			m_heroBanner,
 
+			--Adventures with a page config get AdventurePage (below) instead.
+			--The gift view always keeps this compact layout.
 			showProductDetails = function(element, item)
-				element:SetClass("collapsed", item.itemType == "Dice")
+				local adventure = not args.gift and AdventurePage.Has(item)
+				element:SetClass("collapsed", item.itemType == "Dice" or adventure)
 			end,
 
 			gui.Panel{
@@ -4032,11 +4273,16 @@ local ShowItemDetailsInternal = function(args)
 						m_footerItems[i].data.item = item
 					end
 
+					--Highlight whichever thumbnail the hero is actually
+					--showing, which is item.heroImage when the item names one
+					--rather than always the first gallery entry.
+					local heroImage = ItemHeroImage(item)
+
 					for i=1,#m_footerItems do
 						m_footerItems[i]:SetClass("collapsed", item.images[i] == nil)
 						if item.images[i] ~= nil then
 							m_footerItems[i]:FireEventTree("refreshImage", item.images[i])
-							m_footerItems[i]:SetClassTree("selected", i == 1)
+							m_footerItems[i]:SetClassTree("selected", item.images[i] == heroImage)
 						end
 
 					end
@@ -4044,20 +4290,25 @@ local ShowItemDetailsInternal = function(args)
 					element.children = m_footerItems
 				end,
 			},
+
+			--Info/cart column: artist, price and Add to Cart. The name and
+			--description live in the banner overlay above, so they are
+			--collapsed in here (MakeShopItemText's titleInBanner). Sits in
+			--the stack rather than beside the art now that the art is full
+			--width. Nothing here in the gift view, which keeps its own copy
+			--of the text block at the top of the panel.
+			cond(args.gift, nil, gui.Panel{
+				width = "auto",
+				height = "auto",
+				halign = "left",
+				m_shopItemText,
+			}),
 		},
 
-
-		--Non-gift info/cart column. Collapses for dice -- the showcase above
-		--already shows the banner (name/details overlay) and its own Add to Cart.
-		cond(args.gift, nil, gui.Panel{
-			width = "auto",
-			height = "auto",
-			halign = "left",
-			showProductDetails = function(element, item)
-				element:SetClass("collapsed", item ~= nil and item.itemType == "Dice")
-			end,
-			m_shopItemText,
-		}),
+		--The adventure store page (hero, media viewer, about/cast, buy box).
+		--Collapses itself for anything without a page config. Built with
+		--and/or rather than cond, which would construct it in the gift view too.
+		(not args.gift) and AdventurePage.Create{ width = g_bannerDisplayWidth } or nil,
 	}
 
 
@@ -4140,17 +4391,6 @@ local ShowItemDetailsPanel = function(args)
 				classes = {"itemButtonIcon", "check"},
 				bgimage = "icons/icon_common/icon_common_29.png",
 			},
-		},
-
-
-		gui.Label{
-			classes = {"itemButton"},
-			vmargin = 16,
-			text = "Go Back",
-
-			press = function(element)
-				element:FireEventOnParents("showProductsPage")
-			end,
 		},
 	}
 
@@ -4625,6 +4865,13 @@ local function CreateShopScreenInternal(arguments)
 				element:FireEventTree("showProductDetails", item)
 				element:FireEventTree("refreshCart", m_shoppingCart)
 
+				--Opening a product starts at the top of its page. Not on a
+				--re-fire from inside the page (source == nil, e.g. a gallery
+				--press), which should keep the reader's place.
+				if source ~= nil then
+					element:FireEventTree("scrollToTop")
+				end
+
 				--Funnel attribution: which surface brought the user to this
 				--product page -- "featuredBanner" (top banner's View Dice),
 				--"productTile" (grid cards below), "cartRow", or "bundleLink".
@@ -4828,22 +5075,24 @@ local function CreateShopScreenInternal(arguments)
 				--the column there; at 16:9 and narrower the root is exactly
 				--1920 and the right-align keeps the scrollbar's 16px slack on
 				--the left, same as always.
+				--Starts below the floating top row (close button, Redeem, View
+				--Cart) so the scrollbar and scrolled content stay under it.
 				halign = cond(screenIsUltrawide, "center", "right"),
 				valign = "top",
+				tmargin = 40,
 				width = "1920-16",
-				height = "100%",
+				height = "100%-40",
 				vscroll = true,
 				flow = "vertical",
+
+				scrollToTop = function(element)
+					element.vscrollPosition = 1
+				end,
 
 				gui.Panel{
 					flow = "vertical",
 					width = "100%",
 					height = "auto",
-
-					gui.Panel{
-						--padding
-						height = 40
-					},
 
 					--Main shop page header, above the featured dice banner. Same
 					--shopTitle/shopDescription styling as the inventory header
