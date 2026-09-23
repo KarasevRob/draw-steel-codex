@@ -277,25 +277,56 @@ function CustomDocument.CreateEmbeddablePanel(content, args)
                 }
             end
 
+            local embedDoc = content
+            local embedPanel = content:DisplayPanel{
+                height = "auto",
+                vscroll = false,
+                hpad = 0,
+                hmargin = 0,
+                embedDepth = (args.embedDepth or 0) + 1,
+                hostPageColor = args.hostPageColor,
+            }
+
             return gui.Panel{
                 width = "100%",
                 height = "auto",
                 valign = "top",
                 margin = 0,
                 pad = 0,
-                content:DisplayPanel{
-                    height = "auto",
-                    vscroll = false,
-                    hpad = 0,
-                    hmargin = 0,
-                    embedDepth = (args.embedDepth or 0) + 1,
-                    hostPageColor = args.hostPageColor,
-                },
+
+                --Seeded from the document as it was embedded, so the host's first
+                --refreshGame does not re-render an embed that has not changed.
+                data = { embedUpdateId = embedDoc.updateid },
+
+                embedPanel,
+
                 savedoc = function(element)
                     element:HaltEventPropagation()
                 end,
+
+                --The host's refreshDocument carries the HOST's document, and
+                --MarkdownDocument.DisplayPanel's handler does `self = doc` -- letting it
+                --through would render the host's text inside the embed. But halting alone
+                --cut the embed off from every refresh, leaving it stale (and its rich tags
+                --without a refreshTag) until the host was reopened. Halt, then re-dispatch
+                --a refresh carrying the embedded document instead.
                 refreshDocument = function(element)
                     element:HaltEventPropagation()
+
+                    --Re-read by id: a cloud update replaces the table row, so the object
+                    --captured when the embed was built can be stale. Falls back to it if
+                    --the row is gone (document deleted while the host is open).
+                    local fresh = (dmhub.GetTable(CustomDocument.tableName) or {})[embedDoc.id] or embedDoc
+
+                    --Upload() stamps a new updateid on every save, so this re-renders
+                    --only on a real change -- refreshGame fires far more often than embeds
+                    --change, and a host can hold several of them.
+                    if element.data.embedUpdateId == fresh.updateid then
+                        return
+                    end
+
+                    element.data.embedUpdateId = fresh.updateid
+                    embedPanel:FireEventTree("refreshDocument", fresh)
                 end,
                 editDocument = function(element)
                     element:HaltEventPropagation()
