@@ -11415,6 +11415,15 @@ CreateAbilityController = function()
             --stay visible (with a tooltip) but cannot be chosen by players.
             local reasons = options.reasons or {}
 
+            --retarget prompts with exactly one legal choice resolve without asking.
+            if options.autoPickSole then
+                local sole = RuleUtils.SoleRetargetCandidate(options.targets, reasons)
+                if sole ~= nil then
+                    options.choose(sole)
+                    return
+                end
+            end
+
             -- _tmp_aicontrol is a counter (incremented while AI is in control),
             -- so the falsy/truthy check must be against `> 0` -- a plain truthy
             -- check matches `0` and silently auto-picks every prompt target,

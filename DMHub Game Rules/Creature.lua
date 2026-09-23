@@ -5170,14 +5170,18 @@ end
 
 function creature:FillEquipmentModifiers(result)
 	local gearTable = GetTableCached('tbl_Gear')
+	local equippedIds = {}
 	for slotid,itemid in pairs(self:EquipmentInUse()) do
 		local item = gearTable[itemid]
 		if item then
+			equippedIds[itemid] = true
 			item:EnsureDomains()
 			local features = item:try_get("features")
 			if features then
+				--consumeItemId: a trigger from a consumable spends the item (TriggerPayCost).
+				local params = cond(EquipmentCategory.IsConsumable(item), {consumeItemId = itemid}, nil)
 				for i,feature in ipairs(features) do
-                    feature:FillModifiers(self, result)
+                    feature:FillModifiers(self, result, params)
 				end
 			end
 
@@ -5188,6 +5192,22 @@ function creature:FillEquipmentModifiers(result)
 					for _,feature in ipairs(propInfo.features) do
                         feature:FillModifiers(self, result)
 					end
+				end
+			end
+		end
+	end
+
+	--Consumables can't be equipped, so their magical properties apply while the
+	--item is merely carried (e.g. Mirror Token: "while on your person"). Entries
+	--are tagged with consumeItemId so a trigger that fires spends one of the item.
+	for itemid,entry in pairs(self:try_get("inventory", {})) do
+		local item = gearTable[itemid]
+		if item ~= nil and (not equippedIds[itemid]) and (entry.quantity or 0) > 0 and EquipmentCategory.IsConsumable(item) then
+			local features = item:try_get("features")
+			if features ~= nil and #features > 0 then
+				item:EnsureDomains()
+				for _,feature in ipairs(features) do
+					feature:FillModifiers(self, result, {consumeItemId = itemid})
 				end
 			end
 		end
