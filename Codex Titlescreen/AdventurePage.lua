@@ -266,6 +266,35 @@ local function PortableConfig(cfg)
 end
 
 --Builds the draft and calls callback(cfg), or callback(nil, errorMessage).
+--A cast entry drawn from one of the adventure's tokens: the token art plus the
+--framing the token uses in game (its crop, or popout art and scale), so the
+--page can draw it as the token looks, inside the page's own ring. Returns nil
+--for a token with no name or only the default avatar. nameOverride names a
+--bestiary monster's token, which carries no name of its own.
+function AdventurePage.CastFromToken(tok, nameOverride)
+    local name, portrait, rect, popout, popoutScale = nameOverride, nil, nil, false, 1
+    if name == nil then
+        pcall(function() name = tok.name end)
+    end
+    pcall(function() portrait = tok.portrait end)
+    pcall(function() popout = tok.popoutPortrait == true end)
+    pcall(function() popoutScale = tok.popoutScale or 1 end)
+    pcall(function()
+        local r = tok.portraitRect
+        rect = {x1 = r.x1, y1 = r.y1, x2 = r.x2, y2 = r.y2}
+    end)
+    --"High Elf Quiver 3" and its siblings are one cast member.
+    if type(name) == "string" then
+        name = name:gsub("%s+%d+$", "")
+    end
+    if type(name) ~= "string" or name == "" or type(portrait) ~= "string"
+        or portrait == "" or portrait:find("DEFAULT") then
+        return nil
+    end
+    return {image = portrait, name = name, role = "", token = true, rect = rect,
+        popout = popout, popoutScale = popoutScale}
+end
+
 function AdventurePage.AutoFill(item, callback)
     local moduleid = item.assetid
     if item.itemType ~= "Module" or moduleid == nil or moduleid == "" then
@@ -378,22 +407,11 @@ function AdventurePage.AutoFill(item, callback)
                         local seen = {}
                         local members = {}
                         for _, tok in pairs(snapshot.characters or {}) do
-                            local name, portrait = nil, nil
-                            pcall(function() name = tok.name end)
-                            pcall(function() portrait = tok.offTokenPortrait end)
-                            if portrait == nil or portrait == "" then
-                                pcall(function() portrait = tok.portrait end)
-                            end
-                            --"High Elf Quiver 3" and its siblings are one cast member.
-                            if type(name) == "string" and name ~= "" then
-                                name = name:gsub("%s+%d+$", "")
-                            end
-                            local usable = type(name) == "string" and name ~= "" and type(portrait) == "string"
-                                and portrait ~= "" and not portrait:find("DEFAULT")
-                            if usable and not seen[name] and not seen[portrait] then
-                                seen[name] = true
-                                seen[portrait] = true
-                                members[#members + 1] = {image = portrait, name = name, role = ""}
+                            local member = AdventurePage.CastFromToken(tok)
+                            if member ~= nil and not seen[member.name] and not seen[member.image] then
+                                seen[member.name] = true
+                                seen[member.image] = true
+                                members[#members + 1] = member
                             end
                         end
                         table.sort(members, function(a, b) return a.name < b.name end)
@@ -1600,17 +1618,98 @@ local function SerifHeading(text, size)
     }
 end
 
-local function MakeCastMember(size, colW)
+--How far popout art is inset, and scaled, matching gui.CreateTokenImage so a
+--popout token looks the same here as on the map.
+local g_popoutBorder = 0.14
+
+--The window of a regular token's art that shows in the ring. Placed art
+--(zoom + center, set by dragging in the editor) is recomputed from the image's
+--size, keeping the window square on screen and inside the image; otherwise the
+--token's own crop is used. center is in image fractions, top-down.
+function AdventurePage.CastRect(member, dims)
+    if member.zoom == nil or dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
+        return member.rect or {x1 = 0, y1 = 0, x2 = 1, y2 = 1}
+    end
+    local side = math.min(dims.width, dims.height) / math.max(1, member.zoom)
+    local rw, rh = side / dims.width, side / dims.height
+    local center = member.center or {x = 0.5, y = 0.5}
+    local cx = math.max(rw / 2, math.min(1 - rw / 2, center.x or 0.5))
+    local cy = math.max(rh / 2, math.min(1 - rh / 2, center.y or 0.5))
+    --imageRect runs bottom-up.
+    return {x1 = cx - rw / 2, x2 = cx + rw / 2, y1 = 1 - cy - rh / 2, y2 = 1 - cy + rh / 2}
+end
+
+--A cast portrait as the store page draws it: the page's ring, with plain
+--images and regular tokens clipped inside it and popout art breaking out over
+--it. Fire showMember(member) to fill it. The editor uses it as its preview.
+function AdventurePage.MakeCastPortrait(size, extra)
     local portrait = gui.Panel{
         width = size,
         height = size,
         halign = "center",
+        valign = "center",
         bgimage = "panels/square.png",
         bgcolor = "#ffffff10",
         cornerRadius = size / 2,
         borderWidth = 2,
         borderColor = "#f6ddb640",
+        interactable = false,
     }
+    local popoutArt = gui.Panel{
+        classes = {"collapsed"},
+        floating = true,
+        width = size,
+        height = size,
+        halign = "center",
+        valign = "center",
+        bgcolor = "white",
+        interactable = false,
+    }
+    local args = {
+        width = size,
+        height = size,
+        halign = "center",
+        portrait,
+        popoutArt,
+        showMember = function(element, member)
+            popoutArt:SetClass("collapsed", not (member.token and member.popout))
+            if member.token and member.popout then
+                portrait.bgimage = "panels/square.png"
+                portrait.selfStyle.bgcolor = "#ffffff10"
+                local b = g_popoutBorder
+                local offset = member.offset or {x = 0, y = 0}
+                popoutArt.bgimage = member.image
+                popoutArt.selfStyle.imageRect = {x1 = b, y1 = b, x2 = 1 - b, y2 = 1 - b}
+                popoutArt.selfStyle.scale = 1 / (member.popoutScale or 1)
+                popoutArt.selfStyle.x = (offset.x or 0) * size
+                popoutArt.selfStyle.y = (offset.y or 0) * size
+            elseif member.token then
+                local image = member.image
+                portrait.bgimage = image
+                portrait.selfStyle.bgcolor = "#ffffffff"
+                portrait.selfStyle.imageRect = AdventurePage.CastRect(member, nil)
+                if member.zoom ~= nil then
+                    AdventurePage.ImageDimensions(image, function(dims)
+                        if mod.unloaded or not portrait.valid or portrait.bgimage ~= image then
+                            return
+                        end
+                        portrait.selfStyle.imageRect = AdventurePage.CastRect(member, dims)
+                    end)
+                end
+            else
+                --v = 0: keep the top of the art, where faces usually are.
+                ShowCovered(portrait, member.image, size, size, 0)
+            end
+        end,
+    }
+    for k, v in pairs(extra or {}) do
+        args[k] = v
+    end
+    return gui.Panel(args)
+end
+
+local function MakeCastMember(size, colW)
+    local portrait = AdventurePage.MakeCastPortrait(size)
     local name = gui.Label{
         fontSize = 15,
         color = g_textStrong,
@@ -1635,8 +1734,7 @@ local function MakeCastMember(size, colW)
         name,
         role,
         showMember = function(element, member)
-            --v = 0: keep the top of the art, where faces usually are.
-            ShowCovered(portrait, member.image, size, size, 0)
+            portrait:FireEvent("showMember", member)
             name.text = member.name or ""
             role.text = member.role or ""
             role:SetClass("collapsed", (member.role or "") == "")

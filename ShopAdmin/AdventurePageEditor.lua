@@ -1131,22 +1131,431 @@ function AdventurePageEditor.Create()
         },
     })
 
+    --The adventure's bestiary monsters, as cast entries. The module record
+    --lists them by name only, so they are matched against this game's
+    --bestiary: they show only where the adventure is installed.
+    local function AdventureMonsters(moduleid, done)
+        module.DownloadModuleInfo{
+            moduleid = moduleid,
+            failure = function()
+                done({})
+            end,
+            success = function(info)
+                local wanted = {}
+                local summary = nil
+                pcall(function() summary = info.contentSummary end)
+                for _, entry in ipairs(summary or {}) do
+                    --the Thorn Dragon is listed as a monster group, not a monster.
+                    local kind = string.lower(tostring(entry.type or ""))
+                    if kind == "monster" or kind == "object:monstergroup" then
+                        for _, name in ipairs(entry.items or {}) do
+                            wanted[name] = true
+                        end
+                    end
+                end
+                local members = {}
+                for _, monster in pairs(assets.monsters) do
+                    local name, tok = nil, nil
+                    pcall(function() name = monster.name end)
+                    pcall(function() tok = monster.info end)
+                    if name ~= nil and wanted[name] and tok ~= nil then
+                        local member = AdventurePage.CastFromToken(tok, name)
+                        if member ~= nil then
+                            members[#members + 1] = member
+                        end
+                    end
+                end
+                done(members)
+            end,
+        }
+    end
+
+    --Lists the adventure's own tokens and monsters (one per name) in a modal;
+    --clicking one adds it to the cast, drawn as it looks in game in the ring.
+    local function PickCastFromAdventure()
+        if m_item == nil or m_cfg == nil or module.DownloadModuleSnapshot == nil then
+            return
+        end
+        local moduleid = m_item.assetid
+        local status = gui.Label{
+            text = "Loading the adventure's tokens...",
+            fontSize = 14,
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            vmargin = 12,
+        }
+        local grid = gui.Panel{
+            flow = "horizontal",
+            wrap = true,
+            width = 760,
+            height = "auto",
+            halign = "center",
+            valign = "top",
+        }
+        gui.ShowModal(gui.Panel{
+            flow = "vertical",
+            width = 800,
+            height = 600,
+            halign = "center",
+            valign = "center",
+            bgimage = "panels/square.png",
+            bgcolor = "#111113ff",
+            borderWidth = 1,
+            borderColor = "#f6ddb680",
+            cornerRadius = 8,
+            gui.Panel{
+                flow = "horizontal",
+                width = "100%",
+                height = 44,
+                gui.Label{
+                    text = "Add a cast member from the adventure",
+                    fontSize = 16,
+                    width = "auto",
+                    height = "auto",
+                    halign = "left",
+                    valign = "center",
+                    hmargin = 16,
+                },
+                gui.Button{
+                    classes = {"sizeS"},
+                    text = "Close",
+                    width = 90,
+                    halign = "right",
+                    valign = "center",
+                    hmargin = 12,
+                    click = function()
+                        gui.CloseModal()
+                    end,
+                },
+            },
+            status,
+            gui.Panel{
+                width = 780,
+                height = 520,
+                halign = "center",
+                vscroll = true,
+                grid,
+            },
+        })
+
+        module.DownloadModuleSnapshot{
+            moduleid = moduleid,
+            failure = function()
+                if mod.unloaded or not status.valid then
+                    return
+                end
+                status.text = "Could not load the adventure's tokens."
+            end,
+            success = function(snapshot)
+                AdventureMonsters(moduleid, function(monsters)
+                    if mod.unloaded or not grid.valid then
+                        return
+                    end
+                    local seen = {}
+                    local members = {}
+                    local function Add(member)
+                        if member ~= nil and not seen[member.name] then
+                            seen[member.name] = true
+                            members[#members + 1] = member
+                        end
+                    end
+                    for _, tok in pairs(snapshot.characters or {}) do
+                        Add(AdventurePage.CastFromToken(tok))
+                    end
+                    for _, member in ipairs(monsters) do
+                        Add(member)
+                    end
+                    table.sort(members, function(a, b) return a.name < b.name end)
+                    status.text = cond(#members == 0, "This adventure has no named tokens.",
+                        "Click one to add it. Monsters show only if the adventure is installed in this game.")
+                    local cells = {}
+                    for _, member in ipairs(members) do
+                        local thumb = Thumb(96, 96, {halign = "center", interactable = false})
+                        SetThumb(thumb, member.image, 96, 96)
+                        cells[#cells + 1] = gui.Panel{
+                            flow = "vertical",
+                            width = 120,
+                            height = "auto",
+                            margin = 6,
+                            bgimage = "panels/square.png",
+                            bgcolor = "clear",
+                            classes = {"hoverable"},
+                            thumb,
+                            gui.Label{
+                                text = member.name,
+                                fontSize = 13,
+                                width = 120,
+                                height = "auto",
+                                textAlignment = "center",
+                                tmargin = 4,
+                                interactable = false,
+                            },
+                            click = function()
+                                gui.CloseModal()
+                                Edit(function(c)
+                                    if #c.cast < g_maxCast then
+                                        table.insert(c.cast, member)
+                                    end
+                                end, "cast")
+                            end,
+                        }
+                    end
+                    grid.children = cells
+                end)
+            end,
+        }
+    end
+
+    ----------------------------------------------------------------------
+    --Cast rows: a live preview drawn exactly like the store page. Drag it to
+    --move the art; the slider zooms regular art or resizes popout art.
+    --"Choose from gallery..." opens the normal token (Avatar) gallery.
+    ----------------------------------------------------------------------
+    local g_castPreview = 120
+
+    --Regular art becomes placeable (zoom + center) the first time it is
+    --adjusted, starting from wherever it currently sits.
+    local function StartPlacement(entry, dims)
+        if entry.popout or entry.zoom ~= nil or dims == nil
+            or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
+            return
+        end
+        local side = math.min(dims.width, dims.height)
+        if entry.token and entry.rect ~= nil then
+            local r = entry.rect
+            entry.zoom = math.max(1, side / math.max(1, (r.x2 - r.x1) * dims.width))
+            entry.center = {x = (r.x1 + r.x2) / 2, y = 1 - (r.y1 + r.y2) / 2}
+        else
+            --plain art was shown cover-cropped from the top.
+            entry.zoom = 1
+            entry.center = {x = 0.5, y = side / dims.height / 2}
+        end
+        entry.token = true
+        entry.popout = false
+    end
+
+    local function CastRow(entry, index)
+        local m_dims = nil
+        local preview
+        local dragging, anchor, start = false, nil, nil
+        preview = AdventurePage.MakeCastPortrait(g_castPreview, {
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+            valign = "top",
+            rmargin = 16,
+            vmargin = 8,
+            press = function(element)
+                StartPlacement(entry, m_dims)
+                dragging = true
+                anchor = element.mousePoint
+                if entry.popout then
+                    local o = entry.offset or {x = 0, y = 0}
+                    start = {x = o.x or 0, y = o.y or 0}
+                else
+                    local c = entry.center or {x = 0.5, y = 0.5}
+                    start = {x = c.x, y = c.y}
+                end
+                element.thinkTime = 0.02
+            end,
+            unpress = function(element)
+                dragging = false
+                element.thinkTime = nil
+                Save()
+            end,
+            think = function(element)
+                if not dragging then
+                    return
+                end
+                local mp = element.mousePoint
+                --(0, 0) means the mouse has left the panel.
+                if mp.x == 0 and mp.y == 0 then
+                    return
+                end
+                local dx, dy = mp.x - anchor.x, mp.y - anchor.y
+                if entry.popout then
+                    entry.offset = {x = start.x + dx, y = start.y - dy}
+                else
+                    --the art follows the mouse, so the window moves the other way.
+                    local r = AdventurePage.CastRect(entry, m_dims)
+                    entry.center = {
+                        x = start.x - dx * (r.x2 - r.x1),
+                        y = start.y + dy * (r.y2 - r.y1),
+                    }
+                end
+                element:FireEvent("showMember", entry)
+            end,
+        })
+        preview:FireEvent("showMember", entry)
+        AdventurePage.ImageDimensions(entry.image, function(dims)
+            m_dims = dims
+        end)
+
+        local slider = gui.Slider{
+            style = {height = 26, width = 240, fontSize = 14},
+            lmargin = 10,
+            sliderWidth = 180,
+            labelWidth = 50,
+            minValue = cond(entry.popout, 0.5, 1),
+            maxValue = cond(entry.popout, 3, 4),
+            value = cond(entry.popout, 1 / (entry.popoutScale or 1), entry.zoom or 1),
+            change = function(element)
+                if entry.popout then
+                    entry.popoutScale = 1 / math.max(0.1, element.value)
+                else
+                    StartPlacement(entry, m_dims)
+                    entry.zoom = element.value
+                end
+                preview:FireEvent("showMember", entry)
+            end,
+            confirm = function(element)
+                Save()
+            end,
+        }
+
+        --The gallery is the standard IconEditor picker; a button opens it.
+        local gallery = gui.IconEditor{
+            library = "Avatar",
+            restrictImageType = "Avatar",
+            allowPaste = true,
+            hideIcon = true,
+            width = 1,
+            height = 1,
+            value = entry.image,
+            change = function(element)
+                local image = element.value
+                if image == nil or image == "" then
+                    return
+                end
+                Edit(function()
+                    entry.image = image
+                    entry.token = true
+                    entry.popout = (assets.imagesByTypeTable.AvatarPopout or {})[image] ~= nil
+                    entry.rect, entry.zoom, entry.center = nil, nil, nil
+                    entry.offset, entry.popoutScale = nil, nil
+                end, "cast")
+            end,
+        }
+
+        local fields = {}
+        for _, field in ipairs({
+            {key = "name", label = "Name:", placeholder = "Captain Moon"},
+            {key = "role", label = "Role:", placeholder = "Ally, Villain, Monster..."},
+        }) do
+            fields[#fields + 1] = gui.Panel{
+                classes = {"formPanel"},
+                gui.Label{classes = {"formLabel"}, text = field.label, valign = "top"},
+                gui.Input{
+                    classes = {"formInput"},
+                    width = 300,
+                    characterLimit = 80,
+                    text = entry[field.key] or "",
+                    placeholderText = field.placeholder,
+                    change = function(input)
+                        entry[field.key] = input.text
+                        Save()
+                    end,
+                },
+            }
+        end
+        fields[#fields + 1] = gui.Panel{
+            classes = {"formPanel"},
+            gui.Label{classes = {"formLabel"}, text = cond(entry.popout, "Size:", "Zoom:")},
+            slider,
+        }
+        fields[#fields + 1] = gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            gallery,
+            SmallButton("Choose from gallery...", 180, function()
+                gallery:FireEvent("press")
+            end),
+            SmallButton("Upload...", 90, function()
+                PickImages{id = "AdventureCast", prompt = "Choose a portrait", itemid = m_item.id, done = function(guid)
+                    Edit(function()
+                        entry.image = guid
+                        entry.token, entry.popout = nil, nil
+                        entry.rect, entry.zoom, entry.center = nil, nil, nil
+                        entry.offset, entry.popoutScale = nil, nil
+                    end, "cast")
+                end}
+            end),
+            SmallButton("Reset placement", 140, function()
+                Edit(function()
+                    entry.zoom, entry.center, entry.offset = nil, nil, nil
+                    if entry.popout then
+                        entry.popoutScale = nil
+                    end
+                end, "cast")
+            end),
+            SmallButton("Remove", 80, function()
+                Edit(function(c) table.remove(c.cast, index) end, "cast")
+            end),
+        }
+
+        return gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            vmargin = 6,
+            preview,
+            gui.Panel{flow = "vertical", width = "auto", height = "auto", valign = "top", children = fields},
+        }
+    end
+
+    local function CastEditor()
+        return gui.Panel{
+            flow = "vertical",
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            refreshPage = function(element, cfg)
+                if cfg == nil then
+                    return
+                end
+                local rows = {}
+                for i, entry in ipairs(cfg.cast) do
+                    rows[#rows + 1] = CastRow(entry, i)
+                end
+                if #cfg.cast < g_maxCast then
+                    rows[#rows + 1] = gui.Panel{
+                        width = "auto",
+                        height = "auto",
+                        halign = "left",
+                        vmargin = 4,
+                        SmallButton("+ Add cast member...", 180, function()
+                            if m_cfg == nil then
+                                return
+                            end
+                            PickImages{id = "AdventureCast", prompt = "Choose a portrait", itemid = m_item.id, done = function(guid)
+                                Edit(function(c)
+                                    if #c.cast < g_maxCast then
+                                        table.insert(c.cast, {image = guid, name = "", role = ""})
+                                    end
+                                end, "cast")
+                            end}
+                        end),
+                    }
+                end
+                element.children = rows
+            end,
+        }
+    end
+
     local castSection = Section("Cast", string.format("up to %d, shown as round portraits", g_maxCast), {
         SizeHint("512 x 512 square, face near the top. Shown as a circle, cropped from the top of taller art."),
-        ListEditor{
-            list = function(cfg) return cfg.cast end,
-            section = "cast",
-            max = g_maxCast,
-            w = 90,
-            h = 90,
-            uploadId = "AdventureCast",
-            prompt = "Choose a portrait (512 x 512)",
-            addText = "+ Add cast member...",
-            fields = {
-                {key = "name", label = "Name:", placeholder = "Captain Moon"},
-                {key = "role", label = "Role:", placeholder = "Ally, Villain, Monster..."},
-            },
+        Hint("Or pick a token from the adventure or the gallery. Drag a preview to move its art."),
+        gui.Panel{
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            vmargin = 4,
+            SmallButton("Pick from adventure...", 200, PickCastFromAdventure),
         },
+        CastEditor(),
     })
 
     ----------------------------------------------------------------------
