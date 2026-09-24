@@ -385,9 +385,57 @@ function creature:GetSurgeSharingSummonerToken()
     return nil
 end
 
+--- @return creature|nil mentor whose surge pool this retainer shares, else nil.
+function creature:GetSurgeSharingMentor()
+    if not self:IsRetainer() then
+        return nil
+    end
+
+    -- GetMentor scans whole parties and this runs from per-frame UI, so cache it per game update.
+    -- false (not nil) marks "no mentor" as a cached answer.
+    if self:try_get("_tmp_surgeMentorUpdate") ~= dmhub.ngameupdate then
+        local mentor = self:GetMentor()
+        if mentor == self then
+            mentor = nil
+        end
+        self._tmp_surgeMentor = mentor or false
+        self._tmp_surgeMentorUpdate = dmhub.ngameupdate
+    end
+
+    return self._tmp_surgeMentor or nil
+end
+
+--- @return creature the creature whose surge pool this one spends from: its mentor, its surge-sharing summoner, or itself.
+function creature:GetSurgePoolOwner()
+    local mentor = self:GetSurgeSharingMentor()
+    if mentor ~= nil then
+        return mentor
+    end
+
+    local summonerToken = self:GetSurgeSharingSummonerToken()
+    if summonerToken ~= nil then
+        return summonerToken.properties
+    end
+
+    return self
+end
+
 function creature:ConsumeSurges(ncount, note)
     local surgeid = CharacterResource.nameToId["Surges"]
     if surgeid == nil then
+        return
+    end
+
+    -- Retainers spend from their mentor's pool, matching where Resource.lua sends their surge gains.
+    local mentor = self:GetSurgeSharingMentor()
+    local mentorToken = mentor ~= nil and dmhub.LookupToken(mentor) or nil
+    if mentorToken ~= nil then
+        mentorToken:ModifyProperties{
+            description = "Consume Surges",
+            execute = function()
+                mentorToken.properties:AddUnboundedResource(surgeid, -ncount, note or "Consumed Surges")
+            end,
+        }
         return
     end
 
@@ -411,6 +459,11 @@ function creature:GetAvailableSurges()
         return 0
     end
 
+    local mentor = self:GetSurgeSharingMentor()
+    if mentor ~= nil then
+        return mentor:GetUnboundedResourceQuantity(surgeid)
+    end
+
     local summonerToken = self:GetSurgeSharingSummonerToken()
     if summonerToken ~= nil then
         return summonerToken.properties:GetUnboundedResourceQuantity(surgeid)
@@ -421,6 +474,11 @@ function creature:GetAvailableSurges()
 end
 
 function creature:GetMaxSurgeCount()
+    local mentor = self:GetSurgeSharingMentor()
+    if mentor ~= nil then
+        return mentor:GetMaxSurgeCount()
+    end
+
     local summonerToken = self:GetSurgeSharingSummonerToken()
     if summonerToken ~= nil then
         return summonerToken.properties:GetMaxSurgeCount()
