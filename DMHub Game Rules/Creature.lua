@@ -5170,14 +5170,18 @@ end
 
 function creature:FillEquipmentModifiers(result)
 	local gearTable = GetTableCached('tbl_Gear')
+	local equippedIds = {}
 	for slotid,itemid in pairs(self:EquipmentInUse()) do
 		local item = gearTable[itemid]
 		if item then
+			equippedIds[itemid] = true
 			item:EnsureDomains()
 			local features = item:try_get("features")
 			if features then
+				--consumeItemId: a trigger from a consumable spends the item (TriggerPayCost).
+				local params = cond(EquipmentCategory.IsConsumable(item), {consumeItemId = itemid}, nil)
 				for i,feature in ipairs(features) do
-                    feature:FillModifiers(self, result)
+                    feature:FillModifiers(self, result, params)
 				end
 			end
 
@@ -5188,6 +5192,22 @@ function creature:FillEquipmentModifiers(result)
 					for _,feature in ipairs(propInfo.features) do
                         feature:FillModifiers(self, result)
 					end
+				end
+			end
+		end
+	end
+
+	--Consumables can't be equipped, so their magical properties apply while the
+	--item is merely carried (e.g. Mirror Token: "while on your person"). Entries
+	--are tagged with consumeItemId so a trigger that fires spends one of the item.
+	for itemid,entry in pairs(self:try_get("inventory", {})) do
+		local item = gearTable[itemid]
+		if item ~= nil and (not equippedIds[itemid]) and (entry.quantity or 0) > 0 and EquipmentCategory.IsConsumable(item) then
+			local features = item:try_get("features")
+			if features ~= nil and #features > 0 then
+				item:EnsureDomains()
+				for _,feature in ipairs(features) do
+					feature:FillModifiers(self, result, {consumeItemId = itemid})
 				end
 			end
 		end
@@ -7709,6 +7729,27 @@ function creature:MatchesString(viewingToken, token, str)
         end
     end
 
+    --Ongoing effects match by their own name, so an effect is found even when its
+    --modifiers are named differently or it has none. Same "hidden" exclusion as above.
+    if str ~= "hidden" then
+        local ongoingEffects = self:ActiveOngoingEffects()
+        if #ongoingEffects > 0 then
+            local ongoingEffectsTable = GetTableCached("characterOngoingEffects") or {}
+            local pattern = nil
+            if string.find(str, "*") then
+                pattern = string.gsub(str, "%*", ".*")
+            end
+            for i=1,#ongoingEffects do
+                local info = ongoingEffectsTable[ongoingEffects[i].ongoingEffectid]
+                if info ~= nil then
+                    local effectName = string.lower(info.name)
+                    if effectName == str or (pattern ~= nil and regex.Match(effectName, pattern)) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
 
     local condition = CharacterCondition.conditionsByName[str]
     if condition ~= nil and self:HasCondition(condition.id) then
@@ -8041,22 +8082,22 @@ creature.helpSymbols = {
 	countnearbyenemies = {
 		name = "Count Nearby Enemies",
 		type = "function",
-		desc = "A function which is shown a distance in squares and tells us the number of live enemy creatures within that distance of this creature. This can be given additional parameters after the distance to filter the criteria. Criteria can incldue monster groups, the names of features, condition names such as \"Prone\", and states such as \"Winded\". Put a ~ in front of a criteria to invert it. Creatures can also be provided as parameters and those specific creatures will be excluded from the match. Additional parameters can also include a number, which acts as a maximum altitude difference in tiles between this creature and the nearby creature.",
+		desc = "A function which is shown a distance in squares and tells us the number of live enemy creatures within that distance of this creature. This can be given additional parameters after the distance to filter the criteria. Criteria can include monster groups, the names of features, ongoing effects, condition names such as \"Prone\", and states such as \"Winded\". Put a ~ in front of a criteria to invert it. Creatures can also be provided as parameters and those specific creatures will be excluded from the match. Additional parameters can also include a number, which acts as a maximum altitude difference in tiles between this creature and the nearby creature.",
 		examples = {"OBJ.Count Nearby Enemies(1)", "OBJ.Count Nearby Enemies(1, 1)", "OBJ.Count Nearby Enemies(5, \"Goblin\")", "OBJ.Count Nearby Enemies(10, \"ally\")", "OBJ.Count Nearby Enemies(5, \"enemy\", \"Goblin\")", "OBJ.Count Nearby Enemies(1, \"Winded\")", "OBJ.Count Nearby Enemies(1, \"~Winded\")"},
 	},
 
 	countnearbyfriends = {
 		name = "Count Nearby Friends",
 		type = "function",
-		desc = "A function which is shown a distance in squares and tells us the number of live allied creatures within that distance of this creature. This can be given additional parameters after the distance to filter the criteria. Criteria can incldue monster groups, the names of features, condition names such as \"Prone\", and states such as \"Winded\". Put a ~ in front of a criteria to invert it. Creatures can also be provided as parameters and those specific creatures will be excluded from the match. Additional parameters can also include a number, which acts as a maximum altitude difference in tiles between this creature and the nearby creature.",
+		desc = "A function which is shown a distance in squares and tells us the number of live allied creatures within that distance of this creature. This can be given additional parameters after the distance to filter the criteria. Criteria can include monster groups, the names of features, ongoing effects, condition names such as \"Prone\", and states such as \"Winded\". Put a ~ in front of a criteria to invert it. Creatures can also be provided as parameters and those specific creatures will be excluded from the match. Additional parameters can also include a number, which acts as a maximum altitude difference in tiles between this creature and the nearby creature.",
 		examples = {"OBJ.Count Nearby Friends(5)", "OBJ.Count Nearby Friends(1, 1)", "OBJ.Count Nearby Friends(5, \"Winded\")"},
 	},
 
 	countnearbycreatures = {
 		name = "Count Nearby Creatures",
 		type = "function",
-		desc = "A function which is shown a distance in squares and tells us the number of live creatures within that distance of this creature. This can be given additional parameters after the distance to filter the criteria. 'ally' and 'enemy' work, as do monster groups, the names of features, condition names such as \"Prone\", and states such as \"Winded\". Put a ~ in front of a criteria to invert it. Creatures can also be provided as parameters and those specific creatures will be excluded from the match. Additional parameters can also include a number, which acts as a maximum altitude difference in tiles between this creature and the nearby creature.",
-		examples = {"OBJ.Count Nearby Creatures(5)", "OBJ.Count Nearby Creatures(1, \"Enemy\", \"Goblin\") > 2", "OBJ.Count Nearby Creatures(1, 1, \"Enemy\")", "OBJ.Count Nearby Creatures(2, \"Enemy\", \"Winded\")"},
+		desc = "A function which is shown a distance in squares and tells us the number of live creatures within that distance of this creature. This can be given additional parameters after the distance to filter the criteria. 'ally' and 'enemy' work, as do monster groups, the names of features and ongoing effects, condition names such as \"Prone\", and states such as \"Winded\". Put a ~ in front of a criteria to invert it. Creatures can also be provided as parameters and those specific creatures will be excluded from the match. Additional parameters can also include a number, which acts as a maximum altitude difference in tiles between this creature and the nearby creature.",
+		examples = {"OBJ.Count Nearby Creatures(5)", "OBJ.Count Nearby Creatures(1, \"Enemy\", \"Goblin\") > 2", "OBJ.Count Nearby Creatures(1, 1, \"Enemy\")", "OBJ.Count Nearby Creatures(2, \"Enemy\", \"Winded\")", "OBJ.Count Nearby Creatures(5, \"Judged\")"},
 	},
 
 	countriders = {
@@ -10475,7 +10516,7 @@ function creature:SetTriggeredAbilityEnabled(ability, value)
 	activeTriggers[ability.guid] = value
 end
 
---- @class ActiveTrigger
+--- @class ActiveTrigger: GameType
 --- @field timestamp number
 --- @field expiryTimestamp number
 --- @field id string
