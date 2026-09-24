@@ -1521,6 +1521,7 @@ local function CreateEntryCard(entry, appearIn)
     --and its "parent:drag-target" rule darkens only the card's direct
     --children's text. A threat's malice diamond floats in the corner so it
     --does not need a row around the name.
+    ---@type Panel[]
     local cardChildren = {
         gui.Label{ classes = {"eotwEntryName"}, text = entry.name, interactable = false, halign = "left", width = cond(entry.kind == "threat", "100%-30", "100%") },
         gui.Label{ classes = {"eotwEntryDesc"}, text = entry.description, interactable = false },
@@ -1926,7 +1927,9 @@ end
 local function TurnSignature(m)
     local t = m.turn or {}
     local a = t.assist or {}
+    local d = t.delve or {}
     return table.concat({
+        tostring(d.obstacleId), tostring(d.depth), tostring(d.chests),
         tostring(m.phase), tostring(m.round), tostring(t.seq), tostring(t.status), tostring(t.optionIndex),
         tostring(t.rollSeq), tostring(t.tier), tostring(m.consequenceIndex), tostring(#(m.log or {})),
         tostring(dmhub.loginUserid == t.userid),
@@ -2381,7 +2384,9 @@ local function CreateSceneStage()
                 end,
             }
         end
-        if mine then
+        --inside a delve the way out is turning back at a chest, not leaving
+        --an obstacle half met.
+        if mine and t.delve == nil then
             --no free withdrawal: having approached, the only way out is to
             --do nothing, which costs the hero their turn (user direction
             --2026-09-19).
@@ -2415,6 +2420,104 @@ local function CreateSceneStage()
         }
     end
 
+    --A delve's chest table, in the middle of the stage while its dice are
+    --out: one row per range, the same look as a test's tier rows.
+    local function ChestCard(chestTable)
+        local rows = {
+            gui.Label{ classes = {"eotwOptionName"}, text = "A chest", interactable = false },
+            gui.Label{ classes = {"eotwOptionRoll"}, text = string.format("%s: %s", chestTable.name or "Treasure", chestTable.dice or "1d6"), interactable = false },
+        }
+        for _, row in ipairs(chestTable.rows or {}) do
+            local range = cond(row.lo == row.hi, tostring(row.lo), string.format("%d-%d", row.lo, row.hi))
+            rows[#rows + 1] = gui.Panel{
+                width = "100%",
+                height = "auto",
+                flow = "horizontal",
+                vmargin = 1,
+                interactable = false,
+                gui.Label{ classes = {"eotwTierRange"}, text = range, interactable = false },
+                gui.Label{ classes = {"eotwTierText"}, text = EncounterScript.VisibleText(row.text), interactable = false },
+            }
+        end
+        return gui.Panel{
+            classes = {"eotwOptionCard"},
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            pad = 10,
+            borderBox = true,
+            vmargin = 5,
+            bgimage = "panels/square.png",
+            children = rows,
+        }
+    end
+
+    --What a delve has granted so far, in the middle of the stage while the
+    --hero decides whether to press on.
+    local function HaulCard(t)
+        local rows = {
+            gui.Label{ classes = {"eotwOptionName"}, text = string.format("%s so far", t.delve.entryName or "The delve"), interactable = false },
+            gui.Label{
+                classes = {"eotwOptionRoll"},
+                text = string.format("%s met, %s opened. %s left.",
+                    EncounterScript.Plural(t.delve.depth or 0, "obstacle"),
+                    EncounterScript.Plural(t.delve.chests or 0, "chest"),
+                    EncounterScript.Plural(EncounterMontage.HeroRecoveries(t.heroid), "Recovery", "Recoveries")),
+                interactable = false,
+            },
+        }
+        for _, line in ipairs(t.delve.applied or {}) do
+            rows[#rows + 1] = gui.Label{ classes = {"eotwAppliedLine"}, textAlignment = "left", text = line, interactable = false }
+        end
+        return gui.Panel{
+            classes = {"eotwOptionCard"},
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            pad = 10,
+            borderBox = true,
+            vmargin = 5,
+            bgimage = "panels/square.png",
+            children = rows,
+        }
+    end
+
+    local function DelveChoiceButtons(m, t)
+        local mine = IsMyTurn(m)
+        local children = {
+            gui.Label{
+                classes = {"eotwSceneHint"},
+                text = cond(mine, "Press deeper, or turn back with what you have?", string.format("%s is deciding whether to press on...", t.heroName or "The hero")),
+            },
+        }
+        if mine then
+            local function Button(label, kind, tooltip)
+                return gui.Panel{
+                    classes = {"eotwSceneOption", "actionable"},
+                    width = "auto",
+                    height = "auto",
+                    halign = "left",
+                    hpad = 14,
+                    vpad = 5,
+                    borderBox = true,
+                    vmargin = 2,
+                    bgimage = "panels/square.png",
+                    gui.Label{ classes = {"eotwSceneOptionName"}, text = label, interactable = false },
+                    linger = function(element)
+                        gui.Tooltip(tooltip)(element)
+                    end,
+                    press = function(element)
+                        audio.FireSoundEvent("Mouse.Click")
+                        EncounterMontage.SendRequest(kind, {})
+                    end,
+                }
+            end
+            children[#children + 1] = Button("Press deeper", "delveOn", "Face another obstacle. There may be more treasure further in.")
+            children[#children + 1] = Button("Turn back", "delveOut", "Leave with everything you have found. This ends your turn.")
+        end
+        return children
+    end
+
     local function Render(m, beat)
         local t = m.turn
         local entry = EncounterScript.FindEntry(beat, t.entryId)
@@ -2424,7 +2527,15 @@ local function CreateSceneStage()
         local instant = not m_settled
         m_settled = true
 
-        titleLabel.text = string.format("%s approaches %s", t.heroName or "A hero", entry.name)
+        --inside a delve, the obstacle the hero faces is what is on offer.
+        local here = EncounterMontage.TurnEntry(beat, t) or entry
+        if t.delve ~= nil and here ~= entry then
+            titleLabel.text = string.format("%s in %s: %s", t.heroName or "A hero", entry.name, here.name)
+        elseif t.delve ~= nil then
+            titleLabel.text = string.format("%s in %s", t.heroName or "A hero", entry.name)
+        else
+            titleLabel.text = string.format("%s approaches %s", t.heroName or "A hero", entry.name)
+        end
         if m_heroid ~= t.heroid then
             m_heroid = t.heroid
             heroSlot.children = { SceneActor{ name = t.heroName, charid = t.heroid } }
@@ -2494,13 +2605,28 @@ local function CreateSceneStage()
             return
         end
         m_boxKey = boxKey
-        local option = entry.options[t.optionIndex or 0]
+        local option = here.options[t.optionIndex or 0]
         m_detailDefault = {}
         if t.status == "choosing" then
-            boxExtra.children = OptionButtons(m, entry)
+            boxExtra.children = OptionButtons(m, here)
+        elseif t.status == "chest" then
+            local delve = EncounterMontage.TurnDelve(t)
+            local chest = delve ~= nil and delve.sections.chest or nil
+            if chest ~= nil and chest.table ~= nil then
+                m_detailDefault = { ChestCard(chest.table) }
+            end
+            boxExtra.children = {
+                gui.Label{
+                    classes = {"eotwSceneHint"},
+                    text = cond(IsMyTurn(m), "Roll for what the chest holds...", string.format("%s opens the chest...", t.heroName or "The hero")),
+                },
+            }
+        elseif t.status == "delvechoice" then
+            m_detailDefault = { HaulCard(t) }
+            boxExtra.children = DelveChoiceButtons(m, t)
         else
             if option ~= nil then
-                m_detailDefault = { OptionCard(entry, option, t.optionIndex, m) }
+                m_detailDefault = { OptionCard(here, option, t.optionIndex, m) }
             end
             if t.status == "rolling" then
                 boxExtra.children = {
@@ -2669,7 +2795,10 @@ local function BuildTurnChildren(m, beat)
         local last = logs[#logs]
         if last ~= nil and not last.consequence then
             Add(gui.Panel{ width = "60%", height = 1, bgimage = "panels/square.png", bgcolor = "#ffffff30", halign = "center", vmargin = 10 })
-            if last.passed then
+            if last.delve then
+                Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s delved into %s: %s met, %s opened.", last.heroName or "A hero", last.entryName or "",
+                    EncounterScript.Plural(last.depth or 0, "obstacle"), EncounterScript.Plural(last.chests or 0, "chest")) })
+            elseif last.passed then
                 Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s approached %s and did nothing.", last.heroName or "A hero", last.entryName or "") })
             else
                 Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s: %s (%s, tier %d)", last.heroName or "", last.entryName or "", last.optionName or "", last.tier or 0) })
@@ -3005,7 +3134,7 @@ local function ActiveCharacteristic(m, charid)
         return nil, nil
     end
     local beat = EncounterMontage.CurrentBeat()
-    local entry = beat ~= nil and EncounterScript.FindEntry(beat, t.entryId) or nil
+    local entry = beat ~= nil and EncounterMontage.TurnEntry(beat, t) or nil
     local option = entry ~= nil and entry.options[t.optionIndex] or nil
     if option == nil or option.roll == nil then
         return nil, nil

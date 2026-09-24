@@ -4730,7 +4730,113 @@ has no portrait yet** (it shows the default monster avatar).
   (`4711d2b5-0d68-47b1-8ea7-1642e1918a9e`, in Private Documents, so it is
   never read as the map's script). The narrative beats are unchanged: scenes
   are montage-only.
-- Open: the Hag has no portrait art, so the Witch shows the default avatar.
+- The Witch is played by the **Wode Hag** (has portrait art; the montage is set in the Wode), not the bestiary Hag, which has no portrait (2026-09-24; in the working copy, uploads with the delve content).
+
+### Delves: a dungeon crawl inside one approach (DECIDED + BUILT 2026-09-24; Lua only; parser unit-tested, 16 new checks; runtime and stage luac-clean + type-checked but UNTESTED live -- the app was closed; the week document's new content NOT YET UPLOADED; UNCOMMITTED)
+
+User direction (2026-09-24): a new opportunity, the **Forbidden Tomb**, is a
+loop: the hero meets obstacles (undead, traps, puzzles), finds a chest
+(a d6 table of treasure) every 1-2 obstacles, and after each chest may press
+deeper or turn back; with no Recoveries left they are forced out.
+
+**Decisions (with the user):** Scout out the Forest is (Required) in Round
+1 and the Forbidden Tomb a normal opportunity in Round 2; **flat** -- going
+deeper is not harder, it just means more chests; **one hero, one turn** --
+the whole delve is the approaching hero's turn, then the tomb is taken;
+the chest table is **1-2 Healing Potion, 3 Black Ash Dart, 4 Buzz Balm,
+5 Growth Potion, 6 Color Cloak - Blue** (the level-1 / 1st-echelon
+trinkets and consumables with gold implementation, fishing meals, the
+hunting draught and the beastheart-only collar left out). Ullorvic is the
+star elves' dead language; its related languages are Hyrallic and Yllyric
+(Heroes, "Dead Languages"), so "can read the tomb" is `PC speaks Ullorvic
+or PC speaks Hyrallic or PC speaks Yllyric`, and the puzzles' edge is
+`|Edge: You speak Ullorvic, Hyrallic or Yllyric`.
+
+**The grammar.** An option enters a delve with a `Delve: <Name>` line
+(above where its roll would be; the option has no roll). The delve itself
+is a `# Delve: <Name>` section anywhere in the document -- NOT a beat
+(`parse.delves`, by `MatchKey`; nothing plays it in order):
+
+```
+# Delve: Forbidden Tomb
+Chest: every 1-2 obstacles          (default 1-2)
+
+## Obstacle: The Restless Dead       an obstacle: exactly an opportunity's
+Card text.                           shape -- card text, "---" scene,
+---                                  "### options" with power rolls,
+Skeleton (Soulwight) enters          pre-roll and outcome lines
+...
+### Fight them
+|Combat Test: Might or Agility (Endurance, Gymnastics, Lift)
+|...three tiers...
+
+## Chest                             a scene, then a dice table
+PC finds a chest...
+|Treasure: 1d6
+|1-2: You gain one Healing Potion    "|N-M: result" or "|N: result"; each
+|3: You gain one Black Ash Dart      row's text uses the tier clause grammar
+
+## Continue                          played after each chest, before the choice
+## Leave                             (or "## Turn Back") walking out
+## Forced Out                        walking out with no Recoveries left
+```
+
+Every line under Chest / Continue / Leave / Forced Out is a scene line (no
+`---` needed). Parser warnings: a delve with no obstacles, no Chest, a
+Chest with no table, options under a scene section, an obstacle option
+with no roll, a `Delve:` naming no delve, a dice table outside a Chest.
+
+**How it runs** (`EncounterMontage.lua`, "delves (host side)"). Choosing
+the option sets `turn.delve = { name, entryName, depth, sinceChest,
+chestAt, used, obstacleId, chests, applied }`, plays the option's own
+lines, then `DelveNextObstacle`: a random obstacle not met yet becomes
+`delve.obstacleId`, and from then on `EncounterMontage.TurnEntry(beat, t)`
+(which every turn lookup now goes through) returns the OBSTACLE, so its
+scene, choice, roll, assist and outcome lines run on the existing
+machinery unchanged. When its test lands, `ApplyResolution` hands it to
+`DelveObstacleResolved`: effects apply at once (collected in
+`delve.applied`), then -- Recoveries at 0 -> forced out; the chest is due
+(`sinceChest >= chestAt`, re-drawn from the Chest interval each time) ->
+the Chest scene, then status `"chest"`, whose roll the delving player's
+client makes with `dmhub.Roll` (real dice, in chat) and reports as
+`chestRolled`; the row's effects apply and the Continue scene plays,
+led by "<Hero> rolls N: <row>"; then status `"delvechoice"` with "Press
+deeper" (`delveOn`) / "Turn back" (`delveOut`); otherwise the next
+obstacle. No obstacles left -> "There is nothing further to find here."
+and out. Leaving plays Leave / Forced Out and `DelveFinish` resolves the
+turn: acted, the entry taken, and a log line `{ delve, depth, chests,
+applied }` that the round view summarises ("X delved into Y: N obstacles
+met, M chests opened." plus every applied line). Leave is not offered
+inside a delve (the host also refuses `pass` there): the way out is
+turning back at a chest. Each delve scene starts with an empty stage.
+
+**The stage.** Title "<Hero> in <Entry>: <Obstacle>"; the obstacle's
+options as usual; while the chest's dice are out the table sits mid-stage
+(`ChestCard`); at the choice, mid-stage shows the haul so far and the
+obstacles / chests / Recoveries left (`HaulCard`), the box the two buttons.
+
+**The week document's new content** (written; not yet uploaded -- the app
+was closed; the text is the scratch copy `week_scenes.md`, and a rules
+diff against the live document showed no existing field changed):
+Scout out the Forest (Required, Round 1: "Scout the forest", Agility or
+Intuition (Alertness, Navigate, Search, Sneak), +1 Int & -1 Recovery /
++1 Int / +2 Int; "Track goblin trails", Intuition (Track), Allow: skilled
+in Track, +2 Int & -2 Recoveries / +2 Int & -1 / +2 Int); Forbidden Tomb
+(Round 2, the Ullorvic inscription, "Enter the tomb" -> `Delve: Forbidden
+Tomb`); and `# Delve: Forbidden Tomb` at the end of the document with
+nine obstacles -- undead: The Restless Dead (Soulwight), The Wailing Ghost
+(Ghost), The Armored Guardian (Armored Soulwight), each fought (Might /
+Agility) or avoided (Reason / Intuition), -2 / -1 / 0 Recoveries and the
+dead always fall; traps: Crushing Stones, Darts in the Walls (stamina
+costs), The Collapsing Stair; puzzles: The Sealed Door, The Star Map, The
+King's Riddle (Unquiet Spirit, speaking Ullorvic), each solved (+2 / +1 /
+0 malice, edge for Ullorvic-family speakers) or broken through (always
+cursed: +2 malice and -1 Recovery / +2 / +1) -- plus the Chest, Continue,
+Leave and Forced Out scenes.
+
+**Next:** start the app, upload the document (rules-diff it against the
+live one first), and play a delve end to end: an obstacle with an assist,
+a chest roll, press deeper, turn back; and a forced exit at 0 Recoveries.
 
 ### Scaling a montage to the party (DECIDED + BUILT 2026-09-20; Lua only; parser unit-tested with the bundled interpreter; runtime UNTESTED live -- needs a restart; UNCOMMITTED)
 
@@ -7474,6 +7580,10 @@ and 30 change nothing visible for a script with no montage.
     `ApplyResolution`, `FinishScenePart`, `SceneCursor` / `AdvanceScene`),
     `EncounterMontageStage.lua` (`CreateSceneStage` + its style rules),
     `tests/encounter_script_test.lua`. Next: the "still to verify" list there.
+
+51. [~] **Delves** (BUILT 2026-09-24; parser unit-tested; runtime/stage
+    UNTESTED live; content written, NOT UPLOADED; UNCOMMITTED). Design,
+    grammar and status in "Delves: a dungeon crawl inside one approach".
 
 Deliverable: the week's document is a script; a montage plays before the
 fight with every player dragging their heroes onto opportunities and

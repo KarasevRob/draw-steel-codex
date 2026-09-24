@@ -1238,6 +1238,50 @@ check(emoteLines[2].emotes ~= nil and emoteLines[2].emotes[1].name == "Witch" an
     "a speaker's own emote lands on their line")
 check(emoteLines[3].emotes == nil, "a line with no emote carries none")
 
+--delves: a "# Delve:" section of obstacles, a chest table and scenes,
+--entered by an option's "Delve: <Name>" line
+local DELVE = table.concat({
+    "# Montage", "## Round 1",
+    "## Opportunity: Forbidden Tomb", "A tomb.", "---", "PC reads the door.",
+    "### Enter the tomb", "PC: In we go.", "Delve: Forbidden Tomb",
+    "# Delve: Forbidden Tomb", "Chest: every 1-2 obstacles",
+    "## Obstacle: The Restless Dead", "Bones stir.", "---", "Skeleton (Soulwight) enters", "Skeleton: Leave!",
+    "### Fight them", "|Combat Test: Might or Agility", "|You lose two recoveries. The undead are destroyed.", "|You lose a recovery.", "|The undead are destroyed.",
+    "## Obstacle: A Pit", "A pit.",
+    "### Jump it", "|Jump Test: Agility", "|You lose a recovery.", "|You lose a recovery.", "|Nothing.",
+    "## Chest", "PC pries open a chest.",
+    "|Treasure: 1d6", "|1-2: You gain one Healing Potion", "|3: You gain one Black Ash Dart", "|4-6: You gain one Buzz Balm",
+    "## Continue", "PC: Deeper, or back?",
+    "## Forced Out", "PC staggers out.",
+}, string.char(10))
+local delveParse = EncounterScript.Parse(DELVE)
+local delveWarns = {}
+for _, w in ipairs(delveParse.warnings) do
+    if string.find(w, "unrecognized effect", 1, true) == nil then delveWarns[#delveWarns + 1] = w end
+end
+check(#delveWarns == 0, "the delve sample parses clean: " .. table.concat(delveWarns, "; "))
+check(#delveParse.beats == 1, "a delve is not a beat")
+local tomb = EncounterScript.FindDelve(delveParse, "forbidden tomb")
+check(tomb ~= nil and tomb.name == "Forbidden Tomb", "FindDelve by name, any case")
+check(tomb.chestEvery[1] == 1 and tomb.chestEvery[2] == 2, "Chest: every 1-2 obstacles")
+check(#tomb.obstacles == 2 and tomb.obstacles[1].id == "d-forbidden-tomb-the-restless-dead", "obstacles with ids")
+check(tomb.obstacles[1].scripted and #tomb.obstacles[1].scene == 2 and tomb.obstacles[1].actors["skeleton"] ~= nil, "an obstacle's scene and cast")
+check(#tomb.obstacles[1].options == 1 and #tomb.obstacles[1].options[1].roll.tiers == 3, "an obstacle's test")
+check(tomb.obstacles[2].scripted == nil and tomb.obstacles[2].description == "A pit.", "an unscripted obstacle keeps its card text")
+local chestSec = tomb.sections.chest
+check(chestSec ~= nil and chestSec.scene ~= nil and #chestSec.scene == 1, "the chest scene")
+check(chestSec.table ~= nil and chestSec.table.dice == "1d6" and #chestSec.table.rows == 3, "the chest table")
+check(EncounterScript.ChestRow(chestSec.table, 2).text == "You gain one Healing Potion", "row 1-2")
+check(EncounterScript.ChestRow(chestSec.table, 5).effects[1].kind == "item", "row 4-6 grants an item")
+check(tomb.sections.continue ~= nil and tomb.sections.forced ~= nil and tomb.sections.leave == nil, "named sections")
+local tombEntry = EncounterScript.MontageEntries(delveParse.beats[1])[1]
+check(tombEntry.options[1].delve == "Forbidden Tomb" and tombEntry.options[1].roll == nil, "the option enters the delve")
+check(#tombEntry.options[1].preScene == 1, "'Delve:' is not a scene line")
+local noDelve = EncounterScript.Parse(table.concat({
+    "# Montage", "## Opportunity: Hole", "### Go in", "Delve: Nowhere",
+}, string.char(10)))
+check(string.find(table.concat(noDelve.warnings, "; "), "there is no '# Delve: Nowhere'", 1, true) ~= nil, "a missing delve warns")
+
 --authoring mistakes warn
 local bad = EncounterScript.Parse(table.concat({
     "# Montage", "## Opportunity: Shrine", "---",

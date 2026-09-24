@@ -49,6 +49,16 @@
 --                                              lines have all been read
 --                   pendingTier, resolveUserid,  -- an outcome scene's tier, applied
 --                                                   once the scene has played
+--                   delve = nil | { name, entryName, depth, sinceChest, chestAt,
+--                                   used = { [obstacleId] = true }, obstacleId,
+--                                   chests, applied = { line, ... } },
+--                                           -- a "Delve: <Name>" option was taken:
+--                                              the whole delve is this turn (see
+--                                              "delves (host side)"). While
+--                                              obstacleId is set, the turn's entry
+--                                              and option are the OBSTACLE's.
+--                   status also "chest" (the chest's dice roll is out) and
+--                   "delvechoice" (press deeper or turn back) inside a delve.
 --                   optionIndex, rollSeq, tier, total, natural, applied = {...}, resolvedAt,
 --                   attrid, skillid,        -- what the acting hero rolled with
 --                   baseTier, baseTotal,    -- the test's own result, before an assist
@@ -358,6 +368,28 @@ function EncounterMontage.CurrentBeat()
         return nil, script
     end
     return beat, script
+end
+
+--The delve a turn is in (its "# Delve:" definition), or nil.
+function EncounterMontage.TurnDelve(t)
+    if t == nil or t.delve == nil then
+        return nil
+    end
+    local script = EncounterMontage.FindMapScript()
+    return EncounterScript.FindDelve(script ~= nil and script.parse or nil, t.delve.name)
+end
+
+--The entry a turn is playing: the opportunity or threat itself, or -- inside
+--a delve -- the obstacle the hero is facing. Its options are the ones on
+--offer, rolled and resolved.
+function EncounterMontage.TurnEntry(beat, t)
+    if t == nil then
+        return nil
+    end
+    if t.delve ~= nil and t.delve.obstacleId ~= nil then
+        return EncounterScript.FindObstacle(EncounterMontage.TurnDelve(t), t.delve.obstacleId)
+    end
+    return EncounterScript.FindEntry(beat, t.entryId)
 end
 
 --- heroes ------------------------------------------------------------------
@@ -697,7 +729,7 @@ function EncounterMontage.EligibleAssistants(m, beat, heroes)
     if t.status ~= "assist" and t.status ~= "rolling" then
         return result
     end
-    local entry = EncounterScript.FindEntry(beat, t.entryId)
+    local entry = EncounterMontage.TurnEntry(beat, t)
     local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
     if option == nil or option.roll == nil then
         return result
@@ -2134,7 +2166,15 @@ end
 --the plain "rolled" path and the assisted one, which arrives here with the
 --tier the assist shifted it to. An option with outcome lines plays them
 --first (ResolveTurn); this runs once they have been read.
+local DelveObstacleResolved
+
 local function ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, userid)
+    --inside a delve an obstacle's result is applied and the delve goes on;
+    --the turn only ends when the hero leaves.
+    if t.delve ~= nil and t.delve.obstacleId ~= nil then
+        DelveObstacleResolved(m, doc, t, entry, option, tierIndex, heroes, userid)
+        return
+    end
     local hero = HeroByCharid(heroes, t.heroid)
     local applied, newAllies = EncounterMontage.ApplyEffects(option.roll.effects[tierIndex] or {}, {
         heroEntry = hero,
@@ -2194,11 +2234,228 @@ local function ResolveTurn(m, doc, t, entry, option, tierIndex, heroes, userid)
     ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, userid)
 end
 
+--- delves (host side) ---------------------------------------------------------------
+--
+--A "Delve: <Name>" option takes the hero into a "# Delve:" section of the
+--script, and the whole delve is their turn (user direction 2026-09-24): they
+--meet a random obstacle they have not met yet and take one of its tests; its
+--result applies at once. Every 1-2 obstacles (the delve's "Chest: every
+--N-M") they find a chest and roll its dice table; then they choose to press
+--deeper or turn back. A hero with no Recoveries left is forced out, and a
+--delve with no obstacles left ends by itself. Leaving plays the delve's
+--"Leave" (or "Forced Out") scene and resolves the turn: the entry is taken
+--and everything gained goes in the log line. Flat: going deeper is not
+--harder, it is just more chests (user direction).
+
+local function HeroRecoveries(heroid)
+    local n = 0
+    local tok = dmhub.GetCharacterById(heroid)
+    if tok ~= nil and tok.valid and tok.properties ~= nil then
+        pcall(function() n = tok.properties:RecoveriesAvailableToSpend() or 0 end)
+    end
+    return n
+end
+
+EncounterMontage.HeroRecoveries = HeroRecoveries
+
+local function ChestInterval(delve)
+    local lo, hi = 1, 2
+    if delve ~= nil and delve.chestEvery ~= nil then
+        lo, hi = delve.chestEvery[1], delve.chestEvery[2]
+    end
+    return math.random(lo, hi)
+end
+
+local function DelveAddApplied(t, lines)
+    t.delve.applied = t.delve.applied or {}
+    for _, line in ipairs(lines or {}) do
+        t.delve.applied[#t.delve.applied + 1] = line
+    end
+end
+
+--a fresh test: nothing of the last obstacle's roll carries over.
+local function ClearTest(t)
+    t.optionIndex = nil
+    t.optionName = nil
+    t.rollSeq = nil
+    t.tier = nil
+    t.pendingTier = nil
+    t.resolveUserid = nil
+    t.total = nil
+    t.natural = nil
+    t.baseTier = nil
+    t.baseTotal = nil
+    t.attrid = nil
+    t.skillid = nil
+    t.assist = nil
+    t.assistOpenedAt = nil
+end
+
+local DelveAdvance
+
+--Play one of the delve's own scenes ("chest", "continue", "leave",
+--"forced"), with `lead` lines of narration first, then go on to `after`.
+local function DelveScene(m, doc, t, heroes, sectionKey, after, lead)
+    local delve = EncounterMontage.TurnDelve(t)
+    local section = delve ~= nil and delve.sections[sectionKey] or nil
+    --each scene of the delve starts with nobody else on stage.
+    t.scene = { cast = {} }
+    if section ~= nil then
+        BuildScenePart(m, t, section, nil, "intro")
+    else
+        m.seq = (m.seq or 0) + 1
+        t.scene = { id = m.seq, part = "intro", steps = {}, cast = {} }
+    end
+    for i = #(lead or {}), 1, -1 do
+        table.insert(t.scene.steps, 1, { kind = "narrate", text = lead[i], cast = {} })
+    end
+    if #t.scene.steps == 0 then
+        DelveAdvance(m, doc, t, heroes, after)
+        return
+    end
+    t.status = "scene"
+    t.sceneAfter = after
+end
+
+--Walk out: voluntarily ("leave"), with no Recoveries left ("forced"), or
+--because every obstacle has been met ("exhausted").
+local function DelveLeave(m, doc, t, heroes, why)
+    t.delve.obstacleId = nil
+    ClearTest(t)
+    local lead = nil
+    local delve = EncounterMontage.TurnDelve(t)
+    local sectionKey = cond(why == "forced", "forced", "leave")
+    if why == "forced" and (delve == nil or delve.sections.forced == nil) then
+        lead = { string.format("%s has no Recoveries left, and must turn back.", t.heroName or "The hero") }
+    elseif why == "exhausted" then
+        lead = { "There is nothing further to find here." }
+    end
+    DelveScene(m, doc, t, heroes, sectionKey, "delve-end", lead)
+end
+
+local function DelveNextObstacle(m, doc, t, heroes)
+    local delve = EncounterMontage.TurnDelve(t)
+    if delve == nil then
+        DelveLeave(m, doc, t, heroes, "exhausted")
+        return
+    end
+    if HeroRecoveries(t.heroid) <= 0 then
+        DelveLeave(m, doc, t, heroes, "forced")
+        return
+    end
+    local pool = {}
+    for _, ob in ipairs(delve.obstacles) do
+        if not (t.delve.used or {})[ob.id] then
+            pool[#pool + 1] = ob
+        end
+    end
+    if #pool == 0 then
+        DelveLeave(m, doc, t, heroes, "exhausted")
+        return
+    end
+    local ob = pool[math.random(1, #pool)]
+    t.delve.used = t.delve.used or {}
+    t.delve.used[ob.id] = true
+    t.delve.obstacleId = ob.id
+    ClearTest(t)
+    t.scene = { cast = {} }
+    if BuildScenePart(m, t, ob, nil, "intro") > 0 then
+        t.status = "scene"
+        t.sceneAfter = "choosing"
+    else
+        t.status = "choosing"
+    end
+end
+
+--The delve is over: the turn resolves like any other, with everything the
+--delve granted as its result.
+local function DelveFinish(m, doc, t)
+    local d = t.delve
+    t.status = "resolved"
+    t.applied = d.applied or {}
+    t.resolvedAt = dmhub.serverTime
+    m.acted = m.acted or {}
+    m.acted[t.heroid] = true
+    m.taken = m.taken or {}
+    m.taken[t.entryId] = true
+    m.log = m.log or {}
+    m.log[#m.log + 1] = {
+        round = m.round,
+        heroid = t.heroid,
+        heroName = t.heroName,
+        entryId = t.entryId,
+        entryName = d.entryName,
+        delve = true,
+        depth = d.depth or 0,
+        chests = d.chests or 0,
+        applied = d.applied or {},
+    }
+end
+
+--Where a delve scene hands over once it has been read (and straight away
+--for a scene with no lines).
+DelveAdvance = function(m, doc, t, heroes, after)
+    if after == "delve-start" or after == "delve-obstacle" then
+        DelveNextObstacle(m, doc, t, heroes)
+    elseif after == "delve-chest" then
+        m.seq = (m.seq or 0) + 1
+        t.rollSeq = m.seq
+        t.status = "chest"
+    elseif after == "delve-choice" then
+        t.status = "delvechoice"
+    elseif after == "delve-end" then
+        DelveFinish(m, doc, t)
+    end
+end
+
+--An obstacle's test has landed (after its outcome lines): apply it, then a
+--chest, the next obstacle, or the way out.
+DelveObstacleResolved = function(m, doc, t, entry, option, tierIndex, heroes, userid)
+    local hero = HeroByCharid(heroes, t.heroid)
+    local applied, newAllies = EncounterMontage.ApplyEffects(option.roll.effects[tierIndex] or {}, {
+        heroEntry = hero,
+        userid = userid,
+        entryName = t.delve.entryName,
+        entryId = t.entryId,
+        montage = m,
+        doc = doc,
+    })
+    if #newAllies > 0 then
+        doc.data.allies = doc.data.allies or {}
+        doc.data.allies[t.heroid] = doc.data.allies[t.heroid] or {}
+        for _, charid in ipairs(newAllies) do
+            table.insert(doc.data.allies[t.heroid], charid)
+        end
+    end
+    DelveAddApplied(t, applied)
+    t.delve.depth = (t.delve.depth or 0) + 1
+    t.delve.sinceChest = (t.delve.sinceChest or 0) + 1
+    t.delve.obstacleId = nil
+    ClearTest(t)
+    if HeroRecoveries(t.heroid) <= 0 then
+        DelveLeave(m, doc, t, heroes, "forced")
+        return
+    end
+    local delve = EncounterMontage.TurnDelve(t)
+    if delve ~= nil and delve.sections.chest ~= nil and delve.sections.chest.table ~= nil
+        and t.delve.sinceChest >= (t.delve.chestAt or 1) then
+        t.delve.sinceChest = 0
+        t.delve.chestAt = ChestInterval(delve)
+        DelveScene(m, doc, t, heroes, "chest", "delve-chest")
+        return
+    end
+    DelveNextObstacle(m, doc, t, heroes)
+end
+
 --Every line of the playing scene part has been read: move the turn on.
 local function FinishScenePart(m, doc, t, beat, heroes)
     local after = t.sceneAfter
     t.sceneAfter = nil
-    local entry = EncounterScript.FindEntry(beat, t.entryId)
+    if after ~= nil and string.sub(after, 1, 6) == "delve-" then
+        DelveAdvance(m, doc, t, heroes, after)
+        return
+    end
+    local entry = EncounterMontage.TurnEntry(beat, t)
     if after == "rolling" then
         m.seq = (m.seq or 0) + 1
         t.rollSeq = m.seq
@@ -2256,7 +2513,10 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if t == nil or t.userid ~= userid or t.status ~= "choosing" then
             return "ignored pass: not choosing"
         end
-        local entry = EncounterScript.FindEntry(beat, t.entryId)
+        if t.delve ~= nil then
+            return "ignored pass: inside a delve (turn back at the next chest)"
+        end
+        local entry = EncounterMontage.TurnEntry(beat, t)
         m.acted = m.acted or {}
         m.acted[t.heroid] = true
         m.log = m.log or {}
@@ -2276,10 +2536,37 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if t == nil or t.userid ~= userid or t.status ~= "choosing" then
             return "ignored choose: not choosing"
         end
-        local entry = EncounterScript.FindEntry(beat, t.entryId)
+        local entry = EncounterMontage.TurnEntry(beat, t)
         local option = entry ~= nil and entry.options[tonumber(req.optionIndex) or 0] or nil
-        if option == nil or option.roll == nil then
+        if option == nil or (option.roll == nil and (option.delve == nil or t.delve ~= nil)) then
             return "ignored choose: no such option"
+        end
+        if option.delve ~= nil and t.delve == nil then
+            local script = EncounterMontage.FindMapScript()
+            local delve = EncounterScript.FindDelve(script ~= nil and script.parse or nil, option.delve)
+            if delve == nil then
+                return string.format("ignored choose: no delve '%s' in the script", tostring(option.delve))
+            end
+            t.optionIndex = tonumber(req.optionIndex)
+            t.optionName = option.name
+            t.delve = {
+                name = delve.name,
+                entryName = entry.name,
+                depth = 0,
+                sinceChest = 0,
+                chestAt = ChestInterval(delve),
+                used = {},
+                chests = 0,
+                applied = {},
+            }
+            --the option's own lines ("PC: In we go") play first.
+            if option.preScene ~= nil and BuildScenePart(m, t, entry, option, "option") > 0 then
+                t.status = "scene"
+                t.sceneAfter = "delve-start"
+            else
+                DelveNextObstacle(m, doc, t, heroes)
+            end
+            return string.format("%s enters %s", t.heroName, delve.name)
         end
         --an Allow rider the hero does not meet locks the option; the stage
         --never sends this, but the host is the authority.
@@ -2314,7 +2601,7 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if t == nil or t.userid ~= userid or t.status ~= "rolling" or t.rollSeq ~= req.rollSeq then
             return "ignored roll: stale"
         end
-        local entry = EncounterScript.FindEntry(beat, t.entryId)
+        local entry = EncounterMontage.TurnEntry(beat, t)
         local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
         if option == nil or option.roll == nil then
             t.status = "choosing"
@@ -2422,7 +2709,7 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if t == nil or a == nil or a.userid ~= userid or t.status ~= "assisting" or a.rollSeq ~= req.rollSeq then
             return "ignored assist roll: stale"
         end
-        local entry = EncounterScript.FindEntry(beat, t.entryId)
+        local entry = EncounterMontage.TurnEntry(beat, t)
         local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
         if option == nil or option.roll == nil then
             t.status = "choosing"
@@ -2455,7 +2742,7 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if t.userid ~= userid then
             return "ignored noassist: not your test"
         end
-        local entry = EncounterScript.FindEntry(beat, t.entryId)
+        local entry = EncounterMontage.TurnEntry(beat, t)
         local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
         if option == nil or option.roll == nil then
             t.status = "choosing"
@@ -2463,6 +2750,44 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         end
         ResolveTurn(m, doc, t, entry, option, t.baseTier or t.tier or 1, heroes, userid)
         return string.format("%s takes the result unassisted", t.heroName or "The hero")
+    elseif kind == "chestRolled" then
+        local t = m.turn
+        if t == nil or t.delve == nil or t.status ~= "chest" or t.userid ~= userid or t.rollSeq ~= req.rollSeq then
+            return "ignored chest roll: stale"
+        end
+        local delve = EncounterMontage.TurnDelve(t)
+        local chest = delve ~= nil and delve.sections.chest or nil
+        local total = math.floor(tonumber(req.total) or 1)
+        local row = chest ~= nil and EncounterScript.ChestRow(chest.table, total) or nil
+        local lead = { string.format("%s rolls %d.", t.heroName or "The hero", total) }
+        if row ~= nil then
+            local hero = HeroByCharid(heroes, t.heroid)
+            local applied = EncounterMontage.ApplyEffects(row.effects, {
+                heroEntry = hero,
+                userid = userid,
+                entryName = t.delve.entryName,
+                entryId = t.entryId,
+                montage = m,
+                doc = doc,
+            })
+            DelveAddApplied(t, applied)
+            lead[1] = string.format("%s rolls %d: %s", t.heroName or "The hero", total, EncounterScript.VisibleText(row.text))
+        end
+        t.delve.chests = (t.delve.chests or 0) + 1
+        t.rollSeq = nil
+        DelveScene(m, doc, t, heroes, "continue", "delve-choice", lead)
+        return string.format("%s opens a chest: %d", t.heroName or "A hero", total)
+    elseif kind == "delveOn" or kind == "delveOut" then
+        local t = m.turn
+        if t == nil or t.delve == nil or t.status ~= "delvechoice" or t.userid ~= userid then
+            return "ignored delve choice: not the moment"
+        end
+        if kind == "delveOn" then
+            DelveNextObstacle(m, doc, t, heroes)
+            return string.format("%s presses deeper into %s", t.heroName or "A hero", t.delve.entryName or "the delve")
+        end
+        DelveLeave(m, doc, t, heroes, "leave")
+        return string.format("%s turns back from %s", t.heroName or "A hero", t.delve.entryName or "the delve")
     elseif kind == "continue" then
         if m.phase ~= "consequences" then
             return "ignored continue"
@@ -2823,7 +3148,7 @@ function EncounterMontage.HostTick(script, beat, beatIndex)
         end
         if age >= ASSIST_WINDOW_SECONDS then
             local t = m.turn
-            local entry = EncounterScript.FindEntry(beat, t.entryId)
+            local entry = EncounterMontage.TurnEntry(beat, t)
             local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
             if option ~= nil and option.roll ~= nil then
                 ResolveTurn(m, doc, t, entry, option, t.baseTier or t.tier or 1, heroes, t.userid)
@@ -3208,6 +3533,29 @@ function EncounterMontage.ClientTick()
         return
     end
     local t = m.turn
+    --a delve's chest: the delving hero's player rolls its dice, for all to
+    --see, once per chest.
+    if t.status == "chest" and t.userid == dmhub.loginUserid and t.delve ~= nil then
+        if m_launchedRollSeq == t.rollSeq then
+            return
+        end
+        m_launchedRollSeq = t.rollSeq
+        local seq = t.rollSeq
+        local delve = EncounterMontage.TurnDelve(t)
+        local chestTable = delve ~= nil and delve.sections.chest ~= nil and delve.sections.chest.table or nil
+        dmhub.Roll{
+            roll = (chestTable ~= nil and chestTable.dice) or "1d6",
+            description = string.format("%s: %s", t.delve.entryName or "Delve", (chestTable ~= nil and chestTable.name) or "Chest"),
+            tokenid = t.heroid,
+            complete = function(rollInfo)
+                if mod.unloaded then
+                    return
+                end
+                EncounterMontage.SendRequest("chestRolled", { rollSeq = seq, total = rollInfo.total })
+            end,
+        }
+        return
+    end
     --the test itself, or the assist someone stepped in with: whichever roll
     --is waiting on THIS user, at most once per rollSeq.
     local assisting = t.status == "assisting" and t.assist ~= nil and t.assist.userid == dmhub.loginUserid
@@ -3222,7 +3570,7 @@ function EncounterMontage.ClientTick()
     if beat == nil then
         return
     end
-    local entry = EncounterScript.FindEntry(beat, t.entryId)
+    local entry = EncounterMontage.TurnEntry(beat, t)
     local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
     if option == nil or option.roll == nil then
         return
