@@ -35,7 +35,20 @@
 --                                              put on another test, for
 --                                              WHOEVER takes it
 --    turn = nil | { seq, userid, heroid, entryId,
---                   status = "choosing"|"rolling"|"assist"|"assisting"|"resolved",
+--                   status = "scene"|"choosing"|"rolling"|"assist"|"assisting"|"resolved",
+--                   scene = { id, part = "intro"|"option"|"outcome",
+--                             steps = { { kind = "narrate"|"say", text, speaker,
+--                                         side = "left"|"right", lang, garbled,
+--                                         cast = { { name, monster }, ... },
+--                                         emotes = nil | { { name, side, emote }, ... } }, ... },
+--                             cast },   -- the lines playing on the stage (see
+--                                          BuildScenePart); `cast` is who is on
+--                                          stage once the part has played
+--                   sceneAfter = "choosing"|"rolling"|"resolve",
+--                                           -- where a "scene" turn goes when its
+--                                              lines have all been read
+--                   pendingTier, resolveUserid,  -- an outcome scene's tier, applied
+--                                                   once the scene has played
 --                   optionIndex, rollSeq, tier, total, natural, applied = {...}, resolvedAt,
 --                   attrid, skillid,        -- what the acting hero rolled with
 --                   baseTier, baseTotal,    -- the test's own result, before an assist
@@ -51,6 +64,14 @@
 --          (a passed turn logs { round, passed = true, heroid, heroName, entryId, entryName })
 --    seq = n,
 --  }
+--  data.montageScene = nil | { id, index }
+--                  -- how far through the playing scene (turn.scene.id) the
+--                     party has read. The one key a PLAYER writes directly
+--                     (EncounterMontage.AdvanceScene): only the acting hero's
+--                     player advances it, and a round trip through the host
+--                     for every line would make the dialogue sluggish. The
+--                     host only reads it, to move the turn on once the last
+--                     line has been read.
 --  data.allies   = { [heroCharid] = { charid, ... } }  -- monsters that joined a hero
 --  data.items    = { [heroCharid] = { { itemid, name, qty }, ... } }
 --                  -- gear the montage granted, in the order it was granted
@@ -770,6 +791,46 @@ function EncounterMontage.SendRequest(kind, args)
     end
     m.requests[userid] = req
     doc:CompleteChange("Montage request: " .. tostring(kind), { undoable = false })
+    return true
+end
+
+--Which line of the playing scene the party is on (1-based; one past the
+--last line once it has all been read), or nil when no scene is playing.
+function EncounterMontage.SceneCursor(m)
+    local t = m ~= nil and m.turn or nil
+    local scene = t ~= nil and t.status == "scene" and t.scene or nil
+    if scene == nil then
+        return nil
+    end
+    local cursor = EncounterMontage.GetDoc().data.montageScene
+    if type(cursor) == "table" and cursor.id == scene.id then
+        return tonumber(cursor.index) or 1
+    end
+    return 1
+end
+
+--May the local user turn the scene's page? Only the player of the hero on
+--stage paces it.
+function EncounterMontage.LocalUserPacesScene(m)
+    local t = m ~= nil and m.turn or nil
+    return t ~= nil and t.status == "scene" and t.userid == dmhub.loginUserid
+end
+
+--The acting hero's player has finished reading the line on screen.
+function EncounterMontage.AdvanceScene()
+    local m = EncounterMontage.GetState()
+    if not EncounterMontage.LocalUserPacesScene(m) then
+        return false
+    end
+    local index = EncounterMontage.SceneCursor(m)
+    local scene = m.turn.scene
+    if index == nil or index > #(scene.steps or {}) then
+        return false
+    end
+    local doc = EncounterMontage.GetDoc()
+    doc:BeginChange()
+    doc.data.montageScene = { id = scene.id, index = index + 1 }
+    doc:CompleteChange("Montage scene: next line", { undoable = false })
     return true
 end
 
@@ -1968,11 +2029,112 @@ local function HeroByCharid(heroes, charid)
     return nil
 end
 
+--- scenes (host side) ---------------------------------------------------------
+--
+--A turn plays up to three scene parts on the stage: the INTRO when the hero
+--approaches, the OPTION's lines once one is picked, and the OUTCOME's lines
+--once the roll has landed (EncounterScript's scene grammar). The host
+--flattens each part for this hero and this roll into the lines that will
+--actually play and stores them on the turn, so every client shows exactly
+--the same thing without evaluating the script itself.
+
+--What scene conditions ask about the hero, answered with the same facts and
+--matcher the test riders use.
+local function SceneEnv(t, option, tier, actors)
+    local facts = EncounterMontage.HeroFacts(t.heroid)
+    local function Met(text)
+        local ok, met = pcall(function()
+            return EncounterScript.RequirementMet(EncounterScript.ParseRequirement(text), facts)
+        end)
+        return ok and met == true
+    end
+    return {
+        tier = tier,
+        actors = actors or {},
+        speaks = function(language)
+            return Met("you speak " .. language)
+        end,
+        test = function(atom)
+            if atom.op == "speaks" then
+                return Met("you speak " .. atom.name)
+            elseif atom.op == "is" then
+                return Met("you are a " .. atom.name)
+            elseif atom.op == "has" then
+                return Met("you are skilled in " .. atom.name)
+            elseif atom.op == "chose" then
+                return option ~= nil and EncounterScript.MatchKey(option.name) == EncounterScript.MatchKey(atom.name)
+            end
+            return false
+        end,
+    }
+end
+
+local function CopyCast(cast)
+    local copy = {}
+    for i, c in ipairs(cast or {}) do
+        copy[i] = { name = c.name, monster = c.monster }
+    end
+    return copy
+end
+
+--Build one scene part onto the turn (t.scene) and return how many lines it
+--plays. An entry with no scene of its own still gets an intro: the hero
+--approaching, then the entry's "Options:" text if it has one. A line in a
+--language the hero does not speak is garbled here, for everyone.
+local function BuildScenePart(m, t, entry, option, part, tier)
+    local heroName = t.heroName or "The hero"
+    local cast = CopyCast(t.scene ~= nil and t.scene.cast or nil)
+    local env = SceneEnv(t, option, tier, entry.actors)
+    local steps = {}
+    if part == "intro" then
+        if entry.scripted then
+            steps = EncounterScript.FlattenScene(entry.scene, env, cast)
+        else
+            steps[1] = { kind = "narrate", text = string.format("%s approaches %s...", heroName, entry.name), cast = {} }
+        end
+        if (entry.approach or "") ~= "" then
+            steps[#steps + 1] = { kind = "narrate", text = entry.approach, cast = CopyCast(cast) }
+        end
+    elseif part == "option" then
+        steps = EncounterScript.FlattenScene(option.preScene, env, cast)
+    else
+        steps = EncounterScript.FlattenScene(option.postScene, env, cast)
+    end
+    for _, step in ipairs(steps) do
+        step.text = EncounterScript.SubstitutePC(step.text, heroName)
+        step.line = nil
+        for _, e in ipairs(step.emotes or {}) do
+            if e.name == "PC" then
+                e.name = heroName
+                e.side = "left"
+            else
+                e.side = "right"
+            end
+        end
+        if step.kind == "say" then
+            if step.speaker == "PC" then
+                step.speaker = heroName
+                step.side = "left"
+            else
+                step.side = "right"
+            end
+            if step.lang ~= nil and not env.speaks(step.lang) then
+                step.text = EncounterScript.Garble(step.text, step.lang)
+                step.garbled = true
+            end
+        end
+    end
+    m.seq = (m.seq or 0) + 1
+    t.scene = { id = m.seq, part = part, steps = steps, cast = cast }
+    return #steps
+end
+
 --Apply the landed tier of a turn's chosen option and close the turn out:
 --effects, allies, the acted/taken bookkeeping, and the log line. Shared by
 --the plain "rolled" path and the assisted one, which arrives here with the
---tier the assist shifted it to.
-local function ResolveTurn(m, doc, t, entry, option, tierIndex, heroes, userid)
+--tier the assist shifted it to. An option with outcome lines plays them
+--first (ResolveTurn); this runs once they have been read.
+local function ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, userid)
     local hero = HeroByCharid(heroes, t.heroid)
     local applied, newAllies = EncounterMontage.ApplyEffects(option.roll.effects[tierIndex] or {}, {
         heroEntry = hero,
@@ -2017,6 +2179,42 @@ local function ResolveTurn(m, doc, t, entry, option, tierIndex, heroes, userid)
     }
 end
 
+--A test has landed on its final tier (after any assist): play the option's
+--outcome lines, if it has any for this tier, before anything is applied --
+--the witch hands over the potions, THEN they arrive in the haul.
+local function ResolveTurn(m, doc, t, entry, option, tierIndex, heroes, userid)
+    if option.postScene ~= nil and BuildScenePart(m, t, entry, option, "outcome", tierIndex) > 0 then
+        t.tier = tierIndex
+        t.pendingTier = tierIndex
+        t.resolveUserid = userid
+        t.status = "scene"
+        t.sceneAfter = "resolve"
+        return
+    end
+    ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, userid)
+end
+
+--Every line of the playing scene part has been read: move the turn on.
+local function FinishScenePart(m, doc, t, beat, heroes)
+    local after = t.sceneAfter
+    t.sceneAfter = nil
+    local entry = EncounterScript.FindEntry(beat, t.entryId)
+    if after == "rolling" then
+        m.seq = (m.seq or 0) + 1
+        t.rollSeq = m.seq
+        t.status = "rolling"
+    elseif after == "resolve" then
+        local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
+        if option == nil or option.roll == nil then
+            t.status = "choosing"
+            return
+        end
+        ApplyResolution(m, doc, t, entry, option, t.pendingTier or t.tier or 1, heroes, t.resolveUserid or t.userid)
+    else
+        t.status = "choosing"
+    end
+end
+
 --Handle one player request against the (mutable) state. Returns a string
 --describing what happened, for the log.
 local function HandleRequest(m, doc, userid, req, beat, heroes)
@@ -2046,6 +2244,10 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             status = "choosing",
             startedAt = dmhub.serverTime,
         }
+        if BuildScenePart(m, m.turn, entry, nil, "intro") > 0 then
+            m.turn.status = "scene"
+            m.turn.sceneAfter = "choosing"
+        end
         return string.format("%s approaches %s", hero.name, entry.name)
     elseif kind == "pass" then
         --there is no free withdrawal from an approach: the hero may only
@@ -2085,9 +2287,15 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if verdict ~= nil and not verdict.allowed then
             return string.format("ignored choose: %s does not meet '%s'", t.heroName, EncounterMontage.DescribeUnmet(verdict))
         end
-        m.seq = (m.seq or 0) + 1
         t.optionIndex = tonumber(req.optionIndex)
         t.optionName = option.name
+        --the option's own lines play before the dice come out.
+        if option.preScene ~= nil and BuildScenePart(m, t, entry, option, "option") > 0 then
+            t.status = "scene"
+            t.sceneAfter = "rolling"
+            return string.format("%s chooses %s", t.heroName, option.name)
+        end
+        m.seq = (m.seq or 0) + 1
         t.status = "rolling"
         t.rollSeq = m.seq
         return string.format("%s chooses %s", t.heroName, option.name)
@@ -2490,6 +2698,9 @@ function EncounterMontage.Begin(script, beat, beatIndex)
         seq = 0,
     }
     doc.data.stageDismissAt = nil
+    --scene ids restart with m.seq, so a cursor left over from an earlier
+    --run could otherwise skip the new run's first scene.
+    doc.data.montageScene = nil
     doc:CompleteChange("Montage started", { undoable = false })
     pcall(EncounterMontage.PrepareBoonAssets, beat)
     printf("EotW montage: beat %d started (%d rounds)", beatIndex, EncounterScript.RoundCount(beat))
@@ -2571,6 +2782,20 @@ function EncounterMontage.HostTick(script, beat, beatIndex)
             elseif result ~= nil then
                 printf("EotW montage: %s", tostring(result))
             end
+        end
+    end
+
+    --the acting hero's player has read the last line of the scene part on
+    --stage (EncounterMontage.AdvanceScene): the turn moves on. There is no
+    --timeout -- only that player paces their scene (user direction
+    --2026-09-23).
+    if m.turn ~= nil and m.turn.status == "scene" then
+        local t = m.turn
+        local scene = t.scene or {}
+        local cursor = doc.data.montageScene
+        if type(cursor) == "table" and cursor.id == scene.id
+            and (tonumber(cursor.index) or 1) > #(scene.steps or {}) then
+            FinishScenePart(m, doc, t, beat, heroes)
         end
     end
 

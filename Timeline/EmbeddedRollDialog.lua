@@ -3744,6 +3744,7 @@ function GameHud.CreateEmbeddedRollDialog()
                                         idChosen = mod.modifier:ResolveDamageMappingDestination(source, value),
                                         options = destOptions,
                                         change = function(element)
+                                            ---@cast element Dropdown
                                             local chosen = element.idChosen
                                             local guid = mod.modifier:try_get("guid")
                                             local function SetChoice(m)

@@ -491,6 +491,7 @@ function EncounterScriptValidator.CreatePanel()
         height = 30,
         halign = "left",
         change = function(element)
+            ---@cast element Dropdown
             chosen = element.idChosen
             Rebuild()
         end,

@@ -4679,7 +4679,8 @@ dmhub.DescribeDocument = function(url)
     return "(Unknown)"
 end
 
-RegisterGameType("ImageDocument")
+--- @class ImageDocument: GameType
+ImageDocument = RegisterGameType("ImageDocument")
 
 ImageDocument.type = "image"
 ImageDocument.imageid = ""
@@ -4723,7 +4724,8 @@ function ImageDocument:Render(options)
     return gui.Panel(args)
 end
 
-RegisterGameType("PDFWrapper")
+--- @class PDFWrapper: GameType
+PDFWrapper = RegisterGameType("PDFWrapper")
 
 PDFWrapper.docid = ""
 PDFWrapper.width = 1024
@@ -4768,7 +4770,8 @@ function PDFWrapper:Render(options)
     return gui.Panel(args)
 end
 
-RegisterGameType("PDFFragment")
+--- @class PDFFragment: GameType
+PDFFragment = RegisterGameType("PDFFragment")
 
 PDFFragment.tableName = "pdfReferences"
 PDFFragment.refid = "none" --the PDF document we refer to.

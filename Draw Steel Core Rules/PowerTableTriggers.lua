@@ -507,6 +507,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     options = g_abilityTypeChoices,
                     idChosen = modifier.type,
                     change = function(element)
+                        ---@cast element Dropdown
                         modifier.type = element.idChosen
                         Refresh()
                     end,
@@ -524,6 +525,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     options = g_targetChoices,
                     idChosen = modifier.targetType,
                     change = function(element)
+                        ---@cast element Dropdown
                         modifier.targetType = element.idChosen
                         Refresh()
                     end,
@@ -550,6 +552,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     },
                     idChosen = modifier:try_get("multitarget", "one"),
                     change = function(element)
+                        ---@cast element Dropdown
                         modifier.multitarget = element.idChosen
                         Refresh()
                     end,
@@ -567,6 +570,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     options = g_triggerChoices,
                     idChosen = modifier.trigger,
                     change = function(element)
+                        ---@cast element Dropdown
                         modifier.trigger = element.idChosen
                         Refresh()
                     end,
@@ -600,6 +604,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                         },
                         idChosen = modifier:try_get("damageType", "all"),
                         change = function(element)
+                            ---@cast element Dropdown
                             modifier.damageType = element.idChosen
                             Refresh()
                         end,

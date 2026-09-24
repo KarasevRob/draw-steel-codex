@@ -15,7 +15,8 @@ local CreateJournalPanel
 
 local docid = "journal"
 
-RegisterGameType("CustomDocument")
+--- @class CustomDocument: GameType
+CustomDocument = RegisterGameType("CustomDocument")
 
 Commands.RegisterMacro{
     name = "doc",

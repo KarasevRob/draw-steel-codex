@@ -7613,6 +7613,7 @@ local function CreateMarkdownToolbar(opts)
             options = JournalStylesheet.PickerOptions(),
             idChosen = opts.GetStylesheetId() or "",
             change = function(element)
+                ---@cast element Dropdown
                 opts.OnStylesheetChanged(element.idChosen)
             end,
         },

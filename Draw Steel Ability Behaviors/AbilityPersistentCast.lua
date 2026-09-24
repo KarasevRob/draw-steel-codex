@@ -5,10 +5,10 @@ Persistence = RegisterGameType("Persistence")
 Persistence.name = ""
 
 --- @class ActivatedAbilityPersistenceControlBehavior:ActivatedAbilityBehavior
-RegisterGameType("ActivatedAbilityPersistenceControlBehavior", "ActivatedAbilityBehavior")
+ActivatedAbilityPersistenceControlBehavior = RegisterGameType("ActivatedAbilityPersistenceControlBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityPersistenceCastBehavior:ActivatedAbilityBehavior
-RegisterGameType("ActivatedAbilityPersistenceCastBehavior", "ActivatedAbilityBehavior")
+ActivatedAbilityPersistenceCastBehavior = RegisterGameType("ActivatedAbilityPersistenceCastBehavior", "ActivatedAbilityBehavior")
 
 RegisterGoblinScriptSymbol(creature, {
 	name = "Number of Persistent Abilities",

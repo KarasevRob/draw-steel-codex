@@ -17,12 +17,16 @@ local mod = dmhub.GetModLoading()
 --      media = {
 --          --tab 1: the cover with sample pages fanned out behind it.
 --          book = {cover = "<guid>", pages = {"<guid>", ...}},
---          --tab 2: every map in turn. x/y of a pin are fractions of the map
---          --image from its TOP-left.
+--          --tab 2: every map in turn. A map is a looping video plus a PNG
+--          --poster (its first frame: the tab thumbnail, shown until the video
+--          --plays); width/height/duration are the video's.
 --          maps = {
---              {image = "<guid>", name = "Temple Olea",
---               pins = {{label = "The ford", x = 0.4, y = 0.7}}},
+--              {video = "<guid>", image = "<poster guid>", name = "Temple Olea",
+--               width = 1920, height = 1080, duration = 24},
 --          },
+--          --Maps saved before videos have only an image, which pans slowly with
+--          --place names over it; a pin's x/y are fractions of the image from its
+--          --TOP-left: pins = {{label = "The ford", x = 0.4, y = 0.7}}.
 --          --tabs 3-5: art, each shown whole.
 --          art = { {image = "<guid>", caption = "The winter wood", label = "Art"} },
 --      },
@@ -266,19 +270,23 @@ local function PortableConfig(cfg)
 end
 
 --Builds the draft and calls callback(cfg), or callback(nil, errorMessage).
---A cast entry drawn from one of the adventure's tokens: the token art plus the
---framing the token uses in game (its crop, or popout art and scale), so the
---page can draw it as the token looks, inside the page's own ring. Returns nil
---for a token with no name or only the default avatar. nameOverride names a
---bestiary monster's token, which carries no name of its own.
+--A cast entry drawn from one of the adventure's tokens: the token art plus
+--everything that decides how the token looks in game (its crop, or popout art
+--and scale, and its frame and the frame's hue shift), so the page can draw it
+--exactly as the token looks. Returns nil for a token with no name or only the
+--default avatar. nameOverride names a bestiary monster's token, which carries
+--no name of its own.
 function AdventurePage.CastFromToken(tok, nameOverride)
     local name, portrait, rect, popout, popoutScale = nameOverride, nil, nil, false, 1
+    local frame, frameHue = nil, 0
     if name == nil then
         pcall(function() name = tok.name end)
     end
     pcall(function() portrait = tok.portrait end)
     pcall(function() popout = tok.popoutPortrait == true end)
     pcall(function() popoutScale = tok.popoutScale or 1 end)
+    pcall(function() frame = tok.portraitFrame end)
+    pcall(function() frameHue = tok.portraitFrameHueShift or 0 end)
     pcall(function()
         local r = tok.portraitRect
         rect = {x1 = r.x1, y1 = r.y1, x2 = r.x2, y2 = r.y2}
@@ -291,8 +299,11 @@ function AdventurePage.CastFromToken(tok, nameOverride)
         or portrait == "" or portrait:find("DEFAULT") then
         return nil
     end
+    if type(frame) ~= "string" or frame == "" then
+        frame = nil
+    end
     return {image = portrait, name = name, role = "", token = true, rect = rect,
-        popout = popout, popoutScale = popoutScale}
+        popout = popout, popoutScale = popoutScale, frame = frame, frameHue = frameHue}
 end
 
 function AdventurePage.AutoFill(item, callback)
@@ -1171,9 +1182,10 @@ local function MakeBookSlide(width, stageH)
     }
 end
 
---Tab 2: every map in turn. Each map is its own layer (the art plus its place
---names) that drifts slowly; after g_mapHoldTime the next layer fades in over
---it. Only the showing layer and the one fading out are updated.
+--Tab 2: every map in turn. Each map is its own layer: a looping video over its
+--poster, or for an older map a still image and its place names drifting
+--slowly. After g_mapHoldTime (or one loop of a longer video) the next layer
+--fades in over it. Only the showing layer and the one fading out are updated.
 local function MakeMapsSlide(width, stageH)
     local caption = MakeCaption(width, stageH)
     local m_maps = {}
@@ -1185,7 +1197,16 @@ local function MakeMapsSlide(width, stageH)
     local m_still = false
 
     local function MakeLayer(map)
-        local state = {dims = nil, time = 0, pins = {}}
+        local video = nil
+        if type(map.video) == "string" and map.video ~= "" then
+            video = map.video
+        end
+        --how long this map shows before the next: at least one whole loop.
+        local hold = g_mapHoldTime
+        if video ~= nil and (tonumber(map.duration) or 0) > hold then
+            hold = tonumber(map.duration)
+        end
+        local state = {dims = nil, time = 0, pins = {}, video = video, hold = hold, active = false}
 
         local image = gui.Panel{
             floating = true,
@@ -1195,6 +1216,20 @@ local function MakeMapsSlide(width, stageH)
             bgimage = "panels/square.png",
             bgcolor = "#ffffff00",
         }
+
+        --the video, over the poster in image. No placeholder bgimage: a video
+        --draws nothing until its first frame, so the poster shows until then.
+        local videoPanel = nil
+        if video ~= nil then
+            videoPanel = gui.Panel{
+                classes = {"collapsed"},
+                floating = true,
+                width = width,
+                height = stageH,
+                interactable = false,
+                bgcolor = "#ffffffff",
+            }
+        end
 
         for i, pin in ipairs(map.pins or {}) do
             state.pins[i] = gui.Label{
@@ -1220,6 +1255,14 @@ local function MakeMapsSlide(width, stageH)
             }
         end
 
+        local layerChildren = {image}
+        if videoPanel ~= nil then
+            layerChildren[#layerChildren + 1] = videoPanel
+        end
+        for _, pin in ipairs(state.pins) do
+            layerChildren[#layerChildren + 1] = pin
+        end
+
         local layer = gui.Panel{
             classes = {"adventureMapLayer"},
             floating = true,
@@ -1228,7 +1271,7 @@ local function MakeMapsSlide(width, stageH)
             height = stageH,
             interactable = false,
             data = {state = state, map = map},
-            children = {image, table.unpack(state.pins)},
+            children = layerChildren,
         }
 
         --Positions the window and the pins for this layer's own clock.
@@ -1236,15 +1279,29 @@ local function MakeMapsSlide(width, stageH)
             if state.dims == nil then
                 return
             end
-            local u, v = 0.5, 0.5
-            if not m_still then
+            local u, v, zoom = 0.5, 0.5, g_panZoom
+            if videoPanel ~= nil then
+                --the video is the motion: it fills the frame, centred, with no
+                --pan. It plays only while its layer shows or fades out (so the
+                --hidden maps are not all decoding); otherwise, and with reduced
+                --motion, the poster stands in.
+                zoom = 1
+                local playing = state.active and not m_still
+                videoPanel:SetClass("collapsed", not playing)
+                if playing and videoPanel.bgimage ~= video then
+                    videoPanel.bgimage = video
+                end
+            elseif not m_still then
                 --cosine ease: slows to a stop at each end of the sweep.
                 local phase = (state.time / g_panPeriod) * 2 * math.pi
                 u = 0.5 - 0.5 * math.cos(phase)
                 v = 0.5 - 0.5 * math.cos(phase * g_panVerticalRatio)
             end
-            local rect, left, top, wFrac, hFrac = CoverWindow(width, stageH, state.dims.width, state.dims.height, g_panZoom, u, v)
+            local rect, left, top, wFrac, hFrac = CoverWindow(width, stageH, state.dims.width, state.dims.height, zoom, u, v)
             image.selfStyle.imageRect = rect
+            if videoPanel ~= nil then
+                videoPanel.selfStyle.imageRect = rect
+            end
             for i, pinDef in ipairs(map.pins or {}) do
                 local label = state.pins[i]
                 local px = ((pinDef.x or 0.5) - left) / wFrac
@@ -1256,17 +1313,25 @@ local function MakeMapsSlide(width, stageH)
         end
 
         image.bgimage = map.image
-        AdventurePage.ImageDimensions(map.image, function(dims)
-            if mod.unloaded or not image.valid then
-                return
-            end
-            if dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
-                return
-            end
-            state.dims = dims
+        local mapW, mapH = tonumber(map.width) or 0, tonumber(map.height) or 0
+        if video ~= nil and mapW > 0 and mapH > 0 then
+            --the poster has the video's shape, which the map records.
+            state.dims = {width = mapW, height = mapH}
             state.apply()
             image.selfStyle.bgcolor = "#ffffffff"
-        end)
+        else
+            AdventurePage.ImageDimensions(map.image, function(dims)
+                if mod.unloaded or not image.valid then
+                    return
+                end
+                if dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
+                    return
+                end
+                state.dims = dims
+                state.apply()
+                image.selfStyle.bgcolor = "#ffffffff"
+            end)
+        end
 
         return layer
     end
@@ -1283,6 +1348,11 @@ local function MakeMapsSlide(width, stageH)
         m_hold = 0
         for i, layer in ipairs(m_layers) do
             layer:SetClass("mapShown", i == m_current)
+            local s = layer.data.state
+            s.active = i == m_current or i == m_previous
+            if s.video ~= nil and i ~= m_current then
+                s.apply()
+            end
         end
         local state = m_layers[m_current].data.state
         state.time = 0
@@ -1324,20 +1394,33 @@ local function MakeMapsSlide(width, stageH)
                 return
             end
             local dt = element.thinkTime
+            local state = m_layers[m_current].data.state
             if not m_still then
-                local state = m_layers[m_current].data.state
-                state.time = state.time + dt
-                state.apply()
+                --a video layer is set up once, by Select; only still maps drift.
+                if state.video == nil then
+                    state.time = state.time + dt
+                    state.apply()
+                end
                 --keep the outgoing map drifting until it has faded away.
                 if m_previous ~= nil and m_previous ~= m_current and m_hold < g_mapFadeTime then
                     local prev = m_layers[m_previous].data.state
-                    prev.time = prev.time + dt
-                    prev.apply()
+                    if prev.video == nil then
+                        prev.time = prev.time + dt
+                        prev.apply()
+                    end
                 end
             end
             if #m_layers > 1 and not m_still then
                 m_hold = m_hold + dt
-                if m_hold >= g_mapHoldTime then
+                --the outgoing map has faded away: stop its video.
+                if m_previous ~= nil and m_previous ~= m_current and m_hold >= g_mapFadeTime then
+                    local prev = m_layers[m_previous].data.state
+                    if prev.active then
+                        prev.active = false
+                        prev.apply()
+                    end
+                end
+                if m_hold >= state.hold then
                     Select((m_current % #m_layers) + 1)
                 end
             end
@@ -1639,9 +1722,13 @@ function AdventurePage.CastRect(member, dims)
     return {x1 = cx - rw / 2, x2 = cx + rw / 2, y1 = 1 - cy - rh / 2, y2 = 1 - cy + rh / 2}
 end
 
---A cast portrait as the store page draws it: the page's ring, with plain
---images and regular tokens clipped inside it and popout art breaking out over
---it. Fire showMember(member) to fill it. The editor uses it as its preview.
+--A cast portrait as the store page draws it. A member picked from one of the
+--adventure's tokens is drawn exactly as gui.CreateTokenImage draws that token:
+--its art cut out by its frame with the frame on top, or popout art over the
+--frame. Anything else (uploaded art, and tokens picked before frames were
+--recorded) gets the page's own ring, with plain images and regular tokens
+--clipped inside it and popout art breaking out over it. Fire
+--showMember(member) to fill it. The editor uses it as its preview.
 function AdventurePage.MakeCastPortrait(size, extra)
     local portrait = gui.Panel{
         width = size,
@@ -1653,6 +1740,17 @@ function AdventurePage.MakeCastPortrait(size, extra)
         cornerRadius = size / 2,
         borderWidth = 2,
         borderColor = "#f6ddb640",
+        interactable = false,
+    }
+    --the token's own frame, over regular art and under popout art.
+    local frameArt = gui.Panel{
+        classes = {"collapsed"},
+        floating = true,
+        width = size,
+        height = size,
+        halign = "center",
+        valign = "center",
+        bgcolor = "white",
         interactable = false,
     }
     local popoutArt = gui.Panel{
@@ -1670,12 +1768,24 @@ function AdventurePage.MakeCastPortrait(size, extra)
         height = size,
         halign = "center",
         portrait,
+        frameArt,
         popoutArt,
         showMember = function(element, member)
+            local framed = member.token and type(member.frame) == "string" and member.frame ~= ""
             popoutArt:SetClass("collapsed", not (member.token and member.popout))
+            frameArt:SetClass("collapsed", not framed)
+            if framed then
+                frameArt.bgimage = member.frame
+                frameArt.selfStyle.hueshift = member.frameHue or 0
+            end
+            --a framed token draws no ring: the frame is its border.
+            portrait.selfStyle.cornerRadius = cond(framed, 0, size / 2)
+            portrait.selfStyle.borderWidth = cond(framed, 0, 2)
+            --regular art is cut out by the frame, as on the map.
+            portrait.bgimageTokenMask = cond(framed and not member.popout, member.frame, nil)
             if member.token and member.popout then
                 portrait.bgimage = "panels/square.png"
-                portrait.selfStyle.bgcolor = "#ffffff10"
+                portrait.selfStyle.bgcolor = cond(framed, "clear", "#ffffff10")
                 local b = g_popoutBorder
                 local offset = member.offset or {x = 0, y = 0}
                 popoutArt.bgimage = member.image

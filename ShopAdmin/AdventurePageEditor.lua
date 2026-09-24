@@ -14,6 +14,23 @@ local g_maxCast = 5
 --upload (each upload also makes the shop admin rebuild its item list).
 local g_saveDelay = 1.0
 local g_extensions = {"jpeg", "jpg", "png", "webp"}
+local g_videoExtensions = {"mp4", "webm"}
+
+--The size Optimize scales each kind of image to: the recommended size each
+--section's hint gives, about twice what the page draws, so art stays sharp on
+--high-resolution screens. "cover" images fill the box (cropped: key art, map
+--pans, round portraits, book cards at A4), so the shorter side decides;
+--"contain" images are shown whole inside it (art), so the longer side does.
+AdventurePageEditor.OptimizeTargets = {
+    hero = {w = 2400, h = 1120, fit = "cover"},
+    book = {w = 1240, h = 1754, fit = "cover"},
+    map = {w = 2560, h = 1440, fit = "cover"},
+    art = {w = 1920, h = 1080, fit = "contain"},
+    cast = {w = 512, h = 512, fit = "cover"},
+}
+--An image is only replaced when that saves at least this share of its
+--pixels; a smaller trim is not worth a lossy re-encode.
+AdventurePageEditor.OptimizeMinSaving = 0.25
 
 local function NewConfig()
     return {
@@ -286,6 +303,10 @@ function AdventurePageEditor.Create()
     local function Refresh(sectionName)
         local scope = sectionName ~= nil and m_sections[sectionName] or root
         scope:FireEventTree("refreshPage", m_cfg)
+        --every image section's edits change what Image sizes lists.
+        if sectionName ~= nil and sectionName ~= "sizes" and m_sections.sizes ~= nil then
+            m_sections.sizes:FireEventTree("refreshPage", m_cfg)
+        end
     end
 
     --Change the config, save, and re-sync the named section (or everything).
@@ -785,10 +806,129 @@ function AdventurePageEditor.Create()
     })
 
     ----------------------------------------------------------------------
-    --Maps: list, a big preview to click place names onto, and their names.
+    --Maps: each is a name and a looping video (a Map Preview Video from the
+    --Export Map dialog, say), plus a PNG poster pulled from the video's first
+    --frame for the tab thumbnail and to show while the video loads. Maps saved
+    --before videos are still images with place names; the store still pans
+    --those, and here they can only be renamed, replaced or removed.
     ----------------------------------------------------------------------
     local mapListW, mapListH = 128, 72
     local previewMaxW, previewMaxH = 520, 320
+
+    --non-nil while a map video is being read or uploaded.
+    local m_mapBusy = nil
+
+    local mapStatus = gui.Label{
+        classes = {"collapsed"},
+        text = "",
+        fontSize = 13,
+        color = "#e6d3aaff",
+        width = "auto",
+        height = "auto",
+        halign = "left",
+        vmargin = 2,
+    }
+
+    local function SetMapStatus(text)
+        m_mapBusy = text
+        if mapStatus.valid then
+            mapStatus.text = text or ""
+            mapStatus:SetClass("collapsed", text == nil)
+        end
+    end
+
+    local function MapVideo(map)
+        if type(map.video) == "string" and map.video ~= "" then
+            return map.video
+        end
+        return nil
+    end
+
+    --Opens a file picker for a map video, pulls a PNG poster from its first
+    --frame, and uploads both to the Core asset store. done(fields) gets
+    --{video, image, width, height, duration} once both are up.
+    local function PickMapVideo(prompt, done)
+        if m_cfg == nil or m_mapBusy ~= nil then
+            return
+        end
+        local haveApi = false
+        pcall(function() haveApi = assets.ExtractVideoFrame ~= nil end)
+        if not haveApi then
+            gui.ModalMessage{title = "Needs a newer build", message = "Map videos need an engine build with assets:ExtractVideoFrame."}
+            return
+        end
+        local item = m_item
+        dmhub.OpenFileDialog{
+            id = "AdventureMapVideo",
+            extensions = g_videoExtensions,
+            prompt = prompt,
+            open = function(path)
+                local failed = false
+                local function Fail(message)
+                    if failed or mod.unloaded then
+                        return
+                    end
+                    failed = true
+                    SetMapStatus(nil)
+                    gui.ModalMessage{title = "Map video", message = message}
+                end
+
+                SetMapStatus("Reading the video...")
+                local target = AdventurePageEditor.OptimizeTargets.map
+                assets:ExtractVideoFrame{
+                    path = path,
+                    maxWidth = target.w,
+                    maxHeight = target.h,
+                    error = function(msg)
+                        Fail("That video could not be read: " .. tostring(msg))
+                    end,
+                    done = function(frame)
+                        if mod.unloaded then
+                            return
+                        end
+                        local fields = {width = frame.videoWidth, height = frame.videoHeight, duration = frame.duration}
+                        local function Uploaded(key, guid)
+                            if failed or mod.unloaded then
+                                return
+                            end
+                            fields[key] = guid
+                            if fields.video == nil or fields.image == nil then
+                                return
+                            end
+                            SetMapStatus(nil)
+                            if m_item == item then
+                                done(fields)
+                            end
+                        end
+
+                        SetMapStatus("Uploading the video...")
+                        assets:UploadImageAsset{
+                            core = true,
+                            data = frame.data,
+                            description = string.format("AdventurePage: %s map preview", item.id),
+                            error = function(msg)
+                                Fail("The preview image failed to upload: " .. tostring(msg))
+                            end,
+                            upload = function(guid)
+                                Uploaded("image", guid)
+                            end,
+                        }
+                        assets:UploadImageAsset{
+                            core = true,
+                            path = path,
+                            description = string.format("AdventurePage: %s map video", item.id),
+                            error = function(msg)
+                                Fail("The video failed to upload: " .. tostring(msg))
+                            end,
+                            upload = function(guid)
+                                Uploaded("video", guid)
+                            end,
+                        }
+                    end,
+                }
+            end,
+        }
+    end
 
     local mapList = gui.Panel{
         flow = "vertical",
@@ -818,7 +958,7 @@ function AdventurePageEditor.Create()
                 borderColor = "#77736cff",
                 bgcolor = "#ffffff08",
                 gui.Label{
-                    text = "+ Add maps",
+                    text = "+ Add map video",
                     fontSize = 12,
                     color = "#cfc9bdff",
                     width = "auto",
@@ -828,103 +968,83 @@ function AdventurePageEditor.Create()
                     interactable = false,
                 },
                 click = function()
-                    if m_cfg == nil then
-                        return
-                    end
-                    PickImages{id = "AdventureMaps", multi = true, prompt = "Choose battle maps (2560 px or more)", itemid = m_item.id,
-                        done = function(guid)
-                            Edit(function(c)
-                                table.insert(c.media.maps, {image = guid, name = "", pins = {}})
-                                m_selectedMap = #c.media.maps
-                            end, "maps")
-                        end}
+                    PickMapVideo("Choose a map video (MP4 or WebM, 16 : 9)", function(fields)
+                        Edit(function(c)
+                            local map = {name = "", pins = {}}
+                            for k, v in pairs(fields) do
+                                map[k] = v
+                            end
+                            table.insert(c.media.maps, map)
+                            m_selectedMap = #c.media.maps
+                        end, "maps")
+                    end)
                 end,
             })
             element.children = children
         end,
     }
 
-    --The selected map, shown whole at its own aspect. Clicking drops a new
-    --place name at that spot; each pin is a dot with its name beside it.
-    local mapPreview
-    mapPreview = gui.Panel{
+    --The selected map shown whole at its own aspect: its video playing on a
+    --loop over the poster (which shows until the video starts), or the still
+    --image of an older map. mapVideo has no placeholder bgimage: a video draws
+    --nothing until its first frame, so the poster shows through meanwhile.
+    local mapVideo = gui.Panel{
+        classes = {"collapsed"},
+        width = "100%",
+        height = "100%",
+        interactable = false,
+        bgcolor = "#ffffffff",
+    }
+
+    local mapPreview = gui.Panel{
         flow = "none",
         width = previewMaxW,
         height = previewMaxH,
         valign = "top",
         bgimage = "panels/square.png",
         bgcolor = "#2b2d31ff",
-        data = {w = previewMaxW, h = previewMaxH},
-
-        click = function(element)
-            local map = m_cfg ~= nil and m_cfg.media.maps[m_selectedMap] or nil
-            local point = element.mousePoint
-            if map == nil or point == nil then
-                return
-            end
-            --mousePoint is 0..1 with y running bottom-up; pins are top-down.
-            Edit(function()
-                table.insert(map.pins, {label = "New place", x = point.x, y = 1 - point.y})
-            end, "maps")
-        end,
+        mapVideo,
+        gui.Panel{
+            classes = {"collapsed"},
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            valign = "center",
+            Hint("Add a map video to see it here."),
+            refreshPage = function(element, cfg)
+                element:SetClass("collapsed", cfg ~= nil and cfg.media.maps[m_selectedMap] ~= nil)
+            end,
+        },
 
         refreshPage = function(element, cfg)
             local map = cfg ~= nil and cfg.media.maps[m_selectedMap] or nil
+            local video = map ~= nil and MapVideo(map) or nil
+            mapVideo:SetClass("collapsed", video == nil)
+            if video ~= nil then
+                mapVideo.bgimage = video
+            end
             if map == nil then
                 element.bgimage = "panels/square.png"
                 element.selfStyle.bgcolor = "#2b2d31ff"
-                element.children = {Hint("Add a map, then click on it to place names.")}
+                element.selfStyle.width = previewMaxW
+                element.selfStyle.height = previewMaxH
                 return
             end
 
-            local function Layout(w, h)
-                element.data.w = w
-                element.data.h = h
-                element.selfStyle.width = w
-                element.selfStyle.height = h
-                local children = {}
-                for _, pin in ipairs(map.pins) do
-                    children[#children + 1] = gui.Panel{
-                        floating = true,
-                        flow = "horizontal",
-                        width = "auto",
-                        height = "auto",
-                        halign = "left",
-                        valign = "top",
-                        x = (pin.x or 0.5) * w - 5,
-                        y = (pin.y or 0.5) * h - 5,
-                        interactable = false,
-                        gui.Panel{
-                            width = 10,
-                            height = 10,
-                            bgimage = "panels/square.png",
-                            bgcolor = "#f6ddb6ff",
-                            cornerRadius = 5,
-                            borderWidth = 1,
-                            borderColor = "#000000ff",
-                        },
-                        gui.Label{
-                            text = pin.label or "",
-                            fontSize = 12,
-                            color = "#f3ecdfff",
-                            width = "auto",
-                            height = "auto",
-                            lmargin = 4,
-                            hpad = 5,
-                            vpad = 1,
-                            borderBox = true,
-                            bgimage = "panels/square.png",
-                            bgcolor = "#000000c0",
-                            cornerRadius = 3,
-                        },
-                    }
-                end
-                element.children = children
+            local function Fit(w, h)
+                local scale = math.min(previewMaxW / w, previewMaxH / h)
+                element.selfStyle.width = math.floor(w * scale)
+                element.selfStyle.height = math.floor(h * scale)
+                element.selfStyle.bgcolor = "#ffffffff"
             end
 
-            element.bgimage = map.image
-            element.selfStyle.imageRect = {x1 = 0, y1 = 0, x2 = 1, y2 = 1}
             local imageid = map.image
+            element.bgimage = imageid
+            element.selfStyle.imageRect = {x1 = 0, y1 = 0, x2 = 1, y2 = 1}
+            if (tonumber(map.width) or 0) > 0 and (tonumber(map.height) or 0) > 0 then
+                Fit(map.width, map.height)
+                return
+            end
             AdventurePage.ImageDimensions(imageid, function(dims)
                 if mod.unloaded or not element.valid or element.bgimage ~= imageid then
                     return
@@ -932,10 +1052,7 @@ function AdventurePageEditor.Create()
                 if dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
                     return
                 end
-                --fit the whole map inside the preview box at its own aspect.
-                local scale = math.min(previewMaxW / dims.width, previewMaxH / dims.height)
-                element.selfStyle.bgcolor = "#ffffffff"
-                Layout(math.floor(dims.width * scale), math.floor(dims.height * scale))
+                Fit(dims.width, dims.height)
             end)
         end,
     }
@@ -953,7 +1070,17 @@ function AdventurePageEditor.Create()
                 return
             end
 
-            local rows = {
+            local about
+            if MapVideo(map) == nil then
+                about = "A still image, from before map videos: the store pans it with its place names. Replace it with a video."
+            else
+                about = string.format("%d x %d video", tonumber(map.width) or 0, tonumber(map.height) or 0)
+                if (tonumber(map.duration) or 0) > 0 then
+                    about = about .. string.format(", %d second loop", math.floor(map.duration + 0.5))
+                end
+            end
+
+            element.children = {
                 gui.Panel{
                     classes = {"formPanel"},
                     gui.Label{classes = {"formLabel"}, text = "Map name:", valign = "top"},
@@ -969,49 +1096,47 @@ function AdventurePageEditor.Create()
                         end,
                     },
                 },
-                Hint(cond(#map.pins == 0, "Click on the map to place a name.", "Places:")),
-            }
-            for i, pin in ipairs(map.pins) do
-                rows[#rows + 1] = gui.Panel{
+                gui.Label{
+                    text = about,
+                    fontSize = 13,
+                    color = "#9c978eff",
+                    width = 300,
+                    height = "auto",
+                    halign = "left",
+                    vmargin = 2,
+                },
+                gui.Panel{
                     flow = "horizontal",
                     width = "auto",
                     height = "auto",
                     halign = "left",
-                    vmargin = 2,
-                    gui.Input{
-                        classes = {"formInput"},
-                        width = 220,
-                        characterLimit = 60,
-                        text = pin.label or "",
-                        change = function(input)
-                            pin.label = input.text
-                            Save()
-                            mapPreview:FireEvent("refreshPage", m_cfg)
-                        end,
-                    },
-                    SmallButton("Remove", 80, function()
-                        Edit(function() table.remove(map.pins, i) end, "maps")
+                    tmargin = 12,
+                    SmallButton("Replace video...", 140, function()
+                        PickMapVideo("Choose a new video for this map (MP4 or WebM, 16 : 9)", function(fields)
+                            Edit(function()
+                                for k, v in pairs(fields) do
+                                    map[k] = v
+                                end
+                                --place names were for the still image.
+                                map.pins = {}
+                            end, "maps")
+                        end)
                     end),
-                }
-            end
-            rows[#rows + 1] = gui.Panel{
-                width = "auto",
-                height = "auto",
-                halign = "left",
-                tmargin = 12,
-                SmallButton("Remove map", 120, function()
-                    Edit(function(c)
-                        table.remove(c.media.maps, m_selectedMap)
-                        m_selectedMap = math.max(1, math.min(m_selectedMap, #c.media.maps))
-                    end, "maps")
-                end),
+                    SmallButton("Remove map", 120, function()
+                        Edit(function(c)
+                            table.remove(c.media.maps, m_selectedMap)
+                            m_selectedMap = math.max(1, math.min(m_selectedMap, #c.media.maps))
+                        end, "maps")
+                    end),
+                },
             }
-            element.children = rows
         end,
     }
 
-    local mapsSection = Section("Maps", "shown in turn, panning slowly, with place names fading in", {
-        SizeHint("2560 px or more on the long side, any shape. The frame zooms in and pans, so small maps look soft."),
+    local mapsSection = Section("Maps", "each map's video plays on a loop; with several, the next fades in after it", {
+        SizeHint("a looping MP4 or WebM, 16 : 9, 1920 x 1080 or more -- such as a Map Preview Video from the Export Map dialog."),
+        Hint("The first frame is saved as a PNG preview, shown on the Maps tab and while the video loads."),
+        mapStatus,
         gui.Panel{
             flow = "horizontal",
             width = "auto",
@@ -1271,8 +1396,9 @@ function AdventurePageEditor.Create()
                         "Click one to add it. Monsters show only if the adventure is installed in this game.")
                     local cells = {}
                     for _, member in ipairs(members) do
-                        local thumb = Thumb(96, 96, {halign = "center", interactable = false})
-                        SetThumb(thumb, member.image, 96, 96)
+                        --drawn as it will look on the page, frame and all.
+                        local thumb = AdventurePage.MakeCastPortrait(96, {interactable = false, tmargin = 4})
+                        thumb:FireEvent("showMember", member)
                         cells[#cells + 1] = gui.Panel{
                             flow = "vertical",
                             width = 120,
@@ -1463,11 +1589,7 @@ function AdventurePageEditor.Create()
             gui.Label{classes = {"formLabel"}, text = cond(entry.popout, "Size:", "Zoom:")},
             slider,
         }
-        fields[#fields + 1] = gui.Panel{
-            flow = "horizontal",
-            width = "auto",
-            height = "auto",
-            halign = "left",
+        local buttons = {
             gallery,
             SmallButton("Choose from gallery...", 180, function()
                 gallery:FireEvent("press")
@@ -1493,6 +1615,21 @@ function AdventurePageEditor.Create()
             SmallButton("Remove", 80, function()
                 Edit(function(c) table.remove(c.cast, index) end, "cast")
             end),
+        }
+        --The store page shows the cast in list order.
+        if index > 1 then
+            buttons[#buttons + 1] = SmallButton("Move to Top", 110, function()
+                Edit(function(c)
+                    table.insert(c.cast, 1, table.remove(c.cast, index))
+                end, "cast")
+            end)
+        end
+        fields[#fields + 1] = gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            children = buttons,
         }
 
         return gui.Panel{
@@ -1556,6 +1693,295 @@ function AdventurePageEditor.Create()
             SmallButton("Pick from adventure...", 200, PickCastFromAdventure),
         },
         CastEditor(),
+    })
+
+    ----------------------------------------------------------------------
+    --Image sizes: what each image on the page costs to load against what
+    --the page needs, and an Optimize button that swaps oversized images for
+    --scaled-down copies. Loading cost is set by pixels, not file size: a
+    --1 MB WebP at 6000 x 3100 decodes to 74 MB.
+    ----------------------------------------------------------------------
+
+    --Every image slot on the page. get/set read and write the slot on a
+    --config, so an optimized copy lands in the same slot even if the lists
+    --were edited while it uploaded.
+    local function ImageSlots(cfg)
+        local slots = {}
+        local function Add(kind, label, get, set)
+            local id = get(cfg)
+            if type(id) == "string" and id ~= "" then
+                slots[#slots + 1] = {kind = kind, label = label, id = id, get = get, set = set}
+            end
+        end
+        Add("hero", "Key art", function(c) return c.heroImage end, function(c, v) c.heroImage = v end)
+        for _, entry in ipairs(g_bookSlotOrder) do
+            local slot = entry.slot
+            Add("book", cond(slot == "cover", "Book cover", "Book page " .. entry.name),
+                function(c) return GetBookSlot(c, slot) end,
+                function(c, v) SetBookSlot(c, slot, v) end)
+        end
+        for _, list in ipairs({
+            {kind = "map", items = cfg.media.maps, path = function(c) return c.media.maps end, name = "name", fallback = "Map"},
+            {kind = "art", items = cfg.media.art, path = function(c) return c.media.art end, name = "caption", fallback = "Art"},
+            {kind = "cast", items = cfg.cast, path = function(c) return c.cast end, name = "name", fallback = "Cast"},
+        }) do
+            for i, item in ipairs(list.items) do
+                local name = item[list.name]
+                local label = cond(type(name) == "string" and name ~= "", name, string.format("%s %d", list.fallback, i))
+                Add(list.kind, label,
+                    function(c) local e = list.path(c)[i]; return e and e.image end,
+                    function(c, v) local e = list.path(c)[i]; if e ~= nil then e.image = v end end)
+            end
+        end
+        return slots
+    end
+
+    local g_optimizeSizes = AdventurePageEditor.OptimizeTargets
+
+    --The size to scale an image of dims to, or nil if it is fine as it is.
+    local function OptimizedSize(dims, kind)
+        local target = g_optimizeSizes[kind]
+        if target == nil or dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
+            return nil
+        end
+        local sx, sy = target.w / dims.width, target.h / dims.height
+        local s = cond(target.fit == "cover", math.max(sx, sy), math.min(sx, sy))
+        if s * s > 1 - AdventurePageEditor.OptimizeMinSaving then
+            return nil
+        end
+        --multiples of 4, so the engine can GPU-compress and disk-cache the result.
+        local w = math.max(4, math.floor(dims.width * s / 4 + 0.5) * 4)
+        local h = math.max(4, math.floor(dims.height * s / 4 + 0.5) * 4)
+        return w, h
+    end
+
+    local function MegaBytes(w, h)
+        return w * h * 4 / (1024 * 1024)
+    end
+
+    local m_sizeRows = {}
+    local m_sizeGeneration = 0
+    local m_optimizing = false
+    local sizesSummary
+    local optimizeButton
+
+    local function UpdateSizesSummary()
+        local count, pending, before, after, oversized = #m_sizeRows, 0, 0, 0, 0
+        for _, row in ipairs(m_sizeRows) do
+            if row.dims == nil then
+                pending = pending + 1
+            else
+                local mb = MegaBytes(row.dims.width, row.dims.height)
+                before = before + mb
+                if row.targetW ~= nil then
+                    oversized = oversized + 1
+                    after = after + MegaBytes(row.targetW, row.targetH)
+                else
+                    after = after + mb
+                end
+            end
+        end
+        local text
+        if count == 0 then
+            text = "No images on the page yet."
+        else
+            text = string.format("%d images, about %d MB once loaded.", count, math.floor(before + 0.5))
+            if oversized > 0 then
+                text = text .. string.format(" Optimizing %d of them brings that to about %d MB.", oversized, math.floor(after + 0.5))
+            else
+                text = text .. " Every image is already a sensible size."
+            end
+            if pending > 0 then
+                text = text .. string.format(" (%d still loading.)", pending)
+            end
+        end
+        sizesSummary.text = text
+        if not m_optimizing then
+            optimizeButton:SetClass("collapsed", oversized == 0)
+            optimizeButton.text = string.format("Optimize %d %s", oversized, cond(oversized == 1, "image", "images"))
+        end
+    end
+
+    local function SizeRow(slot, generation)
+        local row = {slot = slot, dims = nil, targetW = nil, targetH = nil}
+        local now = gui.Label{fontSize = 13, width = 150, height = "auto", valign = "center", text = "loading..."}
+        local target = gui.Label{fontSize = 13, width = 260, height = "auto", valign = "center", text = ""}
+        local thumb = Thumb(56, 36, {valign = "center", rmargin = 10})
+        SetThumb(thumb, slot.id, 56, 36)
+        row.panel = gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            vmargin = 2,
+            thumb,
+            gui.Label{fontSize = 13, width = 200, height = "auto", valign = "center", text = slot.label},
+            now,
+            target,
+        }
+        AdventurePage.ImageDimensions(slot.id, function(dims)
+            if mod.unloaded or generation ~= m_sizeGeneration or not now.valid then
+                return
+            end
+            if dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
+                now.text = "unknown size"
+                return
+            end
+            row.dims = dims
+            now.text = string.format("%d x %d", dims.width, dims.height)
+            row.targetW, row.targetH = OptimizedSize(dims, slot.kind)
+            if row.targetW ~= nil then
+                target.text = string.format("Oversized: %d x %d is enough", row.targetW, row.targetH)
+                target.selfStyle.color = "#e6d3aaff"
+            else
+                target.text = "OK"
+                target.selfStyle.color = "#9c978eff"
+            end
+            UpdateSizesSummary()
+        end)
+        return row
+    end
+
+    --Scales each oversized image, uploads the copy to the Core asset store
+    --and puts it in its slot, one at a time. The originals stay in the store.
+    local function Optimize()
+        if m_optimizing or m_item == nil then
+            return
+        end
+        local haveApi = false
+        pcall(function() haveApi = assets.ResizeCachedImage ~= nil end)
+        if not haveApi then
+            gui.ModalMessage{title = "Needs a newer build", message = "Optimizing images needs an engine build with assets:ResizeCachedImage."}
+            return
+        end
+        local jobs = {}
+        for _, row in ipairs(m_sizeRows) do
+            if row.targetW ~= nil then
+                jobs[#jobs + 1] = row
+            end
+        end
+        if #jobs == 0 then
+            return
+        end
+
+        local item = m_item
+        local failures = {}
+        m_optimizing = true
+        local index = 0
+        local function Finish()
+            m_optimizing = false
+            if #failures > 0 then
+                gui.ModalMessage{title = "Optimize images", message = "Some images were not optimized:\n" .. table.concat(failures, "\n")}
+            end
+            if root.valid and m_cfg ~= nil then
+                Refresh()
+            end
+        end
+        local function Next()
+            if mod.unloaded then
+                return
+            end
+            if m_item ~= item then
+                Finish()
+                return
+            end
+            index = index + 1
+            local row = jobs[index]
+            if row == nil then
+                Finish()
+                return
+            end
+            if optimizeButton.valid then
+                optimizeButton.text = string.format("Optimizing %d of %d...", index, #jobs)
+            end
+            local slot = row.slot
+            local resized = assets:ResizeCachedImage(slot.id, row.targetW, row.targetH)
+            if resized == nil then
+                failures[#failures + 1] = string.format("%s: not downloaded on this machine yet, or could not be decoded.", slot.label)
+                dmhub.Schedule(0.05, Next)
+                return
+            end
+            assets:UploadImageAsset{
+                core = true,
+                data = resized.data,
+                description = string.format("AdventurePage: %s optimized %s", item.id, slot.label),
+                error = function(msg)
+                    failures[#failures + 1] = string.format("%s: upload failed: %s", slot.label, tostring(msg))
+                    dmhub.Schedule(0.05, Next)
+                end,
+                upload = function(guid)
+                    if mod.unloaded then
+                        return
+                    end
+                    --only if the slot still holds the image that was scaled.
+                    if m_item == item and m_cfg ~= nil and slot.get(m_cfg) == slot.id then
+                        slot.set(m_cfg, guid)
+                        Save()
+                    end
+                    --a frame between images: each resize is a main-thread stall.
+                    dmhub.Schedule(0.05, Next)
+                end,
+            }
+        end
+        Next()
+    end
+
+    sizesSummary = gui.Label{
+        fontSize = 14,
+        width = 900,
+        height = "auto",
+        halign = "left",
+        vmargin = 4,
+        text = "",
+    }
+
+    optimizeButton = gui.Button{
+        classes = {"sizeS", "collapsed"},
+        width = 220,
+        halign = "left",
+        vmargin = 4,
+        text = "Optimize",
+        click = function()
+            if m_optimizing then
+                return
+            end
+            DTConfirmationDialog.ShowModal(
+                "Optimize images?",
+                "Oversized images are replaced on this page with scaled-down copies, uploaded to the asset store. The originals stay in the asset store and in the module.",
+                "Optimize",
+                "Cancel",
+                Optimize,
+                function() end)
+        end,
+    }
+
+    local sizesSection = Section("Image sizes", "what the page loads", {
+        Hint("Load time and memory follow an image's pixel count, not its file size. Targets are the recommended sizes above."),
+        sizesSummary,
+        optimizeButton,
+        gui.Panel{
+            flow = "vertical",
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            refreshPage = function(element, cfg)
+                if m_optimizing then
+                    return
+                end
+                m_sizeGeneration = m_sizeGeneration + 1
+                m_sizeRows = {}
+                local children = {}
+                if cfg ~= nil then
+                    for _, slot in ipairs(ImageSlots(cfg)) do
+                        local row = SizeRow(slot, m_sizeGeneration)
+                        m_sizeRows[#m_sizeRows + 1] = row
+                        children[#children + 1] = row.panel
+                    end
+                end
+                element.children = children
+                UpdateSizesSummary()
+            end,
+        },
     })
 
     ----------------------------------------------------------------------
@@ -1626,6 +2052,7 @@ function AdventurePageEditor.Create()
         maps = mapsSection,
         art = artSection,
         cast = castSection,
+        sizes = sizesSection,
     }
 
     local body = gui.Panel{
@@ -1640,6 +2067,7 @@ function AdventurePageEditor.Create()
         mapsSection,
         artSection,
         castSection,
+        sizesSection,
     }
 
     local enableCheck = gui.Check{
