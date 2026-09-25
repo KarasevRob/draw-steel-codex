@@ -228,6 +228,48 @@ function CharacterResource.HeroTokenTestRerollRule()
     }
 end
 
+--A hero may spend 1 Hero Token to succeed on a saving throw they failed. A
+--re-roll rule (see "Re-roll rules" in DSRollDialog.lua) that takes over the
+--roll dialog's Re-roll button only while the save on screen is a failure.
+--  args.IsFailed(state) -> boolean  whether the save as rolled has failed.
+--  args.Succeed(state)              called once the token is paid; makes the
+--                                   save succeed and accepts the result.
+--- @param args {IsFailed: (fun(state: table): boolean), Succeed: (fun(state: table))}
+--- @return table
+function CharacterResource.HeroTokenSaveSucceedRule(args)
+    return {
+        text = "Succeed Instead",
+        fontSize = 16,
+        icon = "drawsteel/hero-token.png",
+        tooltip = "1 Hero Token: Succeed on this saving throw instead.",
+
+        Applies = function(state)
+            return args.IsFailed(state) and CharacterResource.GetGlobalResource(CharacterResource.heroTokenId) >= 1
+        end,
+
+        CanReroll = function(state)
+            if CharacterResource.GetGlobalResource(CharacterResource.heroTokenId) < 1 then
+                return false, "You have no Hero Tokens to spend."
+            end
+            return true
+        end,
+
+        --Re-read the pool rather than trusting Applies, as in the re-roll rule.
+        Pay = function(state)
+            local tokens = CharacterResource.GetGlobalResource(CharacterResource.heroTokenId)
+            if tokens < 1 then
+                return false
+            end
+            CharacterResource.SetGlobalResource(CharacterResource.heroTokenId, tokens - 1, "Succeeded on a saving throw")
+            return true
+        end,
+
+        Perform = function(state)
+            args.Succeed(state)
+        end,
+    }
+end
+
 function creature:GetEpicResources()
     local resources = self:try_get("resources")
     if resources ~= nil then

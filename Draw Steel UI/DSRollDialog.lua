@@ -40,9 +40,20 @@ RollDialog = {
 --  Pay(state) -> boolean
 --                charge the cost. Called on press, BEFORE the dice are thrown.
 --                Returning false aborts the re-roll and charges nothing.
+--  fontSize      caption font size, for a caption longer than "Re-roll".
+--  Applies(state) -> boolean
+--                whether the rule owns the button right now. While it returns
+--                false the button is the plain free Re-roll. Lets a rule depend
+--                on the result, e.g. offer itself only on a failed save.
+--  Perform(state)
+--                do this instead of re-rolling, after Pay succeeds (e.g. turn
+--                a failed save into a success and call state.accept()).
 --
 --`state` is { options = the ShowDialog options, creature = the roller,
 --rerollsUsed = how many times this roll has been re-rolled already }.
+--The embedded ability roll dialog (Timeline/EmbeddedRollDialog.lua) adds
+--total (the result on screen), finished (the dice have landed) and accept()
+--(press Accept Result); fontSize, Applies and Perform are honoured only there.
 --
 --Re-rolls the system forces (a forceReroll modifier) and re-rolls bought some
 --other way (the Intel option) bypass the rule's gate and Pay entirely -- they
