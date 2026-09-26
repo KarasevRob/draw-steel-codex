@@ -3221,9 +3221,24 @@ function CustomDocument.GetOrCreateTabbedViewer()
         },
         monitorAssets = { "documents", "objecttables" },
 
+        --Every save of a journal document writes the documents table, which lands
+        --here. Marking the tree dirty and rebuilding it threw away the user's
+        --expanded folders and popped Shared Documents / Templates open again --
+        --on every save, while they were working.
+        --
+        --Nothing needs rebuilding: refreshTree frames the real journal panel, which
+        --carries its own monitorAssets and refreshes its rows in place (see the note
+        --there). So only mark dirty when the rail cannot see the change itself,
+        --i.e. while it is collapsed and receiving nothing.
         refreshAssets = function(element)
-            element.data.treeDirty = true
-            element:FireEvent("refreshTree")
+            if element:HasClass("collapsed") then
+                element.data.treeDirty = true
+                return
+            end
+            --a rail that somehow has no tree still needs its first build.
+            if #treeRailScroll.children == 0 then
+                element:FireEvent("refreshTree")
+            end
         end,
 
         --fired tree-wide by the viewer after every tab switch and every
