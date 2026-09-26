@@ -2549,6 +2549,14 @@ local function CreateTabButton(doc, tabbedViewer, tabId, bubbleIcon)
         classes = {"multiselectChipRemove"},
         hidden = 0,
         press = function(element)
+            --Double-clicking the X to close several tabs quickly used to roll the
+            --window up as well: this panel cannot swallowPress without costing the
+            --tab strip its role as the window's drag handle, so the pointer-down
+            --reaches the tab button and the strip, each of which detects the
+            --double-click independently and fires toggleShade. Claim that shade
+            --instead, the way the rail window's chips already do. 0.5s is the
+            --engine's double-click window (the rail uses 0.3 for the same trick).
+            tabbedViewer.data.suppressShadeUntil = dmhub.Time() + 0.5
             tabbedViewer:FireEvent("closeTab", tabButton.data.tabId)
         end,
         gui.Label {
@@ -3709,6 +3717,11 @@ function CustomDocument.GetOrCreateTabbedViewer()
         toggleShade = function(element)
             --shading would shrink the panel out from under its OS window.
             if element.data.poppedOut then
+                return
+            end
+            --a tab's X claimed this double-click (see the chip's press handler):
+            --closing tabs quickly must never roll the window up.
+            if element.data.suppressShadeUntil ~= nil and dmhub.Time() < element.data.suppressShadeUntil then
                 return
             end
             --the engine can deliver a double-click to several overlapping
