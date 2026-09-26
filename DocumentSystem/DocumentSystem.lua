@@ -1505,7 +1505,10 @@ function CustomDocument:CreateInterface(args)
             gui.Tooltip(string.format("Decrease Font Size (Currently %d%%)", round(dmhub.GetSettingValue("journal:fontsize"))))(element)
         end,
         press = function(element)
-            if dmhub.GetSettingValue("journal:fontsize") <= 20 then
+            --50, matching the Settings slider's own minimum. The old floor of 20
+            --let the toolbar reach math.floor(16*0.2) = a 3px font, which is not a
+            --setting anybody wants and looks like the journal has broken.
+            if dmhub.GetSettingValue("journal:fontsize") <= 50 then
                 return
             end
             dmhub.SetSettingValue("journal:fontsize", dmhub.GetSettingValue("journal:fontsize") - 20)
@@ -2135,6 +2138,23 @@ function CustomDocument:CreateInterface(args)
             local children = element.children
             children[#children] = newReadPanel
             element.children = children
+
+            --The edit surface reads the scale through CustomDocument.ScaleFontSize
+            --when it is built, and this handler only ever replaced the read panel --
+            --so an editor built before the setting changed kept its old size for
+            --good, and a Director on 200% found the editor still rendering at 100%.
+            --Drop the cached write panel so the next entry into edit mode builds it
+            --at the current scale.
+            --
+            --Only while it is NOT open: unsaved text, caret, selection, decorations
+            --and find state all live in that panel, and none of that is worth a
+            --font size. Changing the zoom mid-edit therefore still needs a toggle
+            --out and back; making it land live means re-applying every
+            --ScaleFontSize-derived size in the edit surface, which is a bigger job.
+            if writePanel ~= nil and writePanel.valid and writePanel:HasClass("collapsed") then
+                writePanel:DestroySelf()
+                writePanel = nil
+            end
         end,
     }
 
