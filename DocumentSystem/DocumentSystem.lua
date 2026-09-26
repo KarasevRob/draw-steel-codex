@@ -1336,7 +1336,25 @@ function CustomDocument:CreateInterface(args)
                 else
                     --make it so just closing out of present mode doesn't close the dialog for us.
                     element.parent.data.persistAfterPresentation = true
-                    GameHud.PresentDialogToUsers(element.parent, "document", { docid = self.id })
+
+                    --A docid alone is only resolvable if the document is IN the
+                    --documents table. Item and treasure cards opened from a link are
+                    --transient MarkdownDocuments built by equipment:RenderToMarkdown
+                    --with a generated guid and deliberately never stored, so every
+                    --other client's lookup missed and the player got no window and no
+                    --error -- "the Present to Players button when giving out loot
+                    --doesn't seem to do anything". Carry the content for those.
+                    local stored = (dmhub.GetTable(CustomDocument.tableName) or {})[self.id]
+                    if stored == nil then
+                        GameHud.PresentDialogToUsers(element.parent, "document", {
+                            docid = self.id,
+                            transientContent = self:try_get("content"),
+                            transientDescription = self.description,
+                            transientDocType = self:try_get("docType"),
+                        })
+                    else
+                        GameHud.PresentDialogToUsers(element.parent, "document", { docid = self.id })
+                    end
                 end
             end,
             destroy = function(element)
@@ -4504,6 +4522,23 @@ GameHud.RegisterPresentableDialog {
     id = "document",
     create = function(args)
         local doc = (dmhub.GetTable(CustomDocument.tableName) or {})[args.docid]
+        if doc == nil and type(args.transientContent) == "string" then
+            --A document that was never stored -- an item or treasure card rendered
+            --on the fly. The presenter sent its content along precisely because a
+            --docid cannot be resolved for it; rebuild it locally, read-only.
+            --NOTE: the source card's annotations are not carried, so its item-icon
+            --annotation (the "image:main" tag) renders empty here and the player
+            --sees the text of the card. Sending { srcTable, srcId } and re-rendering
+            --on this side would keep the icon, and is the better fix if that matters.
+            doc = MarkdownDocument.new{
+                id = args.docid,
+                description = args.transientDescription or "",
+                content = args.transientContent,
+                annotations = {},
+                docType = args.transientDocType,
+                readonly = true,
+            }
+        end
         if doc == nil then
             return nil
         end
