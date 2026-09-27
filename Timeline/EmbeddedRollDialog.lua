@@ -4299,6 +4299,7 @@ function GameHud.CreateEmbeddedRollDialog()
             rerollsUsed = m_rerollsUsed,
             total = tonumber(m_rollTotalLabel ~= nil and m_rollTotalLabel.text or nil),
             finished = resultPanel ~= nil and resultPanel.valid and resultPanel:HasClass("finishedRolling"),
+            rollInfo = m_rollInfo,
             accept = function()
                 proceedAfterRollButton:FireEvent("press")
             end,

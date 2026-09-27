@@ -54,6 +54,7 @@ RollDialog = {
 --The embedded ability roll dialog (Timeline/EmbeddedRollDialog.lua) adds
 --total (the result on screen), finished (the dice have landed) and accept()
 --(press Accept Result); fontSize, Applies and Perform are honoured only there.
+--Both dialogs pass rollInfo (the roll on screen, for UploadProperties) to Pay.
 --
 --Re-rolls the system forces (a forceReroll modifier) and re-rolls bought some
 --other way (the Intel option) bypass the rule's gate and Pay entirely -- they
@@ -2538,6 +2539,7 @@ function GameHud.CreateRollDialog(self)
                     options = m_options,
                     creature = creature,
                     rerollsUsed = m_rerollsUsed,
+                    rollInfo = m_rollInfo,
                 }
 
                 --Re-check rather than trust the last refresh: the button is

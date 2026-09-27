@@ -2084,6 +2084,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
     triggerInfo.lowroll = options.symbols.cast.lowRoll
 
     triggerInfo.ability = ability
+    triggerInfo.herotokenreroll = CharacterResource.RollUsedHeroTokenReroll(m_rollInfo)
 
     if casterToken.properties == nil then return end
 
@@ -3679,6 +3680,7 @@ RollCheck.RegisterCustom{
                     naturalroll = rollInfo.naturalRoll,
                     highroll = dice[1], lowroll = dice[2],
                     ability = testAbility,
+                    herotokenreroll = CharacterResource.RollUsedHeroTokenReroll(rollInfo),
                 })
             end
         end

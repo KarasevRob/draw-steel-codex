@@ -4990,6 +4990,7 @@ function creature:ShowCharacteristicRollDialog(attrid)
                     highroll = highroll,
                     lowroll = lowroll,
                     ability = syntheticAbility,
+                    herotokenreroll = CharacterResource.RollUsedHeroTokenReroll(rollInfo),
                 })
             end,
 
