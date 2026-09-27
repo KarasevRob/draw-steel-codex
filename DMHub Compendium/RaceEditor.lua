@@ -279,6 +279,53 @@ local SetRace = function(tableName, racePanel, raceid)
 			},
 		}
 
+		--footprints and blood for heroes of this ancestry who haven't picked their own
+		--(character:GetDefaultBodyTrait). The global defaults (Feet, red) store nothing.
+		local raceFootprints = FootprintStyle.GetStyle(race:try_get("footprintStyle"))
+		children[#children+1] = gui.Panel{
+			classes = {"formStackedRow"},
+			gui.Label{
+				classes = {"formStacked"},
+				text = "Footprints:",
+			},
+			gui.Dropdown{
+				classes = {"formStacked"},
+				idChosen = raceFootprints and raceFootprints.id or FootprintStyle.noneId,
+				options = FootprintStyle.GetOptions(),
+				change = function(element)
+					---@cast element Dropdown
+					local chosen = element.idChosen
+					if chosen == FootprintStyle.defaultId then
+						chosen = nil
+					end
+					race.footprintStyle = chosen
+					UploadRace()
+				end,
+			},
+		}
+
+		children[#children+1] = gui.Panel{
+			classes = {"formStackedRow"},
+			gui.Label{
+				classes = {"formStacked"},
+				text = "Blood:",
+			},
+			gui.Dropdown{
+				classes = {"formStacked"},
+				idChosen = race:try_get("bloodColor") or BloodSpatter.defaultColor,
+				options = BloodSpatter.GetColorOptions(),
+				change = function(element)
+					---@cast element Dropdown
+					local chosen = element.idChosen
+					if chosen == BloodSpatter.defaultColor then
+						chosen = nil
+					end
+					race.bloodColor = chosen
+					UploadRace()
+				end,
+			},
+		}
+
 	end --end main race only data.
 
 	children[#children+1] = gui.Panel{

@@ -173,6 +173,9 @@ end
 --- @field innateAttacks AttackDefinition[] Innate attack definitions for this creature.
 --- @field monster_category nil|string|string[] The monster category or categories for this creature.
 --- @field nameGenerator string The name generator table id to use for this creature.
+--- @field footprintStyle nil|string Body trait: the footprint style id this creature picked (nil = its ancestry's, else Feet). Read via GetBodyTrait.
+--- @field bloodColor nil|string Body trait: "red", "green" or "none" (nil = its ancestry's, else red). Read via GetBodyTrait.
+--- @field disguiseTraits nil|table<string, string> Body traits of the creature this one last disguised itself as; used while the disguised attribute is up.
 --- @field sizes string[] Available creature sizes, populated by the game system.
 --- @field sizeToNumber table<string, number> Maps size id to a numeric size index.
 --- @field proficientWithAllWeapons boolean If true the creature is proficient with all weapons.
@@ -7267,6 +7270,83 @@ function creature:ApplyOngoingEffect(ongoingEffectid, duration, casterInfo, opti
 	return result
 end
 
+
+--Body traits: what a creature's body leaves on the world beyond its token art -- the
+--footprints it walks (footprintStyle, FootprintStyles.lua) and the blood it spills
+--(bloodColor, BloodSpatter.lua). Each is a field on the creature; nil = the trait's own
+--default (Feet, red). Characters also inherit them from their ancestry (Character.lua).
+creature.bodyTraitFields = {"footprintStyle", "bloodColor"}
+
+--- The creature's own or inherited value for a body trait, ignoring any form it has
+--- taken: what the Appearance tab shows. nil means the trait's default.
+--- @param field string one of creature.bodyTraitFields
+--- @return nil|string
+function creature:GetNaturalBodyTrait(field)
+	local value = self:try_get(field)
+	if value ~= nil and value ~= "" then
+		return value
+	end
+	return self:GetDefaultBodyTrait(field)
+end
+
+--- What a body trait is when the creature hasn't picked one (Character: its ancestry).
+--- @param field string
+--- @return nil|string
+function creature:GetDefaultBodyTrait(field)
+	return nil
+end
+
+--- The value of a body trait right now. A form the creature has taken wins outright --
+--- a hero's boots don't carry over to their bear form, even when the bear has no
+--- setting of its own -- otherwise its natural value. nil means the trait's default.
+--- @param field string one of creature.bodyTraitFields
+--- @return nil|string
+function creature:GetBodyTrait(field)
+	local inForm, value = self:GetFormBodyTrait(field)
+	if inForm then
+		return value
+	end
+	return self:GetNaturalBodyTrait(field)
+end
+
+--- Whether the creature currently wears another creature's body, and that body's value
+--- for the trait. Uses the same tests that swap the token's art: a Transform modifier
+--- showing its creature's visuals (_tmp_appearance), or a Disguise (e.g. a Stormwight's
+--- animal form) while the disguised attribute is up. A disguise's traits are captured
+--- from its source when it is cast (ActivatedAbilityDisguiseBehavior).
+--- @param field string
+--- @return boolean inForm, nil|string value
+function creature:GetFormBodyTrait(field)
+	if self:has_key("transformInfo") then
+		for _,entry in ipairs(self:GetActiveModifiers()) do
+			local mod = entry.mod
+			if mod.behavior == "transform" and mod:try_get("gainCreatureVisuals") ~= false then
+				local monster = assets.monsters[self.transformInfo.transformid]
+				if monster ~= nil then
+					return true, monster.properties:GetBodyTrait(field)
+				end
+			end
+		end
+	end
+
+	local traits = self:try_get("disguiseTraits")
+	if traits ~= nil and self:CalculateAttribute("disguised", 0) > 0 then
+		return true, traits[field]
+	end
+
+	return false, nil
+end
+
+--- A snapshot of every body trait as it is right now, for a creature disguising itself
+--- as this one to carry. Unset traits are left out (= their defaults).
+--- @return table<string, string>
+function creature:CaptureBodyTraits()
+	local result = {}
+	for _,field in ipairs(creature.bodyTraitFields) do
+		result[field] = self:GetBodyTrait(field)
+	end
+	return result
+end
 
 --Removes the ongoing effect with the given ID. If numStacks is non-nil, it is a number with
 --the number of stacks to remove. Otherwise, all stacks are removed.

@@ -1011,6 +1011,28 @@ function character:AncestryOrInheritedAncestry()
     return self:InheritedAncestry() or self:Race()
 end
 
+--- A hero's body traits (footprints, blood; see creature.bodyTraitFields) come from
+--- their ancestry when they haven't picked their own: a devil's hooves. The ancestry's
+--- own setting wins over one it inherits, so a revenant keeps its bloodlessness but
+--- walks in the footprints of the ancestry it had in life.
+--- @param field string
+--- @return nil|string
+function character:GetDefaultBodyTrait(field)
+    local ancestry = self:Race()
+    local value = ancestry and ancestry:try_get(field)
+    if value ~= nil and value ~= "" then
+        return value
+    end
+
+    local inherited = self:InheritedAncestry()
+    value = inherited and inherited:try_get(field)
+    if value ~= nil and value ~= "" then
+        return value
+    end
+
+    return nil
+end
+
 function character:InheritedAncestry()
     local ancestry = self:Race()
     local formerLifeFeature = ancestry and ancestry:IsInherited()

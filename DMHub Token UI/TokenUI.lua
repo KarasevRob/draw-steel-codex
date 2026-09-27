@@ -2147,6 +2147,9 @@ function CreateTokenHud(token)
                     end
 
 					audio.FireSoundEvent(eventName, { tokenid = token.charid, volume = volume })
+
+                    --every client gets here once per entry, so this is how the blood networks.
+                    BloodSpatter.Emit(token, entry)
 				elseif entry.heal then
 					element.data.PlayEffect('curewounds')
 					element:FireEvent("floatlabel", string.format("%d", entry.heal), '#004d52')
