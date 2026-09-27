@@ -419,6 +419,11 @@ function dmhub.GetTextFilePaths(directory) end
 --- @return string|nil
 function dmhub.ParseDocxFile(path, errorCallback) end
 
+--- Diagnostic: describes every Stairway (ObjectComponentStairs) object on the visible floors -- floor indices, position, scale, pivot, sprite and the computed portal segment -- and every Map Markup staircase (floors, width, top edge, up direction, ramp and hole tile counts), and, for the given square, which of its four edges the current logical map holds as walls, stairways up and stairways down (a directed markup stairway reports whether a step from the square across that edge is allowed). For tracing a staircase that does not move tokens between floors.
+--- @param loc Loc The square to inspect.
+--- @return string
+function dmhub.DebugStairways(loc) end
+
 --- Returns the tile game rules at the given location, or nil if the location has no terrain. This includes rules from auras with forced game rules.
 --- @param loc Loc The location to query.
 --- @return nil|TileGameRules
