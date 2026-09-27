@@ -1446,6 +1446,13 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
                         targets[#targets+1] = { token = token }
                     end
                 end
+                --If the cast is held for a prompt (e.g. a mode choice), keep the player on
+                --the formula's targets instead of letting them click other creatures.
+                local allowedtargets = {}
+                for _, target in ipairs(targets) do
+                    allowedtargets[target.token.charid] = true
+                end
+                symbols.allowedtargets = allowedtargets
             end
 
             if abilityClone:RequiresPromptWhenCast(options) then
