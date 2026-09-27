@@ -40,6 +40,30 @@ local function ItemVisibleInShop(item)
     return ItemIsStorePreview(item)
 end
 
+--Shared with other titlescreen surfaces (the "Create New Campaign" screen
+--offers store adventures the user does not own yet, and must agree with the
+--shop about which items exist for this user). ItemImageForRole is assigned
+--below, once it is defined.
+CodexShop = {
+    ItemVisibleInShop = ItemVisibleInShop,
+    --Finds the store item that sells a module, or nil if none does.
+    ItemForModule = function(moduleid)
+        if moduleid == nil or moduleid == "" then
+            return nil
+        end
+        local ok, items = pcall(function() return assets.shopItems end)
+        if not ok or items == nil then
+            return nil
+        end
+        for _, item in pairs(items) do
+            if item.itemType == "Module" and item.assetid == moduleid then
+                return item
+            end
+        end
+        return nil
+    end,
+}
+
 --Which image an item shows on a given shop surface. Adventures ship two
 --shots -- an almost-square product image and a wide banner -- and the tile
 --and the details page want different ones, so ShopItem carries a tileImage
@@ -64,6 +88,8 @@ local function ItemImageForRole(item, field)
 
     return images[1]
 end
+
+CodexShop.ItemImageForRole = ItemImageForRole
 
 --The tile art: grid cards and cart rows.
 local function ItemTileImage(item)
@@ -4448,6 +4474,11 @@ local function CreateShopScreenInternal(arguments)
 	local screenIsUltrawide = 1920*(screenDialog.height/screenDialog.width) < 1080
 
 	local initialArtistid = arguments.artistid
+	--CreateShopScreen{itemid = ...}: open straight onto that product's page
+	--(the "Create New Campaign" screen sends the user here to buy an
+	--adventure they picked). The page is opened from the same create handler
+	--that focuses an initial artist.
+	local initialItemid = arguments.itemid
 	arguments.artistid = nil
 
 	local styles ={
@@ -4770,6 +4801,13 @@ local function CreateShopScreenInternal(arguments)
 			create = function(element)
 				if initialArtistid ~= nil then
 					element:FireEvent("focusArtist", initialArtistid)
+				end
+
+				if initialItemid ~= nil then
+					local item = assets.shopItems[initialItemid]
+					if item ~= nil then
+						element:FireEvent("showItemDetails", item, "createGame")
+					end
 				end
 
 				m_linkEventHandlerId = dmhub.RegisterEventHandler("link", function(link)
