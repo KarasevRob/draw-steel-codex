@@ -588,11 +588,6 @@ local shopStyles = {
 	},
 
 	{
-		selectors = {"itemButtonIcon", "check", "~parent:checkoutButton"},
-		opacity = 0.02,
-	},
-
-	{
 		selectors = {"itemButtonIcon", "parent:hover"},
 		bgcolor = "black",
 		opacity = 1,
@@ -2558,7 +2553,7 @@ local MakeShopItemText = function(options)
 			--Cart icon anchored at the button's left edge (shown for "Add to
 			--Cart" only -- see refreshCart). Uses the shared itemButtonIcon class
 			--so it recolors in tandem with the button (white -> black on
-			--parent:hover, same as the "Auto Install" check icon).
+			--parent:hover).
 			gui.Panel{
 				classes = {"itemButtonIcon"},
 				bgimage = "icons/icon_shopping/shopping-cart.png",
@@ -4352,51 +4347,6 @@ local ShowItemDetailsPanel = function(args)
 		end,
 
 		ShowItemDetailsInternal(args),
-
-		gui.Label{
-			text = "Auto Install",
-			classes = {"itemButton", "collapsedUnlessInventory"},
-			valign = "bottom",
-			halign = "right",
-			width = 200,
-			vmargin = 30,
-			floating = true,
-
-			data = {
-				item = nil
-			},
-
-			linger = function(element)
-				gui.Tooltip{
-					text = "Whether this asset will automatically be added to all of your games.",
-					halign = "center",
-					valign = "top",
-				}(element)
-			end,
-
-			click = function(element)
-				element:SetClass("checkoutButton", not element:HasClass("checkoutButton"))
-				element.data.item.autoInstall = element:HasClass("checkoutButton")
-				element.parent:FireEventTree("showProductDetails", element.data.item)
-			end,
-
-			showProductDetails = function(element, item)
-				element.data.item = item
-
-				if item.itemType ~= "Module" then
-					element:SetClass("collapsed", true)
-					return
-				end
-
-				element:SetClass("collapsed", false)
-				element:SetClass("checkoutButton", item.autoInstall)
-			end,
-
-			gui.Panel{
-				classes = {"itemButtonIcon", "check"},
-				bgimage = "icons/icon_common/icon_common_29.png",
-			},
-		},
 	}
 
 	return resultPanel

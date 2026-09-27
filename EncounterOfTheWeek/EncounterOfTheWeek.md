@@ -139,7 +139,11 @@ the engine gained a purpose-built API:
   (original cache restored); venla-deliantomb v21's payload is already in
   this machine's disk cache, so the new build registers art with no network.
 
-## Stray extra pregens from shop auto-install (DIAGNOSED 2026-08-29; not an EotW bug)
+## Stray extra pregens from shop auto-install (DIAGNOSED 2026-08-29; not an EotW bug; shop auto-install REMOVED 2026-09-25)
+
+Shop auto-install (owned store modules installed into every game the account
+directs) was removed from the engine and the shop UI on 2026-09-25, so this
+path no longer exists; the notes below are kept as history.
 
 An EotW game can show a hero nobody claimed. Traced live in
 `OtherworldlyWailingCorruptedWorg`: an unclaimed **Dwarf Fury** sat in the
@@ -1442,7 +1446,8 @@ cannot reach any of it, all of it inside the loading screen.
 Measured on a real EotW entry (`SacredClockworkThornSpindlegoth`, 11.2s to
 Complete and another 5.5s before the screen cleared):
 
-1. **Shop-module auto-install, ~5.3s.** `UpdateGameDetails` auto-installs every
+1. **Shop-module auto-install, ~5.3s** (the whole feature was removed on
+   2026-09-25). `UpdateGameDetails` auto-installed every
    module the account owns from the shop into any game it DMs. A fresh EotW
    game got `premium-tc_cemeteriescrypt` and `premium-tc_diggersdelvers` --
    map-building asset packs -- and each install cost a module install, a
