@@ -4399,7 +4399,10 @@ it exposed, both silent:
   document filed under the encounter map's journal folder; info bubbles
   are encounter-only because a bubble carries no beats). Nothing new has
   to be registered or named; the week's document simply grows a `# Montage`
-  section above its `# Encounter` section.
+  section above its `# Encounter` section. Since 2026-09-24 that document
+  may pull in **sub-documents** by linking to them, and a document another
+  one includes is never a script of its own -- see "Splitting a script
+  across documents" below.
 - **Beats** are the document's `#` (H1) headings, in order. Recognized
   kinds, case-insensitive: `# Montage`, `# Narrative` (see "Narrative
   beats" below) and `# Encounter`. Anything else is ignored with a parser
@@ -4411,6 +4414,128 @@ it exposed, both silent:
   as today.
 - The `[[encounter]]` island is still found by `Encounter.GetEncountersOnCurrentMap`
   + the parentFolder filter; the parser only decides WHEN it spawns.
+
+### Splitting a script across documents (DECIDED + BUILT 2026-09-24; Lua only; parser unit-tested, 19 new checks; VERIFIED in the authoring game over MCP -- the split week parses identically; a played-through montage on the split document UNTESTED; UNCOMMITTED)
+
+User direction (2026-09-24): the week's document had grown to 40 KB and
+should not have to be one huge page -- make scripts work with the journal's
+linking and embedding, and break the live week into sub-documents linked
+from a master.
+
+**The rule.** Before a script is parsed, every line that is **nothing but a
+link to another journal document** is replaced by that document's text,
+recursively. The three link forms the journal itself follows
+(`Seamless.LinkAtPosition`) all count:
+
+```
+[Opportunity: Mysterious Cottage](document:Mysterious Cottage)   a link (what the week uses)
+[:Mysterious Cottage]                                            a page embed
+[Mysterious Cottage]                                             the shorthand link
+```
+
+- A link **inside a sentence** stays a link; only a line of its own splices.
+  Rich `[[tags]]`, checkboxes and images are never links.
+- The splice is textual, with a blank line either side: a sub-document can
+  hold anything the master could -- an entry (`## Opportunity: ...`), a
+  whole round, a whole beat, or a `# Delve:`. Sub-documents may link to
+  further sub-documents (depth cap 8); a cycle warns and stops.
+- **Link vs embed** is purely how the journal shows the master: a link reads
+  as a one-line table of contents entry you click through; an embed renders
+  the sub-document inline (the journal nests embeds 3 deep). The parser
+  treats both the same. The live week uses links, so the master stays a
+  short index.
+- **Resolution** (`EncounterMontage.ResolveScriptInclude`): `document:` is
+  optional; a document id works too. A document **filed under the same
+  map** wins over one of the same name elsewhere in the journal, so two
+  weeks can each have a "Mysterious Cottage"; failing that it is
+  `CustomDocument.ResolveLink`, exactly what clicking the link opens. A
+  link that resolves to something that is not a journal document (a
+  monster, a PDF, a map, a URL) is left as prose, silently; a link that
+  resolves to nothing is left as prose **with a warning**.
+- **Discovery**: `FindMapScript` loads every markdown document under the
+  map (each expanded), and any document another one includes is a *part*,
+  never a candidate script -- so the sub-documents can sit in the map's
+  own journal folder beside the master without competing with it.
+- **Where sub-documents live**: directly in the map's journal folder (the
+  "Map Documents" list). That is also what the publisher ships: it seeds
+  every non-hidden markdown document whose `parentFolder` chain roots at the
+  map (`tools/eotw_publish/documents.py` `find_map_documents`), so nothing
+  in the publisher had to change. A subfolder under the map would satisfy
+  the runtime, but whether the publisher's dependency walk ships the
+  *folder* record is unverified, so the week does not use one.
+- **Warnings name their document**: a problem on line 29 of the Mysterious
+  Cottage sub-document reads `'Mysterious Cottage' line 29: ...`; lines of
+  the master keep the plain `line N:`. Same in the validator panel, which
+  also lists the sub-documents it pulled in, and in `/eotwscript`.
+- **Rich tags stay with their document.** A `[[scene]]` island's annotation
+  is stored on the document that contains it, so the parser now records the
+  tag's line (`beat.sceneLine` / `section.sceneLine`), and
+  `EncounterMontage.SceneImage` reads the annotation from the document that
+  line came from. It also now uses the journal's key for a repeated tag --
+  the 1st `[[scene]]` is `scene`, the 2nd `scene-1`, the 3rd `scene-2`
+  (`EncounterScript.AnnotationKey`, the rule in
+  `MarkdownDocument:GetReferencedAnnotations`). Before this, every beat read
+  the FIRST scene's annotation whatever the journal showed; it went unnoticed
+  because the week's three scenes carry the same image. The `[[encounter]]`
+  island needs nothing new: `GetEncountersOnCurrentMap` already harvests
+  every document under the map. In the live week every rich tag stayed in
+  the master, so no annotation moved.
+- **Cache**: `FindMapScript` re-expands only when its signature changes --
+  every candidate document's id, name and text length, plus those of every
+  document the last parse included (which may live outside the map).
+
+**Code.** `EncounterScript.lua` (pure): `IncludeTarget`, `ExpandIncludes`,
+`ParseExpanded`, `LineLabel`, `DescribeSource`, `AnnotationKey`, the
+exported `SplitLines`, and `sceneLine` on beats and sections.
+`EncounterMontage.lua`: `ResolveScriptInclude`, `LoadScript` (one document
+-> expanded + parsed script; the validator uses it too), the rewritten
+`FindMapScript` + `ScriptSignature`, `SceneImage`. `EncounterNarrative.lua`:
+`SceneImage` passes the section/beat through so `sceneLine` reaches it.
+`EncounterScriptValidator.lua`: parses through `LoadDocument`, labels lines
+by document, lists the includes. Tests: the "sub-documents" block in
+`tests/encounter_script_test.lua` (448 checks in all).
+
+**The live week, split (2026-09-24).** The master `Encounter` document
+(`98a5a5bf`) went from 40,123 to 1,978 bytes. It keeps the beat skeleton --
+both narrative beats, the montage intro, the three `[[scene]]` islands, the
+round headings and their party-size directives, and the `# Encounter` beat
+with its setup line and `[[encounter]]` -- and each montage entry and the
+delve is a link line. Sixteen sub-documents, all filed under the map
+(`9ca4404c`), named after the entry (the `(Required)`/`(Locked)`/
+`(Temporary)` tags stay on the heading inside the sub-document, not in its
+name):
+
+| Round 1 | Round 2 | Elsewhere |
+|---|---|---|
+| Mysterious Cottage `e5c2ada5` | Hunter's Camp `38e5ce86` | Forbidden Tomb Delve `589de210` (the `# Delve: Forbidden Tomb`, 12.9 KB) |
+| Elvish Enclave `9ccdd7d4` | Hot Spring `02f19814` | |
+| Wayside Shrine `6aa4e185` | Warded Standing Stones `6efba4db` | |
+| The Little Stalker `e5974dc5` | Forbidden Tomb `27a287aa` | |
+| Talk to the Goblin `ae616c58` | Goblin Scouts `2830eeef` | |
+| Scout out the Forest `8bc4fc36` | Gathering Darkness `7405567d` | |
+| Dangerous Beasts `5390040e` | | |
+| Treacherous Ravine `4905e1cd` | | |
+| Traps in the Forest `442a2d5a` | | |
+
+VERIFIED over MCP: before writing anything the split was expanded in memory
+and parsed to the same `EncounterScript.Describe` output as the unsplit
+document (only warning locations differ, now naming the sub-document); after
+writing, the runtime `FindMapScript` picked the master (not a part),
+included all 16, matched the pre-split parse, resolved the three scene images
+and the encounter, found the delve, and re-parsed when a sub-document's text
+changed. All 16 master links resolve through `CustomDocument.ResolveLink` to
+the map's own sub-document. The 17 files are in `C:\dev\eotw\objectTables\documents\`
+(`encounter.yaml` plus one per sub-document). The pre-split document is
+saved only in that session's temporary scratchpad (`encounter.yaml.bak`;
+the authoring directory's document files are untracked in its git repo),
+so treat the split as the source of truth; an older copy is the journal's
+"Encounter (backup before scenes 2026-09-23)".
+
+**Still to verify**: a montage played through on the split document (the
+data path is proven identical, the stage has not been watched); the
+publisher shipping the sub-documents (its dry run currently dies on an
+unrelated bad character in `actions-in-combat.yaml` before it gets that
+far -- U+008A mojibake, a separate fix).
 
 ### Montage grammar
 
@@ -4732,7 +4857,7 @@ has no portrait yet** (it shows the default monster avatar).
   are montage-only.
 - The Witch is played by the **Wode Hag** (has portrait art; the montage is set in the Wode), not the bestiary Hag, which has no portrait (2026-09-24; in the working copy, uploads with the delve content).
 
-### Delves: a dungeon crawl inside one approach (DECIDED + BUILT 2026-09-24; Lua only; parser unit-tested, 16 new checks; runtime and stage luac-clean + type-checked but UNTESTED live -- the app was closed; the week document's new content NOT YET UPLOADED; UNCOMMITTED)
+### Delves: a dungeon crawl inside one approach (DECIDED + BUILT 2026-09-24; Lua only; parser unit-tested, 16 new checks; first playtest by the user 2026-09-24 ("too easy"), tuning pass BUILT the same day and UNTESTED live; committed main b0abbf96 / release/0.0.841 044d7c80, DEPLOYED at 0.0.841 (deploy 7e97ecbe) and in module version 27; the content is in the week's document (since 2026-09-24 the `Forbidden Tomb Delve` sub-document))
 
 User direction (2026-09-24): a new opportunity, the **Forbidden Tomb**, is a
 loop: the hero meets obstacles (undead, traps, puzzles), finds a chest
@@ -4798,11 +4923,19 @@ machinery unchanged. When its test lands, `ApplyResolution` hands it to
 `delve.applied`), then -- Recoveries at 0 -> forced out; the chest is due
 (`sinceChest >= chestAt`, re-drawn from the Chest interval each time) ->
 the Chest scene, then status `"chest"`, whose roll the delving player's
-client makes with `dmhub.Roll` (real dice, in chat) and reports as
-`chestRolled`; the row's effects apply and the Continue scene plays,
-led by "<Hero> rolls N: <row>"; then status `"delvechoice"` with "Press
-deeper" (`delveOn`) / "Turn back" (`delveOut`); otherwise the next
-obstacle. No obstacles left -> "There is nothing further to find here."
+client makes with `dmhub.Roll` (real dice, in chat). Its `begin` callback
+sends the dice guids and flat modifier (`chestRolling` -> `turn.chest`,
+and `EncounterMontage.localChestDice` on the roller's own client, so it
+does not wait for the host), and every client's chest card follows the
+dice (`chat.DiceEvents(guid)` `diceface`), highlighting the row the
+running total lands on. `complete` sends `chestRolled`: status
+`"chestlanded"`, `turn.chest.{ total, rowIndex, newReveal, landedAt }`,
+and the row is marked seen. **The table rests on the landed row** until
+the delving player clicks **Continue** (`chestTake`); only then do the
+row's effects apply and the Continue scene play (no lead line any more:
+the find was just on show). Then status `"delvechoice"` with "Press
+deeper (lose 1 Recovery)" (`delveOn`) / "Turn back" (`delveOut`);
+otherwise the next obstacle. No obstacles left -> "There is nothing further to find here."
 and out. Leaving plays Leave / Forced Out and `DelveFinish` resolves the
 turn: acted, the entry taken, and a log line `{ delve, depth, chests,
 applied }` that the round view summarises ("X delved into Y: N obstacles
@@ -4811,9 +4944,44 @@ inside a delve (the host also refuses `pass` there): the way out is
 turning back at a chest. Each delve scene starts with an empty stage.
 
 **The stage.** Title "<Hero> in <Entry>: <Obstacle>"; the obstacle's
-options as usual; while the chest's dice are out the table sits mid-stage
-(`ChestCard`); at the choice, mid-stage shows the haul so far and the
-obstacles / chests / Recoveries left (`HaulCard`), the box the two buttons.
+options as usual; from the moment the chest's dice are out until
+Continue, the table sits mid-stage (`ChestCard(chestTable, t)`); at the
+choice, mid-stage shows the haul so far and the obstacles / chests /
+Recoveries left (`HaulCard`), the box the two buttons.
+
+**Tuning after the first playtest (user direction 2026-09-24: "too
+easy"):**
+- **Every tier 1 and tier 2 result that carries malice also costs a
+  Recovery** (the ones that did not already got " You lose a recovery."
+  appended -- 9 lines in the live `Forbidden Tomb Delve` sub-document:
+  both tiers of each puzzle's solve option, and tier 2 of each
+  break-through option; tier 3 of a break-through stays +1 malice only).
+  Verified by re-parsing live: every T1/T2 malice tier now also has a
+  `loserecovery` effect. The pre-edit text is in that session's
+  `_G.g_tombBackup_20260924` only.
+- **Pressing deeper costs a Recovery, paid immediately** on `delveOn`
+  (`EncounterMontage.DELVE_PRESS_ON_COST`, via `ApplyEffects` with a
+  `loserecovery` effect, so it lands in `delve.applied` and the log).
+  Decision taken without asking (flag it if wrong): the button is
+  **locked** unless the hero has MORE Recoveries than the cost
+  (`EncounterMontage.CanPressDeeper`; the host refuses too) -- paying
+  your last Recovery would only get you forced out before meeting
+  anything.
+- **No assists in a delve**: it is the hero going through alone.
+  `EligibleAssistants` returns nothing while `turn.delve` is set, so the
+  assist window never opens and no card is badged.
+- **The chest roll previews and rests** (above): the running row is lit
+  while the dice tumble, the card stays on the landed row, and the player
+  clicks Continue to take the find.
+- **Unfound treasure reads `???`.** A row nobody has landed on shows
+  `???` (while tumbling too); the first time the roll lands on it, it
+  holds `???` for 0.6s (`CHEST_REVEAL_DELAY`) and then types its
+  treasure in; from then on every chest shows it. Stored per game in
+  `data.chestSeen[MatchKey(delve name)]["lo-hi"]`
+  (`EncounterMontage.ChestRowSeen`), and **deliberately not cleared by
+  the dev reset** -- what the party has learned stays learned. A client
+  that sees the landing more than 4s late (`CHEST_REVEAL_WINDOW`) shows
+  it settled.
 
 **The week document's new content** (written; not yet uploaded -- the app
 was closed; the text is the scratch copy `week_scenes.md`, and a rules
@@ -4834,9 +5002,13 @@ King's Riddle (Unquiet Spirit, speaking Ullorvic), each solved (+2 / +1 /
 cursed: +2 malice and -1 Recovery / +2 / +1) -- plus the Chest, Continue,
 Leave and Forced Out scenes.
 
-**Next:** start the app, upload the document (rules-diff it against the
-live one first), and play a delve end to end: an obstacle with an assist,
-a chest roll, press deeper, turn back; and a forced exit at 0 Recoveries.
+**Next:** restart the app (deployed, but a running app keeps the code it
+loaded) and play a delve end to end: an obstacle (confirm no assist window), a chest roll
+(the row lights while tumbling, `???` -> reveal on a new row, the card
+waits for Continue, a second client sees the same), press deeper (a
+Recovery goes; locked at 1 Recovery), turn back; and a forced exit at 0
+Recoveries. To see the `???` again, clear `data.chestSeen` in the
+`eotwscript` document.
 
 ### Scaling a montage to the party (DECIDED + BUILT 2026-09-20; Lua only; parser unit-tested with the bundled interpreter; runtime UNTESTED live -- needs a restart; UNCOMMITTED)
 
@@ -7581,9 +7753,26 @@ and 30 change nothing visible for a script with no montage.
     `EncounterMontageStage.lua` (`CreateSceneStage` + its style rules),
     `tests/encounter_script_test.lua`. Next: the "still to verify" list there.
 
-51. [~] **Delves** (BUILT 2026-09-24; parser unit-tested; runtime/stage
-    UNTESTED live; content written, NOT UPLOADED; UNCOMMITTED). Design,
-    grammar and status in "Delves: a dungeon crawl inside one approach".
+51. [~] **Delves** (BUILT 2026-09-24; parser unit-tested; first played by
+    the user 2026-09-24 -- "Enter the tomb" did nothing until the stage's
+    click gate learned about roll-less `Delve:` options; then the tuning
+    pass after that playtest (Recovery costs, no assists, chest roll that
+    rests on its row, `???` rows) BUILT, UNTESTED live; COMMITTED (main
+    b0abbf96, cherry-picked to release/0.0.841 044d7c80) and DEPLOYED at
+    0.0.841 (dev + beta; EncounterOfTheWeek mod only, deploy id
+    7e97ecbe-f241-448f-bdc4-78ad65c6793e); module version 27 PUBLISHED
+    (dataid 6f829874, `--force` over the standing warnings) carrying the
+    tomb's new Recovery costs -- the content is in the live week's
+    document, since the split the `Forbidden Tomb Delve` sub-document).
+    Design, grammar and status in "Delves: a dungeon crawl inside one
+    approach".
+
+52. [~] **Sub-documents** (BUILT 2026-09-24; parser unit-tested; the live
+    week SPLIT into a 2 KB master + 16 linked sub-documents and VERIFIED to
+    parse identically over MCP; a played montage on it UNTESTED;
+    UNCOMMITTED). A line that is only a link (or embed) to another journal
+    document splices that document in. Design, the split and status in
+    "Splitting a script across documents" under Architecture Notes.
 
 Deliverable: the week's document is a script; a montage plays before the
 fight with every player dragging their heroes onto opportunities and
@@ -7808,7 +7997,28 @@ no core change.
 
 # Status
 
-- 2026-09-20 (Intelligence + Tactical Preparation, latest): **A narrative
+- 2026-09-24 (sub-documents, latest): **A script can be spread over several
+  journal documents: a line that is nothing but a link (`[label](document:Name)`),
+  a page embed (`[:Name]`) or the `[Name]` shorthand is replaced by that
+  document's text before parsing, recursively, preferring a document filed
+  under the same map. The live week is now a 1,978-byte master `Encounter`
+  (the beat skeleton, every rich tag, the round directives) linking 16
+  sub-documents in the map's journal folder -- one per montage entry plus
+  `Forbidden Tomb Delve`. BUILT; parser unit-tested (448 checks, up from
+  429); VERIFIED over MCP that the split parses identically to the old
+  single document and that the runtime picks the master, not a part.
+  COMMITTED (main b309f8e0, cherry-picked to release/0.0.841 fc05e483) and
+  DEPLOYED at 0.0.841 (dev + beta; EncounterOfTheWeek mod only, deploy id
+  61c1e92b-9eae-4cc1-aea7-ea4371ea0c78); module version 25 PUBLISHED
+  (dataid 0aad1d8a, `--force` over the standing warnings: no bare
+  `Encounter` map, floor-object holes 5939fe95 and 9325d163). A montage
+  PLAYED on the split document is UNTESTED.** Also fixed on the way:
+  `SceneImage` read the first `[[scene]]` for every beat instead of the
+  journal's `scene-1`/`scene-2` keys (harmless so far -- one image). Design
+  + file list under "Splitting a script across documents". (The U+008A
+  publisher failure noted here earlier no longer reproduces.)
+
+- 2026-09-20 (Intelligence + Tactical Preparation): **A narrative
   beat can write `Unlock: Intelligence` to turn the feature on; a montage or
   narrative outcome can pay `+1 Intelligence` into a party-shared pool shown
   beside Malice and Hero Tokens (`phosphor/brain.png`); and at the outset of
