@@ -329,6 +329,7 @@ function Aura:GetSimplePowerRollTrigger(options)
             mandatory = false,
             hostile = true,
             environmentRoll = true,
+            environmentalSource = true,
             iconid = self.iconid,
             behaviors = {
                 rollBehaviorType.new(behaviorFields),
@@ -337,10 +338,49 @@ function Aura:GetSimplePowerRollTrigger(options)
     }
 end
 
+--- Builds the synthesized enter/start-of-turn trigger for the flat entry effect
+--- (entryEffectRule, e.g. "3 fire damage; burning (save ends)"), or nil when the
+--- rule is empty. Unlike the simple power roll there is nothing to roll or
+--- decide, so the trigger is mandatory and resolves the rule against the
+--- creature straight away. Adjacent-only contact never applies it.
+--- @param options nil|{adjacentOnly: boolean}
+--- @return nil|{trigger: string, ability: TriggeredAbility}
+function Aura:GetSimpleEntryEffectTrigger(options)
+    local rule = trim(self:try_get("entryEffectRule", "") or "")
+    if rule == "" then
+        return nil
+    end
+
+    if options ~= nil and options.adjacentOnly then
+        return nil
+    end
+
+    return {
+        trigger = "onenter",
+        ability = TriggeredAbility.Create{
+            name = self.name,
+            trigger = "onenter",
+            targetType = "self",
+            range = 0,
+            radius = 0,
+            silent = true,
+            mandatory = true,
+            environmentalSource = true,
+            iconid = self.iconid,
+            behaviors = {
+                ActivatedAbilityDrawSteelCommandBehavior.new{
+                    rule = rule,
+                },
+            },
+        },
+    }
+end
+
 --- Whether this aura is "damaging terrain" for movement advisories: it hurts
 --- creatures that enter it or move through it. True when the aura has an entry
---- power roll (Lava), per-tile move damage, or the explicit `damaging` flag
---- (for hand-authored auras whose damage comes from custom triggers).
+--- power roll (Lava), a flat entry effect (Burning Oil), per-tile move damage, or
+--- the explicit `damaging` flag (for hand-authored auras whose damage comes from
+--- custom triggers).
 --- @return boolean
 function Aura:IsDamaging()
     if self:try_get("damaging", false) == true then
@@ -348,6 +388,10 @@ function Aura:IsDamaging()
     end
 
     if self:try_get("movedamage", "none") ~= "none" then
+        return true
+    end
+
+    if trim(self:try_get("entryEffectRule", "") or "") ~= "" then
         return true
     end
 

@@ -27,6 +27,7 @@ end
 --- @field rangeDisadvantage string|number|table GoblinScript: if truthy, ranged attacks have disadvantage.
 --- @field selfTarget boolean If true, the ability always targets the caster.
 --- @field castImmediately boolean If true, auto-casts when there are no targeting choices.
+--- @field environmentalSource boolean|nil If true, the ability is the environment acting (a zone, a trap, terrain) rather than the creature casting it: effects it applies are attributed to the ability by name ("Applied by <b>Burning Oil</b>") instead of to the caster, who is only whoever the effect landed on. Set on abilities synthesized by Aura:GetSimplePowerRollTrigger and Aura:GetSimpleEntryEffectTrigger; set it in data on environmental triggers.
 --- @field environmentRoll boolean|nil If true, the ability's power roll is made by the environment: the caster only executes the roll and it counts as a roll made AGAINST them (their own modifiers are excluded; their defensive "rolls against you" modifiers apply even on a self-cast). Set on abilities synthesized by Aura:GetSimplePowerRollTrigger.
 --- @field recharge boolean|number Recharge roll threshold (false = no recharge mechanic).
 --- @field legendary boolean If true, this is a legendary action.
@@ -5225,7 +5226,7 @@ function ActivatedAbilityApplyOngoingEffectBehavior:Cast(ability, casterToken, t
 					return
 				end
 
-                local sourceDescription = string.format("Applied by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name)
+                local sourceDescription = ActivatedAbility.DescribeEffectSource(ability, casterToken)
 
                 if stacks > 1 then
                     ability.RecordTokenMessage(target.token, options, string.format("Apply %s x %d", ongoingEffectInfo.name, stacks))
@@ -5396,7 +5397,7 @@ function ActivatedAbilityApplyOngoingEffectBehavior:CastFromFormula(ability, cas
                     if stacks == nil then return end
 
                     local targetCreature = target.token.properties
-                    local sourceDescription = string.format("Applied by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name)
+                    local sourceDescription = ActivatedAbility.DescribeEffectSource(ability, casterToken)
                     ability.RecordTokenMessage(target.token, options, string.format("Apply %s", ongoingEffectInfo.name))
 
                     local applyDuration = self:try_get("duration")
@@ -6621,3 +6622,16 @@ dmhub.RegisterEventHandler("restoreFromBackup", function()
     end
     dmhub.CancelCurrentRoll()
 end)
+
+--- The "Applied by ..." line recorded on an ongoing effect an ability applies. An
+--- ability flagged environmentalSource (a zone or trap effect) names itself, since
+--- its caster is just the creature it landed on; otherwise it names the caster.
+--- @param ability ActivatedAbility
+--- @param casterToken CharacterToken
+--- @return string
+function ActivatedAbility.DescribeEffectSource(ability, casterToken)
+    if ability:try_get("environmentalSource", false) then
+        return string.format("Applied by <b>%s</b>", ability.name)
+    end
+    return string.format("Applied by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name)
+end

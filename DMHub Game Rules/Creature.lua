@@ -11718,7 +11718,7 @@ end
 
 local function AuraHasIndependentTriggers(aura)
     local independent = false
-    local legacy = aura:try_get("powerRollEnabled", false)
+    local legacy = aura:try_get("powerRollEnabled", false) or trim(aura:try_get("entryEffectRule", "") or "") ~= ""
     for _, trigger in ipairs(aura.triggers) do
         independent = independent or trigger.trigger == "onfirstenterround" or trigger.trigger == "targetstartturnaura"
         legacy = legacy or trigger.trigger == "onenter"
@@ -11845,6 +11845,21 @@ function creature:EnterAura(info, adjacentOnly, fromBeginTurn, enteredViaShift)
 		end
 		result = true
 		info.auraInstance:FireTriggeredAbility(simplePowerRollTrigger.ability, self, auraCasterToken)
+	end
+
+	--The flat entry effect (entryEffectRule, e.g. Burning Oil's "3 fire damage;
+	--burning (save ends)") is synthesized the same way; it never fires for
+	--adjacent-only contact.
+	local simpleEntryEffectTrigger = info.auraInstance.aura:GetSimpleEntryEffectTrigger{
+		adjacentOnly = adjacentOnly == true,
+	}
+	if simpleEntryEffectTrigger ~= nil then
+		local auraCasterToken = info.token
+		if auraCasterToken == nil or auraCasterToken.valid == false or (not auraCasterToken.uploadable) then
+			auraCasterToken = dmhub.LookupToken(self)
+		end
+		result = true
+		info.auraInstance:FireTriggeredAbility(simpleEntryEffectTrigger.ability, self, auraCasterToken)
 	end
 
 	--A shifted entry whose simple roll mode is "ignore" must leave a later
