@@ -2896,6 +2896,35 @@ local function isClockwise(polygon)
     return sum > 0
 end
 
+-- Size the map's bounds to exactly the grid cells its map images cover. The
+-- engine measures the placed images, so this is right for any calibration and
+-- grid type; never compute bounds from image sizes in Lua. expandOnly grows
+-- the bounds without shrinking them. Call from a coroutine, after spawning or
+-- moving map images: it waits (up to 30s) until every image is placed. On
+-- timeout the bounds are left unchanged. Returns true if it fitted them.
+mod.shared.FitMapBoundsToImagesCo = function(map, expandOnly, description)
+    if map == nil then
+        return false
+    end
+
+    local status = nil
+    for attempt = 1, 600 do
+        status = map:FitDimensionsToMapImages(expandOnly == true)
+        if status ~= "pending" then
+            break
+        end
+        coroutine.yield(0.05)
+    end
+
+    if status == "fitted" then
+        map:Upload(description or "Fit map bounds to map images")
+        return true
+    end
+
+    printf("MAP_BOUNDS:: Could not fit bounds to map images (status=%s); leaving them unchanged", tostring(status))
+    return false
+end
+
 mod.shared.ImportMapToFloorCo = function(info)
     if info == nil or info.floor == nil or info.primaryFloor == nil then
         return
@@ -3841,13 +3870,9 @@ mod.shared.FinishMapImport = function(mapName, info)
 
         local map = game.GetMap(guid)
         map.description = mapName
-        -- Bounds box: dimMin..dimMax (inclusive) covers exactly w cells in
-        -- x and h cells in y. For odd w/h the box is centered on origin.
-        -- For even w/h the box is biased RIGHT (center at +0.5) to match
-        -- the renderer's pivot wrap, which lands _mapPivot at 0.5-tileDim/2
-        -- for even-tile-count perfect fits and therefore shifts the image
-        -- right by half a tile. A left-biased box would appear "one tile
-        -- to the left of where it should be" relative to the image.
+        -- Provisional bounds of the right size, used only until the images
+        -- are placed; FitMapBoundsToImagesCo below then replaces them with
+        -- the cells the images actually cover.
         map.dimensions = {
             x1 = -math.ceil(w/2) + 1,
             y1 = -math.ceil(h/2) + 1,
@@ -3909,6 +3934,7 @@ mod.shared.FinishMapImport = function(mapName, info)
             }
         end
 
+        mod.shared.FitMapBoundsToImagesCo(game.GetMap(guid), false, "Fit map bounds to imported images")
     end)
 end
 
@@ -4989,57 +5015,11 @@ mod.shared.ReimportMapSizing = function(floor, mapObj)
 
             printf("REIMPORT:: Applied new calibration to object %s", mapObj.id)
 
-            -- Adjust map boundaries synchronously.
-            -- For the reimported floor: compute bounds from calibration data + object center
-            -- (don't read obj.area which is stale until re-render).
-            -- For other floors: read their area directly (they haven't changed).
-            local map = game.currentMap
-            if map ~= nil then
-                local objX = mapObj.x
-                local objY = mapObj.y
-                local floorX1 = objX - calibration.width / 2
-                local floorY1 = objY - calibration.height / 2
-                local floorX2 = objX + calibration.width / 2
-                local floorY2 = objY + calibration.height / 2
-                printf("REIMPORT:: Reimported floor bounds: (%.1f,%.1f)-(%.1f,%.1f) objPos=(%.1f,%.1f)",
-                    floorX1, floorY1, floorX2, floorY2, objX, objY)
-
-                -- Start with the reimported floor's computed bounds.
-                local newDimX1 = floorX1
-                local newDimY1 = floorY1
-                local newDimX2 = floorX2
-                local newDimY2 = floorY2
-
-                -- Union with all other map objects' areas (these are already rendered, not stale).
-                for _, f in ipairs(map.floors) do
-                    for _, obj in pairs(f.objects) do
-                        if obj:GetComponent("Map") ~= nil and obj.id ~= mapObj.id then
-                            local a = obj.area
-                            if a ~= nil then
-                                printf("REIMPORT::   Other floor obj %s area: (%.1f,%.1f)-(%.1f,%.1f)", obj.id, a.x1, a.y1, a.x2, a.y2)
-                                newDimX1 = math.min(newDimX1, a.x1)
-                                newDimY1 = math.min(newDimY1, a.y1)
-                                newDimX2 = math.max(newDimX2, a.x2)
-                                newDimY2 = math.max(newDimY2, a.y2)
-                            end
-                        end
-                    end
-                end
-
-                local dim = map.dimensions
-                printf("REIMPORT:: Old dims: (%s,%s)-(%s,%s)", json(dim.x1), json(dim.y1), json(dim.x2), json(dim.y2))
-                printf("REIMPORT:: New dims: (%.1f,%.1f)-(%.1f,%.1f)", newDimX1, newDimY1, newDimX2, newDimY2)
-
-                map.dimensions = {
-                    x1 = math.floor(newDimX1),
-                    y1 = math.floor(newDimY1),
-                    x2 = math.ceil(newDimX2),
-                    y2 = math.ceil(newDimY2),
-                }
-                map:Upload("Adjust map boundaries after reimport")
-                printf("REIMPORT:: Set map boundaries to (%d,%d)-(%d,%d)",
-                    math.floor(newDimX1), math.floor(newDimY1), math.ceil(newDimX2), math.ceil(newDimY2))
-            end
+            -- Refit the map bounds to the recalibrated image (and any other floors'
+            -- images), once the engine reports the new calibration is rendered.
+            dmhub.Coroutine(function()
+                mod.shared.FitMapBoundsToImagesCo(game.currentMap, false, "Adjust map boundaries after reimport")
+            end)
         end,
     }
 
@@ -5392,36 +5372,10 @@ mod.shared.FinishFloorImport = function(info, offsetX, offsetY)
         -- Label the layer.
         mapLayer.layerDescription = "Map Layer"
 
-        -- Step 3: Expand map dimensions to encompass the new floor.
-        -- Done here (after floor creation) to avoid conflicting manifest patches.
-        -- Skip in match mode: the new floor occupies the same world bounds as the
-        -- existing floor it's matching, which is already inside the canvas.
-        if info.matchCalibration ~= nil then
-            printf("FLOOR_IMPORT:: matchCalibration in effect; skipping canvas expansion.")
-        else
-            map = getMap()
-            if map ~= nil then
-                local dim = map.dimensions
-                local newX2 = offsetX + floorW
-                local newY2 = offsetY + floorH
-                local needsExpand = (offsetX < dim.x1 or offsetY < dim.y1 or newX2 > dim.x2 or newY2 > dim.y2)
-                if needsExpand then
-                    map.dimensions = {
-                        x1 = math.min(dim.x1, offsetX),
-                        y1 = math.min(dim.y1, offsetY),
-                        x2 = math.max(dim.x2, newX2),
-                        y2 = math.max(dim.y2, newY2),
-                    }
-                    map:Upload("Expand map for new floor")
-                    printf("FLOOR_IMPORT:: Expanded map dimensions")
-                end
-            end
-        end
-
         -- Brief sync pause before spawning.
         for i = 1, 30 do coroutine.yield(0.01) end
 
-        -- Step 4: Spawn the imported map image onto the layer.
+        -- Step 3: Spawn the imported map image onto the layer.
         -- If matchCalibration is present, we override the new object's controlPoints/scaling/mapType
         -- with the existing map's, and place it at the existing's (x, y) so the world bounds match.
         local applyMatch = info.matchCalibration ~= nil
@@ -5476,6 +5430,11 @@ mod.shared.FinishFloorImport = function(info, offsetX, offsetY)
                 end
             end
         end
+
+        -- Step 4: Grow the map bounds to cover the new floor's image. Done after
+        -- the floors exist (so manifest patches don't conflict) and after the
+        -- placement correction above, so the engine measures the final position.
+        mod.shared.FitMapBoundsToImagesCo(getMap(), true, "Expand map for new floor")
 
         -- Diagnostic: dump calibration for every Map LevelObject on the map (existing + new).
         printf("FLOOR_ALIGN_DIAG:: ===== Post-spawn calibration dump =====")
