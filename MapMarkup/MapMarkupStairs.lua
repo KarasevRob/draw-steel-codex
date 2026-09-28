@@ -125,8 +125,10 @@ end
 --============================================================================
 
 --The staircases stored on a floor record, oldest first:
---{id, width, points, cutHole, ord, upFloor}. upFloor (optional, set by the Foundry
---importer) is the floor id the stairs lead to when it is not the next floor up.
+--{id, width, points, cutHole, ord, upFloor, holeLength}. upFloor (optional, set by the
+--Foundry importer) is the floor id the stairs lead to when it is not the next floor up.
+--holeLength (optional, set by the importer on tight spirals) is how far back from the
+--top, along the centerline, the hole reaches; the engine's default is the width.
 local function StairsOnFloor(floor)
     local result = {}
     if floor == nil then
@@ -148,6 +150,7 @@ local function StairsOnFloor(floor)
                 cutHole = record.cutHole ~= false,
                 ord = tonumber(record.ord) or 0,
                 upFloor = record.upFloor,
+                holeLength = tonumber(record.holeLength),
             }
         end
     end
@@ -174,7 +177,7 @@ end
 
 --Writes a staircase record. SetMarkupZone stores the table it is given, so always
 --hand it a fresh one.
-local function WriteStairs(floor, id, width, points, cutHole, ord, upFloor)
+local function WriteStairs(floor, id, width, points, cutHole, ord, upFloor, holeLength)
     local pts = {}
     for i,v in ipairs(points) do
         pts[i] = v
@@ -186,6 +189,7 @@ local function WriteStairs(floor, id, width, points, cutHole, ord, upFloor)
         cutHole = cutHole,
         ord = ord,
         upFloor = upFloor,
+        holeLength = holeLength,
     })
 end
 
@@ -315,7 +319,7 @@ local function UpdateSelectedStairs(changes)
     if changes.cutHole ~= nil then
         cutHole = changes.cutHole
     end
-    WriteStairs(floor, s.id, width, points, cutHole, s.ord, s.upFloor)
+    WriteStairs(floor, s.id, width, points, cutHole, s.ord, s.upFloor, s.holeLength)
 end
 
 local function ReversedPoints(points)
@@ -483,7 +487,7 @@ local function DrawStairs(floorIndex, stairs, color)
 end
 
 --On the floor above a staircase: its top edge and the outline of the hole it cuts
---(the top `width` of the stairs).
+--(the top `width` of the stairs, or its holeLength).
 local function DrawStairsArrival(floorIndex, stairs)
     local points = stairs.points
     local h = stairs.width * 0.5
@@ -498,7 +502,7 @@ local function DrawStairsArrival(floorIndex, stairs)
         return
     end
     local length = last.s
-    local from = math.max(0, length - stairs.width)
+    local from = math.max(0, length - (stairs.holeLength or stairs.width))
     local steps = math.max(1, math.ceil((length - from) / 0.5))
     local prevL, prevR = nil, nil
     for i = 0, steps do
@@ -518,7 +522,7 @@ local function DrawStairsArrival(floorIndex, stairs)
 end
 
 local function StairsKeyPart(s)
-    return string.format("%s:%s:%s:%s", s.id, tostring(s.width), tostring(s.cutHole), table.concat(s.points, ","))
+    return string.format("%s:%s:%s:%s:%s", s.id, tostring(s.width), tostring(s.cutHole), tostring(s.holeLength), table.concat(s.points, ","))
 end
 
 local function UpdateStairsOverlay()
