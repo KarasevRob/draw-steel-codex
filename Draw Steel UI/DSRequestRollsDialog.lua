@@ -2400,7 +2400,8 @@ function GameHud:ShowRollSummaryDialog(actionid, resultTable)
 			},
 			{
 				selectors = {"resultStatusLabel"},
-				width = 80,
+				width = "auto",
+				height = "auto",
 				textAlignment = "left",
 				halign = "left",
 				valign = "center",
