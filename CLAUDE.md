@@ -214,6 +214,12 @@ run (~3.5 min) before committing -- only the full run catches an edit that break
 in a file you did not change. Do not use `-Target` on a subdirectory: that loses the
 workspace and reports everything defined elsewhere as undefined.
 
+A Claude Code Stop hook (`../.claude/settings.json` -> `tools/lua-typing/claude_hook.py`)
+runs the per-file check on every codex `.lua` file the session edited with Edit/Write when
+you try to finish, and blocks the stop with the offending lines if one is over its
+ceiling. Treat that as a failing test: fix the problems it lists. It does not see edits
+made through Bash (sed, scripts), and it is not the full run.
+
 The ceiling has slack in it because LuaLS is not deterministic here (the same code checks
 to a number ~12 wide), so do not read small count changes as signal in either direction.
 

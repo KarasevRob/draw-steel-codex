@@ -94,3 +94,84 @@ function GameType.IsDerivedFrom(typeName) end
 --- @param a string
 --- @param b string
 function GameType.AddAlias(a, b) end
+
+--- Engine globals set outside the stub generator's view: by core Lua TextAssets
+--- (commands.txt, game-hud-menu.txt, input.txt) or by C# LuaNative.SetGlobal, which the
+--- generator does not learn names from. Declared here so a stub regen keeps them.
+
+--- Slash commands and command-line actions: `/name args` calls Commands.name(args).
+--- Defined in commands.txt; the codex adds entries (`Commands.foo = function(str) ... end`).
+--- @type table<string, function>
+Commands = {}
+
+--- The Dice Studio API. Set by ScriptEngine.cs only for admin accounts (and in the editor);
+--- nil for everyone else, so code outside the admin-only Dice Studio must check it.
+--- @type DiceStudioLua
+dicestudio = nil
+
+--- The live game HUD: the object the codex's CreateGameHud returns, installed by
+--- SheetHud.cs. nil until a game's HUD has been created (not set at the title screen).
+--- @type GameHud
+gamehud = nil
+
+--- Escape-key priorities, lowest to highest, from input.txt. Each value is the priority's
+--- rank; pass it as a panel's `escapePriority`.
+--- @class EscapePriorityTable
+--- @field DMHUB_MOCKUP_DEV integer
+--- @field EXIT_DM_MODE integer
+--- @field DMHUB_EXIT_TITLESCREEN integer
+--- @field DMHUB_EXIT_TOOL_DIALOG integer
+--- @field DMHUB_OBJECT_ESCAPE integer
+--- @field DMHUB_TOKEN_ESCAPE integer
+--- @field DMHUB_TOKEN integer
+--- @field CANCEL_TOKEN_MENU integer
+--- @field CANCEL_ACTION_BAR integer
+--- @field EXIT_CHARACTER_SHEET integer
+--- @field DMHUB_CANCEL_TOOL integer
+--- @field DMHUB_CONTEXT_MENU integer
+--- @field EXIT_INVENTORY_DIALOG integer
+--- @field EXIT_DIALOG integer
+--- @field EXIT_ROLL_DIALOG integer
+--- @field EXIT_MODAL_DIALOG integer
+--- @field DMHUB_POPUP integer
+--- @field DMHUB_DROPDOWN integer
+
+--- @type EscapePriorityTable
+EscapePriority = nil
+
+--- Panels launchable from the HUD menu and by name, from game-hud-menu.txt.
+--- @class LaunchablePanelRegistry
+LaunchablePanel = {}
+
+--- Registers a launchable panel. args is the registration table (name, icon, content,
+--- folder, dmonly, devonly, ...); a panel with an identical name replaces the old one.
+--- @param args table
+function LaunchablePanel.Register(args) end
+
+--- The open panel with this name, launching it first if it is not open.
+--- @param name string
+--- @return Panel|nil
+function LaunchablePanel.GetOrLaunchPanel(name) end
+
+--- Creates, parents and focuses the panel for registration entry p.
+--- @param p table
+--- @param args? table
+--- @return Panel
+function LaunchablePanel.LaunchPanel(p, args) end
+
+--- Launches the panel whose name matches str (case-insensitive), including filtered ones.
+--- @param str string
+--- @param args? table
+--- @return boolean launched
+function LaunchablePanel.LaunchPanelByName(str, args) end
+
+--- Appends this registry's menu items to result.
+--- @param result table[]
+--- @param subfolders table
+--- @param includeFiltered? boolean
+function LaunchablePanel.AccumulateMenuItems(result, subfolders, includeFiltered) end
+
+--- Every launchable panel's menu item, sorted by group, ordering and text.
+--- @param includeFiltered? boolean
+--- @return table[]
+function LaunchablePanel.GetMenuItems(includeFiltered) end
