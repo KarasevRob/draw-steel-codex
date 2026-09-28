@@ -89,7 +89,9 @@ report record, unabridged.
 ## Step 2 - Gather what the instruction needs
 
 - Base fields: `description`, `recentErrors`, `version`, `platform`, `gameid`,
-  `allowGameEntry`, `storage`, `isLobby`.
+  `allowGameEntry`, `storage`, `isLobby`, and `settings` (non-default settings at
+  submit time, `{id, storage, value, default}` -- often the explanation for a
+  looks/sounds/behaves-wrong report).
 - Deeper evidence on demand:
   `python <S>/bug-report-blob.py <blob.id> [--tail 400 | --out <file>]`
   to gunzip a `log`/`prevLog` (prevLog for crash-then-restart) or download a screenshot
