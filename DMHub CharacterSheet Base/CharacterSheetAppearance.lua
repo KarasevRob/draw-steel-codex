@@ -3345,7 +3345,7 @@ function CharSheet.AppearancePanel()
             width = 400,
             height = 24,
             refreshAppearance = function(element, info)
-                element:SetClass("collapsed", not BloodSpatter.Enabled())
+                element:SetClass("collapsed", not BloodSpatter.GameEnabled())
             end,
             linger = function(element)
                 gui.Tooltip{

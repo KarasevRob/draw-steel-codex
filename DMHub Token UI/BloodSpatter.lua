@@ -54,6 +54,33 @@ local g_showBlood = setting{
     end,
 }
 
+--A player's own opt-out: with Show Blood on, this client draws none of it (blood,
+--typed-damage marks, corpse pools). Does nothing while Show Blood is off.
+local g_hideGore
+g_hideGore = setting{
+    id = "blood:hidegore",
+    description = "Hide Blood & Gore",
+    help = "Hide blood spatter, damage marks and corpse pools on your screen, even when the Director has turned on Show Blood. Has no effect while Show Blood is off.",
+    editor = "check",
+    default = false,
+    storage = "preference",
+    section = "game",
+    onchange = function()
+        --take away what is already on the ground at once, not only new blood.
+        if g_hideGore:Get() == true then
+            local map = game.currentMap
+            if map ~= nil then
+                for _,floor in ipairs(map.floors) do
+                    floor:ClearBloodSpatter()
+                end
+            end
+        end
+        for _,entry in pairs(g_shownCorpses) do
+            BloodSpatter.RefreshCorpse(entry.component, entry.obj)
+        end
+    end,
+}
+
 local g_fadeTime = setting{
     id = "blood:fadetime",
     description = "Blood Fade Time",
@@ -194,9 +221,18 @@ function BloodSpatter.GetColorOptions()
     return result
 end
 
+--- Whether the game has Show Blood on, regardless of this player's Hide Blood & Gore.
+--- Use it for game data (a creature's Blood pick, the angle stamped on damage) that
+--- other clients need even when this one draws no blood.
+--- @return boolean
+function BloodSpatter.GameEnabled()
+    return g_showBlood:Get() == true
+end
+
+--- Whether this client draws blood: Show Blood is on and this player has not hidden it.
 --- @return boolean
 function BloodSpatter.Enabled()
-    return g_showBlood:Get() == true
+    return BloodSpatter.GameEnabled() and g_hideGore:Get() ~= true
 end
 
 --The direction, in degrees counterclockwise from +x, pointing from the attacker
@@ -730,7 +766,7 @@ function BloodSpatter.ClearCorpse(obj)
     end
 end
 
---- Redraws (or removes) a shown corpse's blood after Show Blood changes.
+--- Redraws (or removes) a shown corpse's blood after Show Blood or Hide Blood & Gore changes.
 --- @param component CorpseComponent
 --- @param obj LuaObjectInstance
 function BloodSpatter.RefreshCorpse(component, obj)
@@ -755,7 +791,7 @@ local g_baseRecordDamageEntry = creature.RecordDamageEntry
 
 --- @param options {id: nil|string, damage: number, attackerid: string|nil, damage_type: string|nil, heal: number, sound: nil|string, bloodAngle: nil|number}
 function creature:RecordDamageEntry(options)
-    if options.bloodAngle == nil and options.attackerid ~= nil and (tonumber(options.damage) or 0) > 0 and BloodSpatter.Enabled() then
+    if options.bloodAngle == nil and options.attackerid ~= nil and (tonumber(options.damage) or 0) > 0 and BloodSpatter.GameEnabled() then
         options.bloodAngle = BloodSpatter.AngleAwayFrom(self, options.attackerid)
     end
     return g_baseRecordDamageEntry(self, options)
