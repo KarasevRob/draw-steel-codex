@@ -291,6 +291,20 @@ local function generateDuplicateName(name)
     end
 end
 
+--Sort for a list of group headings and rows. Headings set data.group and
+--data.isHeading; rows set data.group and data.sortName. Sorts by group,
+--then the heading first, then rows by name. Rows with no group sort by name.
+local function SortGroupedList(a, b)
+    local da, db = a.data, b.data
+    if da.group ~= db.group then
+        return da.group < db.group
+    end
+    if da.isHeading ~= db.isHeading then
+        return da.isHeading == true
+    end
+    return (da.sortName or "") < (db.sortName or "")
+end
+
 local CreateListItem = function(options)
 
     local m_search = nil
@@ -1201,7 +1215,6 @@ local ShowCustomAttributesPanel = function(parentPanel)
 				--auto-selects (CreateListItem's select option) and would yank
 				--the editor open.
 				newAttrItems[k] = attrItems[k] or CreateListItem{
-                    ord = section .. "-" .. item.name,
 					select = element.aliveTime > 0.2,
 					tableName = CustomAttribute.tableName,
 					key = k,
@@ -1213,6 +1226,8 @@ local ShowCustomAttributesPanel = function(parentPanel)
 				}
 
 				newAttrItems[k].text = item.name
+				newAttrItems[k].data.group = section
+				newAttrItems[k].data.sortName = item.name
 
 				local matches = filter == "" or
 					string.find(string.lower(item.name or ""), filter, 1, true) ~= nil or
@@ -1224,7 +1239,8 @@ local ShowCustomAttributesPanel = function(parentPanel)
 					if newHeadings[section] == nil then
 						newHeadings[section] = sectionHeadings[section] or gui.Label{
 							data = {
-								ord = section,
+								group = section,
+								isHeading = true,
 							},
 							text = section,
 							fontSize = 20,
@@ -1241,7 +1257,7 @@ local ShowCustomAttributesPanel = function(parentPanel)
 				end
 			end
 
-			table.sort(children, function(a,b) return a.data.ord < b.data.ord end)
+			table.sort(children, SortGroupedList)
 
 			attrItems = newAttrItems
             sectionHeadings = newHeadings
@@ -2180,7 +2196,7 @@ local ShowClassesPanel = function(parentPanel, tableName)
 			local headings = {}
 
 			for k,item in pairs(classesTable) do
-				local ord = item.name
+				local group = nil
 				if subclass then
 					local primaryClassesTable = dmhub.GetTable("classes") or {}
 					local primaryClass = primaryClassesTable[item.primaryClassId]
@@ -2188,12 +2204,13 @@ local ShowClassesPanel = function(parentPanel, tableName)
 					if primaryClass then
 						primaryClassName = primaryClass.name
 					end
-					ord = primaryClassName .. "-" .. ord
+					group = primaryClassName
 
 					if headings[primaryClassName] == nil then
 						headings[primaryClassName] = classItems[primaryClassName] or gui.Label{
 							data = {
-								ord = primaryClassName,
+								group = primaryClassName,
+								isHeading = true,
 							},
 							text = primaryClassName,
 							fontSize = 20,
@@ -2210,7 +2227,6 @@ local ShowClassesPanel = function(parentPanel, tableName)
 					select = element.aliveTime > 0.2,
 					tableName = tableName,
 					key = k,
-					ord = ord,
 					click = function(element)
 						classPanel.data.SetClass(tableName, k)
                         dmhub.Schedule(0.01, function()
@@ -2220,11 +2236,13 @@ local ShowClassesPanel = function(parentPanel, tableName)
 				}
 
 				newClassItems[k].text = item.name
+				newClassItems[k].data.group = group
+				newClassItems[k].data.sortName = item.name
 
 				children[#children+1] = newClassItems[k]
 			end
 
-			table.sort(children, function(a,b) return a.data.ord < b.data.ord end)
+			table.sort(children, SortGroupedList)
 
 			classItems = newClassItems
 			itemsListPanel.children = children
@@ -3216,7 +3234,8 @@ local ShowLanguagesPanel = function(parentPanel)
 				if newHeadings[group] == nil then
 					newHeadings[group] = sectionHeadings[group] or gui.Label{
 						data = {
-							ord = group,
+							group = group,
+							isHeading = true,
 						},
 						text = group,
 						fontSize = 20,
@@ -3239,14 +3258,13 @@ local ShowLanguagesPanel = function(parentPanel)
 					end,
 				}
 			
-			newDataItems[k].data.ord = group .. "-" .. language.name
+			newDataItems[k].data.group = group
+			newDataItems[k].data.sortName = language.name
 			newDataItems[k].text = language.name
 			children[#children+1] = newDataItems[k]
 		end
 
-		table.sort(children, function(a, b)
-			return a.data.ord < b.data.ord
-		end)
+		table.sort(children, SortGroupedList)
 
 		sectionHeadings = newHeadings
 		dataItems = newDataItems
@@ -7666,6 +7684,7 @@ local function ShowGlossaryPanel(contentPanel)
 end
 
 Compendium.CreateListItem = CreateListItem
+Compendium.SortGroupedList = SortGroupedList
 
 local g_registeredPanels = false
 

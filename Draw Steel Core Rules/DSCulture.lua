@@ -324,7 +324,8 @@ local ShowCulturesPanel = function(contentPanel)
                     newHeadings[group] = sectionHeadings[group] or gui.Label{
                         classes = {"sizeL", "bold"},
                         data = {
-                            ord = group,
+                            group = group,
+                            isHeading = true,
                         },
                         text = group,
                         width = "auto",
@@ -345,14 +346,13 @@ local ShowCulturesPanel = function(contentPanel)
                     end,
                 }
             
-                newDataItems[k].data.ord = group .. "-" .. culture.name
+                newDataItems[k].data.group = group
+                newDataItems[k].data.sortName = culture.name
                 newDataItems[k].text = culture.name
                 children[#children+1] = newDataItems[k]
             end
 
-            table.sort(children, function(a, b)
-                return a.data.ord < b.data.ord
-            end)
+            table.sort(children, Compendium.SortGroupedList)
 
             sectionHeadings = newHeadings
             dataItems = newDataItems
