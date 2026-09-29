@@ -35,15 +35,15 @@ local POOLS_RIGHT = 12
 --and the body below has to start further down -- at HEADER_HEIGHT the pool
 --sat behind the top edge of the panel (reported 2026-09-20).
 local PREP_HEADER_HEIGHT = 128
---a montage hero card (176 + its 46-tall skills block) plus one row of
---ally cards (80) and their gaps.
+--a montage hero card (188 incl. its player line + its 46-tall skills block)
+--plus one row of ally cards (80) and their gaps.
 --budgets for the stats card at its 1.2 uiscale (EncounterOfTheWeekHud's
---STATS_CARD_UISCALE: 222 * 1.2 = 267) plus the ally row under it.
-local HERO_ROW_HEIGHT = 360
+--STATS_CARD_UISCALE: 234 * 1.2 = 281) plus the ally row under it.
+local HERO_ROW_HEIGHT = 374
 --The montage stage packs allies beside the hero card instead of under it
---(user direction 2026-09-23), so its row is just the stats card (267) plus
+--(user direction 2026-09-23), so its row is just the stats card (281) plus
 --a small gap to the bottom of the screen; the turn panel gets the rest.
-local MONTAGE_HERO_ROW_HEIGHT = 279
+local MONTAGE_HERO_ROW_HEIGHT = 293
 --the row's tmargin, which the body's height arithmetic has to leave room for.
 local MONTAGE_HERO_ROW_TMARGIN = 10
 --allies drawn smaller than the roster's, stacked up the hero card's right side.
