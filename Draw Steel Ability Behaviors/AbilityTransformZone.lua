@@ -17,6 +17,7 @@ local mod = dmhub.GetModLoading()
 ---- a second trigger arriving after the zone already converted finds nothing.
 
 --- @class ActivatedAbilityTransformZoneBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityTransformZoneBehavior
 --- @field fromKeyword string Id (environmentalKeywords key) of the keyword whose zones are transformed. Empty = the behavior does nothing.
 --- @field toKeyword string Id of the keyword the zones become, or "none" to remove the zones.
 --- @field location "targets"|"adjacent" Which squares pick the zones: the targets' own squares, or those plus every adjacent square.

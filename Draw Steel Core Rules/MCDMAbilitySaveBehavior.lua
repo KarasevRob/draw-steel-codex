@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- @class ActivatedAbilitySaveBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilitySaveBehavior
 --- @field summary string Short label shown in behavior lists.
 --- @field conditionsMode string Which conditions to attempt to save against: "all" or a specific condition id.
 --- @field rollMode string How the save is resolved: "roll" (make a die roll) or "purge" (auto-succeed without rolling).

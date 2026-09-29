@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- @class ActivatedAbilityRemoveCreatureBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityRemoveCreatureBehavior
 --- @field summary string Short label shown in behavior lists.
 --- @field dropsLoot boolean If true, the removed creature drops its loot.
 --- @field leavesCorpse boolean If true, a corpse object is left behind.
@@ -476,6 +477,7 @@ function ActivatedAbilityRemoveCreatureBehavior:EditorItems(parentPanel)
 end
 
 --- @class CorpseComponent: GameType
+--- @field new fun(o?: table): CorpseComponent
 --- @field charid string The dead creature's character id.
 --- @field bloodColor nil|string What the creature bled when it died: a BloodSpatter.colors id (nil = red; corpses left before this field existed).
 --- @field bloodRadius nil|number The dead creature's token radius in tiles (nil = medium).

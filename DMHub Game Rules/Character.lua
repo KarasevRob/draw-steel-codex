@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- @class character:creature
+--- @field new fun(o?: table): character
 --- @field description string Display name for the character type (e.g. "Character").
 --- @field chartypeid string UUID of the CharacterType that defines this character's base.
 --- @field experienceRequirements number[] XP thresholds for each level, indexed by level-1.

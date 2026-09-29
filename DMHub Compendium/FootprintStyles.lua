@@ -16,6 +16,7 @@ local mod = dmhub.GetModLoading()
 --just darkens whatever ground it lands on. Only an image's transparency matters.
 
 --- @class FootprintStyle: GameType
+--- @field new fun(o?: table): FootprintStyle
 --- @field id string GUID identifier (engine-managed for table items)
 --- @field name string Display name
 --- @field imageid string Image asset id of the print, drawn toe-up. "" uses the built-in boot print.

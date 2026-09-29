@@ -19,6 +19,7 @@ end
 --- @alias Symbols table|function
 
 --- @class ActivatedAbility: GameType
+--- @field new fun(o?: table): ActivatedAbility
 --- @field description string Rules text shown to players.
 --- @field flavor string Flavor/lore text shown in the ability tooltip.
 --- @field range number|string|table Targeting range in world units.
@@ -57,6 +58,7 @@ end
 ActivatedAbility = RegisterGameType("ActivatedAbility")
 
 --- @class ActivatedAbilityBehavior: GameType
+--- @field new fun(o?: table): ActivatedAbilityBehavior
 --- @field instant boolean If true, executes immediately (not in a coroutine).
 --- @field customOngoingEffect boolean If true, uses a custom ongoing effect rather than the default.
 --- @field duration string|number|nil Duration type for the effect ("none" by default).
@@ -70,48 +72,63 @@ ActivatedAbility = RegisterGameType("ActivatedAbility")
 ActivatedAbilityBehavior = RegisterGameType("ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAttackBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityAttackBehavior
 ActivatedAbilityAttackBehavior = RegisterGameType("ActivatedAbilityAttackBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityDamageBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityDamageBehavior
 ActivatedAbilityDamageBehavior = RegisterGameType("ActivatedAbilityDamageBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityHealBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityHealBehavior
 ActivatedAbilityHealBehavior = RegisterGameType("ActivatedAbilityHealBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilitySetStaminaBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilitySetStaminaBehavior
 ActivatedAbilitySetStaminaBehavior = RegisterGameType("ActivatedAbilitySetStaminaBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAugmentedAbilityBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityAugmentedAbilityBehavior
 ActivatedAbilityAugmentedAbilityBehavior = RegisterGameType("ActivatedAbilityAugmentedAbilityBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityCastSpellBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityCastSpellBehavior
 ActivatedAbilityCastSpellBehavior = RegisterGameType("ActivatedAbilityCastSpellBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityApplyOngoingEffectBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityApplyOngoingEffectBehavior
 ActivatedAbilityApplyOngoingEffectBehavior = RegisterGameType("ActivatedAbilityApplyOngoingEffectBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityRemoveOngoingEffectBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityRemoveOngoingEffectBehavior
 ActivatedAbilityRemoveOngoingEffectBehavior = RegisterGameType("ActivatedAbilityRemoveOngoingEffectBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAuraBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityAuraBehavior
 ActivatedAbilityAuraBehavior = RegisterGameType("ActivatedAbilityAuraBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityMoveAuraBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityMoveAuraBehavior
 ActivatedAbilityMoveAuraBehavior = RegisterGameType("ActivatedAbilityMoveAuraBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityTransformBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityTransformBehavior
 ActivatedAbilityTransformBehavior = RegisterGameType("ActivatedAbilityTransformBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityContestedAttackBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityContestedAttackBehavior
 ActivatedAbilityContestedAttackBehavior = RegisterGameType("ActivatedAbilityContestedAttackBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityForcedMovementBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityForcedMovementBehavior
 ActivatedAbilityForcedMovementBehavior = RegisterGameType("ActivatedAbilityForcedMovementBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityModifiersBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityModifiersBehavior
 ActivatedAbilityModifiersBehavior = RegisterGameType("ActivatedAbilityModifiersBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityApplyMomentaryEffectBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityApplyMomentaryEffectBehavior
 ActivatedAbilityApplyMomentaryEffectBehavior = RegisterGameType("ActivatedAbilityApplyMomentaryEffectBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbility.description = ""
@@ -2661,6 +2678,7 @@ end
 ActivatedAbility.recordTargets = false
 
 --- @class CastActivatedAbilityChatMessage: GameType
+--- @field new fun(o?: table): CastActivatedAbilityChatMessage
 --- @field ability ActivatedAbility
 CastActivatedAbilityChatMessage = RegisterGameType("CastActivatedAbilityChatMessage")
 

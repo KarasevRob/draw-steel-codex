@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 ---@class MarkdownDocument:CustomDocument
+--- @field new fun(o?: table): MarkdownDocument
 MarkdownDocument = RegisterGameType("MarkdownDocument", "CustomDocument")
 MarkdownDocument.vscroll = false
 -- Id of the JournalStylesheet that re-skins this document. `false` = built-in
@@ -35,6 +36,8 @@ local g_markdownStyle = gui.MarkdownStyle {
 -- =============================================================================
 
 ---@class JournalStylesheet: GameType
+--- @field new fun(o?: table): JournalStylesheet
+--- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
 JournalStylesheet = RegisterGameType("JournalStylesheet")
 JournalStylesheet.tableName = "journalStyles"
 JournalStylesheet.name = "New Stylesheet"
@@ -1404,6 +1407,7 @@ end
 MarkdownDocument.__ApplyInlineClasses = ApplyInlineClasses
 
 ---@class RichTag: GameType
+--- @field new fun(o?: table): RichTag
 ---@field pattern false|string
 RichTag = RegisterGameType("RichTag")
 RichTag.pattern = false

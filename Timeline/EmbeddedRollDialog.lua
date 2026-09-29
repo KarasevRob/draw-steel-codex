@@ -244,6 +244,7 @@ end
 --- Renders live from the shared reveal document, so the director can hide the
 --- spoiler again from the message itself and players' views update in place.
 --- @class SpoilerRevealChatMessage: GameType
+--- @field new fun(o?: table): SpoilerRevealChatMessage
 SpoilerRevealChatMessage = RegisterGameType("SpoilerRevealChatMessage")
 SpoilerRevealChatMessage.spoilerKey = ""
 SpoilerRevealChatMessage.spoilerName = ""

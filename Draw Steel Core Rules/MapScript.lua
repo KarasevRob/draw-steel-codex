@@ -72,6 +72,8 @@ local mod = dmhub.GetModLoading()
 --                              mod.unloadHandlers.
 
 --- @class MapScript: GameType
+--- @field new fun(o?: table): MapScript
+--- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
 --- @field name string Display name of the library script.
 --- @field description string What the script does, shown in pickers and the compendium.
 --- @field code string The Lua source; must return a definition table.

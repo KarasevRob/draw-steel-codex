@@ -229,6 +229,14 @@ say so in the commit message. See [`LUA_TYPING_REFERENCE.md`](../LUA_TYPING_REFE
 for the annotation conventions that keep new code clean -- `@cast` in event handlers,
 typed locals for `panel.data`, `core.Vector2` on property writes.
 
+Game types and data-table rows are typed at the root: `X.new{...}` returns an `X` (every
+`@class` carries `--- @field new fun(o?: table): X`; `annotate_gametypes.py` adds it to a
+new registration), and `dmhub.GetTable(X.tableName)` / `GetTableCached` return rows typed
+`X`. After adding or renaming an `X.tableName = "..."`, run
+`python ../tools/lua-typing/gen_table_overloads.py` (from the codex root). When the table
+name is a variable, cast the row where it comes out:
+`local class = classTable[classid] --[[@as Class]]` (inline `@as`, not `---@type`).
+
 **ASCII only.** The DMHub Lua runtime does not handle non-ASCII characters in source files. All Lua files — including comments and EmmyLua annotations — must contain only ASCII characters (bytes 0-127). Never use em dashes, curly quotes, ellipses, or any other Unicode punctuation. Use plain ASCII equivalents instead: `-` or `:` instead of em dashes, `"` instead of curly quotes, `...` instead of ellipses.
 
 **Forward-declare self-referencing locals.** In Lua, `local x = expr` does not bring `x` into scope until `expr` finishes evaluating. If a closure inside the initializer needs to reference the variable (common with gui panel event handlers like `click`, `change`, `think`), you must split declaration and assignment:

@@ -60,6 +60,7 @@ ActivatedAbilityModifyCastBehavior.RegisterParam{
 
 
 --- @class ActivatedAbilityPowerRollBehavior : ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityPowerRollBehavior
 ActivatedAbilityPowerRollBehavior = RegisterGameType("ActivatedAbilityPowerRollBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbilityPowerRollBehavior.summary = 'Roll on Power Table'
@@ -2661,10 +2662,12 @@ function RollProperties:GetSymbols(rollInfo, targetCreature)
 end
 
 --- @class RollPropertiesPowerTable:RollProperties
+--- @field new fun(o?: table): RollPropertiesPowerTable
 --- Draw Steel variant of RollProperties that resolves outcomes against a power roll table.
 RollPropertiesPowerTable = RegisterGameType("RollPropertiesPowerTable", "RollProperties")
 
 --- @class TierSymbols: GameType
+--- @field new fun(o?: table): TierSymbols
 --- @field tier string The tier result text (e.g. "Tier 1", "Tier 2", "Tier 3") exposed to GoblinScript.
 --- GoblinScript symbol object representing the outcome tier of a power roll.
 TierSymbols = RegisterGameType("TierSymbols")

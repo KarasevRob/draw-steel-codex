@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- @class Aura:CharacterFeature
+--- @field new fun(o?: table): Aura
 --- @field objectid string Id of the object placed to represent this aura ("none" if unset).
 --- @field iconid string Icon asset path.
 --- @field canrelocate boolean If true, the caster can spend an action to move the aura.
@@ -170,6 +171,7 @@ function Aura.Create(options)
 end
 
 --- @class AuraInstance: GameType
+--- @field new fun(o?: table): AuraInstance
 --- @field aura Aura The Aura definition this instance belongs to.
 --- @field casterid string Token id of the creature that cast/owns this aura.
 --- @field casterInitiativeId string|nil Initiative id the caster acted on, so a turn-scoped aura can still be expired once the caster is dead.
@@ -1863,6 +1865,7 @@ function AuraInstance:GetModifiers()
 end
 
 --- @class ChildAuraInstance:AuraInstance
+--- @field new fun(o?: table): ChildAuraInstance
 --- A transient view over a parent AuraInstance for one entry in aura.subauras. Child views are
 --- built on demand by AuraInstance:GetChildInstances and are NEVER stored or serialized: they do
 --- not live in creature.auras or in the aura object's component properties. The engine registers
@@ -1958,6 +1961,7 @@ function AuraInstance:GetChildInstances()
 end
 
 --- @class AuraComponent: GameType
+--- @field new fun(o?: table): AuraComponent
 --- @field casterid string Token id of the creature that owns the aura.
 --- @field auraid string Guid of the AuraInstance on the caster.
 --- The object component attached to the placed map object representing an aura.

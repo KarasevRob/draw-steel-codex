@@ -3,7 +3,7 @@ local mod = dmhub.GetModLoading()
 
 local SetRace = function(tableName, racePanel, raceid)
 	local raceTable = dmhub.GetTable(tableName) or {}
-	local race = raceTable[raceid]
+	local race = raceTable[raceid] --[[@as Race]]
 	local UploadRace = function()
 		dmhub.SetAndUploadTableItem(tableName, race)
 	end

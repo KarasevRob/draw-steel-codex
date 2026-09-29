@@ -10,9 +10,11 @@ local mod = dmhub.GetModLoading()
 --is the same relationship CharacterCondition has with CharacterFeature.
 
 --- @class EnvironmentalKeyword:CharacterFeature
+--- @field new fun(o?: table): EnvironmentalKeyword
+--- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
 --- @field name string Display name of the keyword (e.g. "Dark", "Lava"). Class default "New Environmental Keyword" applies when absent.
 --- @field description string Rules text shown to players. Class default "" applies when absent.
---- @field tableName string Name of the data table this keyword is stored in ("environmentalKeywords"). Class-level default; often absent on serialized instances.
+--- @field tableName "environmentalKeywords" Name of the data table this keyword is stored in ("environmentalKeywords"). Class-level default; often absent on serialized instances.
 --- @field source string Source label ("Environmental Keyword"). Class-level default; often absent on serialized instances.
 --- @field iconid string Icon shown in the UI. Class-level default applies when absent.
 --- @field display table Icon display settings (bgcolor/hueshift/saturation/brightness).
@@ -1805,7 +1807,7 @@ end
 
 local SetData = function(tableName, keywordPanel, keyid)
 	local dataTable = dmhub.GetTable(tableName) or {}
-	local keyword = dataTable[keyid]
+	local keyword = dataTable[keyid] --[[@as EnvironmentalKeyword]]
 
 	--guard: the id may be stale (e.g. an old palette entry stranded on an id
 	--that is not in the table). Leave the panel as-is rather than erroring.

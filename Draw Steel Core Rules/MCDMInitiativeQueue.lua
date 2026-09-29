@@ -26,9 +26,11 @@ end
 -- When a token ends their turn, their initiative entry has the current round incremented.
 
 --- @class InitiativeQueue: GameType
+--- @field new fun(o?: table): InitiativeQueue
 InitiativeQueue = RegisterGameType("InitiativeQueue")
 
 --- @class InitiativeQueueEntry: GameType
+--- @field new fun(o?: table): InitiativeQueueEntry
 InitiativeQueueEntry = RegisterGameType("InitiativeQueueEntry")
 
 function InitiativeQueue:GameModeInfo()

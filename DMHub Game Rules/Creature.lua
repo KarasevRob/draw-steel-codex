@@ -4,6 +4,7 @@ local mod = dmhub.GetModLoading()
 --This file implements the important Creature type, which is a base type for both characters and monsters.
 
 --- @class GameSystem: GameType
+--- @field new fun(o?: table): GameSystem
 GameSystem = RegisterGameType("GameSystem")
 
 --- @class StatHistoryEntry
@@ -16,6 +17,7 @@ GameSystem = RegisterGameType("GameSystem")
 --- @field refreshid nil|string
 
 --- @class StatHistory: GameType Keeps history of a stat.
+--- @field new fun(o?: table): StatHistory
 --- @field entries StatHistoryEntry[] The list of entries the stat history has.
 StatHistory = RegisterGameType("StatHistory")
 
@@ -112,6 +114,7 @@ function StatHistory:MostRecentTimestamp(attackerid, disposition)
 end
 
 --- @class CharacterAttribute: GameType
+--- @field new fun(o?: table): CharacterAttribute
 --- @field baseValue nil|number Base (unmodified) value of this attribute.
 --- @field id nil|string Attribute id (e.g. "str", "dex", "int").
 --- @field name nil|string Display name (e.g. "Strength").
@@ -156,6 +159,7 @@ function CharacterAttribute.ModifierStr(self)
 end
 
 --- @class creature: GameType
+--- @field new fun(o?: table): creature
 --- @field max_hitpoints number The creature's maximum hitpoints (stamina in Draw Steel).
 --- @field temporary_hitpoints nil|number Current temporary hitpoints.
 --- @field damage_taken nil|number Total damage taken so far.
@@ -193,6 +197,7 @@ end
 creature = RegisterGameType("creature")
 
 --- @class monster:creature
+--- @field new fun(o?: table): monster
 --- @field description string Display name for the monster type (e.g. "Monster").
 monster = RegisterGameType("monster", "creature")
 
@@ -2866,6 +2871,7 @@ end
 
 --Lua properties that we attach to a dice roll.
 --- @class RollProperties: GameType
+--- @field new fun(o?: table): RollProperties
 --- @field displayType string How the roll result is displayed: "none", "attack", "damage", etc.
 --- @field criticalHitDamage boolean If true, this roll contributes to critical hit extra damage.
 --- @field lowerIsBetter boolean If true, lower roll values are treated as better outcomes.
@@ -6796,6 +6802,7 @@ function creature:OnMove(path)
 end
 
 --- @class PathMoved: GameType
+--- @field new fun(o?: table): PathMoved
 PathMoved = RegisterGameType("PathMoved")
 PathMoved.size = 1
 
@@ -10689,6 +10696,7 @@ function creature:SetTriggeredAbilityEnabled(ability, value)
 end
 
 --- @class ActiveTrigger: GameType
+--- @field new fun(o?: table): ActiveTrigger
 --- @field timestamp number
 --- @field expiryTimestamp number
 --- @field id string

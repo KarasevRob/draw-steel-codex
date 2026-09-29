@@ -2,6 +2,7 @@ local mod = dmhub.GetModLoading()
 
 
 ---@class CustomDocument: GameType
+--- @field new fun(o?: table): CustomDocument
 ---@field id string
 ---@field title string
 ---@field content false|string
@@ -4372,6 +4373,7 @@ GameHud.RegisterPresentableDialog {
 ----------------------------------------------------------------------
 
 --- @class PanelDocument: CustomDocument
+--- @field new fun(o?: table): PanelDocument
 PanelDocument = RegisterGameType("PanelDocument", "CustomDocument")
 PanelDocument.nodeType = "panel"
 PanelDocument.docType = "note"
@@ -4801,6 +4803,7 @@ end
 ----------------------------------------------------------------------
 
 --- @class CharacterPanelDocument: PanelDocument
+--- @field new fun(o?: table): CharacterPanelDocument
 CharacterPanelDocument = RegisterGameType("CharacterPanelDocument", "PanelDocument")
 CharacterPanelDocument.charid = ""
 CharacterPanelDocument.DefaultWidth = 400

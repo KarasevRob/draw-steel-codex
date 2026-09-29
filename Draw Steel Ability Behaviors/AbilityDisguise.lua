@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- @class ActivatedAbilityDisguiseBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityDisguiseBehavior
 ActivatedAbilityDisguiseBehavior = RegisterGameType("ActivatedAbilityDisguiseBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbilityDisguiseBehavior.summary = 'Disguises as Another Creature'
