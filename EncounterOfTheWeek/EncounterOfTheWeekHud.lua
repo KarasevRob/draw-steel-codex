@@ -48,6 +48,21 @@ end
 --NOT Party.GetPlayerCharacters, which silently drops any token with a blank
 --name -- an unnamed hero fought in the encounter but was missing from this
 --strip and from the montage (report QKG5YTWG).
+--The player who controls a hero, for the line under its name on the card.
+local function HeroPlayerName(tok)
+    local owner = nil
+    pcall(function() owner = tok.ownerId end)
+    if owner == nil or owner == "" then
+        return "Unclaimed"
+    end
+    if owner == "PARTY" then
+        return "The party"
+    end
+    local name = owner
+    pcall(function() name = dmhub.GetDisplayName(owner) or owner end)
+    return name
+end
+
 local function CollectHeroes()
     local result = {}
     for _, tok in ipairs(dmhub.allTokens) do
@@ -143,6 +158,8 @@ end
 --the right edge and the skills line under the name. Declared up here rather
 --than beside the other card constants because the style rules need them.
 local SKILLS_HEIGHT = 46
+--the small "played by" line under every card's hero name.
+local PLAYER_HEIGHT = 12
 local STAT_ROW_HEIGHT = 15
 local STAT_CHIP_WIDTH = 36
 --the stats card (opts.showStats) is drawn a fifth larger than the roster's
@@ -265,6 +282,18 @@ local g_heroCardRules = {
         valign = "center",
         textAlignment = "right",
         textWrap = false,
+    },
+    --who controls the hero, in small text hugging the name above it.
+    {
+        selectors = {"eotwHeroPlayer"},
+        fontSize = 9,
+        color = "#c6d0da",
+        width = "100%",
+        height = PLAYER_HEIGHT,
+        textAlignment = "left",
+        textWrap = false,
+        tmargin = -3,
+        bmargin = 3,
     },
     {
         selectors = {"eotwSkillsLine"},
@@ -443,8 +472,10 @@ local g_heroCardRules = {
 
 
 local CARD_WIDTH = 132
-local CARD_HEIGHT = 176
-local OVERLAY_HEIGHT = 60
+--the player line grows the card and its overlay alike, so the artwork
+--above the overlay keeps its size.
+local CARD_HEIGHT = 176 + PLAYER_HEIGHT
+local OVERLAY_HEIGHT = 60 + PLAYER_HEIGHT
 --condition chips in the card's top-right corner: the outer dark/red-bordered
 --chip and the condition icon inside it.
 local CONDITION_CHIP_SIZE = 26
@@ -1122,6 +1153,12 @@ local function CreateHeroCard(entry, opts)
         interactable = false,
     }
 
+    local playerLabel = gui.Label{
+        classes = {"eotwHeroPlayer"},
+        text = "",
+        interactable = false,
+    }
+
     --condition icons over the artwork, packed into the TOP-RIGHT corner
     --(user direction 2026-08-29 -- they used to center across the top);
     --rebuilt only when the set actually changes. Each icon sits on a dark
@@ -1194,7 +1231,7 @@ local function CreateHeroCard(entry, opts)
     --the bottom-third overlay: name, stamina bar, resource icons on a
     --semi-opaque plate over the artwork. On the montage card the skills
     --line sits under the name, and the plate grows to make room for it.
-    local overlayChildren = { nameLabel }
+    local overlayChildren = { nameLabel, playerLabel }
     if opts.showStats then
         overlayChildren[#overlayChildren+1] = CreateSkillsLine(charid)
     end
@@ -1272,6 +1309,7 @@ local function CreateHeroCard(entry, opts)
                 return
             end
             nameLabel.text = HeroDisplayName(tok)
+            playerLabel.text = HeroPlayerName(tok)
             local portrait = nil
             pcall(function() portrait = tok.offTokenPortrait end)
             if portrait ~= nil and portrait ~= "" then
