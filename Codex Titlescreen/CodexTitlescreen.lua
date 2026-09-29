@@ -1318,17 +1318,29 @@ local function CreateJoinGameModal(tokenToImport)
                     end,
                 },
 
-                gui.Label {
-                    fontSize = 20,
+                -- Capped and scrollable so a long description can't push the
+                -- Join Game button out of the fixed-height dialog.
+                gui.Panel {
+                    flow = "vertical",
                     width = "100%",
-                    textAlignment = "left",
-                    lookupGame = function(element, gameInfo)
-                        if gameInfo == nil then
-                            return
-                        end
+                    height = "auto",
+                    maxHeight = 180,
+                    vscroll = true,
+                    vmargin = 4,
 
-                        element.text = gameInfo.descriptionDetails
-                    end,
+                    gui.Label {
+                        fontSize = 20,
+                        width = "100%",
+                        textAlignment = "left",
+                        vmargin = 0,
+                        lookupGame = function(element, gameInfo)
+                            if gameInfo == nil then
+                                return
+                            end
+
+                            element.text = gameInfo.descriptionDetails
+                        end,
+                    },
                 },
 
                 gui.Panel {
