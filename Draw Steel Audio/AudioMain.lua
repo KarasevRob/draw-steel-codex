@@ -244,7 +244,7 @@ audio.SoundEvent{
     name = "Notify.Ping",
     mixgroup = "ui",
     sounds = {"Notify_Ping_v1_01.wav"},
-    volume = 1.0,
+    volume = 0.9,
     ignoreDuplicates = 1, --ignore duplicates for 1 seconds
 }
 
@@ -344,6 +344,7 @@ audio.SoundEvent{
     volume = 0.4,
     pitchRand = 0.2,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 audio.SoundEvent{
@@ -353,6 +354,7 @@ audio.SoundEvent{
     volume = 0.4,
     pitchRand = 0.2,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 audio.SoundEvent{
@@ -362,6 +364,7 @@ audio.SoundEvent{
     volume = 0.4,
     pitchRand = 0.2,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 audio.SoundEvent{
@@ -371,15 +374,17 @@ audio.SoundEvent{
     volume = 0.2,
     pitchRand = 0.2,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 audio.SoundEvent{
     name = "Condition.Winded",
     mixgroup = "ui",
     sounds = {"status/Notify_Status_Start_Winded_v1_01.wav"},
-    volume = 0.3,
+    volume = 0.2,
     pitchRand = 0.05,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 audio.SoundEvent{
@@ -389,6 +394,7 @@ audio.SoundEvent{
     volume = 0.3,
     pitchRand = 0.05,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 audio.SoundEvent{
@@ -398,6 +404,7 @@ audio.SoundEvent{
     volume = 0.3,
     pitchRand = 0.05,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 audio.SoundEvent{
@@ -407,6 +414,7 @@ audio.SoundEvent{
     volume = 0.3,
     pitchRand = 0.05,
     ignoreDuplicates = 0.02,
+    delay = 0.5,
 }
 
 
@@ -546,7 +554,7 @@ audio.SoundEvent{
     name = "Ability.Heal_Generic",
     mixgroup = "gameplay",
     sounds = {"Abl_Heal_Gnrc_v1_01.wav"},
-    volume = 0.5,
+    volume = 0.3,
     pitchRand = 0.05,
 }
 
@@ -765,7 +773,7 @@ audio.SoundEvent{
     name = "Attack.Hit",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Gnrc_v1_01.wav","Atk_Hit/Atk_Hit_Gnrc_v1_02.wav","Atk_Hit/Atk_Hit_Gnrc_v1_03.wav","Atk_Hit/Atk_Hit_Gnrc_v1_04.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -774,7 +782,7 @@ audio.SoundEvent{
     name = "Attack.Hit_acid",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Acid_v1_01.wav","Atk_Hit/Atk_Hit_Acid_v1_02.wav","Atk_Hit/Atk_Hit_Acid_v1_03.wav","Atk_Hit/Atk_Hit_Acid_v1_04.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -783,7 +791,7 @@ audio.SoundEvent{
     name = "Attack.Hit_cold",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Cold_v1_01.wav","Atk_Hit/Atk_Hit_Cold_v1_02.wav","Atk_Hit/Atk_Hit_Cold_v1_03.wav","Atk_Hit/Atk_Hit_Cold_v1_04.wav","Atk_Hit/Atk_Hit_Cold_v1_05.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -792,7 +800,7 @@ audio.SoundEvent{
     name = "Attack.Hit_corruption",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Corruption_v1_01.wav","Atk_Hit/Atk_Hit_Corruption_v1_02.wav","Atk_Hit/Atk_Hit_Corruption_v1_03.wav","Atk_Hit/Atk_Hit_Corruption_v1_04.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -801,7 +809,7 @@ audio.SoundEvent{
     name = "Attack.Hit_fire",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Fire_v1_01.wav","Atk_Hit/Atk_Hit_Fire_v1_02.wav","Atk_Hit/Atk_Hit_Fire_v1_03.wav","Atk_Hit/Atk_Hit_Fire_v1_04.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -810,7 +818,7 @@ audio.SoundEvent{
     name = "Attack.Hit_holy",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Holy_v2_01.wav","Atk_Hit/Atk_Hit_Holy_v2_02.wav","Atk_Hit/Atk_Hit_Holy_v2_03.wav","Atk_Hit/Atk_Hit_Holy_v2_04.wav"},
-    volume = 1.0,
+    volume = 0.6,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -819,7 +827,7 @@ audio.SoundEvent{
     name = "Attack.Hit_lightning",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Lightning_v1_01.wav","Atk_Hit/Atk_Hit_Lightning_v1_02.wav","Atk_Hit/Atk_Hit_Lightning_v1_03.wav","Atk_Hit/Atk_Hit_Lightning_v1_04.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -828,7 +836,7 @@ audio.SoundEvent{
     name = "Attack.Hit_poison",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Poison_v1_01.wav","Atk_Hit/Atk_Hit_Poison_v1_02.wav","Atk_Hit/Atk_Hit_Poison_v1_03.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -837,7 +845,7 @@ audio.SoundEvent{
     name = "Attack.Hit_psychic",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Psychic_v2_01.wav","Atk_Hit/Atk_Hit_Psychic_v2_02.wav","Atk_Hit/Atk_Hit_Psychic_v2_03.wav","Atk_Hit/Atk_Hit_Psychic_v2_04.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -846,7 +854,7 @@ audio.SoundEvent{
     name = "Attack.Hit_sonic",
     mixgroup = "damage",
     sounds = {"Atk_Hit/Atk_Hit_Sonic_v1_01.wav","Atk_Hit/Atk_Hit_Sonic_v1_02.wav","Atk_Hit/Atk_Hit_Sonic_v1_03.wav","Atk_Hit/Atk_Hit_Sonic_v1_04.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
     pitchRand = 0.2,
 }
@@ -857,7 +865,7 @@ audio.SoundEvent{
     name = "Attack.Enviro",
     mixgroup = "damage",
     sounds = {"Atk_Enviro_Gnrc_v1_01.wav"},
-    volume = 1.0,
+    volume = 0.7,
     ignoreDuplicates = 0.2,
 }
 
