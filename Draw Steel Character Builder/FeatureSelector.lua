@@ -52,6 +52,43 @@ local _getState = CharacterBuilder._getState
 local _mergeKeyedTables = CharacterBuilder._mergeKeyedTables
 local _safeGet = CharacterBuilder._safeGet
 
+--- Purchases from a points pool, each tagged with its group ("Defensive")
+--- and the EV it adds past the granting template's free points
+--- (builderFreePoints / builderEVPerPoint; Animal Traits uses 4 and 2).
+--- @param creature creature|nil
+--- @param pointsName string
+--- @param featureGuid string A choice spending from the pool; finds the template when nothing is bought yet.
+--- @return table ledger { items, spent, totalEV, freePoints, evPerPoint }
+local function _pointsLedger(creature, pointsName, featureGuid)
+    local items = creature and creature.PointsSpentBreakdown(creature, pointsName) or {}
+    local parent = items[1] and items[1].parent
+    if parent == nil and creature ~= nil then
+        for _,entry in ipairs(creature:GetBuilderChoiceFeatures()) do
+            if entry.feature ~= nil and entry.feature.guid == featureGuid then
+                parent = entry.feat or entry.monsterGroup
+            end
+        end
+    end
+    local ledger = {
+        items = items,
+        spent = 0,
+        totalEV = 0,
+        freePoints = parent and tonumber(_safeGet(parent, "builderFreePoints", nil)),
+        evPerPoint = parent and tonumber(_safeGet(parent, "builderEVPerPoint", nil)),
+    }
+    for _,item in ipairs(items) do
+        item.category = string.match(item.choiceName, "^Choice of (.-) Traits?$") or item.choiceName
+        item.ev = 0
+        if ledger.freePoints ~= nil and ledger.evPerPoint ~= nil then
+            local over = math.max(0, ledger.spent + item.cost - ledger.freePoints) - math.max(0, ledger.spent - ledger.freePoints)
+            item.ev = over * ledger.evPerPoint
+        end
+        ledger.spent = ledger.spent + item.cost
+        ledger.totalEV = ledger.totalEV + item.ev
+    end
+    return ledger
+end
+
 --- Build a selector panel with customizable components
 --- @param overrides table Optional overrides for panel components
 --- @return Panel
@@ -251,6 +288,19 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                 local name = option and option:GetName() or EMPTY_SLOT_TEXT
                 if cachedFeature and option then
                     name = cachedFeature:GetOptionDisplayName(option)
+                    -- Bought from a points pool: "Fearsome (Defensive) 2 Points", plus the
+                    -- EV it adds once past the free points.
+                    if cachedFeature:IsUnbounded() and cachedFeature:CostsPoints() then
+                        local ledger = _pointsLedger(_getCreature(), cachedFeature:GetPointsName(), element.data.featureId)
+                        for _,item in ipairs(ledger.items) do
+                            if item.optionGuid == option:GetGuid() and item.choiceGuid == element.data.featureId then
+                                name = string.format("%s (%s) %d %s", item.name, item.category, item.cost, item.cost == 1 and "Point" or "Points")
+                                if item.ev > 0 then
+                                    name = ThemeEngine.ResolveTokens(string.format("%s <color=@danger>+%d EV</color>", name, item.ev))
+                                end
+                            end
+                        end
+                    end
                 end
                 element:FireEventTree("updateName", name)
                 element:FireEventTree("updateDesc", option and option:GetDescription() or "")
@@ -390,10 +440,12 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
     -- what the creature's points of that type were spent on (or the total).
     local pointsHeader = gui.Label{
         classes = {"builder-base", "label", "collapsed"},
+        width = "100%",
+        height = "auto",
         halign = "left",
         textAlignment = "left",
         valign = "top",
-        bold = true,
+        bold = false,
         fontSize = 16,
         color = CBStyles.COLORS.GOLD,
         bmargin = 4,
@@ -406,46 +458,18 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                 local pointsName = cachedFeature:GetPointsName()
                 local creature = _getCreature()
                 local spent = creature and creature:GetPointsSpentByName(pointsName) or 0
-                element.text = string.format("%d %s spent", spent, pointsName)
-
-                -- One line per purchase: "2 points spent on Elemental (Supernatural)".
-                -- When the granting template sets builderFreePoints/builderEVPerPoint
-                -- (Animal Traits: 4 free, then +2 EV per point), purchases past the
-                -- free points show their EV cost and the total EV increase follows.
-                local breakdown = creature and creature.PointsSpentBreakdown(creature, pointsName) or {}
-                local parent = breakdown[1] and breakdown[1].parent
-                local freePoints = parent and tonumber(_safeGet(parent, "builderFreePoints", nil))
-                local evPerPoint = parent and tonumber(_safeGet(parent, "builderEVPerPoint", nil))
-
-                local lines = {}
-                local listed = 0
-                local totalEV = 0
-                for _,item in ipairs(breakdown) do
-                    local category = string.match(item.choiceName, "^Choice of (.-) Traits?$") or item.choiceName
-                    local line = string.format("%d %s spent on %s", item.cost, item.cost == 1 and "point" or "points", item.name)
-                    if category ~= "" then
-                        line = string.format("%s (%s)", line, category)
-                    end
-                    if freePoints ~= nil and evPerPoint ~= nil then
-                        local over = math.max(0, listed + item.cost - freePoints) - math.max(0, listed - freePoints)
-                        if over > 0 then
-                            line = string.format("%s <color=@danger>+%d EV</color>", line, over * evPerPoint)
-                            totalEV = totalEV + over * evPerPoint
-                        end
-                    end
-                    listed = listed + item.cost
-                    lines[#lines+1] = line
+                -- The selected traits already show their own points, so this is
+                -- just the running total, its EV cost, and the budget rule.
+                local ledger = _pointsLedger(creature, pointsName, feature:GetGuid())
+                local text = string.format("<b>%d Total Points Spent</b>", spent)
+                if ledger.spent == spent and ledger.totalEV > 0 then
+                    text = string.format("%s  <color=@danger><b>+%d EV</b></color>", text, ledger.totalEV)
                 end
-                -- Fall back to the total if the breakdown misses some points.
-                if #lines > 0 and listed == spent then
-                    local total = string.format("%d Total Points Spent", listed)
-                    if totalEV > 0 then
-                        total = string.format("%s  <color=@danger>+%d EV</color>", total, totalEV)
-                    end
-                    lines[#lines+1] = ""
-                    lines[#lines+1] = total
-                    element.text = ThemeEngine.ResolveTokens(table.concat(lines, "\n"))
+                if ledger.freePoints ~= nil and ledger.evPerPoint ~= nil then
+                    text = string.format("%s\nYou can spend up to %d points on traits to add to a stat block without increasing the encounter value. Each point you spend after %d increases the stat block's EV by %d.",
+                        text, ledger.freePoints, ledger.freePoints, ledger.evPerPoint)
                 end
+                element.text = ThemeEngine.ResolveTokens(text)
                 visible = true
             end
             element:SetClass("collapsed", not visible)
