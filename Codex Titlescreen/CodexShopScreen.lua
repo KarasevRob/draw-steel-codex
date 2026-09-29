@@ -4532,7 +4532,17 @@ local function CreateShopScreenInternal(arguments)
 		fullProductDatabase[#fullProductDatabase+1] = shopItem
 	end
 
-	table.sort(productDatabase, function(a,b) return a.name < b.name end)
+	--Adventures first, then everything else; alphabetical within each group.
+	local isAdventure = {}
+	for _,item in ipairs(productDatabase) do
+		isAdventure[item.id] = AdventurePage.Has(item)
+	end
+	table.sort(productDatabase, function(a,b)
+		if isAdventure[a.id] ~= isAdventure[b.id] then
+			return isAdventure[a.id]
+		end
+		return a.name < b.name
+	end)
 
 	local DisplayShop = function(productDatabase)
 

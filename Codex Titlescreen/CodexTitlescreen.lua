@@ -1611,6 +1611,11 @@ local g_adventureOptions = {
     {
         id = "codex-redroad",
         text = "The Red Road",
+        -- Cover painting by Brian Terrero (a core image asset, 1920x992 WebP),
+        -- in place of the store page's key art.
+        coverart = "5911fa1a-175e-441c-b9c3-6ebdbb5fe92e",
+        coverWidth = 1920,
+        coverHeight = 992,
         store = true,
     },
     {
@@ -5046,7 +5051,7 @@ function CreateGameDialog()
     }
 
     local modeSelector = gui.Panel{
-        classes = { cond(#m_modes <= 1, "collapsed") },
+        classes = { "collapsed", cond(#m_modes <= 1, "collapsed") },
         width = "auto",
         height = "auto",
         halign = "center",
@@ -5294,6 +5299,7 @@ function CreateGameDialog()
                 flow = "horizontal",
                 vmargin = 4,
                 hidden = not dmhub.GetSettingValue("dev"),
+                classes = {"collapsed"},
 
                 gui.Label {
                     text = "Storage Backend:",
