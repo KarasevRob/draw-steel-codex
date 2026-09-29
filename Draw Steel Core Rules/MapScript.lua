@@ -172,6 +172,7 @@ return {
         --     id = "info", name = "Map Info", icon = "phosphor/info-bold.png",
         --     click = function(ctx, element)
         --         element.popup = gui.Panel{ classes = {"framedPanel"}, bgimage = true,
+        --             styles = ThemeEngine.GetStyles(), -- popups do not inherit the theme
         --             width = 300, height = 120, pad = 16, borderBox = true,
         --             gui.Label{ classes = {"modalTitle"}, text = "Hello" } }
         --     end,
@@ -1952,6 +1953,9 @@ return {
                 element.popup = gui.Panel{
                     width = "auto",
                     height = "auto",
+                    --a popup is a style-cascade root: without the theme,
+                    --framedPanel/modalTitle/CloseButton render unstyled.
+                    styles = ThemeEngine.GetStyles(),
                     gui.Panel{
                         classes = {"framedPanel"},
                         width = 360,
