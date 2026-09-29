@@ -3589,14 +3589,18 @@ end
 function MonsterAI:FindSynthesizedCubePlan(token, ability)
     local best = nil
     local range = ability:GetRange(token.properties)
+    local pierceWalls = token.properties:GetPierceWalls()
 
     for _,pathInfo in pairs(self.paths or {}) do
         local checked = {}
         self:ExecuteWithTheoreticalMovementLoc(token, pathInfo.loc, function()
             for _,enemy in ipairs(self.enemyTokens or {}) do
+                --The caster needs line of effect to the cube's centre from the
+                --planned spot; targets inside are then filtered from that centre.
                 if IsLiveSynthesizedTarget(enemy)
                     and MonsterAI.TargetDistance(token, enemy) <= range
-                    and not checked[enemy.loc.str] then
+                    and not checked[enemy.loc.str]
+                    and token:GetLineOfSight(enemy.loc, pierceWalls) > 0 then
                     checked[enemy.loc.str] = true
                     local area = BuildSynthesizedArea(token, ability, "cube", enemy.loc, pathInfo.loc)
                     local targets, enemies, allies = self:SynthesizedTargetsInArea(token, ability, area)
