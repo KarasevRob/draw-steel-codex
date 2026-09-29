@@ -3202,6 +3202,34 @@ function character:IsHero()
     return true
 end
 
+--Heroes can never have a characteristic above 5. Capping the final value means the
+--order level-up modifiers apply in can't push a score past it. A Director override still wins.
+creature.heroCharacteristicMax = 5
+
+local g_baseGetAttribute = creature.GetAttribute
+
+--- @param attrid string
+--- @return CharacterAttribute
+function creature:GetAttribute(attrid)
+    local result = g_baseGetAttribute(self, attrid)
+    if self:HeroCharacteristicIsCapped(attrid, result.baseValue) then
+        result.baseValue = creature.heroCharacteristicMax
+    end
+    return result
+end
+
+--- True if this hero's characteristic is over the cap and will be clamped to it.
+--- @param attrid string
+--- @param value number The value before capping
+--- @return boolean
+function creature:HeroCharacteristicIsCapped(attrid, value)
+    if value <= creature.heroCharacteristicMax or not self:IsHero() or creature.attributesInfo[attrid] == nil then
+        return false
+    end
+    local attrOverride = self:try_get("attributesOverride")
+    return attrOverride == nil or attrOverride[attrid] == nil
+end
+
 function creature:IsStrained()
     return self:CalculateNamedCustomAttribute("Strained") > 0
 end

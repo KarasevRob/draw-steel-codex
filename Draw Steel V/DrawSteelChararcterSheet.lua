@@ -4300,6 +4300,15 @@ local function DSCharSheet()
                                         local baseValue = token.properties:GetBaseAttribute(attrid).baseValue
                                         local modifiers = token.properties:DescribeModifications(attrid, baseValue)
 
+                                        --the listed modifiers can add up past the hero cap; say why the score shows lower.
+                                        local uncapped = token.properties:CalculateAttribute(attrid, baseValue)
+                                        if token.properties:HeroCharacteristicIsCapped(attrid, uncapped) then
+                                            modifiers[#modifiers+1] = {
+                                                key = "Hero Maximum",
+                                                value = string.format("Capped at %d", creature.heroCharacteristicMax),
+                                            }
+                                        end
+
                                         print("POPUP::", attrid, info.description)
 
                                         gui.PopupOverrideAttribute {
