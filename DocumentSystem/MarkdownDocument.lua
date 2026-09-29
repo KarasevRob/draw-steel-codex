@@ -6154,6 +6154,13 @@ local function CreateMarkdownAutocomplete(opts)
             end
         end
 
+        -- [:Document Name] is a page embed: the target is the trimmed name after
+        -- the colon. The 4th return flags it so a fixup keeps the embed form.
+        local embedName = string.match(innerText, "^:%s*(.-)%s*$")
+        if embedName ~= nil then
+            return embedName, embedName, bracketOpen, true
+        end
+
         -- Plain [link] form
         return innerText, innerText, bracketOpen
     end
@@ -6281,8 +6288,16 @@ local function CreateMarkdownAutocomplete(opts)
                 },
             }
 
-            -- Offer suggestions
-            local suggestions = CustomDocument.SearchLinks(linkText)
+            -- Offer suggestions. Never offer the document being edited: accepting
+            -- it would swap the broken reference for a link to this same page.
+            local editingDoc = opts.GetDocument ~= nil and opts.GetDocument() or nil
+            local editingName = editingDoc ~= nil and rawget(editingDoc, "description") or nil
+            local suggestions = {}
+            for _, result in ipairs(CustomDocument.SearchLinks(linkText)) do
+                if not (result.type == "Document" and editingName ~= nil and result.name == editingName) then
+                    suggestions[#suggestions + 1] = result
+                end
+            end
             table.sort(suggestions, function(a, b)
                 if (a.isPrefix and true or false) ~= (b.isPrefix and true or false) then
                     return a.isPrefix and true or false
@@ -6306,7 +6321,7 @@ local function CreateMarkdownAutocomplete(opts)
                         -- Replace the link text with the suggestion
                         local text = inputElement.text
                         local caret = inputElement.caretPosition
-                        local lt, dn = FindCompletedLinkAtCaret(text, caret)
+                        local lt, dn, _, isEmbed = FindCompletedLinkAtCaret(text, caret)
                         if lt ~= nil then
                             -- Find the bracket positions again
                             local openBracket = nil
@@ -6331,7 +6346,11 @@ local function CreateMarkdownAutocomplete(opts)
                                     local after = string.sub(text, afterClose + 1)
                                     local insertion
                                     local linkPrefix = string.match(result.link, "^([^:]+):")
-                                    if linkPrefix ~= nil and MarkdownRender.FindTableFromPrefix(linkPrefix) ~= nil then
+                                    if isEmbed then
+                                        -- Repairing a [:X] embed: keep it an embed.
+                                        -- Documents embed by bare name, as authored.
+                                        insertion = string.format("[:%s]", result.type == "Document" and result.name or result.link)
+                                    elseif linkPrefix ~= nil and MarkdownRender.FindTableFromPrefix(linkPrefix) ~= nil then
                                         insertion = string.format("[%s]", result.link)
                                     else
                                         insertion = string.format("[%s](%s)", result.name, result.link)
