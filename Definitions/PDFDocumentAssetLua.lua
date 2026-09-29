@@ -7,6 +7,7 @@
 --- @field description any
 --- @field ownerid string
 --- @field ord number
+--- @field downloadable boolean True if users may save a copy of this PDF to their own disk with SaveToDisk. The Library shows a download button for it.
 --- @field canView any
 --- @field hiddenFromPlayers any
 --- @field hidden any
@@ -21,6 +22,10 @@ function PDFDocumentAssetLua:HaveReadPermissions() end
 --- HaveEditPermissions
 --- @return boolean
 function PDFDocumentAssetLua:HaveEditPermissions() end
+
+--- SaveToDisk: Opens a system save dialog and copies this PDF to the chosen path, downloading it first if this machine does not have it yet. options.filename is the default filename (defaults to the description plus .pdf). options.callback is called with the saved path, or nil if the user canceled or the copy failed.
+--- @param options nil|{filename: nil|string, callback: nil|fun(path: nil|string)}
+function PDFDocumentAssetLua:SaveToDisk(options) end
 
 --- Upload
 function PDFDocumentAssetLua:Upload() end

@@ -1210,6 +1210,20 @@ CreateFolderContentsPanel = function(journalPanel, folderid)
                             }
                         end
 
+                        --internal flag for PDFs we ship in modules: the Library offers
+                        --a "save to disk" button for downloadable ones.
+                        if member.nodeType == "pdf" and devmode() and member:HaveEditPermissions() then
+                            entries[#entries + 1] = {
+                                text = "Downloadable",
+                                check = member.downloadable,
+                                click = function()
+                                    element.popup = nil
+                                    member.downloadable = not member.downloadable
+                                    member:Upload()
+                                end,
+                            }
+                        end
+
                         for _, e in ipairs(RailAddMenuEntries(element, member)) do
                             entries[#entries + 1] = e
                         end

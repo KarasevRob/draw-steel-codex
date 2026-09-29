@@ -263,6 +263,37 @@ local function CreateBookCard(doc)
                 end
             end,
         },
+
+        --PDFs marked Downloadable (Journal context menu, dev mode) can be saved
+        --to disk. "saving" dims it while the file downloads and copies.
+        gui.Panel {
+            classes = { "libraryDownload", cond(doc.downloadable, nil, "collapsed") },
+            bgimage = "phosphor/download-simple.png",
+            floating = true,
+            halign = "left",
+            valign = "bottom",
+
+            linger = function(element)
+                gui.Tooltip("Save a copy to your computer")(element)
+            end,
+            hover = function(element)
+                audio.FireSoundEvent("Mouse.Hover")
+            end,
+            click = function(element)
+                if element:HasClass("saving") then
+                    return
+                end
+                audio.FireSoundEvent("Mouse.Click")
+                element:SetClass("saving", true)
+                doc:SaveToDisk{
+                    callback = function(path)
+                        if element.valid then
+                            element:SetClass("saving", false)
+                        end
+                    end,
+                }
+            end,
+        },
     }
 end
 
@@ -420,6 +451,26 @@ local g_libraryStyles = {
         fontSize = 14,
         color = "#9c9281",
         textAlignment = "center",
+    },
+    {
+        selectors = { "libraryDownload" },
+        width = 22,
+        height = 22,
+        bgcolor = "#b9ae99",
+    },
+    {
+        selectors = { "libraryDownload", "hover" },
+        bgcolor = ACCENT,
+        scale = 1.1,
+        transitionTime = 0.12,
+    },
+    {
+        selectors = { "libraryDownload", "press" },
+        brightness = 0.85,
+    },
+    {
+        selectors = { "libraryDownload", "saving" },
+        opacity = 0.4,
     },
 }
 
