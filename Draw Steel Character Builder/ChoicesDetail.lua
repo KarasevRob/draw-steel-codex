@@ -29,7 +29,8 @@ function CBChoicesDetail._navPanel()
         data = { category = INITIAL_CATEGORY },
         refreshBuilderState = function(element, state)
             element:FireEvent("setAvailable", true)
-            element:FireEvent("setSelected", state:Get(SELECTOR .. ".category.selectedId") == element.data.category)
+            -- A fresh builder state (e.g. a just-placed monster) has no page picked yet: show Overview.
+            element:FireEvent("setSelected", (state:Get(SELECTOR .. ".category.selectedId") or INITIAL_CATEGORY) == element.data.category)
         end,
     })
 
@@ -348,7 +349,7 @@ function CBChoicesDetail._overviewPanel()
         },
 
         refreshBuilderState = function(element, state)
-            local visible = state:Get(SELECTOR .. ".category.selectedId") == element.data.category
+            local visible = (state:Get(SELECTOR .. ".category.selectedId") or INITIAL_CATEGORY) == element.data.category
             element:SetClass("collapsed", not visible)
             if not visible then
                 element:HaltEventPropagation()
@@ -554,9 +555,6 @@ function CBChoicesDetail.CreatePanel()
                 element:HaltEventPropagation()
                 return
             end
-
-            local categoryKey = SELECTOR .. ".category.selectedId"
-            local currentCategory = state:Get(categoryKey) or INITIAL_CATEGORY
 
             for id,_ in pairs(element.data.features) do
                 element.data.features[id] = false

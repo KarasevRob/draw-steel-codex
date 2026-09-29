@@ -429,7 +429,7 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                     if freePoints ~= nil and evPerPoint ~= nil then
                         local over = math.max(0, listed + item.cost - freePoints) - math.max(0, listed - freePoints)
                         if over > 0 then
-                            line = string.format("%s - +%d EV", line, over * evPerPoint)
+                            line = string.format("%s <color=@danger>+%d EV</color>", line, over * evPerPoint)
                             totalEV = totalEV + over * evPerPoint
                         end
                     end
@@ -438,11 +438,13 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                 end
                 -- Fall back to the total if the breakdown misses some points.
                 if #lines > 0 and listed == spent then
-                    lines[#lines+1] = string.format("%d Total Points Spent", listed)
+                    local total = string.format("%d Total Points Spent", listed)
                     if totalEV > 0 then
-                        lines[#lines+1] = ThemeEngine.ResolveTokens(string.format("<color=@danger>+%d EV</color>", totalEV))
+                        total = string.format("%s  <color=@danger>+%d EV</color>", total, totalEV)
                     end
-                    element.text = table.concat(lines, "\n")
+                    lines[#lines+1] = ""
+                    lines[#lines+1] = total
+                    element.text = ThemeEngine.ResolveTokens(table.concat(lines, "\n"))
                 end
                 visible = true
             end
