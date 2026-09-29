@@ -48,6 +48,13 @@ for _,section in ipairs(g_librarySections) do
     end
 end
 
+--PDFs the user may save a copy of to their own disk: their book cards get a
+--download button. Keyed by PDF document id.
+local g_downloadableDocIds = {
+    ["8856e864-ab59-4ae0-9966-b0e1b86bf394"] = true, --The Red Road
+    ["429d295e-5306-441a-b763-dc09358f2ded"] = true, --The Dark Heart of the Wood
+}
+
 --Book cover size, in the screen's 1920-wide logical units (US letter aspect).
 local COVER_WIDTH = 256
 local COVER_HEIGHT = math.floor(COVER_WIDTH * 11 / 8.5)
@@ -264,10 +271,10 @@ local function CreateBookCard(doc)
             end,
         },
 
-        --PDFs marked Downloadable (Journal context menu, dev mode) can be saved
-        --to disk. "saving" dims it while the file downloads and copies.
+        --only books in g_downloadableDocIds can be saved to disk. "saving"
+        --dims it while the file downloads and copies.
         gui.Panel {
-            classes = { "libraryDownload", cond(doc.downloadable, nil, "collapsed") },
+            classes = { "libraryDownload", cond(g_downloadableDocIds[doc.id], nil, "collapsed") },
             bgimage = "phosphor/download-simple.png",
             floating = true,
             halign = "left",

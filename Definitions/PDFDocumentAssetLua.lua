@@ -7,7 +7,6 @@
 --- @field description any
 --- @field ownerid string
 --- @field ord number
---- @field downloadable boolean True if users may save a copy of this PDF to their own disk with SaveToDisk. The Library shows a download button for it.
 --- @field canView any
 --- @field hiddenFromPlayers any
 --- @field hidden any
