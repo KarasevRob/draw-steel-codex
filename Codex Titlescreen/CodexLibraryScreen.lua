@@ -272,13 +272,16 @@ local function CreateBookCard(doc)
         },
 
         --only books in g_downloadableDocIds can be saved to disk. "saving"
-        --dims it while the file downloads and copies.
+        --dims it while the file downloads and copies. Pinned a fixed distance
+        --below the cover (level with a one-line title's page count) rather than
+        --to the card bottom, so it lines up across cards whose titles wrap.
         gui.Panel {
             classes = { "libraryDownload", cond(g_downloadableDocIds[doc.id], nil, "collapsed") },
             bgimage = "phosphor/download-simple.png",
             floating = true,
             halign = "left",
-            valign = "bottom",
+            valign = "top",
+            tmargin = COVER_HEIGHT + 37,
 
             linger = function(element)
                 gui.Tooltip("Save a copy to your computer")(element)

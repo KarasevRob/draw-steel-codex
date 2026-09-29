@@ -25,6 +25,7 @@ function DTDirectorPanel:Register()
     DockablePanel.Register {
         name = "Downtime Projects",
         icon = mod.images.downtimeProjects,
+        dmonly = true,
         minHeight = 100,
         maxHeight = 600,
         hideObjectsOutOfScroll = false,

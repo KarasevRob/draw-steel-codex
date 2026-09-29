@@ -4419,6 +4419,7 @@ function Encounter.Editor(self, options)
                 editable = true,
                 change = function(label)
                     self.name = label.text
+                    refresh()
                 end,
             },
 
@@ -4453,6 +4454,7 @@ function Encounter.Editor(self, options)
             text = self.description,
             change = function(element)
                 self.description = element.text
+                refresh()
             end,
         },
 
@@ -4500,6 +4502,7 @@ function Encounter.Editor(self, options)
                 bmargin = 6,
                 change = function(element)
                     self.saveAppearances = element.value
+                    refresh()
                 end,
             },
 

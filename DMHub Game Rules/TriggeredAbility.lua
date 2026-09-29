@@ -1770,6 +1770,11 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
             --that somehow survives the cleanup below is orphaned.
             g_liveTriggerWatchers[guid] = nil
 
+			--A prompt that was shown and then ended without an answer (turn passed,
+			--aged out, condition or cost lost) counts as declined. A nil exitReason
+			--means it was folded into an identical card, which still owns the choice.
+			local expiredUnanswered = exitReason ~= nil and exitReason ~= "caster token invalid"
+
 			--One line per prompt lifetime saying how it ended, so a prompt that
 			--vanished can be explained from the log.
 			if trigger ~= nil and trigger.triggered then
@@ -1800,7 +1805,9 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 			end
 
 			local accepted = trigger ~= nil and trigger.triggered
-			local dismissed = (not accepted) and (wasDismissed or (trigger ~= nil and trigger.dismissed))
+			--Expiry must run On Dismiss behaviors too: death-rule overrides like Pixie
+			--Dust rely on them to remove the minion, which is otherwise stranded (BE8P56UV).
+			local dismissed = (not accepted) and (wasDismissed or expiredUnanswered or (trigger ~= nil and trigger.dismissed))
 			--A dismissed trigger only runs the cast pipeline when the ability
 			--actually has On Dismiss behaviors to execute. Without them,
 			--dismissing is a pure no-op: no cost, no chat message, no events.
