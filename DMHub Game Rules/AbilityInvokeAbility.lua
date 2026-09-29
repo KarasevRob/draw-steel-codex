@@ -1,9 +1,11 @@
 local mod = dmhub.GetModLoading()
 
 --- @class ActivatedAbilityInvokeAbilityBehavior: ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityInvokeAbilityBehavior
 ActivatedAbilityInvokeAbilityBehavior = RegisterGameType("ActivatedAbilityInvokeAbilityBehavior", "ActivatedAbilityBehavior")
 
 --- @class AbilityInvocation: GameType
+--- @field new fun(o?: table): AbilityInvocation
 AbilityInvocation = RegisterGameType("AbilityInvocation")
 
 AbilityUtils = {
@@ -594,6 +596,102 @@ local function CollapseTargetsBySquad(targets)
     return result, participantsByLead
 end
 
+--- An earlier behavior (e.g. Explosive Parade's "Squad Override" effect) tags
+--- minions with the "Override Squad" attribute so they act as one squad here,
+--- whatever squads they really belong to.
+--- @param targets table[] this invoke's targets; the first tagged one leads
+--- @param options table the parent cast's options; options.targets is its full target list
+--- @return CharacterToken|nil lead the minion that casts for the temporary squad
+--- @return CharacterToken[]|nil members every tagged minion, lead included
+local function FindOverrideSquad(targets, options)
+    local function hasTag(tok)
+        if tok == nil or not tok.valid or tok.properties == nil or not tok.properties.minion or tok.properties:IsDead() then
+            return false
+        end
+        --The tag was granted earlier in this same cast, after the cached value was read.
+        tok.properties._tmp_calculatedAttributes = nil
+        return tok.properties:CalculateNamedCustomAttribute("Override Squad") > 0
+    end
+
+    local lead = nil
+    for _,target in ipairs(targets or {}) do
+        if hasTag(target.token) then
+            lead = target.token
+            break
+        end
+    end
+    if lead == nil then
+        return nil, nil
+    end
+
+    --Search this ability's own targets rather than the whole map, so two summoners
+    --casting at the same time never get merged into one squad.
+    local members = {}
+    local seen = {}
+    for _,list in ipairs({targets or {}, options.targets or {}}) do
+        for _,target in ipairs(list) do
+            local tok = target.token
+            if tok ~= nil and not seen[tok.charid] and hasTag(tok) then
+                seen[tok.charid] = true
+                members[#members+1] = tok
+            end
+        end
+    end
+
+    return lead, members
+end
+
+--- Moves the minions into one freshly named squad and returns a function that puts
+--- each back in its original squad. minionSquad is written for real (not a _tmp_
+--- field) because RefreshSquadInfo rebuilds _tmp_minionSquad from it on every update.
+--- @param members CharacterToken[]
+--- @return function restore
+local function FormTemporarySquad(members)
+    local tempName = "OverrideSquad:" .. dmhub.GenerateGuid()
+    local saved = {}
+    for _,tok in ipairs(members) do
+        if tok.valid and tok.properties ~= nil then
+            saved[#saved+1] = { tok = tok, value = tok.properties:try_get("minionSquad") }
+            tok:ModifyProperties{
+                description = "Override Squad",
+                undoable = false,
+                combine = true,
+                execute = function()
+                    tok.properties.minionSquad = tempName
+                end,
+            }
+        end
+    end
+
+    --Rebind the cached squad now; otherwise targeting still sees the old squads until the next render.
+    for _,entry in ipairs(saved) do
+        if entry.tok.valid and entry.tok.properties ~= nil then
+            entry.tok.properties:RefreshSquadInfo(entry.tok)
+        end
+    end
+
+    return function()
+        for _,entry in ipairs(saved) do
+            local tok = entry.tok
+            if tok.valid and tok.properties ~= nil then
+                tok:ModifyProperties{
+                    description = "Restore Squad",
+                    undoable = false,
+                    combine = true,
+                    execute = function()
+                        tok.properties.minionSquad = entry.value
+                    end,
+                }
+            end
+        end
+        for _,entry in ipairs(saved) do
+            if entry.tok.valid and entry.tok.properties ~= nil then
+                entry.tok.properties:RefreshSquadInfo(entry.tok)
+            end
+        end
+    end
+end
+
 function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, targets, options)
 
     --Resolve a "choose an ability off your class list" pick up front, before any
@@ -695,8 +793,17 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
         --One invoke per squad rather than one per minion, and each lead carries
         --the members that were picked so the coordinated cast only involves them.
         local squadParticipantsByLead = nil
+        local overrideSquadMembers = nil
         if self:try_get("useSquadCoordination", false) then
-            targets, squadParticipantsByLead = CollapseTargetsBySquad(targets)
+            --Tagged minions may come from different real squads. Treat them as one, so a
+            --single lead attacks for all of them instead of one attack per real squad.
+            local overrideLead
+            overrideLead, overrideSquadMembers = FindOverrideSquad(targets, options)
+            if overrideLead ~= nil then
+                targets = { { token = overrideLead } }
+            else
+                targets, squadParticipantsByLead = CollapseTargetsBySquad(targets)
+            end
         end
 
         print("INVOKE:: Casting on", #targets, ability.name, "coroutine:", coroutine.running())
@@ -789,9 +896,11 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                 --chooseClassAbility is excluded alongside custom: both resolve to an
                 --ability object that only exists on this client, so there is nothing
                 --the remote controller could look up from a serialized invocation.
+                --An Override Squad cast is never sent to a remote controller: the temporary
+                --squad is only set up around the local cast further down.
                 if skipInvoke then
                     print("INVOKE:: No valid movement constraint anchor; skipping", ability.name)
-                elseif self.runOnController and target.token.activeControllerId ~= nil and self.abilityType ~= "custom" and self.abilityType ~= "chooseClassAbility" then
+                elseif self.runOnController and target.token.activeControllerId ~= nil and self.abilityType ~= "custom" and self.abilityType ~= "chooseClassAbility" and overrideSquadMembers == nil then
 
                     --Clean out the ability so we don't copy too much, and make the
                     --cast serialization-safe: it holds live objects (targets[].token
@@ -915,7 +1024,10 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                         --double-charge makes the invoked ability unaffordable, so clear it.
                         --Safe to do on the clone: for custom/standard MakeTemporaryClone
                         --returned a fresh copy, and chooseClassAbility DeepCopies per target.
+                        --The invoker's action type is kept so rules keyed on it still see the
+                        --real action: Critical Hit needs Ability.Action on the roll this clone makes.
                         if self:try_get("suppressInvokedActionCost", false) then
+                            abilityClone.invokerActionResourceId = ability:ActionResource()
                             abilityClone.actionResourceId = "none"
                         end
 
@@ -1143,7 +1255,18 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                                 ActivatedAbilityInvokeAbilityBehavior.SquadSuppressionTurnKey()
                         end
 
-                        self.ExecuteInvoke(invokeSource, abilityClone, invokerToken, self.targeting, symbols, options)
+                        if overrideSquadMembers ~= nil then
+                            --The temporary squad is saved to the game, so it would outlive a cast that errors.
+                            --pcall makes sure the minions always go back to their real squads.
+                            local restoreSquads = FormTemporarySquad(overrideSquadMembers)
+                            local ok, err = pcall(self.ExecuteInvoke, invokeSource, abilityClone, invokerToken, self.targeting, symbols, options)
+                            restoreSquads()
+                            if not ok then
+                                error(err, 0)
+                            end
+                        else
+                            self.ExecuteInvoke(invokeSource, abilityClone, invokerToken, self.targeting, symbols, options)
+                        end
 
                         if squadParticipants ~= nil and invokerToken.valid and invokerToken.properties ~= nil then
                             invokerToken.properties._tmp_squadParticipants = nil
@@ -1215,6 +1338,8 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
         end
     end
 
+    --Each invoke is progress for the parent cast, which may run many in a row (one per minion).
+    ActivatedAbility.MarkCastProgress()
     print("INVOKE:: STARTING:", abilityClone.name)
     --wait until we aren't casting on the action bar to invoke this. Also resolve
     --any new casts that may have started since we got here.
@@ -1540,6 +1665,7 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
     --Catches the cases where no cast ever finished, such as the player declining.
     ReleaseSquadSuppression()
 
+    ActivatedAbility.MarkCastProgress()
     print("INVOKE:: FINISHED FOR", abilityClone.name, coroutine.running(), "CANCELED:", canceled)
 
     return haveToPay

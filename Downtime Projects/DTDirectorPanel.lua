@@ -14,6 +14,7 @@ end
 --- Downtime Director Panel - Main dockable panel for downtime project management
 --- Provides the primary interface for directors to manage downtime projects and settings
 --- @class DTDirectorPanel: GameType
+--- @field new fun(o?: table): DTDirectorPanel
 --- @field downtimeSettings DTSettings The downtime settings for shared data management
 DTDirectorPanel = RegisterGameType("DTDirectorPanel")
 
@@ -24,6 +25,7 @@ function DTDirectorPanel:Register()
     DockablePanel.Register {
         name = "Downtime Projects",
         icon = mod.images.downtimeProjects,
+        dmonly = true,
         minHeight = 100,
         maxHeight = 600,
         hideObjectsOutOfScroll = false,

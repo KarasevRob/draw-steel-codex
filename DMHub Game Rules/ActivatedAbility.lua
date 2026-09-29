@@ -19,6 +19,7 @@ end
 --- @alias Symbols table|function
 
 --- @class ActivatedAbility: GameType
+--- @field new fun(o?: table): ActivatedAbility
 --- @field description string Rules text shown to players.
 --- @field flavor string Flavor/lore text shown in the ability tooltip.
 --- @field range number|string|table Targeting range in world units.
@@ -27,6 +28,7 @@ end
 --- @field rangeDisadvantage string|number|table GoblinScript: if truthy, ranged attacks have disadvantage.
 --- @field selfTarget boolean If true, the ability always targets the caster.
 --- @field castImmediately boolean If true, auto-casts when there are no targeting choices.
+--- @field environmentalSource boolean|nil If true, the ability is the environment acting (a zone, a trap, terrain) rather than the creature casting it: effects it applies are attributed to the ability by name ("Applied by <b>Burning Oil</b>") instead of to the caster, who is only whoever the effect landed on. Set on abilities synthesized by Aura:GetSimplePowerRollTrigger and Aura:GetSimpleEntryEffectTrigger; set it in data on environmental triggers.
 --- @field environmentRoll boolean|nil If true, the ability's power roll is made by the environment: the caster only executes the roll and it counts as a roll made AGAINST them (their own modifiers are excluded; their defensive "rolls against you" modifiers apply even on a self-cast). Set on abilities synthesized by Aura:GetSimplePowerRollTrigger.
 --- @field recharge boolean|number Recharge roll threshold (false = no recharge mechanic).
 --- @field legendary boolean If true, this is a legendary action.
@@ -56,6 +58,7 @@ end
 ActivatedAbility = RegisterGameType("ActivatedAbility")
 
 --- @class ActivatedAbilityBehavior: GameType
+--- @field new fun(o?: table): ActivatedAbilityBehavior
 --- @field instant boolean If true, executes immediately (not in a coroutine).
 --- @field customOngoingEffect boolean If true, uses a custom ongoing effect rather than the default.
 --- @field duration string|number|nil Duration type for the effect ("none" by default).
@@ -69,48 +72,63 @@ ActivatedAbility = RegisterGameType("ActivatedAbility")
 ActivatedAbilityBehavior = RegisterGameType("ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAttackBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityAttackBehavior
 ActivatedAbilityAttackBehavior = RegisterGameType("ActivatedAbilityAttackBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityDamageBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityDamageBehavior
 ActivatedAbilityDamageBehavior = RegisterGameType("ActivatedAbilityDamageBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityHealBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityHealBehavior
 ActivatedAbilityHealBehavior = RegisterGameType("ActivatedAbilityHealBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilitySetStaminaBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilitySetStaminaBehavior
 ActivatedAbilitySetStaminaBehavior = RegisterGameType("ActivatedAbilitySetStaminaBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAugmentedAbilityBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityAugmentedAbilityBehavior
 ActivatedAbilityAugmentedAbilityBehavior = RegisterGameType("ActivatedAbilityAugmentedAbilityBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityCastSpellBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityCastSpellBehavior
 ActivatedAbilityCastSpellBehavior = RegisterGameType("ActivatedAbilityCastSpellBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityApplyOngoingEffectBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityApplyOngoingEffectBehavior
 ActivatedAbilityApplyOngoingEffectBehavior = RegisterGameType("ActivatedAbilityApplyOngoingEffectBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityRemoveOngoingEffectBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityRemoveOngoingEffectBehavior
 ActivatedAbilityRemoveOngoingEffectBehavior = RegisterGameType("ActivatedAbilityRemoveOngoingEffectBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAuraBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityAuraBehavior
 ActivatedAbilityAuraBehavior = RegisterGameType("ActivatedAbilityAuraBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityMoveAuraBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityMoveAuraBehavior
 ActivatedAbilityMoveAuraBehavior = RegisterGameType("ActivatedAbilityMoveAuraBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityTransformBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityTransformBehavior
 ActivatedAbilityTransformBehavior = RegisterGameType("ActivatedAbilityTransformBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityContestedAttackBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityContestedAttackBehavior
 ActivatedAbilityContestedAttackBehavior = RegisterGameType("ActivatedAbilityContestedAttackBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityForcedMovementBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityForcedMovementBehavior
 ActivatedAbilityForcedMovementBehavior = RegisterGameType("ActivatedAbilityForcedMovementBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityModifiersBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityModifiersBehavior
 ActivatedAbilityModifiersBehavior = RegisterGameType("ActivatedAbilityModifiersBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityApplyMomentaryEffectBehavior:ActivatedAbilityBehavior
+--- @field new fun(o?: table): ActivatedAbilityApplyMomentaryEffectBehavior
 ActivatedAbilityApplyMomentaryEffectBehavior = RegisterGameType("ActivatedAbilityApplyMomentaryEffectBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbility.description = ""
@@ -2660,6 +2678,7 @@ end
 ActivatedAbility.recordTargets = false
 
 --- @class CastActivatedAbilityChatMessage: GameType
+--- @field new fun(o?: table): CastActivatedAbilityChatMessage
 --- @field ability ActivatedAbility
 CastActivatedAbilityChatMessage = RegisterGameType("CastActivatedAbilityChatMessage")
 
@@ -3114,7 +3133,36 @@ local g_lastDeferredStallLog = 0
 --a real cast is still resolving -- the exact thing the deferral exists to
 --prevent -- so the deadline is deliberately generous rather than tight: a
 --slightly out-of-order prompt beats losing every trigger for the session.
+--The clock is idle time, not age: a long cast the player is still working
+--through (Explosive Parade moving each minion) must not be abandoned.
 local DEFERRED_CAST_ABANDON_SECONDS = 30
+
+--Last time a sweep saw a prompt or roll dialog open. The player is busy with a
+--cast then, so the watchdog counts it as activity.
+local g_lastPlayerResolvingCast = 0
+
+--- Records that the running cast just moved forward, so the deferred-action
+--- watchdog knows it is not stuck. Safe to call outside a cast.
+function ActivatedAbility.MarkCastProgress()
+    local info = ActivatedAbility.CurrentCastInfo()
+    if info ~= nil then
+        info.lastProgress = dmhub.Time()
+    end
+end
+
+--A prompt or roll dialog on screen means a cast is waiting on the player, not stuck.
+local function PlayerIsResolvingCast()
+    if gamehud == nil then
+        return false
+    end
+    if gamehud.rollDialog ~= nil and gamehud.rollDialog.valid and gamehud.rollDialog.data.IsShown() then
+        return true
+    end
+    if gamehud.actionBarPanel ~= nil and gamehud.actionBarPanel.valid and gamehud.actionBarPanel.data.IsCastingSpell() then
+        return true
+    end
+    return false
+end
 
 local function ScheduleDeferredCastSweep()
     --backstop in case a cast coroutine dies without its atexit running.
@@ -3172,19 +3220,25 @@ function ActivatedAbility.FlushCastCompleteActions()
     --cast unwinds through FinishCast at its next behavior boundary if it ever
     --does wake up.
     local abandonNow = dmhub.Time()
+    if PlayerIsResolvingCast() then
+        g_lastPlayerResolvingCast = abandonNow
+    end
     for _,entry in ipairs(g_deferredCastCompleteActions) do
         if entry.time ~= nil and abandonNow - entry.time > DEFERRED_CAST_ABANDON_SECONDS then
             for co,_ in pairs(entry.casts) do
                 local info = ActivatedAbility.coroutineStorage[co]
-                if info ~= nil and coroutine.status(co) ~= "dead" then
+                --Only a cast with no sign of life for the whole window is stuck. Signs of life
+                --are the trigger queuing, the cast advancing, or a prompt being open.
+                local lastActivity = math.max(entry.time, info ~= nil and info.lastProgress or 0, g_lastPlayerResolvingCast)
+                if info ~= nil and coroutine.status(co) ~= "dead" and abandonNow - lastActivity > DEFERRED_CAST_ABANDON_SECONDS then
                     local age = "?"
                     if info.startTime ~= nil then
                         age = string.format("%d", math.floor(abandonNow - info.startTime))
                     end
-                    printf("CASTSTALL:: abandoning stalled cast %s (caster=%s age=%ss) after it blocked a deferred action for %ds",
+                    printf("CASTSTALL:: abandoning stalled cast %s (caster=%s age=%ss idle=%ds) after it blocked a deferred action for %ds",
                         tostring(info.ability ~= nil and info.ability.name or "?"),
                         tostring(info.casterToken ~= nil and info.casterToken.valid and info.casterToken.name or "?"),
-                        age, math.floor(abandonNow - entry.time))
+                        age, math.floor(abandonNow - lastActivity), math.floor(abandonNow - entry.time))
                     ActivatedAbility.coroutineStorage[co] = nil
                     if info.options ~= nil then
                         info.options.abort = true
@@ -3438,6 +3492,7 @@ function ActivatedAbility.CastCoroutine(self, casterToken, targets, options)
 	options.targets = targets
 
 	for i,behavior in ipairs(self.behaviors) do
+		ActivatedAbility.MarkCastProgress()
 		print("CastCoroutine::", self.name, "behavior " .. i .. "/" .. #self.behaviors .. " type=" .. tostring(behavior.typeName) .. " instant=" .. tostring(behavior.instant) .. " filtered=" .. tostring(behavior:IsFiltered(self, casterToken, options)) .. " abort=" .. tostring(options.abort) .. " stopProcessing=" .. tostring(options.stopProcessing))
 		if not behavior.instant and behavior.hasCast and (not behavior:IsFiltered(self, casterToken, options)) then
             if behavior.typeName == "ActivatedAbilityPowerRollBehavior" then
@@ -5225,7 +5280,7 @@ function ActivatedAbilityApplyOngoingEffectBehavior:Cast(ability, casterToken, t
 					return
 				end
 
-                local sourceDescription = string.format("Applied by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name)
+                local sourceDescription = ActivatedAbility.DescribeEffectSource(ability, casterToken)
 
                 if stacks > 1 then
                     ability.RecordTokenMessage(target.token, options, string.format("Apply %s x %d", ongoingEffectInfo.name, stacks))
@@ -5396,7 +5451,7 @@ function ActivatedAbilityApplyOngoingEffectBehavior:CastFromFormula(ability, cas
                     if stacks == nil then return end
 
                     local targetCreature = target.token.properties
-                    local sourceDescription = string.format("Applied by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name)
+                    local sourceDescription = ActivatedAbility.DescribeEffectSource(ability, casterToken)
                     ability.RecordTokenMessage(target.token, options, string.format("Apply %s", ongoingEffectInfo.name))
 
                     local applyDuration = self:try_get("duration")
@@ -6621,3 +6676,16 @@ dmhub.RegisterEventHandler("restoreFromBackup", function()
     end
     dmhub.CancelCurrentRoll()
 end)
+
+--- The "Applied by ..." line recorded on an ongoing effect an ability applies. An
+--- ability flagged environmentalSource (a zone or trap effect) names itself, since
+--- its caster is just the creature it landed on; otherwise it names the caster.
+--- @param ability ActivatedAbility
+--- @param casterToken CharacterToken
+--- @return string
+function ActivatedAbility.DescribeEffectSource(ability, casterToken)
+    if ability:try_get("environmentalSource", false) then
+        return string.format("Applied by <b>%s</b>", ability.name)
+    end
+    return string.format("Applied by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name)
+end
