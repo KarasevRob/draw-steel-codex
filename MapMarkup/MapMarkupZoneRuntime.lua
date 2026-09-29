@@ -420,6 +420,14 @@ local function BuildZoneAuraInstance(entry)
         end)
     end
 
+    --A painted zone the Director hasn't made player-visible (an EotW trap zone)
+    --is hidden from players on the map; the flag lets the movement cross-section
+    --hide it too. "Entire Map" blankets are unstriped for everyone, not secret.
+    local hiddenFromPlayers = nil
+    if entry.playerVisible ~= true and entry.entireMap ~= true then
+        hiddenFromPlayers = true
+    end
+
     --No casterid, no tokenAttached, no duration: a permanent, floor-scoped,
     --uncontrolled aura. guid = zoneid so triggers/entered-tracking key stably.
     return auraInstanceType.new{
@@ -430,6 +438,7 @@ local function BuildZoneAuraInstance(entry)
         display = display,
         area = shape,
         appearance = appearance,
+        hiddenFromPlayers = hiddenFromPlayers,
     }
 end
 

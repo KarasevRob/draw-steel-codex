@@ -185,6 +185,7 @@ end
 --- @field durationRound number|nil Initiative round at which the aura expires.
 --- @field time table|nil Time-stamp object used to compute rounds elapsed.
 --- @field object table|nil Reference to the placed object {floorid, objid}.
+--- @field hiddenFromPlayers boolean|nil True for a Map Markup zone not marked player-visible: only the Director sees it on the map, and the movement cross-section hides it from everyone else too. Set only by MapMarkupZoneRuntime; read with try_get.
 AuraInstance = RegisterGameType("AuraInstance")
 
 Aura.Flags = {

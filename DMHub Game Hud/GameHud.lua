@@ -344,9 +344,16 @@ local function DiagramProfileFromPath(token, path)
 			airborne = true
 		end
 		if not crossesAura then
-			local auras = game.GetAurasAtLoc(steps[i])
-			if auras ~= nil and #auras > 0 then
-				crossesAura = true
+			local auras = game.GetAurasAtLoc(steps[i]) or {}
+			for _, aura in ipairs(auras) do
+				--A markup zone hidden from players (an unrevealed trap) must not pop the
+				--diagram open for them -- an empty diagram would still give it away.
+				local instance = aura.auraInstance
+				local hidden = instance ~= nil and not dmhub.isDM and instance:try_get("hiddenFromPlayers") == true
+				if not hidden then
+					crossesAura = true
+					break
+				end
 			end
 		end
 	end
