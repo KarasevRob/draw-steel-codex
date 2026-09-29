@@ -1638,6 +1638,18 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
                     tostring(isPreparing ~= false and isPreparing ~= nil), now))
             end
 
+            --The caster was despawned while its prompt was still open (e.g. Monster
+            --Death removing a creature whose death trigger is prompting). Cast runs
+            --inside casterToken:ModifyProperties, which no-ops on a removed token, so
+            --this prompt can never complete: cancel it now rather than after the timeout.
+            --Only while no cast has begun -- a running cast may still finish on its own.
+            if (not isCasting) and isPreparing and (casterToken == nil or not casterToken.valid or casterToken.properties == nil) then
+                printf("INVOKEDIAG:: caster of %s is gone -- treating the invoke as cancelled", tostring(abilityClone.name))
+                timedOut = true
+                gamehud.actionBarPanel:FireEventTree("cancelCasting")
+                return false
+            end
+
             if (isCasting or isPreparing) and now - waitStarted > INVOKE_WAIT_TIMEOUT_SECONDS then
                 printf("INVOKEDIAG:: giving up on %s after %ds (casting=%s preparing=%s) -- treating the invoke as cancelled",
                     tostring(abilityClone.name), math.floor(now - waitStarted),

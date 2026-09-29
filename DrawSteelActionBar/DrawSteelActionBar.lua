@@ -4161,6 +4161,16 @@ local function AbilityHeading(args)
             --ability, exactly as before.
             local function commit(casterToken, ability)
                 ability = ability or m_ability
+                --The caster was removed from the map (e.g. despawned by Monster
+                --Death while its death-trigger prompt was open): nothing can be
+                --cast for it, so drop the prompt instead of erroring below.
+                if casterToken ~= nil and (not casterToken.valid or casterToken.properties == nil) then
+                    print("MENU:: CASTER GONE")
+                    if g_currentAbility ~= nil then
+                        g_abilityController:FireEvent("cancelCasting")
+                    end
+                    return
+                end
                 if casterToken ~= nil and (g_token == nil or casterToken.charid ~= g_token.charid) then
                     if g_currentAbility ~= nil then
                         g_abilityController:FireEvent("cancelCasting")
