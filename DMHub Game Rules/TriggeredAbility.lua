@@ -686,6 +686,34 @@ TriggeredAbility.RegisterTrigger{
     }
 }
 
+--Fires once when a creature is added to the map from the bestiary (or an
+--encounter), on the placing client only, so map loads and copies never re-fire it.
+TriggeredAbility.RegisterTrigger{
+    id = "placedonmap",
+    text = "Placed on Map",
+}
+
+dmhub.RegisterEventHandler("spawnFromBestiary", function(charids)
+    --Spawned tokens can take a few frames to appear; retry briefly for each one.
+    local function dispatch(charid, attempts)
+        if mod.unloaded then
+            return
+        end
+        local token = dmhub.GetTokenById(charid)
+        if token == nil or token.properties == nil then
+            if attempts > 0 then
+                dmhub.Schedule(0.1, function() dispatch(charid, attempts - 1) end)
+            end
+            return
+        end
+        token.properties:DispatchEvent("placedonmap", {})
+    end
+
+    for _,charid in ipairs(charids or {}) do
+        dispatch(charid, 20)
+    end
+end)
+
 TriggeredAbility.RegisterTrigger{
     id = "dealdamage",
     text = "Damage an Enemy",

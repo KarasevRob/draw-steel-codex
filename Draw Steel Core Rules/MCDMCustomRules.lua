@@ -366,8 +366,10 @@ function creature:GetPointsSpentByName(pointsName)
         string.lower(tostring(pointsName)))
 end
 
---- Per-purchase breakdown of a points pool: { name, cost, choiceName } per
---- selected option. Static so hot-reloaded tokens can call it.
+--- Per-purchase breakdown of a points pool: { name, cost, choiceName,
+--- choiceGuid, parent } per selected option, where parent is the template,
+--- feat or monster group granting the choice. Static so hot-reloaded tokens
+--- can call it.
 --- @param c creature
 --- @param pointsName string
 --- @return table[]
@@ -393,6 +395,8 @@ function creature.PointsSpentBreakdown(c, pointsName)
                                 name = option.name,
                                 cost = option.pointsCost or 1,
                                 choiceName = feature:try_get("name", ""),
+                                choiceGuid = feature.guid,
+                                parent = entry.feat or entry.monsterGroup,
                             }
                             break
                         end

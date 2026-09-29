@@ -50,6 +50,7 @@ local _getHero = CharacterBuilder._getHero
 local _getCreature = CharacterBuilder._getCreature
 local _getState = CharacterBuilder._getState
 local _mergeKeyedTables = CharacterBuilder._mergeKeyedTables
+local _safeGet = CharacterBuilder._safeGet
 
 --- Build a selector panel with customizable components
 --- @param overrides table Optional overrides for panel components
@@ -408,19 +409,39 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                 element.text = string.format("%d %s spent", spent, pointsName)
 
                 -- One line per purchase: "2 points spent on Elemental (Supernatural)".
+                -- When the granting template sets builderFreePoints/builderEVPerPoint
+                -- (Animal Traits: 4 free, then +2 EV per point), purchases past the
+                -- free points show their EV cost and the total EV increase follows.
+                local breakdown = creature and creature.PointsSpentBreakdown(creature, pointsName) or {}
+                local parent = breakdown[1] and breakdown[1].parent
+                local freePoints = parent and tonumber(_safeGet(parent, "builderFreePoints", nil))
+                local evPerPoint = parent and tonumber(_safeGet(parent, "builderEVPerPoint", nil))
+
                 local lines = {}
                 local listed = 0
-                for _,item in ipairs(creature and creature.PointsSpentBreakdown(creature, pointsName) or {}) do
-                    listed = listed + item.cost
+                local totalEV = 0
+                for _,item in ipairs(breakdown) do
                     local category = string.match(item.choiceName, "^Choice of (.-) Traits?$") or item.choiceName
                     local line = string.format("%d %s spent on %s", item.cost, item.cost == 1 and "point" or "points", item.name)
                     if category ~= "" then
                         line = string.format("%s (%s)", line, category)
                     end
+                    if freePoints ~= nil and evPerPoint ~= nil then
+                        local over = math.max(0, listed + item.cost - freePoints) - math.max(0, listed - freePoints)
+                        if over > 0 then
+                            line = string.format("%s - +%d EV", line, over * evPerPoint)
+                            totalEV = totalEV + over * evPerPoint
+                        end
+                    end
+                    listed = listed + item.cost
                     lines[#lines+1] = line
                 end
                 -- Fall back to the total if the breakdown misses some points.
                 if #lines > 0 and listed == spent then
+                    lines[#lines+1] = string.format("%d Total Points Spent", listed)
+                    if totalEV > 0 then
+                        lines[#lines+1] = ThemeEngine.ResolveTokens(string.format("<color=@danger>+%d EV</color>", totalEV))
+                    end
                     element.text = table.concat(lines, "\n")
                 end
                 visible = true
