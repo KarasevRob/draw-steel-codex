@@ -2944,9 +2944,10 @@ function GameHud.CreateRollDialog(self)
                 --admired asks for a solid one; everyone else is untouched.
                 --The blur is what actually shows the map through, so turning
                 --the opacity up on its own would not be enough.
+                --Turning off "Transparent UI" in settings also makes it solid.
                 local frame = FramePanel()
                 if frame ~= nil then
-                    local solid = options.solidDialog == true
+                    local solid = options.solidDialog == true or dmhub.GetSettingValue("graphics:uiblur") ~= true
                     frame.blurBackground = not solid
                     frame.selfStyle.opacity = cond(solid, 1, DIALOG_OPACITY)
                 end
