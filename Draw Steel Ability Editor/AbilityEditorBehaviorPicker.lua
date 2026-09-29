@@ -299,6 +299,11 @@ local BEHAVIOR_METADATA = {
         tags = {"journal", "document", "show", "read", "note"},
         group = "narrative",
     },
+    open_sheet = {
+        description = "Open the caster's character sheet on a chosen tab (e.g. Builder).",
+        tags = {"character sheet", "builder", "open", "show", "tab"},
+        group = "narrative",
+    },
 
     -- Scripting & Advanced
     Macro = {

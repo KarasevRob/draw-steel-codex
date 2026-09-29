@@ -29,7 +29,8 @@ function CBChoicesDetail._navPanel()
         data = { category = INITIAL_CATEGORY },
         refreshBuilderState = function(element, state)
             element:FireEvent("setAvailable", true)
-            element:FireEvent("setSelected", state:Get(SELECTOR .. ".category.selectedId") == element.data.category)
+            -- A fresh builder state (e.g. a just-placed monster) has no page picked yet: show Overview.
+            element:FireEvent("setSelected", (state:Get(SELECTOR .. ".category.selectedId") or INITIAL_CATEGORY) == element.data.category)
         end,
     })
 
@@ -348,7 +349,7 @@ function CBChoicesDetail._overviewPanel()
         },
 
         refreshBuilderState = function(element, state)
-            local visible = state:Get(SELECTOR .. ".category.selectedId") == element.data.category
+            local visible = (state:Get(SELECTOR .. ".category.selectedId") or INITIAL_CATEGORY) == element.data.category
             element:SetClass("collapsed", not visible)
             if not visible then
                 element:HaltEventPropagation()
@@ -506,6 +507,13 @@ function CBChoicesDetail._artPanel()
         bgcolor = "white",
     }
 
+    -- "Animal 1 EV: 14 (+2 EV)": the same EV as the character sheet, with the
+    -- part added by modifiers (e.g. animal traits past the free points) in red.
+    local evLabel = gui.Label{
+        classes = {"builder-base", "label", "choices-art-ev"},
+        text = "",
+    }
+
     return gui.Panel{
         classes = {"builder-base", "panel-base", "choices-art-panel", "collapsed"},
         data = {
@@ -513,8 +521,26 @@ function CBChoicesDetail._artPanel()
         },
 
         refreshBuilderState = function(element, state)
+            local creature = _getCreature()
+            local evText = nil
+            if creature ~= nil and creature:IsMonster() then
+                local ev = round(creature:EV())
+                local added = ev - round(creature:BaseEV())
+                local token = CharacterBuilder._getToken()
+                local name = token and token.name or ""
+                if name == "" then
+                    name = creature:try_get("monster_type", "")
+                end
+                evText = string.format("%s EV: %d", name, ev)
+                if added > 0 then
+                    evText = string.format("%s <color=@danger>(+%d EV)</color>", evText, added)
+                end
+            end
+            evLabel:SetClass("collapsed", evText == nil)
+            evLabel.text = ThemeEngine.ResolveTokens(evText or "")
+
             local features = _featuresWithChoices(state:Get(SELECTOR .. ".featureCache"))
-            local _, parent = _choicesTitle(features, _getCreature())
+            local _, parent = _choicesTitle(features, creature)
             local art = parent and _safeGet(parent, "builderArt", nil) or nil
             if type(art) ~= "string" or art == "" then
                 art = nil
@@ -529,6 +555,7 @@ function CBChoicesDetail._artPanel()
         end,
 
         image,
+        evLabel,
     }
 end
 
@@ -554,9 +581,6 @@ function CBChoicesDetail.CreatePanel()
                 element:HaltEventPropagation()
                 return
             end
-
-            local categoryKey = SELECTOR .. ".category.selectedId"
-            local currentCategory = state:Get(categoryKey) or INITIAL_CATEGORY
 
             for id,_ in pairs(element.data.features) do
                 element.data.features[id] = false

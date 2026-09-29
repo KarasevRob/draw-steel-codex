@@ -882,6 +882,7 @@ function CharacterBuilder._makeFeatureRegistry(options)
                     cornerRadius = 3,
                     refreshBuilderState = function(element, state)
                         local visible = state:Get(selector .. ".blockFeatureSelection") ~= true
+                        local pointsLabel = nil
                         if visible then
                             local featureCache = state:Get(selector .. ".featureCache")
                             local feature = featureCache and featureCache:GetFeature(element.parent.data.featureId)
@@ -890,11 +891,38 @@ function CharacterBuilder._makeFeatureRegistry(options)
                             -- Open-ended choices always count as complete; fill once something is bought.
                             if feature and feature:IsUnbounded() then
                                 filled = #feature:GetSelectedNames() > 0
+                                -- Points choices show the points spent in this choice inside the pip.
+                                local creature = CharacterBuilder._getCreature()
+                                if feature:CostsPoints() and creature ~= nil then
+                                    local spent = 0
+                                    for _,item in ipairs(creature.PointsSpentBreakdown(creature, feature:GetPointsName())) do
+                                        if item.choiceGuid == element.parent.data.featureId then
+                                            spent = spent + item.cost
+                                        end
+                                    end
+                                    filled = spent > 0
+                                    if spent > 0 then
+                                        pointsLabel = tostring(spent)
+                                    end
+                                end
                             end
                             element:SetClass("filled", filled)
                         end
                         element:SetClass("collapsed", not visible)
+                        element:FireEventTree("setPipPoints", pointsLabel)
                     end,
+                    -- Point count for points choices; the pip grows to fit it.
+                    gui.Label{
+                        classes = {"builder-base", "label", "progress-pip-count", "collapsed"},
+                        interactable = false,
+                        setPipPoints = function(element, text)
+                            element:SetClass("collapsed", text == nil)
+                            element.text = text or ""
+                            local size = text ~= nil and 18 or 12
+                            element.parent.selfStyle.width = size
+                            element.parent.selfStyle.height = size
+                        end,
+                    },
                 }),
                 gui.NewContentAlert{
                     classes = {"collapsed"},
