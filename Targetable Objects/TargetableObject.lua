@@ -130,25 +130,26 @@ GameSystem.RegisterGoblinScriptField{
     end,
 }
 
+--The custom behavior runs alongside the standard damage rather than replacing it:
+--only "No Collision Damage" opts the object out of taking collision damage.
 function TargetableObject:OnCollide(collidingToken, symbols)
+    local token = dmhub.LookupToken(self)
+    if token == nil then
+        return
+    end
+
     if self:has_key("custom_collision") then
-        local token = dmhub.LookupToken(self)
-        if token ~= nil then
-            self.custom_collision:Cast(token, { { token = collidingToken } }, symbols)
-        end
-    else
-        if symbols.speed and not self:try_get("no_collision_damage", false) then
-            local token = dmhub.LookupToken(self)
-            if token ~= nil then
-                token:ModifyProperties{
-                    description = "Collision",
-                    undoable = false,
-                    execute = function()
-                        token.properties:InflictDamageInstance(symbols.speed, "untyped", {}, "Collision", {})
-                    end,
-                }
-            end
-        end
+        self.custom_collision:Cast(token, { { token = collidingToken } }, symbols)
+    end
+
+    if symbols.speed and not self:try_get("no_collision_damage", false) then
+        token:ModifyProperties{
+            description = "Collision",
+            undoable = false,
+            execute = function()
+                token.properties:InflictDamageInstance(symbols.speed, "untyped", {}, "Collision", {})
+            end,
+        }
     end
 end
 
