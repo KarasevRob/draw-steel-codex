@@ -5564,6 +5564,21 @@ function PatreonAccount.BeginLink(options)
 					if Expired() then
 						return
 					end
+					--linkConflict: the Patreon account is linked to another Codex
+					--account, and the browser is asking whether to move it here.
+					--Checked before linked, which may still describe an older link.
+					if type(data) == "table" and data.ok and data.linkConflict == "cancelled" then
+						Failed("Linking cancelled. Your Patreon account is still linked to your other Codex account.")
+						return
+					end
+					if type(data) == "table" and data.ok and data.linkConflict == "pending" then
+						Progress("This Patreon account is linked to another Codex account. Confirm or cancel in your browser.")
+						--The server holds the request for 15 minutes; give the user
+						--time to read the page rather than timing out under them.
+						deadline = math.max(deadline, dmhub.Time() + 60)
+						dmhub.Schedule(4, Tick)
+						return
+					end
 					if type(data) == "table" and data.ok and data.linked then
 						m_finished = true
 						if options.linked ~= nil then
