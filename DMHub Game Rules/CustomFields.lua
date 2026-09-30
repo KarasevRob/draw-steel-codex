@@ -7,6 +7,7 @@ local mod = dmhub.GetModLoading()
 --- @field default number Default value when unset.
 --- @field documentation string Human-readable description of the field's purpose.
 --- @field display boolean If true, show this field on the creature description panel.
+--- @field id string Guid of the field; also its key in CustomFieldCollection.fields and in a creature's customFields.
 CustomField = RegisterGameType("CustomField")
 
 CustomField.name = "Custom Field"

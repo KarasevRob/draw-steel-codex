@@ -250,6 +250,11 @@ function ActivatedAbilityRemoveCreatureBehavior:Cast(ability, casterToken, targe
             --so the remaining pushes are silently dropped. Same 120s backstop as
             --the general wait below so a stuck cast can't park the corpse forever.
             local minion = target.token.properties.minion
+            --- Only `activity` is used here: CountActiveCasts skips casts marked "reaping".
+            ---@class AbilityRemoveCreatureCastInfo
+            ---@field activity string|nil
+
+            ---@type AbilityRemoveCreatureCastInfo
             local castInfo = ActivatedAbility.CurrentCastInfo() or {}
             castInfo.activity = "reaping"
 

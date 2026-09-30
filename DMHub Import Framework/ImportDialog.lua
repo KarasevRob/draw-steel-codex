@@ -1577,6 +1577,15 @@ end
 CreateImportAssetsDialog = function(args)
     local dialogPanel
 
+    --- The options table an importer was registered with (import.Register).
+    ---@class ImportDialogImporter
+    ---@field description string
+    ---@field priority? number
+    ---@field input? string
+    ---@field translateurl? fun(url: string): string?
+    ---@field translateerror? fun(error: string): string?
+
+    ---@type ImportDialogImporter
     local m_currentImporter = nil
     local m_currentImporterId = nil
 

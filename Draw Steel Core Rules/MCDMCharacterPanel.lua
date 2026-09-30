@@ -13996,6 +13996,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 		if creature ~= nil then
 			local key = charid
 
+			--- @type Panel?
 			local folder = nil
 			local squadid = creature:MinionSquad()
 
@@ -14038,6 +14039,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 							clickHeader = function(element)
 								element:FireEventOnParents("ClearCharacterPanelSelection")
 								local setFocus = false
+								---@cast folder Panel
 								for _,p in ipairs(folder.data.children) do
 									if not setFocus then
 										gui.SetFocus(p)

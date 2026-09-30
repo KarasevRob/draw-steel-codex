@@ -2588,7 +2588,9 @@ local function CreateCreatorOrganizationsSection()
 		return {}
 	end
 
+	---@type Panel?
 	local contentPanel = nil
+	---@type fun()
 	local BuildContent = nil
 
 	local function Refresh()
@@ -2628,6 +2630,7 @@ local function CreateCreatorOrganizationsSection()
 			return
 		end
 
+		---@type Panel
 		local overlay = nil
 
 		local buttons = {}
@@ -3567,6 +3570,7 @@ local function CreateCreatorOrganizationsSection()
 			logoPlaceholder:SetClass("hidden", image ~= nil)
 		end
 
+		---@type Panel
 		local removeLogoButton = nil
 
 		local function LoadLogoFile(path)
@@ -4313,6 +4317,7 @@ local function CreateCreatorOrganizationsSection()
 		local m_keys = nil
 
 		local card = nil
+		---@type Panel
 		local generateButton = nil
 
 		local statusLabel = gui.Label{
@@ -4352,6 +4357,7 @@ local function CreateCreatorOrganizationsSection()
 			text = "",
 		}
 
+		---@type Panel
 		local listingThumb = nil
 		local ChooseListingImage = nil
 
@@ -4958,6 +4964,7 @@ end
 --"emailConfirmation" C# interface (registered in ScriptEngine) and listens to
 --/users/{uid} for the confirmed state. No polling: it uses the cloud realtime listener.
 local CreateEmailConfirmationPanel = function()
+	---@type {email: nil|string, emailConfirmed: boolean, allowEmails: boolean}?
 	local m_state = nil        --latest {email, emailConfirmed, allowEmails} from the cloud.
 	local m_waiting = false     --true once we've sent a mail and are waiting on the user to click the link.
 	local m_pendingEmail = nil  --the address we last submitted.
@@ -6211,6 +6218,7 @@ function CreateSettingsScreen(dialog, args)
 	--assign to the C# dialog container, but in-game it is hosted inside the
 	--game hud instead (see the end of this function), so tree-wide events
 	--must be fired on this rather than on dialog.sheet.
+	---@type Panel?
 	local m_screenRoot = nil
 
 	local SettingGroup = function(options)

@@ -2384,6 +2384,7 @@ end
 
 local MakeShopItemText = function(options)
 	local m_itemId = ""
+	---@type ShopItemLua
 	local m_item = nil
 
 	options = options or {}

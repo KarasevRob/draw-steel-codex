@@ -79,6 +79,7 @@ end
 
 
 local CreateGameScreen = function(titlescreen)
+    --- @type Panel
     local m_gamescreen = nil
 
     local m_gameBackgroundContainer = nil
@@ -170,6 +171,7 @@ local CreateGameScreen = function(titlescreen)
 
     RefreshGames()
 
+    --- @type LuaGameInfo?
     local m_currentGame = nil
 
     local m_messagePanel = gui.Label{

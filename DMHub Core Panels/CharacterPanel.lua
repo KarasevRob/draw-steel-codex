@@ -963,6 +963,7 @@ local function CreateMonsterEntry(nodeid, startHidden)
     local matchesSearch = true
     local parentCollapsed = startHidden or false
 
+    ---@type Panel
     local resultPanel = nil
 
     --novel-content pip: lit while this monster is recorded as novel
@@ -1547,6 +1548,7 @@ local CreateBestiaryFolder = function(nodeid, startHidden)
 
     local node = assets:GetMonsterNode(nodeid)
 
+    ---@type Panel
     local folderPane = nil
 
     --novel-content pip on the folder row: lit while any monster anywhere
@@ -1580,6 +1582,7 @@ local CreateBestiaryFolder = function(nodeid, startHidden)
     --below it clears the search through it. The clear x is built into
     --gui.SearchInput now, so there is no separate clear button any more.
     local searchInput = nil
+    ---@type Label
     local searchLimitLabel = nil
     local rootPanel = nil
     if nodeid == '' then
@@ -1782,6 +1785,7 @@ local CreateBestiaryFolder = function(nodeid, startHidden)
         return n
     end
 
+    ---@type Panel
     local triangle = nil
     triangle = gui.ExpandoArrow({
         --Phosphor mask: the default triangle bitmap reads fuzzy at header
@@ -3024,6 +3028,7 @@ CharacterPanel.CreatePartyCharacters = function(partyid)
 
     local folderPane
     local selectAllPanel = nil
+    ---@type Panel
     local triangle = nil
 
     --Toggle the folder open/closed. Shared by the caret AND a press

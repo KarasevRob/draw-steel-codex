@@ -1062,6 +1062,7 @@ local function CreateRunItemRow(item, isCurrent)
     --the accordion body. Content is built lazily on first expand: the
     --embedded page render is heavy, and most rows stay closed.
     local bodyPanel = nil
+    ---@type Panel?
     local arrow = nil
     if expandable then
         local bodyClasses = {}

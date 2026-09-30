@@ -1416,6 +1416,7 @@ function ActivatedAbility:Render(options, params)
         for _, behavior in ipairs(self.behaviors) do
             if behavior.typeName == "ActivatedAbilityModifyPowerRollBehavior"
                     and behavior:IsFiltered(self, params.token, params) == false then
+                ---@cast behavior ActivatedAbilityModifyPowerRollBehavior
                 local filterCond = trim(behavior.modifier:try_get("filterCondition", ""))
                 if filterCond == "" or dmhub.EvalGoblinScript(filterCond, creatureProperties:LookupSymbol(), "Filter condition for power roll display") then
                     tryApply(behavior.modifier, {mod = behavior.modifier})

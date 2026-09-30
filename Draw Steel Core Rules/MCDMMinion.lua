@@ -1311,7 +1311,9 @@ DrawSteelMinion.SquadHud = function(floorid, squad)
 
         local m_BarWidth = 100
 
+        ---@type {x: number, y: number}?
         local m_pos = nil
+        ---@type {x: number, y: number}?
         local m_targetPos = nil
 
         local m_currentPos = nil
@@ -1365,6 +1367,7 @@ DrawSteelMinion.SquadHud = function(floorid, squad)
                 --to create a new squad that is split off.
                 if dmhub.isDM and squad.damage_taken < squad.health_single then
                     local selectedTokens = dmhub.selectedOrPrimaryTokens
+                    ---@type false|CharacterToken
                     local foundNonMinion = false
                     local matchingMinions = 0
                     local monster_type = nil

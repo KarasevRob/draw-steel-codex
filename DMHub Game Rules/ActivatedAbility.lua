@@ -55,6 +55,34 @@ end
 --- @field proximityTargeting boolean If true, targeting uses proximity range instead of ability range.
 --- @field proximityRange string|number|table Range in world units for proximity targeting.
 --- @field behaviors ActivatedAbilityBehavior[] The list of behaviors that execute when the ability is cast.
+--- @field guid string Unique id of this ability.
+--- @field implementation? number Implementation status level (shown by gui.ImplementationStatusIcon; default 1).
+--- @field villainAction? string Villain action slot ("none" when unset).
+--- @field meleeRange? number Melee reach of a melee-and-ranged ability (monster importer).
+--- @field meleeVariation? ActivatedAbility Synthesized melee half of a melee-and-ranged ability.
+--- @field rangedVariation? ActivatedAbility Synthesized ranged half of a melee-and-ranged ability.
+--- @field level? number Spell level (Spell sets it; plain abilities default to 1 via try_get).
+--- @field castingLevel? number Level a spell clone is being cast at (upcasting).
+--- @field spellcastingFeature? SpellcastingFeature Spellcasting feature a spell clone was granted by.
+--- @field attackOverride? Attack The weapon attack a synthesized weapon-attack ability performs.
+--- @field consumables? table<string, number> Item id -> quantity consumed on cast.
+--- @field moveCost? number Fraction of movement speed spent on cast.
+--- @field modifyDescriptions? table Description modifications added by "modifyability" modifiers.
+--- @field auraid? string Aura this ability's concentration is tied to.
+--- @field castingEmote? string Emote played on cast ("none" when unset).
+--- @field targetAdditionalCriteria? string Extra targeting text shown after the target description.
+--- @field OnBeginCast? fun(ability: ActivatedAbility, options: table) Runtime hook run when the cast begins.
+--- @field OnFinishCast? fun(ability: ActivatedAbility, options: table) Runtime hook run when the cast finishes.
+--- @field invoker? creature Creature that invoked this ability clone (invoke-ability behavior).
+--- @field invokerActionResourceId? string Action resource of the invoking ability, on an invoked clone.
+--- @field rangeUsesInvoker? boolean If true, an invoked clone measures range from the invoker.
+--- @field disableSquadCoordination? boolean If true, an invoked clone does not coordinate with the minion squad.
+--- @field promptOverride? string Prompt text shown instead of the default when an invoked clone targets.
+--- @field skippable? boolean If true, the targeting prompt of this clone can be skipped.
+--- @field _tmp_isNewAbility? boolean Transient: set on abilities freshly created in the editor.
+--- @field _tmp_payInvokedCost? boolean Transient: an invoked clone pays its own cost.
+--- @field _tmp_restrictLocs? Loc[] Transient: explicit whitelist of target squares for a pick prompt.
+--- @field _tmp_hurlCandidates? table Transient: the grabbed-creature candidates of a hurl's creature pick.
 ActivatedAbility = RegisterGameType("ActivatedAbility")
 
 --- @class ActivatedAbilityBehavior: GameType
@@ -69,6 +97,14 @@ ActivatedAbility = RegisterGameType("ActivatedAbility")
 --- @field damageType string Default damage type for behaviors that deal damage.
 --- @field durationUntilEndOfTurn boolean If true, the effect lasts until end of caster's turn.
 --- @field mono boolean If true, only one of these behaviors can be in an ability's list at a time.
+--- @field Cast fun(self: ActivatedAbilityBehavior, ability: ActivatedAbility, casterToken: any, targets: table, options: table) Runs the behavior. casterToken is a CharacterToken, left `any` until the Cast bodies are ready for it. Defined by every behavior type with hasCast true; absent on the rest (AugmentedAbility, CastSpell, ...), so guard with hasCast.
+--- Type-specific fields read by the shared editors and helpers. Each exists only on the behavior types named.
+--- @field momentaryEffect? CharacterOngoingEffect ApplyMomentaryEffect, ApplyAbilityDurationEffect: the effect applied.
+--- @field modifiers? CharacterModifier[] Modifiers, PowerRoll: modifiers edited by ModifiersEditor.
+--- @field weaponProperties? table<string, boolean> Attack: weapon property ids required, edited by AttackTypeEditor.
+--- @field hasReplaceCaster? boolean Summon, Transform: show the "Replace Caster" option in SummonEditor.
+--- @field dcvalue? string SavingThrow, SkillCheck (and legacy data on others): GoblinScript save DC.
+--- @field abilityType? string InvokeAbility: which ability to invoke ("custom", ...).
 ActivatedAbilityBehavior = RegisterGameType("ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAttackBehavior:ActivatedAbilityBehavior
@@ -77,6 +113,7 @@ ActivatedAbilityAttackBehavior = RegisterGameType("ActivatedAbilityAttackBehavio
 
 --- @class ActivatedAbilityDamageBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityDamageBehavior
+--- @field dc? string Id of the save the targets make against the damage, or "none"; absent means no save.
 ActivatedAbilityDamageBehavior = RegisterGameType("ActivatedAbilityDamageBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityHealBehavior:ActivatedAbilityBehavior
@@ -93,14 +130,19 @@ ActivatedAbilityAugmentedAbilityBehavior = RegisterGameType("ActivatedAbilityAug
 
 --- @class ActivatedAbilityCastSpellBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityCastSpellBehavior
+--- @field spells table<string, boolean> Set of spell ids this behavior synthesizes abilities for.
+--- @field modifier CharacterModifier modifyability modifier applied to each synthesized spell.
 ActivatedAbilityCastSpellBehavior = RegisterGameType("ActivatedAbilityCastSpellBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityApplyOngoingEffectBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityApplyOngoingEffectBehavior
+--- @field dc? string Id of the save the targets make, or "none"; absent means no save.
 ActivatedAbilityApplyOngoingEffectBehavior = RegisterGameType("ActivatedAbilityApplyOngoingEffectBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityRemoveOngoingEffectBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityRemoveOngoingEffectBehavior
+--- @field ongoingEffectid string Id of the CharacterOngoingEffect to remove from each target.
+--- @field dc? string Saving throw id the target must pass for the removal ("none"/nil for no save); read with try_get.
 ActivatedAbilityRemoveOngoingEffectBehavior = RegisterGameType("ActivatedAbilityRemoveOngoingEffectBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityAuraBehavior:ActivatedAbilityBehavior
@@ -109,6 +151,7 @@ ActivatedAbilityAuraBehavior = RegisterGameType("ActivatedAbilityAuraBehavior", 
 
 --- @class ActivatedAbilityMoveAuraBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityMoveAuraBehavior
+--- @field object? {floorid: string, objid: string} The aura's placed map object; copied from the AuraInstance.
 ActivatedAbilityMoveAuraBehavior = RegisterGameType("ActivatedAbilityMoveAuraBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityTransformBehavior:ActivatedAbilityBehavior
@@ -117,6 +160,8 @@ ActivatedAbilityTransformBehavior = RegisterGameType("ActivatedAbilityTransformB
 
 --- @class ActivatedAbilityContestedAttackBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityContestedAttackBehavior
+--- @field attackAttributes string[] Attribute or skill ids the attacker rolls.
+--- @field defenseAttributes string[] Attribute or skill ids the defender rolls.
 ActivatedAbilityContestedAttackBehavior = RegisterGameType("ActivatedAbilityContestedAttackBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityForcedMovementBehavior:ActivatedAbilityBehavior
@@ -125,10 +170,12 @@ ActivatedAbilityForcedMovementBehavior = RegisterGameType("ActivatedAbilityForce
 
 --- @class ActivatedAbilityModifiersBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityModifiersBehavior
+--- @field modifiers CharacterModifier[] Modifiers added to the cast's options.modifiers.
 ActivatedAbilityModifiersBehavior = RegisterGameType("ActivatedAbilityModifiersBehavior", "ActivatedAbilityBehavior")
 
 --- @class ActivatedAbilityApplyMomentaryEffectBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityApplyMomentaryEffectBehavior
+--- @field momentaryEffect CharacterOngoingEffect The effect applied momentarily to each target.
 ActivatedAbilityApplyMomentaryEffectBehavior = RegisterGameType("ActivatedAbilityApplyMomentaryEffectBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbility.description = ""
@@ -358,8 +405,8 @@ end
 --- @field ActivatedAbility.keywords table<string,boolean>
 ActivatedAbility.keywords = {}
 
---- @param keyword string
 --[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:244
+--- @param keyword string
 function ActivatedAbility:AddKeyword(keyword)
 	if self.keywords == ActivatedAbility.keywords then
 		self.keywords = {}
@@ -368,16 +415,16 @@ function ActivatedAbility:AddKeyword(keyword)
 end
 --]==]
 
+--[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:250
 --- @param keyword string
 --- @return boolean
---[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:250
 function ActivatedAbility:HasKeyword(keyword)
 	return self.keywords[keyword] == true
 end
 --]==]
 
---- @param keyword string
 --[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:255
+--- @param keyword string
 function ActivatedAbility:RemoveKeyword(keyword)
 	self.keywords[keyword] = nil
 end
@@ -405,6 +452,7 @@ function ActivatedAbility:GetIcon()
     if self.targetType == "emptyspace" or self.targetType == "emptyspacefriend" or self.targetType == "anyspace" then
         for _,behavior in ipairs(self.behaviors or {}) do
             if behavior.typeName == "ActivatedAbilityRelocateCreatureBehavior" then
+                ---@cast behavior ActivatedAbilityRelocateCreatureBehavior
                 local movementType = behavior.movementType or "teleport"
                 if movementType == "shift" then
                     return "drawsteel/ability/move_shift.png"
@@ -1058,11 +1106,11 @@ function ActivatedAbility:GetRadius(casterCreature, castingSymbols)
 	return ExecuteGoblinScript(radius, caster:LookupSymbol(symbols))
 end
 
+--[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:2969
 --- @param casterCreature Creature
 --- @param castingSymbols table
 --- @param selfRange nil|string|number
 --- @return number
---[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:2969
 function ActivatedAbility:GetRange(casterCreature, castingSymbols, selfRange)
 	if selfRange == nil or selfRange == "" then
 		selfRange = self.range
@@ -1781,12 +1829,12 @@ function ActivatedAbility:CanCastAsIs(casterToken, targets, symbols)
 	return numTargets == 0 or #targets > 0
 end
 
+--[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:2643
 --- @param casterToken CharacterToken
 --- @param targets AbilityTargets[]
 --- @param symbols Symbols
 --- @param synthesizedSpells nil|(ActivatedAbility[])
 --- @return string
---[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:2643
 function ActivatedAbility:PromptText(casterToken, targets, symbols, synthesizedSpells)
 	if self:try_get("promptOverride") ~= nil then
 		return self.promptOverride
@@ -2713,6 +2761,9 @@ ActivatedAbility.recordTargets = false
 --- @class CastActivatedAbilityChatMessage: GameType
 --- @field new fun(o?: table): CastActivatedAbilityChatMessage
 --- @field ability ActivatedAbility
+--- @field casterid string Charid of the casting token.
+--- @field targetids string[] Charids of the targeted tokens.
+--- @field castid string Id of this cast (options.symbols.castid).
 CastActivatedAbilityChatMessage = RegisterGameType("CastActivatedAbilityChatMessage")
 
 CastActivatedAbilityChatMessage.status = "complete"
@@ -3100,6 +3151,7 @@ function ActivatedAbility:DescribeTargetText(symbols)
 
     for _,behavior in ipairs(self.behaviors) do
         if behavior.typeName == "ActivatedAbilityRelocateCreatureBehavior" then
+            ---@cast behavior ActivatedAbilityRelocateCreatureBehavior
             if behavior.movementType == "move" then
                 return "Movement"
             end
@@ -3771,6 +3823,7 @@ end
 function ActivatedAbility:IsMelee()
 	for _,behavior in ipairs(self.behaviors) do
 		if behavior.typeName == "ActivatedAbilityAttackBehavior" then
+			---@cast behavior ActivatedAbilityAttackBehavior
 			local attack = behavior:GetAttack(self, nil, {})
 			if attack ~= nil then
 				return not attack:IsRanged()

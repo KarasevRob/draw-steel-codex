@@ -571,6 +571,7 @@ local ShowPartyPanel = function(parentPanel)
 	local partyPanel = Party.CreateEditor()
 	local SetData = partyPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local partyItems = {}
@@ -631,6 +632,7 @@ local ShowCurrencyPanel = function(parentPanel)
 	local currencyPanel = Currency.CreateEditor()
 	local SetData = currencyPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local currencyItems = {}
@@ -691,6 +693,7 @@ local ShowConditionsPanel = function(parentPanel)
 	local conditionsPanel = CharacterCondition.CreateEditor()
 	local SetData = conditionsPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local conditionsItems = {}
@@ -752,6 +755,7 @@ local ShowDamageTypesPanel = function(parentPanel)
 	local damageTypesPanel = DamageType.CreateEditor()
 	local SetData = damageTypesPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local damageTypeItems = {}
@@ -813,6 +817,7 @@ local ShowDamageFlagsPanel = function(parentPanel)
 	local damageFlagsPanel = DamageFlag.CreateEditor()
 	local SetDamageFlag = damageFlagsPanel.data.SetDamageFlag
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local damageFlagItems = {}
@@ -921,6 +926,7 @@ local ShowOngoingEffectsPanel = function(parentPanel, tableName)
 			local newOngoingEffectItems = {}
 
 			local keys = table.keys(ongoingEffectTable)
+			---@cast keys string[]
 
 			local conditionsTable = dmhub.GetTable(CharacterCondition.tableName) or {}
 			if groupByCondition then
@@ -1182,6 +1188,7 @@ local ShowCustomAttributesPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local attrItems = {}
@@ -1520,6 +1527,7 @@ local ShowSkillsPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local skillItems = {}
@@ -2111,6 +2119,7 @@ local ShowResourcesPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local resourceItems = {}
@@ -2179,6 +2188,7 @@ local ShowClassesPanel = function(parentPanel, tableName)
 
 	local classPanel = Class.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local classItems = {}
@@ -2277,6 +2287,7 @@ local ShowThemesPanel = function(parentPanel, themeType)
 
 	local themeEditorPanel = Theme.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local themeItems = {}
@@ -2343,6 +2354,7 @@ local ShowGlobalModsPanel = function(parentPanel)
 
 	local modPanel = GlobalRuleMod.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local modItems = {}
@@ -2416,6 +2428,7 @@ local ShowEncounterRulesPanel = function(parentPanel)
 	local editorPanel = GlobalRuleMod.CreateEditor()
 
 	--middle column: the rules belonging to the selected set.
+	---@type Panel
 	local rulesListPanel = nil
 	local ruleItems = {}
 	local addRuleButton = nil
@@ -2539,6 +2552,7 @@ local ShowEncounterRulesPanel = function(parentPanel)
 	end
 
 	--left column: the named encounter rule-sets.
+	---@type Panel
 	local setsListPanel = nil
 	local setItems = {}
 
@@ -2621,6 +2635,7 @@ end
 local ShowRolltablePanel = function(parentPanel, tableName, tableOptions, editOptions)
 	local editorPanel = RollTable.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 	
 	local dataItems = {}
@@ -2693,6 +2708,7 @@ local ShowRacesPanel = function(parentPanel, t)
 
 	local racePanel = Race.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local raceItems = {}
@@ -2761,6 +2777,7 @@ local ShowBackgroundsPanel = function(parentPanel)
 
 	local backgroundPanel = Background.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local backgroundItems = {}
@@ -2824,6 +2841,7 @@ local ShowCharacterTypesPanel = function(parentPanel)
 
 	local characterTypePanel = CharacterType.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local characterTypeItems = {}
@@ -3080,6 +3098,7 @@ end
 local ShowPropertyPanel = function(parentPanel, objectType)
 	local editorPanel = objectType.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local items = {}
@@ -3146,6 +3165,7 @@ local ShowFeaturePrefabsPanel = function(parentPanel)
 
 	local featurePrefabsPanel = CharacterFeaturePrefabs.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local featurePrefabsItems = {}
@@ -3296,6 +3316,7 @@ local ShowTitlesPanel = function(parentPanel)
 
 	local titlePanel = Title.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local titleItems = {}
@@ -3370,6 +3391,7 @@ local ShowAttributeGeneratorPanel = function(parentPanel)
 		editorPanel,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local items = {}
@@ -3595,6 +3617,7 @@ local ShowEquipmentCategoriesPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local dataItems = {}
@@ -3758,6 +3781,7 @@ local ShowImageFoldersPanel = function(parentPanel)
 		borderBox = true,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local SetId = function(id)
@@ -3978,6 +4002,7 @@ local ShowImageAtlasPanel = function(parentPanel)
 		borderBox = true,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local SetId = function(id)
@@ -4299,6 +4324,7 @@ local ShowImagesPanel = function(parentPanel, imageType)
 		borderBox = true,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local SetId = function(id)
@@ -5119,6 +5145,7 @@ local ShowEmojiPanel = function(parentPanel, emojiType)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local dataItems = {}
@@ -5198,6 +5225,7 @@ local ShowEmojiPanel = function(parentPanel, emojiType)
 end
 
 local ShowCodeModsPanel = function(parentPanel)
+	---@type Panel
 	local itemsListPanel = nil
 
 	local m_search = nil
@@ -5318,6 +5346,7 @@ local ShowCodeModsPanel = function(parentPanel)
 end
 
 local ShowTranslationsPanel = function(parentPanel)
+	---@type Panel
 	local itemsListPanel = nil
 
 	local editorPanel = Translation.CreateEditor()
@@ -5448,6 +5477,13 @@ local LibraryPanel = function()
 	-- Context-search provider spec, registered while this panel is open (create)
 	-- and withdrawn in destroy. Held here so enumerate can keep its label in
 	-- sync with the focused category.
+	---@class CompendiumContextSearchSpec
+	---@field id string
+	---@field priority number
+	---@field label string
+	---@field enumerate fun(needle: string): table[]
+
+	---@type CompendiumContextSearchSpec
 	local m_contextSpec = nil
 	local searchSummary = nil
 	local allResultsItem = nil
@@ -6936,6 +6972,7 @@ Compendium.GenericEditor = function(parentPanel, entryType)
 		editorPanel,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local items = {}
@@ -7003,6 +7040,7 @@ local ShowJournalStylesheetsPanel = function(parentPanel)
     local editorPanel = JournalStylesheet.CreateEditor()
     local SetData = editorPanel.data.SetData
 
+    ---@type Panel
     local itemsListPanel = nil
     local stylesheetsItems = {}
 
@@ -7403,6 +7441,7 @@ end
 --defines it (openable directly in the PDF viewer, like ability sources).
 --- @class GlossaryTerm: GameType
 --- @field new fun(o?: table): GlossaryTerm
+--- @field sourceReference? SourceReference Where the term comes from in the published rules.
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
 GlossaryTerm = RegisterGameType("GlossaryTerm")
 GlossaryTerm.tableName = "glossaryTerms"

@@ -4,6 +4,7 @@ Translation = {}
 
 function Translation.CreateEditor()
 	local translationid = nil
+	---@type TranslationInfo?
 	local currentTranslation = nil
 	local resultPanel
 	local dirty = false
@@ -37,6 +38,7 @@ function Translation.CreateEditor()
 
 
 			click = function(element)
+				---@type Panel?
 				local popup = CreateTooltipPanel("Copied to clipboard")
 				element.popup = popup
 
@@ -327,6 +329,7 @@ local customStringsTable = "langstring"
 
 --- @class langstring: GameType
 --- @field new fun(o?: table): langstring
+--- @field text string The source string to be translated (set by langstring.Create).
 langstring = RegisterGameType("langstring")
 
 langstring.name = "Translation"

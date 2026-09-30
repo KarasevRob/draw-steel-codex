@@ -277,6 +277,7 @@ local function MonsterAIThread(process)
                     if not queue:IsEntryPlayer(k) then
                         local tokens = GameHud.GetTokensForInitiativeId(GameHud.instance, GameHud.instance.initiativeInterface, k)
                         local groupScore = nil
+                        ---@type CharacterToken?
                         local groupActor = nil
                         for _,tok in ipairs(tokens) do
                             if MonsterAI.TokenIsLiveCombatant(tok) then

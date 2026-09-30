@@ -42,6 +42,7 @@ local mod = dmhub.GetModLoading()
 --- @field entryEffectRule string|nil A rules-engine rule string (the same syntax as a power table tier, e.g. "3 fire damage; burning (save ends)") applied, with no roll, to any creature entering the area or starting its turn there. Same field name as Aura; copied onto zone auras (Aura:GetSimpleEntryEffectTrigger). Never applies to adjacent-only contact. No class default: absent = no entry effect.
 --- @field mapFeature CharacterFeature|nil Map-wide features: modifiers granted to every creature on a map that has at least one zone of this keyword, anywhere on any floor (e.g. a trap's "Allied Awareness" ability). Each modifier's own filter decides which creatures take it. A player-controlled creature only counts zones that are visible to players, so a concealed trap never tips off the heroes. No class default: absent = none.
 --- @field mapid string|nil When set, this keyword is a map-scoped zone type: it was created from that map's Zone Types palette and is hidden from the compendium, other maps' palettes, and keyword dropdowns until promoted ("Make Available to All Maps" clears the field). No class default: absent = a full keyword.
+--- @field hidden? boolean Soft-delete flag (unhidden_pairs skips it); set when an unused map-scoped zone type is retired.
 EnvironmentalKeyword = RegisterGameType("EnvironmentalKeyword", "CharacterFeature")
 
 EnvironmentalKeyword.name = "New Environmental Keyword"

@@ -11,6 +11,7 @@ local g_numbers = { "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eigh
 ---@field challenges MontageChallenge[]
 ---@field consequences MontageConsequence[]
 ---@field rewards MontageConsequence[]
+---@field outcomes table<string, MontageOutcome> Keyed "success", "partial", "failure"; set by MontageTest.CreateNew.
 MontageDocument = RegisterGameType("MontageDocument", "CustomDocument")
 MontageDocument.docType = "montage"   --pins the semantic type (see DocumentSystem.lua)
 MontageDocument.scene = ""
@@ -830,7 +831,9 @@ local CreateMontageTestUI = function(args)
         print("Montage: Error: Could not find montage document")
         return
     end
+    ---@cast montageDoc MontageDocument
 
+    ---@type LiveMontage
     local m_montage = nil
 
     local closeButton

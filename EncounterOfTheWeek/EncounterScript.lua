@@ -1916,6 +1916,15 @@ function EncounterScript.Parse(text)
     end
 
     local beat = nil      --current beat
+    --- One "## Round N" of a montage beat (implicit when entries come first).
+    ---@class EncounterScriptParsedRound
+    ---@field number number|nil
+    ---@field line integer
+    ---@field entries table[]
+    ---@field scaling table[]
+    ---@field implicit boolean|nil
+
+    ---@type EncounterScriptParsedRound?
     local round = nil     --current round (montage)
     local entry = nil     --current entry (montage)
     local section = nil   --current section (narrative)

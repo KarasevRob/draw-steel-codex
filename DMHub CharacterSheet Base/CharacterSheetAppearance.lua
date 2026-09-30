@@ -732,7 +732,9 @@ function CharSheet.FramePreviewPanel()
                     element:ScheduleEvent("refreshAppearanceForce", 0.1)
                 elseif #element.children == 0 then
                     local dragging = false
+                    ---@type Vector2?
                     local dragAnchor = nil
+                    ---@type Vector2?
                     local dragValue = nil
                     element.data.portrait = info.token.portrait
                     element.data.offTokenPortrait = info.token.offTokenPortrait

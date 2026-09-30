@@ -31,6 +31,7 @@ DockablePanel.Register {
 }
 
 local ShowTimeOfDaySettingsDialog
+---@type fun()
 local UploadTimeBasis = nil
 
 function UploadDayNightInfo()
@@ -866,6 +867,7 @@ local m_dayNightSettingsDialog = nil
 
 ShowTimeOfDaySettingsDialog = function()
 	if not m_dayNightSettingsDialog then
+		---@type fun()
 		local UpdateTime = nil
 
 		local hoursLabel = gui.Label {

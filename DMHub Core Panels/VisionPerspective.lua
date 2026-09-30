@@ -1,5 +1,6 @@
 local mod = dmhub.GetModLoading()
 
+---@type Panel?
 local visionPerspectivePanel = nil
 
 dmhub.TokenVisionUpdated = function()

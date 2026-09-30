@@ -19,6 +19,9 @@ local mod = dmhub.GetModLoading()
 --- @field options nil|table[] Optional list of sub-options for multi-option features.
 --- @field costsPoints nil|boolean If true, selecting this feature costs character build points.
 --- @field tags nil|table<string,boolean> Set of tags from GameSystem.featureTags (e.g. "Combat", "Hidden"). Absent/empty = untagged.
+--- @field id? string Set on features that are, or are copied from, a data-table row (e.g. a deity domain's feature).
+--- @field importMatch? string Importer tables only: pattern that recognizes this trait in imported monster text.
+--- @field _tmp_echelon? integer Echelon a kit's generated stats feature was built for.
 CharacterFeature = RegisterGameType("CharacterFeature")
 
 CharacterFeature.canHavePrerequisites = false
@@ -388,6 +391,7 @@ function CharacterFeature:EditorPanel(editorPanelOptions)
 
 	local modifiersPanel
 	local contentPanel
+	---@type Panel?
 	local prerequisitesPanel = nil
 
 	local optionsCollapseDescription = nil

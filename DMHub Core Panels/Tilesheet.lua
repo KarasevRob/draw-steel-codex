@@ -205,6 +205,7 @@ mod.shared.EditTilesheetAssetDialog = function(tileid, startingValues)
 
 	local tilesheetStyleDropdown = nil
 	local tilesheetDimensionsWarning = nil
+	---@type Panel
 	local randomOrientationCheck = nil
 	local effectLayerDropdown = nil
 	local effectAlphaThresholdDropdown = nil

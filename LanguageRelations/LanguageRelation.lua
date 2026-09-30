@@ -3,6 +3,7 @@ local mod = dmhub.GetModLoading()
 --- @class LanguageRelation: GameType
 --- @field new fun(o?: table): LanguageRelation
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+--- @field related table<string, boolean> Set of language ids related to this one (the relationship is kept 2-way).
 LanguageRelation = RegisterGameType("LanguageRelation")
 LanguageRelation.__index = LanguageRelation
 
@@ -470,6 +471,7 @@ end
 function LanguageRelation.ShowPanel(parentPanel)
 
     local editPanel = LanguageRelation.CreateEditor()
+    ---@type Panel
     local listPanel = nil
     local languageItems = {}
 

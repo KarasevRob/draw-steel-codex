@@ -401,6 +401,7 @@ end
 
 function sorted_pairs(t)
     local keys = table.keys(t)
+    ---@cast keys -nil
     table.sort(keys)
     local nextKey = {}
     for i, key in ipairs(keys) do

@@ -4,7 +4,7 @@ local mod = dmhub.GetModLoading()
 --- @field new fun(o?: table): PowerRollTable
 --- @field name string Display name for this power roll tier table.
 --- @field description string Human-readable notes about this table. Not used by any rules.
---- @field entries table[] List of tier entries with outcome descriptions and thresholds.
+--- @field tiers string[] Result text per tier: tiers 1-3, plus an optional 4th "Critical" tier.
 --- @field characteristics table Set of characteristic ids this test suggests rolling. Empty inherits the group skill's characteristic.
 --- A single power roll table (e.g. "Tier 1 / Tier 2 / Tier 3 results") within a PowerRollTableGroup.
 PowerRollTable = RegisterGameType("PowerRollTable")

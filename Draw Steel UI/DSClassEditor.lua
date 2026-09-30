@@ -593,6 +593,7 @@ local CreateChoiceEditor = function(feature, featuresList, index, parentPanel, c
 		}
 	end
 
+	--- @type Panel
 	local prerequisitesEditor = nil
 	local BuildPrerequisitesEditor = nil
 	if feature.typeName == "CharacterFeatureList" then

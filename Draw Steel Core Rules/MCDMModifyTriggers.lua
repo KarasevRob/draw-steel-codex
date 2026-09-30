@@ -358,6 +358,7 @@ local triggerModifierOptions = {}
 --- @class TriggerModifierOption
 --- @field id string Unique identifier for this param type.
 --- @field text string Display name shown in the dropdown.
+--- @field index? number Position in the dropdown; defaults to the next free slot when registered.
 --- @field init fun(entry: table)|nil Called when a new entry of this type is added.
 --- @field createEditor fun(modifier: CharacterModifier, entry: table, index: number, Refresh: fun()): Panel[] Returns editor panels for this entry.
 --- @field fillTriggerModes fun(modifier: CharacterModifier, entry: table, triggerInfo: ActiveTrigger, creature: creature, casterSymbols: function, index: number)|nil Called to inject modes into a trigger. index is the entry's position in modifier.attributes; pass it to TriggerModeMarker so the mode is only added once.

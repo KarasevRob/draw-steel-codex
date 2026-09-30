@@ -4,7 +4,9 @@ mod.shared.CreateEffectDialog = nil
 
 mod.shared.CreateEffectsLayerTexture = function()
 
+	--- @type Panel
 	local dialogPanel = nil
+	--- @type Panel
 	local objectsList = nil
 
 	local seed = math.random(1000)
@@ -728,6 +730,7 @@ mod.shared.CreateEffectsLayerTexture = function()
 			},
 		}
 
+		--- @type Panel
 		local resultPanel = nil
 
 		local selectionPanel = gui.Panel{

@@ -65,6 +65,8 @@ DamageInstance = RegisterGameType("DamageInstance")
 --- @field additionalModifier nil|string Additional numeric modifier (as string).
 --- @field proficiency nil|boolean If true, add proficiency bonus to hit.
 --- @field damageInstances nil|DamageInstance[] Multiple damage instances (if no single damage field).
+--- @field damage? string Single-damage form: damage roll formula; when present it is used instead of damageInstances.
+--- @field damageType? string Single-damage form: damage type.
 AttackDefinition = RegisterGameType("AttackDefinition")
 
 --- Returns an Attack object generated from this definition for the given character.

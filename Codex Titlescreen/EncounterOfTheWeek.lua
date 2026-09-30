@@ -989,10 +989,12 @@ CreateScreen = function(args)
     local m_knownHeroCards = nil
 
     --forward decls (assigned below; captured by earlier click handlers).
+    ---@type fun(gameid: string)?
     local OpenGameView = nil
     local CloseGameView = nil
     local BuildGameView = nil
     local ShowAddHeroDialog = nil
+    ---@type fun()
     local RefreshChat = nil
     local AttachMonitors = nil
 
@@ -2617,6 +2619,7 @@ CreateScreen = function(args)
             return
         end
 
+        ---@type Panel?
         local dlg = nil
 
         --ids we have already claimed, so the lists offer each hero once.
@@ -2809,8 +2812,10 @@ CreateScreen = function(args)
 
         local m_public = true
         local m_busy = false
+        ---@type Input
         local nameInput = nil
         local dialogStatusLabel = nil
+        ---@type Panel?
         local dlg = nil
 
         --the encounter maps the week's module offers. With more than one the
@@ -2976,6 +2981,7 @@ CreateScreen = function(args)
                 characterLimit = 80,
                 placeholderText = "Name your game...",
                 create = function(element)
+                    ---@cast element Input
                     nameInput = element
                     element.text = defaultName
                 end,

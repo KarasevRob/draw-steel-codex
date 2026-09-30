@@ -18,6 +18,12 @@ local mod = dmhub.GetModLoading()
 --- @field darkvision nil|number Darkvision range override in feet, or nil to derive from ancestry.
 --- @field extraLevelInfo table Additional level-specific data keyed by class feature id.
 --- @field notes {tableid: string, rowid: string, title: string, text: string}[] Player notes attached to compendium table rows.
+--- @field raceid? string Ancestry (race) id.
+--- @field subraceid? string Sub-ancestry id.
+--- @field backgroundid? string Career (background) id.
+--- @field kitid? string Primary kit id.
+--- @field kitid2? string Second kit id, for classes that take two kits.
+--- @field attributeBuild? table<string, number> Characteristic array chosen in the builder, attribute id -> value.
 character = RegisterGameType("character", "creature")
 
 TokenTypes.character = character

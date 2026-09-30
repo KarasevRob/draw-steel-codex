@@ -27,10 +27,14 @@ end
 
 --- @class InitiativeQueue: GameType
 --- @field new fun(o?: table): InitiativeQueue
+--- @field priorityids? table<string, boolean> Initiative ids that must act before anyone else this round; cleared each round.
+--- @field _tmp_prestartInitiativeId? string Initiative id whose prestartturn trigger is firing; set only for that window.
 InitiativeQueue = RegisterGameType("InitiativeQueue")
 
 --- @class InitiativeQueueEntry: GameType
 --- @field new fun(o?: table): InitiativeQueueEntry
+--- @field player? boolean True for a hero entry, false for a monster entry.
+--- @field startTurnTimestamp? number|string When this entry's turn began: the ServerTimestamp() sentinel until the server resolves it to a number.
 InitiativeQueueEntry = RegisterGameType("InitiativeQueueEntry")
 
 function InitiativeQueue:GameModeInfo()

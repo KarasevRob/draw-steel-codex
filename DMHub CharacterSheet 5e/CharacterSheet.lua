@@ -3555,6 +3555,7 @@ function CharSheet.CharacterSheetAvatarPanel()
 				local parentElement = element
 				local info = CharacterSheet.instance.data.info
 
+				---@type Panel
 				local popupPanel = nil
 
 				local index = 1
@@ -5369,9 +5370,12 @@ function CharSheet.CharacterFeaturesPanel()
 
 				local key = string.format("%d-%s-%s", i, featureInfo.feature.guid, levelStr)
 
+				---@type Panel
 				local featurePanel = featurePanels[key]
 
 				if featurePanel == nil then
+					--the closures below only run once featurePanel is assigned at the end of this branch.
+					---@cast featurePanel Panel
 
 					local tri = gui.ExpandoArrow{}
 

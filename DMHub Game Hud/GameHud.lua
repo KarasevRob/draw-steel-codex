@@ -1464,6 +1464,7 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 
 	local presentDialogDoc = mod:GetDocumentSnapshot("presentdialog")
 
+	---@type Label?
 	local m_tilelabel = nil
 	local m_tiletooltip = nil
 

@@ -747,6 +747,8 @@ end
 --- @class AudioPlaylist: GameType
 --- @field new fun(o?: table): AudioPlaylist
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+--- @field tracks string[] Audio asset ids in play order.
+--- @field hidden? boolean Soft-delete flag; set when the playlist is deleted.
 AudioPlaylist = RegisterGameType("AudioPlaylist")
 AudioPlaylist.tableName = "audioPlaylists"
 AudioPlaylist.name = "New playlist"
@@ -2197,6 +2199,14 @@ local g_studioLeftTab = "library"
 --playlist session, or { poolid, count, added, snapshot } for a variant pool session
 --(K1.5-studio). The presence of .poolid vs .playlistid is the discriminator -- exactly
 --one of the two is ever set on a given session table.
+--- @class AudioStudioBuildSession
+--- @field playlistid nil|string
+--- @field poolid nil|string
+--- @field count number
+--- @field added nil|table<string, boolean>
+--- @field snapshot nil|string[]
+
+--- @type AudioStudioBuildSession?
 local m_studioBuildMode = nil
 --Assigned inside CreateAudioStudio / CreateAudioLibraryTree so distant code
 --(playlist rows, library rows) can drive tab switches and tree rebuilds.
@@ -2307,6 +2317,7 @@ end
 --- @class VariantPool: GameType
 --- @field new fun(o?: table): VariantPool
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+--- @field members string[] Audio asset ids in the pool, in authored order (set by CreateNew).
 VariantPool = RegisterGameType("VariantPool")
 VariantPool.tableName = "audioVariantPools"
 VariantPool.pool = true            -- kept so existing "entry.pool == true" validity
@@ -7328,6 +7339,7 @@ end
 --so it at least tracks the DM's master fader instead of blasting at raw asset
 --volume. Tracked at module scope so starting a cue in one row stops the cue in
 --another.
+--- @type SoundEventInstanceLua?
 local g_studioCueInstance = nil
 local g_studioCueAssetId = nil
 local function StopStudioCue()

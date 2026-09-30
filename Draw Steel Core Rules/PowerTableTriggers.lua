@@ -290,7 +290,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
     --- @param casterToken CharacterToken The token casting the ability
     --- @param targetToken CharacterToken The target of the ability
     --- @param ability ActivatedAbility
-    --- @param rollProperties RollProperties
+    --- @param rollProperties RollPropertiesPowerTable
     --- @param castOptions table A table of options that go to an ability cast.
     applyTriggerToPowerRoll = function(self, token, casterToken, targetToken, ability, rollProperties, castOptions)
         local triggerInfo = g_idToTriggerChoice[self.trigger]
@@ -1057,7 +1057,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
 --- @param casterToken CharacterToken
 --- @param targetToken CharacterToken
 --- @param ability ActivatedAbility
---- @param rollProperties RollProperties
+--- @param rollProperties RollPropertiesPowerTable
 --- @param output table
 function CharacterModifier:TriggerModsPowerRoll(modContext, token, casterToken, targetToken, ability, rollProperties, output, castOptions)
 	local typeInfo = CharacterModifier.TypeInfo[self.behavior] or {}

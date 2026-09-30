@@ -2127,6 +2127,7 @@ function gui.ColorPicker(args)
 		options.data = {}
 	end
 
+	---@type Panel
 	local mainPanel = nil
 
 	options.data.getColor = function()
@@ -2579,6 +2580,7 @@ function gui.TreeNode(args)
 	local panelHeight = options.panelHeight or 30
 	options.panelHeight = nil
 
+	---@type Panel
 	local contentPanel = options.contentPanel
 	options.contentPanel = nil
 
@@ -2613,6 +2615,7 @@ function gui.TreeNode(args)
 
 	refreshCollapsed()
 
+	---@type Panel
 	local resultPanel = nil
 
 	local triangle = gui.Panel({
@@ -2976,7 +2979,12 @@ end
 --- @field disabled nil|boolean
 --- @field submenu nil|(ContextMenuEntry[])
 --- @field bind nil|string The keybind the entry has
---- @field hasNewContent nil|boolean If true, this has new content and will be marked as such.
+--- @field hasNewContent nil|fun(): boolean If it returns true, this has new content and will be marked as such.
+--- @field icon nil|string Image shown to the left of the text.
+--- @field hidden nil|boolean If true the entry is skipped by gui.ContextMenu.
+--- @field id nil|string Id given to the item's panel.
+--- @field tooltip nil|string|LabelArgs Shown on hover, via gui.Tooltip.
+--- @field rightClickMenu nil|(ContextMenuEntry[]) Entries of a menu opened by right-clicking this entry.
 
 
 
@@ -3406,6 +3414,7 @@ local g_recentAudioUploads = {}
 function gui.AudioEditor(args)
 	local resultPanel
 
+	---@type Panel
 	local spectrumPanel = nil
 
 	args = DeepCopy(args)
@@ -3602,6 +3611,7 @@ function gui.AudioEditor(args)
 
 		press = function(element)
 
+			---@type Panel
 			local popupPanel = nil
 			local searchText = ''
 			-- Reassigned once searchInput exists; lets a row trigger a full
@@ -4836,7 +4846,14 @@ function gui.Curve(options)
 	--the id of shapes made by editor info.
 	local editorInfoIds = {}
 
+	--- A curve point in normalized [0-1] editor units; z is the tangent gradient.
+	--- @class GuiCurvePoint
+	--- @field x number
+	--- @field y number
+	--- @field z number
+
 	--the actual point that the tangent is for.
+	--- @type GuiCurvePoint?
 	local tangentPoint = nil
 
 	--the id of the shape displaying the current tangent.
@@ -4855,7 +4872,9 @@ function gui.Curve(options)
 	local dragging = nil
 
 	--the mouse position and original position of the start of the drag.
+	--- @type Vector2
 	local dragAnchor = nil
+	--- @type {x: number, y: number}
 	local dragStartPos = nil
 
 	local CloseToTangent = function(point)

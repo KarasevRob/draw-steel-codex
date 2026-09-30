@@ -19,6 +19,16 @@ dmhub.HoldAmendableRollOpen = function()
 end
 
 local g_activeRoll = nil
+
+--- The dmhub.Roll args of the roll in flight, kept so a re-roll can amend it.
+---@class EmbeddedRollActiveArgs: RollDefinition
+---@field guid string
+---@field creature creature?
+---@field dicetower boolean?
+---@field pending function?
+---@field originalRoll string? the roll text before any re-roll.
+
+---@type EmbeddedRollActiveArgs
 local g_activeRollArgs = nil
 
 -- The roll-dialog highlight surface tracks the active scheme accent. Used as a
@@ -479,13 +489,39 @@ function GameHud.CreateEmbeddedRollDialog()
     local m_strictRolls = StrictRollsEnforced()
 
     --the creature doing the roll
+    ---@type creature?
     local creature = nil
 
     --creature targeted by the roll.
     local targetCreature = nil
 
 
-    --- @type nil|({token: CharacterToken, boons: number, banes: number, text: string, modifiers: CharacterModifier[], triggers: list}[])
+    --- One modifier offered for a roll (see creature:GetModifiersForPowerRoll).
+    --- @class EmbeddedRollModifierEntry
+    --- @field modifier CharacterModifier
+    --- @field context nil|table the modifier's GoblinScript context.
+    --- @field hint nil|{result: boolean|string, justification: string[]} some hints carry a string result (e.g. "true", a cover amount).
+    --- @field override nil|boolean the user's explicit on/off choice.
+    --- @field failsRequirement nil|boolean
+    --- @field modFromTarget nil|boolean
+    --- @field isAfterRoll nil|boolean
+
+    --- One target row of a multi-target roll.
+    --- @class EmbeddedRollMultiTarget
+    --- @field token CharacterToken
+    --- @field originalid nil|string charid of the row a trigger retargeted from.
+    --- @field boons number
+    --- @field banes number
+    --- @field boonsOverride nil|number
+    --- @field tiersDelta nil|number
+    --- @field text string
+    --- @field surges nil|number
+    --- @field modifiers EmbeddedRollModifierEntry[]
+    --- @field modifiersUsed nil|CharacterModifier[] snapshot of the roll's active modifiers.
+    --- @field rollProperties nil|RollProperties
+    --- @field triggers table[] free-form trigger records.
+
+    --- @type nil|EmbeddedRollMultiTarget[]
     local m_multitargets = nil
     local m_CalculateMultiTargets = nil
     local m_afterRollModifierEntries = nil

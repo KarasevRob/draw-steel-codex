@@ -2325,6 +2325,8 @@ function DTProjectEditor._createProgressListItem(item, deleteEvent)
     if rollBy and #rollBy > 0 then
         local rollDisplay = DTHelpers.FormatNameWithUserColor(rollBy, commitBy)
         userDisplay = string.format("%s (%s)", rollDisplay, userDisplay)
+        --Only a DTRoll reports a roller, so the item is one here.
+        ---@cast item DTRoll
         rollText = string.format("<b>Roll:</b> %s; ", item:GetRollString())
     end
 

@@ -396,6 +396,7 @@ local ShowSkillsPanel = function(parentPanel)
 
     local CreateItemList = function(catid, catname)
 
+        ---@type Panel
         local itemsListPanel = nil
 
         local skillItems = {}

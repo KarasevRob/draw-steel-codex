@@ -319,7 +319,7 @@ function CBSelectors._makeButton(options)
 end
 
 --- Creates a selector button that lazily loads a detail panel when selected.
---- @param config {text: string, selectorName: string, createChoicesPane: fun(): Panel}
+--- @param config {text: string, selectorName: string, createChoicesPane: (fun(): Panel), selectedText?: (fun(hero: character): string|nil)}
 --- @return Panel
 function CBSelectors._makeDetailed(config)
     local selectorButton = CBSelectors._makeButton{

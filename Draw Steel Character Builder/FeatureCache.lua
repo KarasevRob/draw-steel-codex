@@ -4,12 +4,21 @@
 ]]
 --- @class CBFeatureCache: GameType
 --- @field new fun(o?: table): CBFeatureCache
+--- @field selectedId string GUID of the item selected on the hero.
+--- @field selectedName string Display name of the item selected on the hero.
+--- @field keyed table<string, CBFeatureWrapper> Feature wrappers by feature guid.
+--- @field sorted {guid: string, order: string}[] Feature guids in display order.
+--- @field flattened table[] The features as {feature = ...} entries, or the input list when nothing was flattened.
 CBFeatureCache = RegisterGameType("CBFeatureCache")
 --- @class CBFeatureWrapper: GameType
 --- @field new fun(o?: table): CBFeatureWrapper
+--- @field feature CharacterChoice The builder choice feature this wraps (set by CreateNew).
+--- @field category string Display category derived from the feature's type name.
 CBFeatureWrapper = RegisterGameType("CBFeatureWrapper")
 --- @class CBOptionWrapper: GameType
 --- @field new fun(o?: table): CBOptionWrapper
+--- @field option table The wrapped option: a plain option table or a game-typed choice entry.
+--- @field isSelected boolean Whether the hero has this option selected.
 CBOptionWrapper = RegisterGameType("CBOptionWrapper")
 
 local _formatOrder = CharacterBuilder._formatOrder
@@ -542,7 +551,7 @@ function CBFeatureWrapper:GetPointsName()
     return _safeGet(self.feature, "pointsName", "Points")
 end
 
---- @return RollTableReference
+--- @return RollTable
 function CBFeatureWrapper:GetRollTable()
     return self.feature.characteristic:GetRollTable()
 end

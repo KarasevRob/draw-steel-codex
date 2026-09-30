@@ -12,6 +12,7 @@ local mod = dmhub.GetModLoading()
 --- @field modifiesAttacks boolean If true, this property modifies attack rolls.
 --- @field itemType string Equipment category this property applies to: "weapon", "armor", "shield", "other", or "all".
 --- @field features table[] List of features/modifiers granted by this property.
+--- @field attackModifier? CharacterModifier The modifyability modifier applied to attacks when modifiesAttacks is set; created on first enable.
 --- These are more correctly called "EquipmentProperty"; "WeaponProperty" is a historical name.
 WeaponProperty = RegisterGameType("WeaponProperty")
 
@@ -95,7 +96,9 @@ end
 
 
 function WeaponProperty.CreateEditor()
+    ---@type Panel
     local resultPanel
+    ---@type WeaponProperty?
     local m_item = nil
     local m_itemOriginal = nil
 

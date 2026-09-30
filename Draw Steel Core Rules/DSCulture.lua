@@ -10,6 +10,7 @@ local mod = dmhub.GetModLoading()
 --- @field languageid string Language id associated with this culture.
 --- @field init boolean Whether this culture has been initialized (false for the default template).
 --- @field aspects table<string, string> Map from aspect category id to chosen CultureAspect id.
+--- @field aggregate? string On a hero's culture: id of the aggregate Culture chosen in the builder ("" if none); read with try_get.
 Culture = RegisterGameType("Culture")
 
 Culture.tableName = "cultures"

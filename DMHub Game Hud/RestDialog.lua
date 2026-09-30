@@ -349,7 +349,9 @@ function GameHud:CreateRestingDialog(requestid, request)
 
 	local isrolling = false
 
+	---@type Panel
 	local rollPanel = nil
+	---@type Input
 	local rollInput = nil
 
 	local RefreshRoll = function()

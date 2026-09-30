@@ -89,9 +89,13 @@ function gui.GoblinScriptInput(options)
 	local m_width = options.width or 360
 	local editWidth = m_width - 40
 
+	--a plain formula (string or number) or an upcast/threshold table.
+	---@type string|number|GoblinScriptTable
 	local m_value = nil
 
+	---@type Input?
 	local inputText = nil
+	---@type TablePanel?
 	local inputTable = nil
 
 	local newFieldInput
@@ -413,6 +417,7 @@ function gui.GoblinScriptInput(options)
 							script = newValueInput.text,
 						}
 
+						---@cast m_value GoblinScriptTable
 						m_value:Normalize()
 
 						newFieldInput.text = ""
@@ -502,6 +507,7 @@ function gui.GoblinScriptInput(options)
 								end
 
 								entry.threshold = tonumber(element.text)
+								---@cast m_value GoblinScriptTable
 								m_value:Normalize()
 								resultPanel.value = m_value
 								resultPanel:FireEvent("change", m_value)
@@ -1166,6 +1172,7 @@ function gui.GoblinScriptLuaDialog(options)
 	local dialogWidth = 1200
 	local dialogHeight = 980
 
+	---@type Panel
 	local resultPanel = nil
 
 	local out = {}
@@ -1372,6 +1379,7 @@ function gui.GoblinScriptDebugDialog(options)
 	local dialogWidth = 800
 	local dialogHeight = 600
 
+	---@type Panel
 	local resultPanel = nil
 
 	-- DialogResizePanel mutates this table on every drag so the helper code stays
@@ -2015,6 +2023,7 @@ function gui.GoblinScriptEditorDialog(options)
 	local dialogWidth = 1200
 	local dialogHeight = 980
 
+	---@type Panel
 	local resultPanel = nil
 
 	local inputPanel = nil
@@ -2311,6 +2320,7 @@ function gui.GoblinScriptTypeInfoDialog(options)
 	local dialogWidth = 1200
 	local dialogHeight = 980
 
+	---@type Panel
 	local resultPanel = nil
 
 	local parentField = options.parentField

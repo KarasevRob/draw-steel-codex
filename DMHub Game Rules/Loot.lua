@@ -28,6 +28,7 @@ end
 --- @field inventory table<string, table> Map of item id to inventory entry.
 --- @field isLoot boolean Always true for loot objects; distinguishes from full creature objects.
 --- @field discount number Percentage discount applied to item prices when purchasing (0-100).
+--- @field lootTable? {key: string, choiceIndex?: integer} The loot table last rolled into this container, remembered for re-rolls.
 --- Represents a loot container (chest, dropped items, NPC shop) attached to a map object.
 loot = RegisterGameType("loot")
 
@@ -815,6 +816,7 @@ creature.RollLoot = loot.RollLoot
 
 --- @class ObjectComponentText: GameType
 --- @field new fun(o?: table): ObjectComponentText
+--- @field _tmp_label Label The label drawn on the component's sheet, created on first Update (check has_key first).
 --- A map-object component that displays a text label rendered on the canvas via a game sheet.
 ObjectComponentText = RegisterGameType("ObjectComponentText")
 

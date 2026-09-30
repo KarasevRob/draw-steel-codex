@@ -140,6 +140,11 @@ local function IsManifestMode(modifier)
     return modifier:try_get("treasureDelivery", "claim") == "manifest"
 end
 
+---@class ModifierGrantTreasureState
+---@field itemid? string
+---@field claimed boolean
+---@field manifested? {itemid: string, slot: string}
+
 --Per-creature record of the pick: { itemid = string|nil, claimed = boolean,
 --manifested = { itemid, slot }|nil }. manifested is set while a Manifest
 --Treasure behavior has the item equipped.
@@ -412,6 +417,7 @@ CharacterModifier.TypeInfo.granttreasure = {
                 change = function(element)
                     ---@cast element Dropdown
                     local current = GetGrantState(creature, modifier, true)
+                    ---@cast current ModifierGrantTreasureState
                     if current.claimed then
                         return
                     end
@@ -440,6 +446,9 @@ CharacterModifier.TypeInfo.granttreasure = {
 ]]
 --- @class CharacterTreasureGrantChoice: CharacterChoice
 --- @field new fun(o?: table): CharacterTreasureGrantChoice
+--- @field modifier CharacterModifier The granttreasure modifier this choice was built from.
+--- @field options {guid: string, name: string, unique: boolean, render: fun(): Panel}[] One entry per matching item.
+--- @field choices {id: string, text: string, unique: boolean, render: fun(): Panel}[] The same items in choice-list form.
 CharacterTreasureGrantChoice = RegisterGameType("CharacterTreasureGrantChoice", "CharacterChoice")
 
 CharacterTreasureGrantChoice.description = "Treasure Choice"
@@ -567,6 +576,7 @@ end
 
 function CharacterTreasureGrantChoice:SaveSelection(hero, option)
     local state = GetGrantState(hero, self.modifier, true)
+    ---@cast state ModifierGrantTreasureState
     if not state.claimed then
         state.itemid = option.guid or option.id
     end
@@ -764,6 +774,7 @@ local function VanishTreasure(creature, modifier)
     if not IsManifested(creature, state) then
         return false
     end
+    ---@cast state ModifierGrantTreasureState
     local itemid = state.manifested.itemid
     local location = LocateItem(creature, itemid)
     if location == "inventory" then

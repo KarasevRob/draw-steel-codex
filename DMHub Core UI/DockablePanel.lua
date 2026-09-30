@@ -138,6 +138,7 @@ function GameHud:CreateSingleDock(params)
     local floating = params.floating or false
     params.floating = nil
 
+	---@type Panel
 	local resultPanel = nil
 
 	local offscreenSetting = string.format("%sdockoffscreen", params.halign)
@@ -244,6 +245,13 @@ function GameHud:CreateSingleDock(params)
 		}
 	end
 
+	---@class DockableVerticalResizingInfo
+	---@field heights number[]
+	---@field index integer|nil
+	---@field childElement Panel|nil
+	---@field nextElement Panel|nil
+
+	---@type DockableVerticalResizingInfo
 	local verticalResizingInfo = nil
 
 	--functions to compress and expand the vertical size of panels. We have deltaPixels to work with
@@ -1016,8 +1024,10 @@ CreateDockablePanelTabbedContainer = function(options)
 
 	local metrics = CalculatePanelMetrics()
 
+	---@type Panel?
 	local dock = nil
 
+	---@type Panel
 	local resultPanel
 
 	local beginDragY = nil

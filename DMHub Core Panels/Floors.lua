@@ -1746,6 +1746,7 @@ CreateLayersPanel = function()
 				local floor = floors[i]
 
 				if floor.parentFloor == nil then
+					---@type Panel?
 					local floorPanel = floorItems[floor.floorid]
 
 					if floorPanel == nil then
@@ -2265,6 +2266,8 @@ CreateLayersPanel = function()
 							end,
 
 							refreshFloorSelection = function(element)
+								--built by now (LuaLS sees the nil it had when this closure was made).
+								---@cast floorPanel Panel
 								floorPanel:SetClassTree('selected', game.currentFloor.actualFloor == floor.actualFloor)
 							end,
 							click = function(element)
@@ -2752,6 +2755,7 @@ CreateLayersList = function(parentFloor)
 				local floor = floors[i]
 
 				if floor.floorid == parentFloor.floorid or floor.parentFloor == parentFloor.floorid then
+					---@type Panel?
 					local floorPanel = floorItems[floor.floorid]
 
 					if floorPanel == nil then
@@ -3130,6 +3134,8 @@ CreateLayersList = function(parentFloor)
 								floorLabel.text = text
 							end,
 							refreshFloorSelection = function(element)
+								--built by now (LuaLS sees the nil it had when this closure was made).
+								---@cast floorPanel Panel
 								floorPanel:SetClassTree('selected', game.currentFloor.floorid == floor.floorid)
 							end,
 							click = function(element)

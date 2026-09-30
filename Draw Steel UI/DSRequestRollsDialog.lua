@@ -72,6 +72,13 @@ local g_TokenPoolStyles = {
 --           forcedmodifiers: if present, forces a list of modifiers on character for roll 
 --- @class RollCheck: GameType
 --- @field new fun(o?: table): RollCheck
+--- @field type string Kind of roll: "test_power_roll", "resistance_power_roll", "skill", "attribute", "initiative", "table", "custom", ...
+--- @field id string The characteristic/skill/custom check id being tested.
+--- @field text string Textual description of the check.
+--- @field options? table Optional flags (tiers, casterid, nocover, specializations, skills, ...); see above.
+--- @field tableRef? RollTableReference The table to roll on when type is "table".
+--- @field dc? number Difficulty set by the Director in the request dialog.
+--- @field modifiers? table[] Roll modifier entries ({modifier = CharacterModifier, hint = ...}) included with the roll.
 RollCheck = RegisterGameType("RollCheck")
 
 --A RollRequest instance has the following fields:
@@ -80,6 +87,8 @@ RollCheck = RegisterGameType("RollCheck")
 -- contest = (optional) if true this is a contested roll between the tokens. The tokens map will have a "team" identifier to signal which side of the contest they are on.
 --- @class RollRequest: GameType
 --- @field new fun(o?: table): RollRequest
+--- @field checks RollCheck[] The checks a token can choose from; most often just one.
+--- @field tokens table<string, table> Token id -> result table, filled in by that token (outcome, result, forcedResult, checks, team, ...).
 RollRequest = RegisterGameType("RollRequest")
 
 RollCheck.consequences = ''
@@ -1011,6 +1020,7 @@ function GameHud:RequireRollListenerPanel()
 	return resultPanel
 end
 
+--- @type Panel?
 local g_requireRollDialog = nil
 
 local function CloseRequireRollDialog()

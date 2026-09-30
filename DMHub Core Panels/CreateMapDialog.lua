@@ -53,13 +53,16 @@ local s_otherGamePreviews = {}
 
 mod.shared.ShowCreateMapDialog = function()
 
+    ---@type Panel?
     local selectedMap = nil
     --packs layout only: switches the main area between the blank / import /
     --library views when the sidebar selection changes.
+    ---@type fun(mode: string)?
     local m_setMainMode = nil
     --which main view is showing; BuildLibraryNav reads it to light the
     --active filter row when the rows arrive after the async pack sync.
     local m_mainMode = "empty"
+    ---@type MapPackIndexEntry?
     local m_packEntry = nil
     --the map picked in the Your Other Games section: {gameid, mapid, name}.
     local m_otherEntry = nil

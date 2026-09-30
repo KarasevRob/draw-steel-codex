@@ -2,6 +2,7 @@ local mod = dmhub.GetModLoading()
 
 ---@class MarkdownDocument:CustomDocument
 --- @field new fun(o?: table): MarkdownDocument
+--- @field _tmp_styleDirty? boolean Editor only: the stylesheet changed since the last save; read with try_get.
 MarkdownDocument = RegisterGameType("MarkdownDocument", "CustomDocument")
 MarkdownDocument.vscroll = false
 -- Id of the JournalStylesheet that re-skins this document. `false` = built-in
@@ -1409,6 +1410,8 @@ MarkdownDocument.__ApplyInlineClasses = ApplyInlineClasses
 ---@class RichTag: GameType
 --- @field new fun(o?: table): RichTag
 ---@field pattern false|string
+--- @field tag string The tag's keyword (e.g. "encounter"); each registered subtype sets it as its default.
+--- @field identifier? string|false The suffix after the tag keyword in the document text, or false when there is none; set when the annotation is created.
 RichTag = RegisterGameType("RichTag")
 RichTag.pattern = false
 RichTag.hasEdit = true
@@ -2880,6 +2883,13 @@ local function RiderRows(getDocument)
     }
 end
 
+--A "power_roll" token from the tokenizer (fields read by the display).
+---@class MarkdownPowerRollToken
+---@field name string
+---@field attr string
+---@field tiers string[]
+---@field preset? string
+
 --getDocument() must RESOLVE the document, not be handed it. This panel is pooled
 --(ctx.pools.powerTables) and the pool lives on the render context, which persists
 --across renders, while a cloud update REPLACES the document's table row -- so
@@ -2890,6 +2900,7 @@ local function PowerRollDisplay(getDocument)
     local resultPanel
 
     local m_token = nil
+    ---@type MarkdownPowerRollToken
     local m_info = nil
     local riderRows = RiderRows(getDocument)
 
@@ -8901,6 +8912,26 @@ function MarkdownDocument.SerializeTableIsland(model)
     return s
 end
 
+--Shapes of the model ParseTableIslandSource returns (see its comment).
+---@class MarkdownTableIslandRow
+---@field cells string[]
+---@field trailingPipe boolean
+
+---@class MarkdownTableIslandModel
+---@field rollable? {name: string, dice: string, raw: string}
+---@field rows MarkdownTableIslandRow[]
+---@field separator? {raw: string, alignments: (string|false)[]}
+---@field cols integer
+---@field trailingNewline boolean
+
+--islandMeta entry for a power-roll island (built in the island compiler).
+---@class MarkdownPowerRollIslandMeta
+---@field kind string
+---@field from integer
+---@field to integer
+---@field sourceText string
+---@field token MarkdownPowerRollToken
+
 --Build a separator row line from a dense alignments list.
 function MarkdownDocument.TableIslandSeparatorRaw(alignments, cols)
     local parts = {}
@@ -8948,11 +8979,13 @@ end
 --    island opens as raw source (the escape hatch).
 local function CreateTableIslandWidget(opts)
     local m_meta = nil
+    ---@type MarkdownTableIslandModel?
     local m_model = nil
     local m_editing = nil        --{row, col} while a cell input has focus
     local m_pendingRefresh = nil --meta that arrived while a cell was edited
     local m_cellPanels = {}      --[row][col] = cell panel
     local m_headerSkin = nil     --skin blocks.table.header when the model has a separator
+    ---@type number[]?
     local m_colWidths = nil      --px per column in compact mode; nil = stretch (separator)
     local resultPanel
     local Rebuild
@@ -9730,6 +9763,7 @@ end
 --  GetBlockSkin() -> the resolved stylesheet's blocks.powerRoll config, or
 --    nil for the default dark look.
 local function CreatePowerRollIslandWidget(opts)
+    ---@type MarkdownPowerRollIslandMeta?
     local m_meta = nil
     local resultPanel
 

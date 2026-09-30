@@ -6,6 +6,8 @@ local mod = dmhub.GetModLoading()
 --- @class Spell:ActivatedAbility
 --- @field new fun(o?: table): Spell
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+--- @field components {v?: boolean, s?: boolean, m?: string} Verbal / somatic flags and the material component text.
+--- @field hidden? boolean Soft-delete flag; set when the spell is deleted.
 --- An ActivatedAbility variant that represents a castable spell, with spell level and slot tracking.
 Spell = RegisterGameType("Spell", "ActivatedAbility")
 

@@ -70,6 +70,7 @@ end
 function VisionType.CreateEditor()
     local resultPanel
 
+    --- @type VisionType
     local m_vision = nil
 
     local Upload = function()

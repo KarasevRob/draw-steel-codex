@@ -34,6 +34,7 @@ local mod = dmhub.GetModLoading()
 --- @field CalculateAttributeModifier fun(attributeInfo: table, attributeValue: number): number Converts a raw attribute score to its modifier.
 --- @field CalculateInitiativeModifier fun(creature: creature): number Returns the initiative modifier for a creature.
 --- @field AllowBoonsForRoll fun(options: table): boolean Returns true if boons/banes apply to the given roll.
+--- @field RollDialogDismissDelay? number Seconds an auto-resolved roll dialog lingers before hiding; set only by game systems that define RollDialogAutoProceed (Crows).
 GameSystem = RegisterGameType("GameSystem")
 
 --- @class RollRules: GameType

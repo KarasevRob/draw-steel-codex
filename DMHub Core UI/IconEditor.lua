@@ -66,6 +66,7 @@ function gui.IconEditor(args)
 		return (string.gsub(name, "%.[^%.]*$", ""))
 	end
 
+	--- @type Panel
 	local resultPanel = nil
 
 	local category = ''
@@ -233,6 +234,7 @@ function gui.IconEditor(args)
 
 	args.press = function(element)
 
+		--- @type Panel
 		local popupPanel = nil
 
 
@@ -245,6 +247,7 @@ function gui.IconEditor(args)
 				label.text = cond(text == "", "Name this image", text)
 			end
 
+			--- @type Label?
 			local caption = nil
 			local captionInput = nil
 			if captions then

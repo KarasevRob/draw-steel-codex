@@ -122,6 +122,7 @@ local CreateCustomMessagePanel = function(message)
 
     --pcall: a message may come from a client running a newer mod version whose
     --message type is not registered here; reading .Render on an unknown type raises.
+    --- @type Panel?
     local panel = nil
     pcall(function() panel = message.properties:Render(message) end)
     if panel == nil then
@@ -155,6 +156,7 @@ local CreateCustomMessagePanel = function(message)
         gui.Tooltip(DescribeServerTimestamp(message.timestamp))(element)
     end
 
+    ---@cast panel -nil
     if panel.events == nil then
         panel.events = {
             linger = linger,

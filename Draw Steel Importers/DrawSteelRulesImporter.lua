@@ -144,6 +144,8 @@ import.Register{
 
             elseif currentLevel ~= nil and currentLevel > 1 and currentClass ~= nil and regex.MatchGroups(sline, "^[0-9]+[a-z][a-z]-Level [A-Za-z ]+ Abilit(ies|y)$") then
                 local subclassNameMatch = regex.MatchGroups(sline, "^(?<level>[0-9]+[a-z][a-z])-Level (?<subclass>[A-Za-z ]+) Abilit(ies|y)$")
+                --the elseif above matched the same shape, and without `indexes` every group is a string.
+                ---@cast subclassNameMatch table<string, string>
                 currentClassMode = "abilities"
                 skipping = true
 
@@ -205,6 +207,14 @@ import.Register{
 
         local kitType = nil
         local kitInfo = {}
+        --- A kit being read from the rules text: its stat lines and signature ability lines.
+        ---@class DSRulesImporterKitInfo
+        ---@field name string
+        ---@field type string
+        ---@field statsLines string[]
+        ---@field abilityLines string[]
+
+        ---@type DSRulesImporterKitInfo?
         local currentKit = nil
         local kitCount = 0
 

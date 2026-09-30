@@ -185,6 +185,7 @@ local function CollectPortals(auraName)
         for _, obj in pairs(floor.objects) do
             if obj.valid then
                 local component = obj:GetComponent("Aura")
+                ---@type AuraComponent?
                 local props = nil
                 if component ~= nil then
                     props = component.properties

@@ -3,6 +3,8 @@ local mod = dmhub.GetModLoading()
 
 ---@class RichEncounter: RichTag
 --- @field new fun(o?: table): RichEncounter
+--- @field encounter Encounter The encounter this tag shows and places; set by RichEncounter.Create.
+--- @field spawns? string[] Charids of the monsters this tag placed on the map; absent until placed.
 RichEncounter = RegisterGameType("RichEncounter", "RichTag")
 RichEncounter.tag = "encounter"
 

@@ -1012,6 +1012,8 @@ function EncounterMontage.AdvanceScene()
     if not EncounterMontage.LocalUserPacesScene(m) then
         return false
     end
+    --LocalUserPacesScene is false when m is nil.
+    ---@cast m -nil
     local index = EncounterMontage.SceneCursor(m)
     local scene = m.turn.scene
     if index == nil or index > #(scene.steps or {}) then
@@ -2729,6 +2731,8 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if option == nil or (option.roll == nil and (option.delve == nil or t.delve ~= nil)) then
             return "ignored choose: no such option"
         end
+        --option is only found when entry is.
+        ---@cast entry -nil
         if option.delve ~= nil and t.delve == nil then
             local script = EncounterMontage.FindMapScript()
             local delve = EncounterScript.FindDelve(script ~= nil and script.parse or nil, option.delve)
@@ -2795,6 +2799,8 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             t.status = "choosing"
             return "ignored roll: option vanished"
         end
+        --option is only found when entry is.
+        ---@cast entry -nil
         local tierIndex = TierIndexForRoll(option.roll, req.tier, req.natural)
         --what the acting hero rolled WITH: the assist uses the same
         --characteristic, and a hero may only assist with a skill this one is

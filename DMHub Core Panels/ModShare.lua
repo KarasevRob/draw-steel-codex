@@ -1282,6 +1282,7 @@ local CreateAssetsHierarchy = function(moduleInstance)
 
 	local knownAssetsInCore = {}
 
+	--- @type table<string, ImageLibraryAssetLua>
 	local coreImageLibraries = nil
 
 	local populateCore = function()

@@ -332,6 +332,7 @@ end
 local CreateInventorySlot = function(dmhud, options)
 	local guid = dmhub.GenerateGuid()
 	--the current token this pertains to.
+	---@type (CharacterToken|LuaPartyInfo|LuaObjectComponentLoot)?
 	local token = nil
 
 	--if this slot is set up to add a new item.
@@ -344,14 +345,17 @@ local CreateInventorySlot = function(dmhud, options)
 	--if this slot is set up to allow us to access party inventory
 	local accessParty = false
 
+	---@type equipment?
 	local item = nil
 
 	local m_quantityNum = 1
 
 
+	---@type Panel
 	local slotPanel = nil
 
 	--will be populated with the parent dialog that owns this.
+	---@type Panel?
 	local parentDialog = nil
 
 	local testVisibilityFunction = nil
@@ -468,6 +472,7 @@ local CreateInventorySlot = function(dmhud, options)
 						parentDialog:FireEventTree('refreshInventory')
 
 						if token.type == "component" and token.destroyOnEmpty and token.properties:Empty() then
+							---@cast token LuaObjectComponentLoot
 							if parentDialog ~= nil then
 								parentDialog.data.close()
 							end
@@ -1519,12 +1524,15 @@ function GameHud.CreateInventoryDialog(self, options)
 
 	local npage = 1
 
+	---@type (CharacterToken|LuaPartyInfo|LuaObjectComponentLoot)?
 	local token = nil
 	local inventory = nil
 	local sortedInventory = nil
 	local focusItem = nil
+	---@type table<string, equipment>
 	local gearTable = nil
-	
+
+	---@type Panel
 	local resultPanel = nil
 
 	local itemsPerPage = NumRows*NumCols
@@ -2551,6 +2559,7 @@ function GameHud.CreateInventoryDialog(self, options)
 		equipmentPanel = self:CreateEquipmentDialog(options)
 	end
 
+	---@type Label|Panel
 	local takeAllButton = nil
 	local lootPanel = nil
 	if tradeInventory then
@@ -2585,6 +2594,7 @@ function GameHud.CreateInventoryDialog(self, options)
 					takeAllButton:SetClass('hidden', true)
 
 					if token.type == "component" and token.destroyOnEmpty then
+						---@cast token LuaObjectComponentLoot
 						resultPanel.data.close()
 						token:DestroyObject()
                     elseif token.type == "component" and token.properties:Empty() then
@@ -3066,6 +3076,7 @@ end
 function GameHud.CreateAddItemDialog(self, options)
 	local dialogWidth = 1200
 	local dialogHeight = 920
+	---@type Panel
 	local resultPanel = nil
 
 	--the panel to notify that we added an item.
@@ -3080,9 +3091,10 @@ function GameHud.CreateAddItemDialog(self, options)
 		},
 	}
 
+	---@type equipment
 	local newItem = nil
 
-	local confirmCancelPanel = 
+	local confirmCancelPanel =
 		gui.Panel{
 			style = {
 				valign = 'bottom',
@@ -3252,8 +3264,11 @@ end
 
 
 local CreateEquipmentSlot = function(dmhud, options)
+	---@type Panel
 	local slotPanel = nil
+	---@type CharacterToken?
 	local token = nil
+	---@type equipment?
 	local item = nil --the item currently in the slot.
 
 	local slotName = options.slot
@@ -3758,6 +3773,7 @@ function GameHud.CreateEquipmentDialog(self, options)
 		slotBorder = SlotBorder()
 	end
 
+	---@type Panel
 	local resultPanel = nil
 	resultPanel = gui.Panel{
 		x = -600,

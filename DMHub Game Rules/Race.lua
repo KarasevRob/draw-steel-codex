@@ -14,6 +14,10 @@ local mod = dmhub.GetModLoading()
 --- @field subrace boolean If true, this is a subrace rather than a base race.
 --- @field details string Short lore summary.
 --- @field lore string Long-form lore text.
+--- @field parentRace? string For a subrace: id of its parent race; read with try_get.
+--- @field nameGenerator? string Id of the nameGenerators roll table used for this race ("none" if unset); read with try_get.
+--- @field footprintStyle? string Default footprint style id (FootprintStyle table id or built-in); nil = default.
+--- @field bloodColor? string Default blood color id for creatures of this race; nil = default.
 Race = RegisterGameType("Race")
 
 local defaultRace = nil
@@ -68,13 +72,14 @@ function Race:EnsureDomain()
 end
 
 --- Returns the CharacterAncestryInheritanceChoice feature if this race uses the Former Life mechanic, or false.
---- @return false|CharacterFeature
+--- @return false|CharacterAncestryInheritanceChoice
 function Race:IsInherited()
     local formerLifeFeature = self and self:GetClassLevel() and self:GetClassLevel().features[1]
     if formerLifeFeature == nil or formerLifeFeature.typeName ~= 'CharacterAncestryInheritanceChoice' then
         return false
     end
 
+    ---@cast formerLifeFeature CharacterAncestryInheritanceChoice
     return formerLifeFeature
 end
 

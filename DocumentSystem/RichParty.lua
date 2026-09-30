@@ -2,6 +2,8 @@ local mod = dmhub.GetModLoading()
 
 ---@class RichParty: RichTag
 --- @field new fun(o?: table): RichParty
+--- @field tokensAdded table<string, boolean> Charids added to the party list by hand.
+--- @field tokensRemoved table<string, boolean> Charids removed from the party list by hand.
 RichParty = RegisterGameType("RichParty", "RichTag")
 RichParty.tag = "party"
 RichParty.hasEdit = "hidden"

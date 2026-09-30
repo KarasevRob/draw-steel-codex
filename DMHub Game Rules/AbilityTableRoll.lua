@@ -7,6 +7,7 @@ local mod = dmhub.GetModLoading()
 --- @field tableid string Id of the table to roll on.
 --- @field resourceAction string Action resource id consumed when rolling, or "none".
 --- @field interpretResultAsGameRule boolean If true, the table result text is parsed as a game rule.
+--- @field customTable RollTable The behavior's own table, used when tableType is "custom".
 ActivatedAbilityTableRollBehavior = RegisterGameType("ActivatedAbilityTableRollBehavior", "ActivatedAbilityBehavior")
 
 

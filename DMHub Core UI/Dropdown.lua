@@ -21,6 +21,7 @@ end
 --- @field id string|true|false
 --- @field text string
 --- @field tooltip nil|string|fun():string Tooltip text to show when hovering over this option.
+--- @field submenu nil|DropdownOption[] Child options shown in a flyout; the parent itself is not choosable.
 
 --- @class Dropdown:Panel
 --- @field idChosen nil|true|false|string The id of the option currently chosen.
@@ -36,6 +37,11 @@ end
 --- @field hasSearch nil|boolean If true, this dropdown will provide an input field to search it. Good to use on dropdowns with many options.
 --- @field menuAlign nil|"left"|"center"|"right" How the open menu sits against the control; defaults to "center". Only has an effect alongside menuWidth, since otherwise the menu matches the control's width exactly. "left" also brings the search field over the control.
 --- @field sort nil|boolean Sorts @see options before displaying.
+--- @field debug nil|boolean Consumed by gui.Dropdown and not passed to the panel.
+--- @field menuHeight nil|number Maximum height of the open menu; defaults to 300.
+--- @field dropdownHeight nil|number Older name for menuHeight.
+--- @field menuWidth nil|number Width of the open menu; defaults to the control's width.
+--- @field optionChosen nil|true|false|string Older name for idChosen.
 --- @field centerPopup nil|boolean If true, the menu that displays from this dropdown will appear parented to the root of the panel hierarchy and in the center -- i.e. it should pop up in the middle of the screen rather than attached to the dropdown.
 
 
@@ -81,6 +87,7 @@ function gui.Dropdown(args)
         m_searchFocus = panel
     end
  
+	---@type Dropdown
 	local dropdownParent = nil
  
 	local menuHeight = args.menuHeight or args.dropdownHeight or 300

@@ -295,6 +295,7 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
                         change = function(element)
                             ---@cast element Dropdown
                             if element.idChosen ~= nil then
+                                ---@type {id: string, text: string, table: string}?
                                 local option = nil
                                 for _,entry in ipairs(associationOptions) do
                                     if entry.id == element.idChosen then
@@ -711,6 +712,7 @@ function CharacterOngoingEffect.CreateOngoingEffectEditorDialog(options)
 	local dialogWidth = 1200
 	local dialogHeight = 980
 
+	---@type Panel
 	local resultPanel = nil
 
 

@@ -468,6 +468,7 @@ local function CreateObjectEntry(nodeid, parentElement, options)
 	local matchesSearch = true
 	local parentCollapsed = false
 
+	---@type Panel
 	local resultPanel = nil
 
 
@@ -925,6 +926,7 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 	local refreshAssetsDirty = false
 	local node = assets:GetObjectNode(nodeid)
 
+	---@type Panel
 	local folderPane = nil
 
 	--the root folder gets additional UI, such as a search and ways to add objects.
@@ -1058,6 +1060,7 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 		}
 	end
 
+	---@type Panel
 	local triangle = nil
 	triangle = gui.Panel({
 				bgimage = 'panels/triangle.png',
@@ -1886,6 +1889,7 @@ local function CreateObjectInstanceHierarchy()
 	local resultPanel
 
 	local m_currentFloorId = nil
+	---@type Panel?
 	local bodyPanel = nil
 
 	local triangle = nil
@@ -1943,6 +1947,8 @@ local function CreateObjectInstanceHierarchy()
 
 								thinkTime = 0.3,
 								think = function(element)
+									--built by the time it thinks (LuaLS sees the nil it had when this closure was made).
+									---@cast bodyPanel Panel
 									if bodyPanel:HasClass("collapsed") then
 										return
 									end
@@ -1954,6 +1960,7 @@ local function CreateObjectInstanceHierarchy()
 								end,
 
 								refreshObjectInstances = function(element)
+									---@cast bodyPanel Panel
 									if bodyPanel:HasClass("collapsed") then
 										return
 									end

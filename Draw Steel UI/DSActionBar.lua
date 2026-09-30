@@ -285,6 +285,7 @@ local SlotStyles = {
 }
 
 function GameHud.CreateActionBar(self, dialog, tokenInfo)
+	---@type Panel
 	local actionBarResultPanel = nil
 
 	local actionBar
@@ -298,10 +299,13 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 
 	--objects to mark line of sight.
 	local m_markLineOfSight = nil
+    ---@type CharacterToken?
     local m_markLineOfSightSourceToken = nil
+	---@type CharacterToken?
 	local m_markLineOfSightToken = nil
 
 	--the panel that shows the current spell being cast.
+	---@type Panel
 	local m_currentSpellPanel = nil
 
 	--the button used to cast spells and label used to show cast info.
@@ -322,7 +326,37 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 	local ammoChoicePanel
 	local synthesizedSpellsPanel
 
+	---@class DSActionBarCostPaymentOption
+	---@field resourceid string
+	---@field quantity number
+	---@field upcast? number
+	---@field level? number
+
+	---@class DSActionBarCostDetail
+	---@field cost string
+	---@field quantity? number
+	---@field upcast? number
+	---@field level? number
+	---@field canAfford boolean
+	---@field paymentOptions DSActionBarCostPaymentOption[]
+	---@field expendedOptions DSActionBarCostPaymentOption[]
+	---@field refreshType? string
+	---@field description? string
+	---@field maxCharges? integer
+	---@field availableCharges? integer
+	---@field payerTokenId? string
+
+	--- What ActivatedAbility:GetCost / Spell.GetCost return (see the comment above ActivatedAbility:GetCost).
+	---@class DSActionBarCostProposal
+	---@field canAfford boolean
+	---@field details DSActionBarCostDetail[]
+	---@field moveCost? number
+	---@field cannotMove? boolean
+	---@field consumables? table<string, number>
+	---@field outOfAmmo? boolean
+
 	--cost of the ability currently being used.
+	---@type DSActionBarCostProposal?
 	local currentCostProposal = nil
 
     local m_targetLineOfSightRays = {}
@@ -343,7 +377,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
         m_targetLineOfSightRays[key] = ray
     end
 
-    ---@param rays table<{a: Token, b: Token}>[]
+    ---@param rays {a: CharacterToken, b: CharacterToken}[]
     local function ReplaceTargetLineOfSightRays(rays)
         local t = {}
         for i,ray in ipairs(rays) do
@@ -372,6 +406,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
     end
 
 	--the spell we are currently casting, if any.
+	---@type ActivatedAbility?
 	local currentSpell = nil
 
     local m_allowedAltitudeCalculator = nil
@@ -665,6 +700,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 		--tokens we are force targeting based on them being in a radius. A mapping of tokenid -> token
 		local pointForceTargets = {}
 
+		---@type Panel
 		local spellPanel = nil
 		if spellIndex ~= nil then
 			m_spellPanels[spellCategory] = m_spellPanels[spellCategory] or {}
@@ -694,7 +730,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 			local m_targetsChosen = {} --list of strings for targets. Can contain duplicates if duplicate targeting is enabled.
             local m_positionTargetsChosen = {} --list of Locs for targets. Used on emptyspace targeting.
 
-            ---@return table<{loc: table, token: Token}>[]
+            ---@return {loc: Loc, token: CharacterToken}[]
             local function BuildTargetsList()
 				--accumulate our target list based on what is selected.
 				local targets = {}
@@ -3738,6 +3774,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 	}
 
 	local CreateResourcesBar = function(resourceGroupings, options)
+		---@type CharacterToken
 		local m_token = nil
 
 		options = options or {}
@@ -4421,6 +4458,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 			}
 		}
 
+        ---@type Panel
         local drawerButton = nil
 
         if bar.drawer then

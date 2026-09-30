@@ -22,6 +22,13 @@ local logs = {}
 dmhub = {Time = function() return now end}
 ActivatedAbility = {CountActiveCasts = function() return activeCasts end}
 printf = function(fmt, ...) logs[#logs+1] = string.format(fmt, ...) end
+--- The args the code under test hands GameHud.RegisterBetweenTurnHandler.
+---@class EndTurnCastWaitTestHandler
+---@field id string
+---@field priority number
+---@field run fun(context: table)
+
+---@type EndTurnCastWaitTestHandler?
 local registered = nil
 GameHud = {RegisterBetweenTurnHandler = function(args) registered = args end}
 

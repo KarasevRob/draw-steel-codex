@@ -11,9 +11,13 @@
 ]]
 --- @class CharacterAspectChoice: CharacterChoice
 --- @field new fun(o?: table): CharacterAspectChoice
+--- @field options {guid: string, name: string}[] One entry per culture aspect in this category.
+--- @field choices {id: string, text: string}[] The same aspects in choice-list form.
 CharacterAspectChoice = RegisterGameType("CharacterAspectChoice", "CharacterChoice")
 --- @class CharacterCultureAggregateChoice: CharacterChoice
 --- @field new fun(o?: table): CharacterCultureAggregateChoice
+--- @field options {guid: string, name: string, description: string, aspects: table, languageId: string|nil}[] One entry per aggregate culture in the group.
+--- @field choices {id: string, text: string, description: string, aspects: table, languageId: string|nil}[] The same cultures in choice-list form.
 CharacterCultureAggregateChoice = RegisterGameType("CharacterCultureAggregateChoice", "CharacterChoice")
 
 CharacterAspectChoice.description = "Culture Aspect Choice"

@@ -21,6 +21,8 @@ local mod = dmhub.GetModLoading()
 --- @field kitManeuver false|ActivatedAbility The kit's maneuver ability (false if none).
 --- @field damageBonuses table<string, number[]> Map from damage bonus type id to tier values.
 --- @field weapons table Equipment items associated with this kit.
+--- @field signatureAbilities? ActivatedAbility[] Signature abilities of a combined (two-kit) kit; plain kits use signatureAbility.
+--- @field imported? string Import guid stamped by the rules importer.
 Kit = RegisterGameType("Kit")
 
 local ApplyBonusesFromKit

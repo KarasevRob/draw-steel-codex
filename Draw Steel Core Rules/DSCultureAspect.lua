@@ -7,6 +7,7 @@ local mod = dmhub.GetModLoading()
 --- @field description string Descriptive text.
 --- @field tableName "cultureAspects" Data table name ("cultureAspects").
 --- @field category string Aspect category id: "environment", "organization", or "upbringing".
+--- @field modifierInfo ClassLevel Holds the aspect's modifiers and features, like a class level.
 CultureAspect = RegisterGameType("CultureAspect")
 
 CultureAspect.tableName = "cultureAspects"
@@ -197,6 +198,7 @@ local ShowCultureAspectPanel = function(parentPanel)
 
 	local editorPanel = CultureAspect.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
     local m_headingPanels = {}

@@ -419,6 +419,20 @@ EnsureThemeSubscription = function()
     end)
 end
 
+--The commandInfo a macro passes to Commands.RegisterMacro (the full
+--contract is in Utils.lua).
+---@class CommandBuilderCommandInfo
+---@field name? string
+---@field description? string
+---@field params? table[]
+---@field dmonly? boolean
+---@field broadcast? string|boolean
+
+--One entry of CommandBuilder.GetSurfacedCommands().
+---@class CommandBuilderSurfacedCommand
+---@field macro string
+---@field info CommandBuilderCommandInfo
+
 --The macros that opted into being surfaced as user-facing commands by
 --passing commandInfo to Commands.RegisterMacro (see Utils.lua for the
 --shape). Returns { { macro = registered name, info = commandInfo }, ... }
@@ -838,6 +852,7 @@ function CommandBuilder.CreateStepEditorPopup(iconElement, stepIndex)
     if macroName == nil then
         return nil
     end
+    ---@cast info CommandBuilderCommandInfo
 
     --a command declared "always" stays wrapped even if the step predates the
     --declaration; otherwise the step's own state is what the check shows.
@@ -920,6 +935,7 @@ function CommandBuilder.CreateCommandBrowserPopup(iconElement)
     local m_selectionTitle
     local m_selectionDescription
 
+    ---@type CommandBuilderSurfacedCommand?
     local m_selected = nil    --entry from commands
     local m_values = {}       --current value per param index for the selection
     local m_broadcast = false --whether to wrap the selection in /broadcast

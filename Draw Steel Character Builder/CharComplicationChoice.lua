@@ -6,6 +6,11 @@
 ]]
 --- @class CharacterComplicationChoice: CharacterChoice
 --- @field new fun(o?: table): CharacterComplicationChoice
+--- @field options table[] Builder options {id, guid, name, unique, render}, sorted by name; set by CreateNew.
+--- @field choices table[] Dropdown choices {id, text, unique, render}, sorted by text; set by CreateNew.
+--- @field numSelected number How many complications the hero has; set by CreateNew.
+--- @field selected string[] Ids of the hero's complications; set by CreateNew.
+--- @field characteristic? {GetRollTable: fun(): table} Roll-table shim for the builder's roller; set when there are options.
 CharacterComplicationChoice = RegisterGameType("CharacterComplicationChoice", "CharacterChoice")
 
 CharacterComplicationChoice.description = "Complication Choice"

@@ -513,6 +513,7 @@ function AnimalCompanion:FillFreeStrikes(options, result)
     if signature ~= nil then
         for _,behavior in ipairs(signature.behaviors) do
             if behavior.typeName == "ActivatedAbilityPowerRollBehavior" then
+                ---@cast behavior ActivatedAbilityPowerRollBehavior
                 local matchDamageType = regex.MatchGroups(behavior.tiers[3], "[0-9]+ (?<damageType>[a-z]+) damage")
                 if matchDamageType ~= nil then
                     damageType = matchDamageType.damageType
@@ -1434,6 +1435,7 @@ function AnimalCompanion:PostProcessInvokedAbility(ability)
 end
 
 local function CreateCharacterDisplayPanel(element)
+    ---@type CharacterToken
     local m_token = nil
 
 

@@ -623,6 +623,7 @@ end
 
 local function CreateTriggeredAbilityPanel()
     local resultPanel
+    ---@type TriggeredAbilityDisplay
     local m_triggeredAbility = nil
 
     resultPanel = gui.Panel {

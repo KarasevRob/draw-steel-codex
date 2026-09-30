@@ -61,6 +61,8 @@ ActivatedAbilityModifyCastBehavior.RegisterParam{
 
 --- @class ActivatedAbilityPowerRollBehavior : ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityPowerRollBehavior
+--- @field tiers string[] The three power table tier texts (tier 1, 2, 3), set when the behavior is created.
+--- @field callback? fun(token: CharacterToken, tier: number) Transient per-target result hook set by ActivatedAbilityPowerRollBehavior.CustomRoll.
 ActivatedAbilityPowerRollBehavior = RegisterGameType("ActivatedAbilityPowerRollBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbilityPowerRollBehavior.summary = 'Roll on Power Table'
@@ -1075,6 +1077,7 @@ function creature:DescribeModifiersOnTarget(ability, targetToken)
 end
 
 
+---@type ActiveRollLua?
 local g_activeRoll = nil --the active roll object of the roll we are currently doing.
 local g_activeRollPanel = nil --the panel showing the roll that is currently active.
 
@@ -1622,6 +1625,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         rollProperties.overrideMessage = string.format("%s forced tier %d (/testai)", dmhub.userDisplayName, forcedTier)
     end
 
+    ---@type ChatMessageDiceRollInfoLua
     local m_rollInfo = nil
 
     --Acquire the embedded roll dialog, queuing behind any other ability roll
@@ -2229,6 +2233,7 @@ end
 function ActivatedAbility:GetRollCharacteristicValue(caster)
     for _,behavior in ipairs(self.behaviors) do
         if behavior.typeName == "ActivatedAbilityPowerRollBehavior" and not behavior:try_get("resistanceRoll", false) then
+            ---@cast behavior ActivatedAbilityPowerRollBehavior
             return behavior:GetRollCharacteristicValue(caster)
         end
     end

@@ -600,6 +600,7 @@ local function RefreshCastingDurationEffects()
     local liveBehaviors = {}
     for _, behavior in ipairs(g_currentAbility.behaviors) do
         if behavior.typeName == "ActivatedAbilityApplyAbilityDurationEffect" then
+            ---@cast behavior ActivatedAbilityApplyAbilityDurationEffect
             liveBehaviors[behavior] = true
 
             local shouldApply = behavior:CastingFilterPasses(g_token, g_currentSymbols)

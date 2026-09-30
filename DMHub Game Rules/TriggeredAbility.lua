@@ -10,6 +10,10 @@ local mod = dmhub.GetModLoading()
 --- @field mandatory boolean|string If true, fires automatically; if false, prompts the player; if a string, uses that setting id.
 --- @field trigger string The event id that triggers this ability.
 --- @field triggerFilter nil|string GoblinScript formula that must be truthy for the trigger to fire.
+--- @field characterConditionRequired? string Condition id the subject must have for the trigger to fire ("none"/nil for no requirement); read with try_get.
+--- @field whenActive? string "always" (default) or "combat": when the trigger can fire; read with try_get.
+--- @field allowDuplicateTriggers? boolean If true, repeated prompts from this trigger are not deduplicated; read with try_get.
+--- @field abilityType? string Legacy ability type id from ActivatedAbility.StandardArgs ("none").
 TriggeredAbility = RegisterGameType("TriggeredAbility", "ActivatedAbility")
 
 --How many triggered abilities have got past their gates and fired or prompted.
@@ -1043,13 +1047,22 @@ local function SubjectRangeDistance(triggerName, subjectToken, casterToken, symb
     return result
 end
 
+--- Options for TriggeredAbility:Trigger. Every field is optional (nil options = {}).
+--- @class TriggeredAbilityTriggerOptions
+--- @field complete nil|function
+--- @field debugLog nil|table Receives {name, success, reason} records when set.
+--- @field remoteExecution nil|{targets: table, dismiss: boolean, alreadyPaid: boolean, aiActivityId: string|false|nil, aiReactionId: string|false|nil} An accepted trigger shipped to this client to execute.
+--- @field aiActivityId nil|string
+--- @field aiReactionId nil|string
+--- @field alreadyPaid nil|boolean
+
 --auraControllerToken: token controlling an aura this is triggered from, or can be nil for a regular trigger attached to the creature it's triggering on.
 --- @param characterModifier CharacterModifier
 --- @param creature Creature
 --- @param symbols table
 --- @param auraControllerToken nil|CharacterToken
 --- @param modContext table
---- @param argOptions {complete: function, debugLog: table}
+--- @param argOptions TriggeredAbilityTriggerOptions
 --- @return nil
 function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraControllerToken, modContext, argOptions)
 
@@ -1077,6 +1090,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 	--that triggered Rise!), which would spuriously fail them.
 	if argOptions.remoteExecution ~= nil then
 		local remoteExecution = argOptions.remoteExecution
+		---@cast remoteExecution -nil
 
 		symbols = table.shallow_copy(symbols or {})
 		symbols.mode = symbols.mode or 1
@@ -2059,6 +2073,8 @@ end
 --Invoke(), mirroring AbilityInvocation in AbilityInvokeAbility.lua.
 --- @class TriggeredAbilityRemoteExecution: GameType
 --- @field new fun(o?: table): TriggeredAbilityRemoteExecution
+--- @field timestamp number|string When the invocation was shipped: the ServerTimestamp() sentinel until the server resolves it.
+--- @field auraControllerId? string Charid of the aura's controller when it is not the caster.
 TriggeredAbilityRemoteExecution = RegisterGameType("TriggeredAbilityRemoteExecution")
 
 --Ships an accepted trigger cast to the caster's controlling client. Symbols

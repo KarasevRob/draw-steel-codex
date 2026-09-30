@@ -292,6 +292,7 @@ local ShowKitsPanel = function(parentPanel)
 
 	local kitPanel = Kit.CreateEditor()
 
+	--- @type Panel
 	local itemsListPanel = nil
 
 	local kitItems = {}

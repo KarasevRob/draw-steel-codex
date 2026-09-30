@@ -560,6 +560,7 @@ end
 --- @field new fun(o?: table): CharacterSingleFeat
 --- @field featid string Id of the specific feat granted (or "none").
 --- @field name string Display name ("Single Feat").
+--- @field guid string Unique id, set by CreateNew.
 --- A CharacterFeature-like wrapper that grants exactly one specific feat.
 --a single feat granted in a class editor.
 CharacterSingleFeat = RegisterGameType("CharacterSingleFeat")

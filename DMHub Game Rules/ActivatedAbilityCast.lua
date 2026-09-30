@@ -28,6 +28,7 @@ local mod = dmhub.GetModLoading()
 --- @field forcedMovementCreatureCollisionIds table
 --- @field ability ActivatedAbility
 --- @field auraObject false|table
+--- @field _tmp_maliceBannerShown? boolean Set once the Malice ability banner has been shown for this cast; read with try_get.
 ActivatedAbilityCast = RegisterGameType("ActivatedAbilityCast")
 
 ActivatedAbilityCast.mode = 1

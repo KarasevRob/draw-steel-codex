@@ -32,6 +32,7 @@ Commands.RegisterMacro{
 
 local g_debugEntries = {}
 local g_debugScheduled = false
+---@type Panel?
 local g_debugPanel = nil
 
 function RegisterGoblinScriptDebugPanel(panel)

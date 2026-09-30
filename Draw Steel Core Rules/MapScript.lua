@@ -77,6 +77,7 @@ local mod = dmhub.GetModLoading()
 --- @field name string Display name of the library script.
 --- @field description string What the script does, shown in pickers and the compendium.
 --- @field code string The Lua source; must return a definition table.
+--- @field guid string Unique id; OnDeserialize fills it in when missing.
 MapScript = RegisterGameType("MapScript")
 
 MapScript.name = "New Map Script"

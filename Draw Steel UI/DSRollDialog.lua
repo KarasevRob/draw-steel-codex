@@ -135,6 +135,15 @@ RollDialog.GetDefaultRerollRule = function(options)
 end
 
 local g_activeRoll = nil
+
+--- The dmhub.Roll arguments of the roll on screen, kept for re-rolls.
+--- @class DSRollDialogActiveRollArgs: RollDefinition
+--- @field guid string
+--- @field dicetower nil|boolean
+--- @field creature nil|creature
+--- @field originalRoll string
+
+--- @type DSRollDialogActiveRollArgs
 local g_activeRollArgs = nil
 
 setting {
@@ -205,13 +214,36 @@ local g_boonsLabels = { "Bane x 2", "Bane", "None", "Edge", "Edge x 2" }
 
 function GameHud.CreateRollDialog(self)
     --the creature doing the roll
+    --- @type creature?
     local creature = nil
 
     --creature targeted by the roll.
+    --- @type creature?
     local targetCreature = nil
 
+    --- One modifier offered on the roll: the modifier plus its checkbox state.
+    --- @class DSRollDialogModifierEntry
+    --- @field modifier CharacterModifier
+    --- @field context nil|table
+    --- @field hint nil|{result: boolean|string, justification: string[]}
+    --- @field override nil|boolean
+    --- @field failsRequirement nil|boolean
 
-    --- @type nil|({token: CharacterToken, boons: number, banes: number, text: string, modifiers: CharacterModifier[], triggers: list}[])
+    --- One target row of a multi-target roll.
+    --- @class DSRollDialogMultiTarget
+    --- @field token CharacterToken
+    --- @field originalid nil|string charid of the row a trigger retargeted from.
+    --- @field boons number
+    --- @field banes number
+    --- @field boonsOverride nil|number
+    --- @field text string
+    --- @field surges nil|number
+    --- @field modifiers DSRollDialogModifierEntry[]
+    --- @field modifiersUsed nil|CharacterModifier[] the modifiers the roll applied (copied from m_activeModifiers).
+    --- @field rollProperties nil|RollProperties
+    --- @field triggers table[] free-form trigger records.
+
+    --- @type nil|DSRollDialogMultiTarget[]
     local m_multitargets = nil
     local m_CalculateMultiTargets = nil
 
@@ -627,6 +659,15 @@ function GameHud.CreateRollDialog(self)
         end,
     }
 
+    --- The ShowDialog options of the roll on screen (only the fields read through m_options).
+    --- @class DSRollDialogOptions
+    --- @field description nil|string
+    --- @field amendable nil|boolean
+    --- @field modifiers nil|DSRollDialogModifierEntry[]
+    --- @field rollProperties nil|RollProperties
+    --- @field targetCreature nil|creature
+
+    --- @type DSRollDialogOptions
     local m_options = nil
 
     -- The re-roll rule in force for the roll on screen (nil = the plain,

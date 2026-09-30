@@ -54,6 +54,9 @@ end
 --- @field type string Variant content type: "text", "currency", "item", "tableRoll", "resource", "monster".
 --- @field quantity number|string Quantity of the item/roll granted (can be a dice expression).
 --- @field key nil|string Key into the relevant data table (e.g. item id, monster key).
+--- @field value? string|table<string, string> "text": the text; "currency": map of currency id -> quantity (a roll string).
+--- @field dataTable? string "tableRoll": name of the data table holding the roll table.
+--- @field choiceIndex? integer "tableRoll": a fixed row to use instead of rolling.
 --- A single entry in a loot table or reward list; represents one possible reward of a given type.
 Variant = RegisterGameType("Variant")
 
@@ -127,6 +130,7 @@ function Variant:TableName()
 	end
 end
 
+--- @return string
 function Variant:ToString()
 	if self.type == "text" then
 		return self.value

@@ -3991,9 +3991,12 @@ function DSCharacterSheet.CharacterFeaturesPanel()
 
 				local key = string.format("%d-%s-%s", i, featureInfo.feature.guid, levelStr)
 
+				---@type Panel?
 				local featurePanel = featurePanels[key]
 
 				if featurePanel == nil then
+					--the closures below only run once featurePanel is built.
+					---@cast featurePanel Panel
 
 					local tri = gui.Panel{
 						classes = {"triangle"},

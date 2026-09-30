@@ -23,6 +23,7 @@ local function ObjectFoldersPanel()
 
 		refreshAssetsEcho = function(element)
 			if g_addingObject ~= nil then
+				--- @type {element: Panel?}
 				local output = { element = nil }
 				element:FireEventTree("findnode", g_addingObject, output)
 				g_addingObject = nil

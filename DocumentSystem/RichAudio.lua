@@ -86,6 +86,7 @@ local function BuildAudioStyles()
 end
 
 function RichAudio.CreateDisplay(self)
+    ---@type AudioAssetLua?
     local m_audioAsset = nil
     local m_broadcast = true
     local m_player = false
@@ -349,6 +350,7 @@ end
 function RichAudio.CreateEditor(self)
     local resultPanel
 
+    ---@type AudioAssetLua?
     local m_asset = nil
 
     resultPanel = gui.Panel {

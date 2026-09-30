@@ -26,6 +26,10 @@ local mod = dmhub.GetModLoading()
 --- @field includeAdjacent boolean If true, the engine extends the aura's area one tile outward (8-way) and marks the extension tiles as adjacent-only. Creatures on those tiles count as touching the aura for enter/start-of-turn trigger contact (the simple power roll fires for them at the start of their turn, with a bane), but the tiles do not take the aura's terrain rules, move damage, or modifiers.
 --- @field damaging boolean Explicitly marks the aura as damaging terrain for movement advisories (the red "moving into damaging terrain" line on the drag tooltip). Only needed for auras whose damage comes from custom triggers: an entry power roll or per-tile move damage already implies it (see Aura:IsDamaging).
 --- @field environmentalKeywordId string|nil Id in the environmentalKeywords table of the Environmental Keyword this aura is marked with. Set on map-markup zone auras (see MapMarkup BuildZoneAuraInstance) and settable on any hand-authored aura definition. When an aura is created, EnvironmentalKeyword.ApplyToAura folds the keyword's effects (terrain flags, modifiers, move damage, entry power roll) into the definition; the id is also read by the creature and Loc "Environment" GoblinScript symbols and by creature:HasConcealmentIgnoringDarkness.
+--- @field water? boolean Tiles in the area count as water (engine tile rule via AuraInstance:GetWater); read with try_get.
+--- @field climbable? boolean Tiles in the area can be climbed like a climbable wall (AuraInstance:GetClimbable); read with try_get.
+--- @field climbersOnly? boolean With climbable, restricts climbing to natural climbers; read with try_get.
+--- @field entryEffectRule? string Flat effect rule text applied to creatures entering or starting a turn in the area (Aura:GetSimpleEntryEffectTrigger); read with try_get.
 Aura = RegisterGameType("Aura", "CharacterFeature")
 
 Aura.TriggerConditions = {
@@ -186,6 +190,10 @@ end
 --- @field time table|nil Time-stamp object used to compute rounds elapsed.
 --- @field object table|nil Reference to the placed object {floorid, objid}.
 --- @field hiddenFromPlayers boolean|nil True for a Map Markup zone not marked player-visible: only the Director sees it on the map, and the movement cross-section hides it from everyone else too. Set only by MapMarkupZoneRuntime; read with try_get.
+--- @field tokenAttached? boolean True for an aura attached to (and following) its caster token, e.g. one granted by a modifier.
+--- @field casterPartyId? string Party id of the caster token when cast ("" if none).
+--- @field spellcastingFeature? SpellcastingFeature Spellcasting feature of the ability that cast it, copied onto triggered abilities.
+--- @field persistenceId? string Guid of the caster's persistent ability this aura's lifetime follows; read with try_get.
 AuraInstance = RegisterGameType("AuraInstance")
 
 Aura.Flags = {
@@ -1216,6 +1224,7 @@ function Aura:ShowEditDialog(options)
     local dialogWidth = 1200
     local dialogHeight = 980
 
+    ---@type Panel
     local resultPanel = nil
 
     local mainFormPanel = gui.Panel {
@@ -1867,6 +1876,7 @@ end
 
 --- @class ChildAuraInstance:AuraInstance
 --- @field new fun(o?: table): ChildAuraInstance
+--- @field _tmp_parent AuraInstance The parent instance this child view derives its area, height and caster from.
 --- A transient view over a parent AuraInstance for one entry in aura.subauras. Child views are
 --- built on demand by AuraInstance:GetChildInstances and are NEVER stored or serialized: they do
 --- not live in creature.auras or in the aura object's component properties. The engine registers

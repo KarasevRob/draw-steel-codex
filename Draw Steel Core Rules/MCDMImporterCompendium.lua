@@ -178,7 +178,15 @@ end
 ActivatedAbility.patternMatchPrefix = "^\\s*"
 ActivatedAbility.MatchMCDMEffect = CharacterFeature.MatchMCDMMonsterTrait
 
+--- A monster-trait row in one of the importer tables: a CharacterFeature plus
+--- the pattern that recognizes it in imported text and its test cases.
+--- @class MCDMImporterTraitItem: CharacterFeature
+--- @field importMatch? string
+--- @field importMatchType? string
+--- @field testCases? {text: string}[]
+
 local function CreateEditPanel(tableName)
+    ---@type MCDMImporterTraitItem?
     local m_item = nil
     local editPanel
     editPanel = gui.Panel{
@@ -583,7 +591,19 @@ Compendium.Register{
     end,
 }
 
+--- An ability-effect row in one of the importer tables (or standardAbilities):
+--- an ActivatedAbility plus its import pattern, test cases and insert options.
+--- @class MCDMImporterEffectItem: ActivatedAbility
+--- @field importMatch? string
+--- @field importMatchType? string
+--- @field testCases? {text: string}[]
+--- @field hiddenFromInvoke? boolean
+--- @field documentation? string
+--- @field insertAtStart? boolean
+--- @field invokeSurroundingAbility? boolean
+
 local function CreateEditAbilityEffectsPanel(tableName)
+    ---@type MCDMImporterEffectItem?
     local m_item = nil
     local editPanel
 

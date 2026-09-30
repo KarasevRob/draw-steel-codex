@@ -2,6 +2,7 @@ local mod = dmhub.GetModLoading()
 
 --- @class TargetableObject : creature
 --- @field new fun(o?: table): TargetableObject
+--- @field custom_collision? ActivatedAbility Custom Collision Behavior cast when something collides with the object; replaces collision damage.
 TargetableObject = RegisterGameType("TargetableObject", "creature")
 TargetableObject.resourceid = CharacterResource.maliceResourceId
 

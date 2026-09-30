@@ -608,6 +608,7 @@ function GameHud:RequireRollListenerPanel()
 end
 --]==]
 
+---@type Panel?
 local g_requireRollDialog = nil
 
 local function CloseRequireRollDialog()

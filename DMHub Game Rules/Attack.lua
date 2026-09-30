@@ -23,6 +23,8 @@ local mod = dmhub.GetModLoading()
 --- @field consumeAmmo nil|table<string, number> Map of item id to quantity consumed as ammo.
 --- @field outOfAmmo nil|boolean If true, there is no available ammo for this attack.
 --- @field properties nil|table Weapon property objects keyed by property id.
+--- @field weaponid nil|string Gear id of the equipped weapon this attack comes from.
+--- @field baseAttackIndex nil|integer Index into the creature's innateAttacks this attack was generated from.
 -- name: name of attack
 -- iconid: string
 -- range: string

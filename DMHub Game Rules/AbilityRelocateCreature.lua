@@ -360,6 +360,7 @@ function ActivatedAbilityRelocateCreatureBehavior:ExecuteGuaranteedCharge(caster
     end
 end
 
+--- @param targets {loc: Loc|nil, token: CharacterToken|nil}[]
 function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, targets, options)
     print("Relocate:: Cast relocate", #targets)
 

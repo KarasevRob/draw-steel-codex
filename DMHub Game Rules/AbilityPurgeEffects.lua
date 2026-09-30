@@ -314,6 +314,7 @@ function ActivatedAbilityPurgeEffectsBehavior:Cast(ability, casterToken, targets
         if not confirmed then
             return
         end
+        ---@cast replacements -nil
 
         ability:CommitToPaying(casterToken, options)
 
@@ -401,6 +402,7 @@ function ActivatedAbilityPurgeEffectsBehavior:Cast(ability, casterToken, targets
         if not confirmed then
             return
         end
+        ---@cast selections -nil
 
         -- CommitToPaying after confirm, matching the per-dialog call sites in the old flow.
         ability:CommitToPaying(casterToken, options)

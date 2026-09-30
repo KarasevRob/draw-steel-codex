@@ -721,8 +721,10 @@ CreateChatPanel = function()
 
 	local children = {}
 	local messagePanels = {}
+	--- @type fun(path: string)
 	local UploadChatImage = nil
 	local fileDragOverlay = nil
+	--- @type Label
 	local fileDragLabel = nil
 	local imageDropExtensions = {
 		".png", ".jpg", ".jpeg", ".webp",
@@ -1019,6 +1021,7 @@ CreateChatPanel = function()
 
 	local completionChildren = {}
 	local completionIsArgMode = false
+	--- @type fun()
 	local EscapeCompletions = nil
 	local completionsPanel = gui.Panel{
 		dragAndDropExtensions = imageDropExtensions,
@@ -1054,6 +1057,7 @@ CreateChatPanel = function()
 
 	local previewPanel = nil
     local speakerPanel = nil
+	--- @type Input
 	local inputPanel = nil
 
 	local maxCompletions = 8
@@ -1266,6 +1270,7 @@ CreateChatPanel = function()
 		return count
 	end
 
+	--- @type fun(txt?: string)
 	local UpdateCompletions = nil
 
 	-- Build a press handler for argument completion rows that replaces just the current arg
@@ -1565,6 +1570,7 @@ CreateChatPanel = function()
 		end,
 	}
 
+    --- @type creature
     local m_speakingCreature = nil
     local m_languagesKnown = nil
     local m_languagesKnownUpdate = nil

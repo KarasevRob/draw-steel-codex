@@ -1937,6 +1937,7 @@ function CharSheet.ClassChoicePanel(options, classIndex)
                             local panels = {}
                             local panelsStartIndex = #children+1
 
+                            ---@type Panel
                             local collapseTarget = nil
                             local levelNum = lvl
                             children[#children+1] = gui.Panel{

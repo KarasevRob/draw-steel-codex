@@ -62,6 +62,7 @@ function ActivatedAbilityRecoverySelectionBehavior:Cast(ability, casterToken, ta
     end
 
     local recoveryid = nil
+    ---@type CharacterResource?
     local recoveryInfo = nil
     local resourcesTable = dmhub.GetTable(CharacterResource.tableName)
     for k,v in unhidden_pairs(resourcesTable) do
