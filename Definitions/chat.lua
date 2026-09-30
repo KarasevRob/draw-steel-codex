@@ -47,7 +47,7 @@ function chat.PreviewChat(message) end
 --- @return string[]
 function chat.GetCommandCompletions(command) end
 
---- Returns the chat message info for a dice roll by its key.
+--- Returns the chat message info for a dice roll by its key, or nil if no message has that key. The key must name a dice roll: a non-roll message is returned as its own wrapper class, which has none of the roll fields.
 --- @param key string The chat message key.
---- @return ChatMessageInfoLua|nil
+--- @return ChatMessageDiceRollInfoLua|nil
 function chat.GetRollInfo(key) end

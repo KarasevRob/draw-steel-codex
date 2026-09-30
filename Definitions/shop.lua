@@ -19,7 +19,8 @@ function shop:ItemInInventory(itemid) end
 function shop:AcknowledgeNewInventoryItems() end
 
 --- Returns the Patreon promo grants this account has received but not yet acknowledged, oldest first. Each entry is {promoId, title, message, grantedAt, items}, where items is an array of {itemid, instanceid, instance} (instance is the ShopItemInstance; instance.shopItem gives the store item). Only items still in the inventory are listed, and a grant with none left is omitted. Call shop:AcknowledgeInventoryItems with the instanceids once the user has seen the grant.
---- @return {promoId: string, title: string, message: string, grantedAt: number, items: {itemid: string, instanceid: string, instance: ShopItemInstance}[]}[]
+--- {promoId: string, title: string, message: string, grantedAt: number, items: {itemid: string, instanceid: string, instance: ShopItemInstance}[]}[]
+--- @return any
 function shop:GetUnacknowledgedPromoGrants() end
 
 --- Marks the given inventory item instances as seen, so shop:GetUnacknowledgedPromoGrants stops returning the grants that delivered them. Takes an array of instance ids. Saved to the account, so it holds across machines and restarts.

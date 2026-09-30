@@ -102,7 +102,7 @@ function game.GetTokensAtLoc(loc) end
 --- @param tokenidList string[] A table of token ID strings to unsummon.
 function game.UnsummonTokens(tokenidList) end
 
---- Spawns a token from a bestiary entry at the given location locally without uploading. Pass a nil loc to create the character without putting it on a map -- it exists in the game and can be placed later, like any character that hasn't been dropped on the map yet. Returns the created token, or nil if the bestiary entry is not found.
+--- Spawns a token from a bestiary entry at the given location locally without uploading. Pass a nil loc to create the character without putting it on a map -- it exists in the game and can be placed later, like any character that hasn't been dropped on the map yet. A loc whose altitude is below the ground under the token's footprint is raised to that ground, so a loc built from x/y alone lands on raised terrain correctly. Returns the created token, or nil if the bestiary entry is not found.
 --- @param id string The bestiary entry ID.
 --- @param loc nil|Loc The location to spawn at, or nil to create the character unplaced.
 --- @param options nil|table Optional settings; fitLocation (boolean) controls whether the location is adjusted for token size.

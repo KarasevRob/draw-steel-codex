@@ -1,5 +1,17 @@
 ---@meta
 
+--- @class AppVersionStatus
+--- @field version string This build's engine version.
+--- @field status 'unknown'|'unsupported'|'behind'|'current'|'ahead' Where this build sits relative to the published channel versions. 'unknown' until the /AppVersions record has loaded. 'unsupported' means older than the 'previous' channel (which includes 'deprecated' builds): the titlescreen shows an update-required dialog whose only option is Quit.
+--- @field loaded boolean True once a version record (cached or fresh) has been applied.
+--- @field fresh boolean True once a record has been fetched from the server this session, as opposed to the on-disk cache.
+--- @field outOfDate boolean True when an update is available for this build (status is 'behind' or 'unsupported').
+--- @field latestVersion nil|string The version users are expected to be on: the retail channel's version.
+--- @field channel nil|string The channel this build belongs to: the highest channel whose version is at or below this build's version ('deprecated', 'previous', 'retail', 'beta', 'dev').
+--- @field channelVersion nil|string The version currently published on that channel.
+--- @field channels table<string, {version: string, branch: nil|string}> Every published channel keyed by name.
+--- @field updatedAt nil|number Server timestamp (ms) of the record, when present.
+
 --- The main interface to dmhub.
 --- @class dmhub
 --- @field version string The current version of the DMHub engine.
@@ -8,6 +20,7 @@
 --- @field commandLineArguments string[] The command line arguments passed to the app.
 --- @field tokenAnimations TokenAnimationsLuaInterface Registry of token animations. RegisterTeleport / RegisterDeath / RegisterTransformation register category-specific animation functions.
 --- @field tokenFrames TokenFramesLuaInterface Registry of premium token frame materials. Register{...} defines a frame (albedo + normal + roughness maps and lighting parameters); a token uses it by setting token.portraitFrameMaterial to the id (and token.portraitFrame to the material's albedo asset).
+--- @field devImages DevImagesLuaInterface Client for the developer image repository: Request (JSON API), Image (thumbnail bgimage ids), UploadFile, SaveAs, Fetch, OpenWeb. Admin accounts only.
 --- @field systemHardwareRating number The power level of the system hardware. 1 or greater is a relatively high power system.
 --- @field loadingScreenHeld boolean (Read-only) True while a Lua hold keeps the game loading screen up. See HoldLoadingScreen.
 --- @field gameLoadingProgress number Game loading progress. nil = not loading a game. 0 = just started loading, 1 = fully loaded.
@@ -67,7 +80,7 @@
 --- @field GetWallHeight fun(): number Editor callback function: Used to determine the height the user is currently editing walls at.
 --- @field CreateTargetableComponent fun(): table A function that creates a targetable component table for attaching to an object.
 --- @field CreateCorpseComponent fun(): table A function that creates a corpse component table for attaching to an object.
---- @field TokenMovingOnPath fun(args: {token: CharacterToken, path: Path, position: Vector3, delta: Vector3, distanceMoved: number}): nil A function that is called each frame while a token is moving along a path, receiving movement details.
+--- @field TokenMovingOnPath fun(args: {token: CharacterToken, path: LuaPath, position: Vector3, delta: Vector3, distanceMoved: number, stepIndex: number}): nil A function that is called each frame while a token is moving along a path, receiving movement details.
 --- @field GetSelectedEncounter fun(): {groups: table<string,number>[]}|nil A function that can be set to tell the engine which encounter is currently selected. The selected encounter should be deployable onto the map.
 --- @field CreateAuraComponent fun(): table A function that creates an aura component to attach to an object.
 --- @field ObjectDirectImport fun(string, Vector3): nil A function that is called when we directly import an object.
@@ -75,7 +88,7 @@
 --- @field PromptImageEditorSetup fun(floorid: string, objid: string): nil Called when a live-edit is requested but the user's image editor isn't set up yet (first use) or the configured editor can't be found. The handler should show the image-editor setup UI, then call dmhub.StartLiveEditForObject(floorid, objid) once the user confirms.
 --- @field GetBuildingSolid fun(): boolean Editor callback function: whether the building tool is in Solid draw mode (walls plus a floor rendered at the top of the wall height, forming a solid block).
 --- @field GetWallPointsInvisibleOnly fun(): boolean Editor callback function: whether the wall Edit Points tool should restrict itself to walls with invisible assets. Set by the Map Markup panel while it drives the tool, so vertex editing from markup cannot disturb visible art walls.
---- @field GetMarkupZones fun(): {panelOpen: boolean, terrainZones: boolean, footstepsMode: boolean, wallsMode: boolean, elevationMode: boolean, revision: number, zones: {locs: Loc[], color: string, angleRadians: number, label: string, labelIcon: string|nil, playerVisible: boolean, difficultTerrain: boolean, water: boolean, concealment: boolean, floorIndex: number}[]}|nil Editor callback function: the Map Markup panel's zone overlay feed. Returns the markup zones to render as diagonal stripes + labels on the tile height overlay, or nil for none. The feed should already have filtered the zones by the user's per-zone-type visibility preferences - the engine renders whatever arrives (player clients additionally only render zones with playerVisible set). revision must change whenever the zone data changes (or the returned list is swapped) so the overlay mesh rebuilds. panelOpen forces the wall cover lines on regardless of the mapoverlay:walls preference; wallsMode (Walls tab) additionally forces the solid-block interiors; elevationMode (Elevation tab) forces the height contours + number labels regardless of mapoverlay:elevation; terrainZones (Zones tab) forces all four built-in terrain-rule stripe types regardless of the mapoverlay:shownbuiltins preference; footstepsMode instead restricts the built-in terrain-rule stripes to WATER ONLY (set while the Footsteps tab is open, when the feed returns the footstep-surface regions - plus any water rules zones - instead of the full rules zones; water stays visible because water tiles play water sounds over painted footstep surfaces). labelIcon is an optional icon id (e.g. 'phosphor/footprints-fill.png') drawn beside the zone's label, tinted like the label text.
+--- @field GetMarkupZones fun(): {panelOpen: boolean, terrainZones: boolean, footstepsMode: boolean, wallsMode: boolean, elevationMode: boolean, revision: number, zones: {locs: Loc[], color: string, angleRadians: number, label: string, labelIcon: string|nil, seamKey: string|nil, playerVisible: boolean, difficultTerrain: boolean, water: boolean, concealment: boolean, floorIndex: number}[]}|nil Editor callback function: the Map Markup panel's zone overlay feed. Returns the markup zones to render as diagonal stripes + labels on the tile height overlay, or nil for none. The feed should already have filtered the zones by the user's per-zone-type visibility preferences - the engine renders whatever arrives (player clients additionally only render zones with playerVisible set). revision must change whenever the zone data changes (or the returned list is swapped) so the overlay mesh rebuilds. panelOpen forces the wall cover lines on regardless of the mapoverlay:walls preference; wallsMode (Walls tab) additionally forces the solid-block interiors; elevationMode (Elevation tab) forces the height contours + number labels regardless of mapoverlay:elevation; terrainZones (Zones tab) forces all four built-in terrain-rule stripe types regardless of the mapoverlay:shownbuiltins preference; footstepsMode instead restricts the built-in terrain-rule stripes to WATER ONLY (set while the Footsteps tab is open, when the feed returns the footstep-surface regions - plus any water rules zones - instead of the full rules zones; water stays visible because water tiles play water sounds over painted footstep surfaces). labelIcon is an optional icon id (e.g. 'phosphor/footprints-fill.png') drawn beside the zone's label, tinted like the label text. seamKey (optional, painted zone records only) groups records of one zone type: where two records with the same seamKey share a tile edge they are separate patches, and the Director's overlay draws a dashed seam along that edge.
 --- @field GetMapAuras fun(): AuraInstance[]|nil Callback function: map-level aura instances (e.g. markup zones) to register with the aura system, re-polled on every aura rebuild. Each entry must be an AuraInstance whose GetArea() returns a shape (use dmhub.CalculateShape{shape='locations'} for arbitrary tile sets). Call dmhub.RefreshMapAuras() after changing the underlying data to force a rebuild.
 --- @field GetObjectEditingFilter fun(): string|nil Editor callback function: keyword filter for markup-prop editing. When this returns a keyword, objects whose Core keywords include it are shown (even locked, invisible-to-players ones, DM only) and become the only objects the mouse can select or drag - locked filtered objects drag as if unlocked, and everything else on the map is inert to object selection. The Map Markup panel's Props tab sets this while it has focus. Return nil for normal object interaction rules.
 --- @field ObjectPanelOpen fun(): boolean A function that returns whether the Objects panel is currently open and on screen, regardless of whether it holds UI focus. This drives the object wiring overlay (the trigger/action plug icons drawn on the map); ObjectEditingEnabled, which is focus-derived, still governs object editing mode itself.
@@ -124,6 +137,7 @@
 --- @field inGame boolean (read-only) true if we are currently in-game
 --- @field isLobbyGame boolean (read-only) true if in lobby
 --- @field gameid string (Read-only) The gameid of the current game.
+--- @field screenSpaceCursorSurface nil|string Switches shared mouse cursors between world space and screen space. nil (the default) is normal map sharing: everyone's cursor is shared as a position on the current map. Set it to a surface id (any string, e.g. "eotwstage") while a full-screen UI surface is up and this client's cursor is shared as a position on the screen instead, and only other players' cursors on the same surface id are shown, drawn above the UI. Set it back to nil when the surface goes away. Honours the same settings as map cursors (Player/Director Mouse Cursors Shared, Hide Other Player's Cursors). Clients on an engine without this mode do not show screen-space cursors.
 --- @field editorMode boolean (Read-only) returns true if the user is doing some kind of map/game editing, rather than in normal play mode.
 --- @field undoState table (Read-only) Returns a table describing the current undo/redo state for user editing actions.
 --- @field connectionErrorStatus ConnectionErrorStatus The current connection error status, if any. Used to display connection issues to the user.
@@ -158,7 +172,6 @@
 --- @field mouseWheel number Returns a positive or negative number if the mousewheel has been moved this frame, based on the direction. Returns 0 if the mousewheel has not been moved this frame.
 --- @field harnessMode nil|string (Read-only) The test-harness name passed via --harness on the command line, or nil when not launched in harness mode. Dev builds only. See TEST_HARNESS_PLAN.md.
 --- @field harnessArgs nil|string (Read-only) The raw string passed via --harness-args on the command line, or nil. Interpretation (typically JSON) is up to the Lua harness.
---- @field screenSpaceCursorSurface nil|string Switches shared mouse cursors between world space and screen space. nil (the default) is normal map sharing: everyone's cursor is shared as a position on the current map. Set it to a surface id (any string, e.g. "eotwstage") while a full-screen UI surface is up and this client's cursor is shared as a position on the screen instead, and only other players' cursors on the same surface id are shown, drawn above the UI. Set it back to nil when the surface goes away. Honours the same settings as map cursors (Player/Director Mouse Cursors Shared, Hide Other Player's Cursors). Clients on an engine without this mode do not show screen-space cursors.
 --- @field screenDimensions Vector2 (Read-only) The current screen dimensions in pixels as a Vector2 (width, height).
 --- @field screenDimensionsBelowTitlebar Vector2 (Read-only) The screen dimensions in pixels below the title bar as a Vector2 (width, height).
 --- @field cursorIds string[] (Read-only) The ids of the registered mouse cursors, as an array of strings. Useful to feature-detect a cursor id before using it in hoverCursor: assigning an id not in this list silently falls back to the default cursor.
@@ -249,9 +262,9 @@ function dmhub.UnloadMod(instanceGuid) end
 --- @return {points: number[], holes: number[][]}[]
 function dmhub.ClipPolygons(args) end
 
---- Returns documentation for all public members of the given Lua type, including names, types, and descriptions.
+--- Returns documentation for all public members of the given Lua type, including names, types, and descriptions, as {fields = {...}}. Types registered with RegisterGameType are answered by lua-core's GetRegisteredTypeDocumentation; nil if the type is unknown.
 --- @param typeid string The name of the type to query information about.
---- @return {name: string, type: string, documentation: string|nil, typeSignature: string|nil}[]
+--- @return nil|{fields: {name: string, type: 'Method'|'Property'|'Field', documentation: string|nil, typeSignature: string|nil}[]}
 function dmhub.GetTypeDocumentation(typeid) end
 
 --- Registers an event handler for the named global event that the engine can fire. Returns a unique id that can later be passed to @see DeregisterEventHandler to deregister and stop listening for this event.
@@ -317,7 +330,7 @@ function dmhub.InvalidateTokenUI() end
 --- Requests a rebuild of the aura index (object auras, creature auras, and the map auras polled from dmhub.GetMapAuras), and refreshes creature state that depends on it. Call after changing the data behind dmhub.GetMapAuras (e.g. markup zone edits).
 function dmhub.RefreshMapAuras() end
 
---- Deterministic gameplay light sampling: returns the candidate tiles whose computed light level is below threshold (0..1). A tile's level is the MAX of the floor's indoor/outdoor ambient and the strongest single light reaching it (token settings lights, token Lua/wielded lights, object Light components; falloff to zero at each light's radius; shadowed by light-blocking walls and object occlusion), MINUS the strongest Darkness component reaching it (clamped at 0), with magical light then applied as a floor so it shines through darkness -- deliberately not the renderer's additive composition, which saturates at 1.0 and makes tiles threshold-immune. All animation (flicker, fades, transient light effects) is excluded so every client computes the same answer. Candidates come from either the inclusive tile rect x1,y1..x2,y2 or a flat interleaved locs array {x1,y1,x2,y2,...}. Returns {state=<hash string>, locs=<flat interleaved dark tiles>}, or nil when the result's state equals knownState (poll cheaply by passing the last state back). levels=true adds levels=<each candidate's light level 0..1, candidate order> and always returns a result (debug readout). Tokens hidden from players never contribute light (players' clients cannot see them); light-source OBJECTS contribute even when their gizmo sprite is player-invisible, matching the renderer.
+--- Deterministic gameplay light sampling: returns the candidate tiles whose computed light level is at or below threshold (0..1), so threshold 0 means dark wherever no light reaches. A tile's level is the light ADDED by light sources -- the floor's ambient (day/night, indoor/outdoor) is ignored -- taken as the strongest single light reaching it (token settings lights, token Lua/wielded lights, object Light components; falloff to zero at each light's radius; shadowed by light-blocking walls and object occlusion), MINUS the strongest Darkness component reaching it (clamped at 0), with magical light then applied as a floor so it shines through darkness -- deliberately not the renderer's additive composition, which saturates at 1.0 and makes tiles threshold-immune. All animation (flicker, fades, transient light effects) is excluded so every client computes the same answer. Candidates come from either the inclusive tile rect x1,y1..x2,y2 or a flat interleaved locs array {x1,y1,x2,y2,...}. Returns {state=<hash string>, locs=<flat interleaved dark tiles>}, or nil when the result's state equals knownState (poll cheaply by passing the last state back). levels=true adds levels=<each candidate's light level 0..1, candidate order> and always returns a result (debug readout). Tokens hidden from players never contribute light (players' clients cannot see them); light-source OBJECTS contribute even when their gizmo sprite is player-invisible, matching the renderer.
 --- @param args {floorIndex: number, threshold: number, x1: number|nil, y1: number|nil, x2: number|nil, y2: number|nil, locs: number[]|nil, knownState: string|nil, levels: boolean|nil}
 --- @return nil|{state: string, locs: number[], levels: number[]|nil}
 function dmhub.GetDarkTiles(args) end
@@ -328,8 +341,8 @@ function dmhub.GetDarkTiles(args) end
 --- @return SheetContainer
 function dmhub.GetWorldSpacePanel(floorid, panelid) end
 
---- Creates an object importer that will handle uploading objects to the cloud. paths should specify paths to image f iles containing objects. If breakup is specified, the files will automatically be broken into sheets, otherwise an image will be treated as one object. Threshold controls the sensitivity of the breakup.
---- @param options {path: string[], threshold: number|nil, breakup: boolean|nil}
+--- Creates an object importer that will handle uploading objects to the cloud. paths should specify paths to image files containing objects; imageids may be given instead to import already-uploaded images (ImageManager image ids, optionally md5:-prefixed, or image asset guids). If breakup is specified, the files will automatically be broken into sheets, otherwise an image will be treated as one object. Threshold controls the sensitivity of the breakup.
+--- @param options {paths: string[]|nil, imageids: string[]|nil, threshold: number|nil, breakup: boolean|nil}
 --- return ObjectImportLua
 --- @return any
 function dmhub.CreateObjectImporter(options) end
@@ -841,11 +854,32 @@ function dmhub.CancelCurrentRoll() end
 --- Clears the chat-driven roll-preview dice (a roll dialog's or typed '/roll' preview), leaving armed 'try dice' cages (the Dice dock, the shop) and rolls that have already begun untouched. Roll dialogs whose preview was seeded via chat.PreviewChat('/roll ...') must call this when they cancel: the empty-text chat path skips clearing while an unarmed dice cage is registered, which orphans the dialog's dice and leaves the action bar hidden (preview-dice mode) for the rest of the session.
 function dmhub.ClearChatPreviewDice() end
 
---- Parses a textual roll description into a structured table suitable for passing to Roll().
+--- @class ParsedRollGroup
+--- @field numDice integer
+--- @field numFaces integer
+--- @field numKeep integer
+--- @field subtract nil|boolean True when the group is subtracted from the total; absent otherwise.
+--- @field multiply nil|number The group's multiplier, when it has one.
+---
+--- @class ParsedRollCategory
+--- @field mod integer The flat modifier.
+--- @field primary nil|boolean True for the primary category; absent otherwise.
+--- @field typedMods nil|table<string, integer> Modifiers keyed by type, when there are any.
+--- @field attr nil|table<string, integer> Roll attributes (advdice, disdice), when there are any.
+--- @field groups ParsedRollGroup[]
+---
+--- @class ParsedRoll: RollDefinition
+--- @field categories table<string, ParsedRollCategory> The roll's categories keyed by name ('default' when untyped).
+--- @field dmonly boolean
+--- @field dicetower boolean
+--- @field nottierone nil|boolean
+--- @field nottierthree nil|boolean
+
+--- Parses a textual roll description into a structured table suitable for passing to Roll(). Never returns nil. Optional flags (exploding, reroll, critical, tiers, autosuccess, autofailure, minroll, boons, banes, ...) are present only when set.
 --- @param text string
---- @param lookupFunction function
---- @param options nil|table
---- @return {exploding: nil|boolean, categories: table<string, {mod: number, groups: {numDice: number, numFaces: number, numKeep: number, subtract: nil|boolean}[]}>}
+--- @param lookupFunction nil|function|table GoblinScript symbols to evaluate text with first: a lookup function, or an object with a LookupSymbol method such as a creature. Anything else is ignored.
+--- @param options nil|string[] Option names, case-insensitive; the only one is 'NormalizeNegatives'.
+--- @return ParsedRoll
 function dmhub.ParseRoll(text, lookupFunction, options) end
 
 --- Converts a structured roll table into a human-readable string such as '2d6 + 2 [slashing]'.
@@ -1901,6 +1935,6 @@ function dmhub.CreateWorldDistortion(options) end
 function dmhub.CreateParticleSystem(options) end
 
 --- Spawns a named particle effect (any effect in the token or dice effect libraries, e.g. "Fire Loop sim 3") at a map location, not attached to any token. Args: id (effect name), loc (Loc; the effect sits at the square's center on the Loc's floor), scale (number, default 1), rotation (degrees about Z, or an {x,y,z} euler table), tint (Color), looping (boolean), ttl (seconds; a looping effect with a ttl stops itself after it), sortingOrder (number added to the effect's authored order, default 0). The effect draws above map objects and below tokens. A looping effect whose prefab is not loaded yet spawns as soon as it loads. The effect is client-local (call it on every client that should see it) and is removed by handle:Stop(), its natural end, or when this client changes maps.
---- @param args {id: string, loc: Loc, scale: nil|number, rotation: nil|number|{x: number, y: number, z: number}, tint: nil|Color, looping: nil|boolean, ttl: nil|number, sortingOrder: nil|number}
+--- @param args {id: string, loc: Loc, scale: nil|number, rotation: nil|number|{x: number, y: number, z: number}, tint: nil|ColorArg, looping: nil|boolean, ttl: nil|number, sortingOrder: nil|number}
 --- @return EffectHandleLua
 function dmhub.PlayEffect(args) end
