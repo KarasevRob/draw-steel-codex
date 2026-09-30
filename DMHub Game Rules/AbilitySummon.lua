@@ -27,6 +27,10 @@ ActivatedAbilitySummonBehavior.casterControls = true
 ActivatedAbilitySummonBehavior.casterChoosesCreatures = true
 ActivatedAbilitySummonBehavior.changeCreatureWhileCasting = false
 ActivatedAbilitySummonBehavior.groupInitiativeWithCaster = true
+--when not grouped with the caster: put each cast's summons on a fresh
+--initiative entry of their own. Without either, a summon gets no entry and
+--is left out of an ongoing combat.
+ActivatedAbilitySummonBehavior.newInitiativeGroup = false
 ActivatedAbilitySummonBehavior.shareSurgesWithSummoner = false
 ActivatedAbilitySummonBehavior.shareHeroicResourceWithSummoner = false
 --Prompt for an existing same-type minion squad or a fresh squad even when
@@ -2165,6 +2169,8 @@ function ActivatedAbilitySummonBehavior:Cast(ability, casterToken, targets, args
         local initiativeGrouping = nil
         if self.groupInitiativeWithCaster then
             initiativeGrouping = InitiativeQueue.GetInitiativeId(casterToken)
+        elseif self.newInitiativeGroup then
+            initiativeGrouping = dmhub.GenerateGuid()
         end
 
         for j=1,numSummons do
@@ -2498,6 +2504,17 @@ function ActivatedAbilitySummonBehavior:Cast(ability, casterToken, targets, args
                     end
                 end
             end
+        end
+
+        --give the fresh group its entry, on the caster's side (hero or
+        --director), mirroring the add_to_initiative ability mode.
+        local q = dmhub.initiativeQueue
+        if self.newInitiativeGroup and (not self.groupInitiativeWithCaster) and #summonedTokens > 0 and q ~= nil and (not q.hidden) then
+            local entry = q:SetInitiative(initiativeGrouping, 0, 0)
+            if casterToken.valid and casterToken.properties ~= nil then
+                entry.player = q:IsEntryPlayer(InitiativeQueue.GetInitiativeId(casterToken))
+            end
+            dmhub:UploadInitiativeQueue()
         end
 
         --remember every token summoned for this outer target so we can inject them
@@ -3223,6 +3240,15 @@ function ActivatedAbilityBehavior:SummonEditor(parentPanel, list, options)
             value = self.groupInitiativeWithCaster,
             change = function(element)
                 self.groupInitiativeWithCaster = element.value
+            end,
+        }
+
+        list[#list+1] = gui.Check{
+            text = "New initiative group (if not grouped)",
+            minWidth = 300,
+            value = self.newInitiativeGroup,
+            change = function(element)
+                self.newInitiativeGroup = element.value
             end,
         }
 
