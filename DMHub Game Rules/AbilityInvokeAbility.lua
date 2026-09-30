@@ -2,10 +2,20 @@ local mod = dmhub.GetModLoading()
 
 --- @class ActivatedAbilityInvokeAbilityBehavior: ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityInvokeAbilityBehavior
+--- @field customAbility ActivatedAbility
 ActivatedAbilityInvokeAbilityBehavior = RegisterGameType("ActivatedAbilityInvokeAbilityBehavior", "ActivatedAbilityBehavior")
 
 --- @class AbilityInvocation: GameType
 --- @field new fun(o?: table): AbilityInvocation
+--- @field symbols table
+--- @field userid string
+--- @field targetid string
+--- @field subjectid string?
+--- @field namedAbility string
+--- @field standardAbility string
+--- @field standardAbilityParams table?
+--- @field abilityAttr table?
+--- @field targetingOverride string?
 AbilityInvocation = RegisterGameType("AbilityInvocation")
 
 AbilityUtils = {
@@ -2216,6 +2226,12 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
 		end,
 	}
 
+    --The anchor fields only mean something once a constraint is chosen.
+    local function movementConstraintOff()
+        local mode = self:try_get("movementConstraint", "none")
+        return mode == "none" or mode == ""
+    end
+
     result[#result+1] = gui.Panel{
         classes = {"formPanel"},
         gui.Label{
@@ -2229,12 +2245,16 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
             change = function(element)
                 ---@cast element Dropdown
                 self.movementConstraint = element.idChosen
+                parentPanel:FireEventTree("refreshInvoke")
             end,
         },
     }
 
     result[#result+1] = gui.Panel{
-        classes = {"formPanel"},
+        classes = {"formPanel", cond(movementConstraintOff(), "collapsed")},
+        refreshInvoke = function(element)
+            element:SetClass("collapsed", movementConstraintOff())
+        end,
         gui.Label{
             classes = {"formLabel"},
             text = "Movement Anchor:",
@@ -2251,7 +2271,10 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
     }
 
     result[#result+1] = gui.Panel{
-        classes = {"formPanel"},
+        classes = {"formPanel", cond(movementConstraintOff(), "collapsed")},
+        refreshInvoke = function(element)
+            element:SetClass("collapsed", movementConstraintOff())
+        end,
         gui.Label{
             classes = {"formLabel"},
             text = "Anchor Filter:",
@@ -2278,7 +2301,10 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
     }
 
     result[#result+1] = gui.Panel{
-        classes = {"formPanel"},
+        classes = {"formPanel", cond(movementConstraintOff(), "collapsed")},
+        refreshInvoke = function(element)
+            element:SetClass("collapsed", movementConstraintOff())
+        end,
         gui.Label{
             classes = {"formLabel"},
             text = "Maximum Anchor Distance:",
@@ -2306,6 +2332,10 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
     }
 
     result[#result+1] = gui.Check{
+        classes = {cond(movementConstraintOff(), "collapsed")},
+        refreshInvoke = function(element)
+            element:SetClass("collapsed", movementConstraintOff())
+        end,
         text = "Use Anchor as Forced Movement Origin",
         value = self:try_get("movementConstraintAsForcedMovementOrigin", false),
         change = function(element)
@@ -2314,6 +2344,10 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
     }
 
     result[#result+1] = gui.Check{
+        classes = {cond(movementConstraintOff(), "collapsed")},
+        refreshInvoke = function(element)
+            element:SetClass("collapsed", movementConstraintOff())
+        end,
         text = "Remember Anchor as MovementTarget",
         value = self:try_get("rememberMovementConstraintTarget", false),
         change = function(element)
