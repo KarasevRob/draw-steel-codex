@@ -956,6 +956,8 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                     if rangeOriginTokenId ~= nil then
                         invocation.abilityAttr.rangeOriginTokenId = rangeOriginTokenId
                     end
+                    --Send the override along, since the ability itself is rebuilt on the other machine.
+                    invocation.targetingOverride = self:GetTargetingOverride()
                     if self:try_get("movementConstraintStraightLine", false) then
                         invocation.abilityAttr.targeting = "straightpath"
                     end
@@ -1135,6 +1137,12 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
 
                         if self:try_get("hideSightlines", false) then
                             abilityClone.hideSightlines = true
+                        end
+
+                        --Change who the invoked ability can target, if the invoke asks for it.
+                        local targetingOverride = self:GetTargetingOverride()
+                        if targetingOverride ~= nil and abilityClone ~= nil then
+                            abilityClone:OverrideTargeting(targetingOverride)
                         end
 
                         --Set on the clone because ExecuteInvoke only receives the ability, not this behavior.
@@ -1697,6 +1705,11 @@ ActivatedAbilityInvokeAbilityBehavior.chooseAbilityEmptyText = "You have no abil
 --Set when the invoking ability already charges the action cost for the whole package,
 --so the invoked ability should not charge its own on top.
 ActivatedAbilityInvokeAbilityBehavior.suppressInvokedActionCost = false
+
+--When overrideTargeting is on, the invoked ability targets "any", "ally" or "enemy"
+--creatures instead of its usual ones. Used by Subvert the Green Within.
+ActivatedAbilityInvokeAbilityBehavior.overrideTargeting = false
+ActivatedAbilityInvokeAbilityBehavior.targetingOverride = "any"
 ActivatedAbilityInvokeAbilityBehavior.targeting = "prompt"
 ActivatedAbilityInvokeAbilityBehavior.inheritRange = false
 
@@ -1704,6 +1717,15 @@ ActivatedAbilityInvokeAbilityBehavior.inheritRange = false
 --filter is preselected, so the player just confirms or skips (set a prompt text, or it casts
 --without asking). If no target passes, the invoke is skipped: no prompt and no cost.
 ActivatedAbilityInvokeAbilityBehavior.autoSelectInheritedTargets = false
+
+--- The targeting override for the invoked ability, or nil if there is none.
+--- @return nil|string
+function ActivatedAbilityInvokeAbilityBehavior:GetTargetingOverride()
+    if not self:try_get("overrideTargeting", false) then
+        return nil
+    end
+    return self:try_get("targetingOverride", "any")
+end
 
 function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
 
@@ -1900,6 +1922,40 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
 		change = function(element)
 			self.suppressInvokedActionCost = element.value
 		end,
+	}
+
+	result[#result+1] = gui.Check{
+		text = "Override Targeting",
+		hover = gui.Tooltip("Replace which creatures the invoked ability may target."),
+		value = self:try_get("overrideTargeting", false),
+		change = function(element)
+			self.overrideTargeting = element.value
+			parentPanel:FireEventTree("refreshInvoke")
+		end,
+	}
+
+	result[#result+1] = gui.Panel{
+		classes = {"formPanel", cond(not self:try_get("overrideTargeting", false), "collapsed")},
+		refreshInvoke = function(element)
+			element:SetClass("collapsed", not self:try_get("overrideTargeting", false))
+		end,
+		gui.Label{
+			classes = {"formLabel"},
+			text = "Can Target:",
+		},
+		gui.Dropdown{
+			classes = {"formDropdown"},
+			options = {
+				{ text = "Any Creature", id = "any" },
+				{ text = "Allies", id = "ally" },
+				{ text = "Enemies", id = "enemy" },
+			},
+			idChosen = self:try_get("targetingOverride", "any"),
+			change = function(element)
+				---@cast element Dropdown
+				self.targetingOverride = element.idChosen
+			end,
+		},
 	}
 
 	result[#result+1] = gui.Check{
@@ -2377,6 +2433,10 @@ function AbilityInvocation:Invoke()
 
 	for k,v in pairs(self:try_get("abilityAttr", {})) do
 		abilityClone[k] = v
+	end
+
+	if self:try_get("targetingOverride") ~= nil then
+		abilityClone:OverrideTargeting(self.targetingOverride)
 	end
 
 	-- Apply forced movement bonuses if this is a forced movement ability

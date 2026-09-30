@@ -326,6 +326,35 @@ function ActivatedAbility:MakeTemporaryClone()
 	end
 end
 
+--- Changes who this ability can target. Used by Invoke Ability's "Override Targeting".
+---   "any"   - any creature, including the caster
+---   "ally"  - the caster's allies, not the caster
+---   "enemy" - the caster's enemies
+--- Abilities that target only objects or corpses are not changed.
+--- This edits the ability, so only call it on a temporary clone.
+--- @param mode string
+function ActivatedAbility:OverrideTargeting(mode)
+	self._tmp_targetingOverride = mode
+
+	if self.targetAllegiance ~= "none" and self.targetAllegiance ~= "dead" then
+		if mode == "any" then
+			self.targetAllegiance = false
+			self.selfTarget = true
+		elseif mode == "ally" then
+			self.targetAllegiance = "ally"
+			self.selfTarget = false
+		elseif mode == "enemy" then
+			self.targetAllegiance = "enemy"
+			self.selfTarget = false
+		end
+	end
+
+	--The melee and ranged versions are cast on their own, so change them too.
+	for _,variation in ipairs(self:GetVariations() or {}) do
+		variation:OverrideTargeting(mode)
+	end
+end
+
 --- @field ActivatedAbility.keywords table<string,boolean>
 ActivatedAbility.keywords = {}
 
@@ -1893,6 +1922,10 @@ function ActivatedAbility:SwitchModes(i)
     -- Including the forced-strike targeting marker: losing it here would put
     -- the slider back on "Enemies" the moment the player flipped mode.
     result._tmp_aimedByOpposingCreature = self:try_get("_tmp_aimedByOpposingCreature")
+    -- Keep any targeting override when switching modes.
+    if self:try_get("_tmp_targetingOverride") ~= nil then
+        result:OverrideTargeting(self._tmp_targetingOverride)
+    end
     result.skippable = self:try_get("skippable")
     result.countsAsCast = self:try_get("countsAsCast")
     result.promptOverride = self:try_get("promptOverride")

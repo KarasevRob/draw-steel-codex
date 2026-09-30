@@ -83,6 +83,14 @@ function ActivatedAbility:TargetModeOptions()
         --is allowed to name a friend in the first place; an enemy-allegiance
         --ability already excludes them, so that position is dropped.
         ids = {"enemies"}
+        --An ability overridden to target allies has no enemies to pick,
+        --so leave out the "Enemies" option.
+        if self:try_get("_tmp_targetingOverride") == "ally" and self.targetAllegiance == "ally" then
+            if not canTargetObjects then
+                return nil
+            end
+            ids = {}
+        end
         if canTargetFriends then ids[#ids+1] = false end
         if canTargetObjects then
             ids[#ids+1] = true

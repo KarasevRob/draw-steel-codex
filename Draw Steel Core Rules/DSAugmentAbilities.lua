@@ -117,6 +117,12 @@ function ActivatedAbilityAugmentedAbilityBehavior:SynthesizeAbilities(ability, c
             --ActivatedAbility:TargetModeOptions. Report 2P99A7MU.
             synth._tmp_aimedByOpposingCreature = AimedByOpposingCreature(ability, creature)
 
+            --If the invoke overrode targeting, apply it to the ability built here,
+            --since that is the one actually cast (e.g. Subvert's signature ability).
+            if ability:try_get("_tmp_targetingOverride") ~= nil then
+                synth:OverrideTargeting(ability._tmp_targetingOverride)
+            end
+
             if not self.modifier:try_get("mustPayResourceCost", false) then
                 --mustPayResourceCost off: the routed ability does not pay its own cost; it
                 --inherits (and thus pays) the augmenter ability's cost instead.
