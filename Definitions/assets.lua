@@ -94,7 +94,7 @@ function assets:CreateNewImageLibrary(options) end
 
 --- Finds an emoji asset by its ID or name, optionally filtering by emoji type. Returns nil if not found.
 --- @param name string The emoji ID or display name.
---- @param emojiType string The emoji type filter, or nil for any type.
+--- @param emojiType nil|string The emoji type filter, or nil for any type.
 --- @return nil|EmojiAssetLua
 function assets:FindEmojiByIdOrName(name, emojiType) end
 

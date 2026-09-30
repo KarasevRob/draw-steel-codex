@@ -48,13 +48,13 @@
 --- @field GetLightingInfo fun(floorid: string): {cacheable: boolean, indoors: Color, outdoors: Color, illumination: number, shadow: {dir: Vector2, color: Color} } A function that can be set to tell the engine what the current lighting looks like. It will be called every frame to set the lighting.
 --- @field ObjectEditingEnabled fun(): boolean A function that returns whether object editing mode is currently enabled in the UI.
 --- @field SelectionToolEnabled fun(): boolean A function that returns whether the selection tool is currently enabled in the UI.
---- @field GetActiveClipboardItem fun(): ClipboardItem A function that returns the currently active clipboard item, if any.
+--- @field GetActiveClipboardItem fun(): ClipboardItem|nil A function that returns the currently active clipboard item, if any.
 --- @field TokenVisionUpdated fun(): nil A function that is called when token vision has been recalculated and updated.
 --- @field GetFocus fun(): Panel|nil A function that returns the currently focused UI panel, or nil if nothing is focused.
 --- @field CreateLootComponent fun(): table A function that creates a loot component table for attaching to an object.
 --- @field CreateTextComponent fun(): table A function that creates a text component table for attaching to an object.
 --- @field GetObjectInteractives fun(): table A function that returns the list of interactive components available for objects.
---- @field ShowObjectInteractive fun(): nil A function that is called to show the object interactive UI.
+--- @field ShowObjectInteractive fun(objid: string, interactiveid: string): nil A function that is called to show the object interactive UI.
 --- @field CreateObjectInteractive fun(): table A function that creates an interactive component table for attaching to an object.
 --- @field CreateGameHud fun(container: SheetContainer, sheethud: SheetHud): Panel
 --- @field DataStreamed fun(eventName: string, path: string, payload: string): nil
@@ -72,10 +72,10 @@
 --- @field CreateEventTriggerComponent fun(): table A function that creates an event trigger component table for attaching to an object.
 --- @field CreateDataInputComponent fun(): table A function that creates a data input component table for attaching to an object.
 --- @field CreateDataOutputComponent fun(): table A function that creates a data output component table for attaching to an object.
---- @field TokensAreFriendly fun(a: CharacterToken, b: CharacterToken): boolean A function that determines whether two tokens are considered friendly to each other.
+--- @field TokensAreFriendly fun(a: CharacterToken, b: CharacterToken): boolean|nil A function that determines whether two tokens are considered friendly to each other. Returning nil (anything but a boolean) makes the engine fall back to its own default friendliness test.
 --- @field DescribeToken fun(token: CharacterToken): string A function that returns a human-readable description of the given token.
 --- @field DataError fun(message: string): nil Function which is called by the engine when a networking error occurs allowing display of a message to the user.
---- @field GetHeightEditingInfo fun(): {opacity: number, blend: number, height: number, directional: boolean} Editor callback function: Used to determine what height editing options the user has selected in the UI.
+--- @field GetHeightEditingInfo fun(): nil|{opacity: number, blend: number, height: number, directional: boolean} Editor callback function: Used to determine what height editing options the user has selected in the UI. Returning nil means height editing is off.
 --- @field SelectHeight fun(height: number): nil Editor callback function: Used when the user uses the eyedropper tool to select a height to notify the interface what height they selected.
 --- @field GetWallHeight fun(): number Editor callback function: Used to determine the height the user is currently editing walls at.
 --- @field CreateTargetableComponent fun(): table A function that creates a targetable component table for attaching to an object.
@@ -744,10 +744,10 @@ function dmhub.UploadAllMonsters(options) end
 --- @return { monstersImported: number, itemsImported: number, errors: string[] }
 function dmhub.ImportFile(filename) end
 
---- Searches items in a data table for entries whose string fields match the given search string. Returns a table of matching items, excluding hidden entries.
+--- Searches items in a data table for entries whose string fields match the given search string. Returns a table of matching items keyed by id, excluding hidden entries; empty (never nil) when nothing matches or tableName is not a data table.
 --- @param tableName string The name of the table
---- @param searchString the string to search for.
---- @param options {fields: string[]} Fields can specify a list of fields that will be searched, rather than searching all fields.
+--- @param searchString string The string to search for.
+--- @param options nil|{fields: string[]} Fields can specify a list of fields that will be searched, rather than searching all fields.
 --- @return table<string, table>
 function dmhub.SearchTable(tableName, searchString, options) end
 
@@ -769,11 +769,9 @@ function dmhub.CreateCanvasOnMap(options) end
 function dmhub.MarkRadius(radius, color, center) end
 
 --- Mark a set of locations on the map by outlining their perimeter. style: 'solid' draws a plain continuous line, 'dashed'/'dotted' draw a patterned line; nil keeps the legacy border strip with its inner fade. Call Destroy() on the returned object when you want to destroy the marker.
---- @param color ColorArg
---- @param locs Loc[]
---- @param style nil|'solid'|'dashed'|'dotted' border line style; nil keeps the legacy strip with inner fade
+--- @param args {locs: Loc[], color: nil|ColorArg, style: nil|'solid'|'dashed'|'dotted'} color defaults to white; style nil keeps the legacy strip with inner fade.
 --- @return LuaMultiObjectReference
-function dmhub.MarkLocs(color, locs, style) end
+function dmhub.MarkLocs(args) end
 
 --- Create an object describing a shape on the map. If targetFloorIndex is provided, the shape's locs and visual marker are placed on that floor instead of the caster's floor (used for cross-floor targeting).
 --- @param args {shape: SpellShapes, token: CharacterToken, objectTemplate: nil|string, targetPoint: Vector3Arg, range: nil|number, radius: nil|number, locOverride: nil|Loc, requireEmpty: nil|boolean, checklos: nil|boolean, altitude: nil|number, targetFloorIndex: nil|number }
@@ -938,9 +936,9 @@ function dmhub.SetGoblinScriptDebug(formula, enabled) end
 function dmhub.OpenModFileAtLine(modName, fileName, lineNumber) end
 
 --- Evaluates the given goblinscript as much as possible, looking up any strings and returns the script reduced to hopefully just a dice roll or even numeric result. Always returns a string with a best effort to reduce the formula.
---- @param goblinscript string
---- @param lookupFunction function
---- @param reason string
+--- @param goblinscript string|number|table A formula; a number is returned as its string; a table is a tiered formula {field=, entries=, upcastStyle=} whose field picks the entry script.
+--- @param lookupFunction nil|function Symbol lookup; anything but a function leaves symbols unevaluated.
+--- @param reason nil|string
 --- @return string
 function dmhub.EvalGoblinScript(goblinscript, lookupFunction, reason) end
 
@@ -966,11 +964,11 @@ function dmhub.CompileGoblinScriptDeterministic(goblinscript, debugOut) end
 function dmhub.EvalGoblinScriptDeterministic(goblinscript, lookupFunction, defaultValue, reason) end
 
 --- Evaluates a deterministic boolean GoblinScript expression and returns an explanation of each symbol's contribution using the explainFunction.
---- param goblinscript string
+--- @param goblinscript string|number|table A number yields an empty list.
 --- @param lookupFunction function
---- @param explainFunction fun(symbol: string, has: boolean): string
---- @return nil|(string[])
-function dmhub.ExplainDeterministicGoblinScript(lookupFunction, explainFunction) end
+--- @param explainFunction fun(symbol: string, has: boolean): string|nil A non-string result omits that symbol.
+--- @return string[]
+function dmhub.ExplainDeterministicGoblinScript(goblinscript, lookupFunction, explainFunction) end
 
 --- Given some goblin script generates possible completions for the code.
 --- @param args {text: string, symbols: nil|table, deterministic: nil|boolean}
@@ -979,13 +977,13 @@ function dmhub.AutoCompleteGoblinScript(args) end
 
 --- Returns true if the given formula is deterministic, not involving any actual dice rolls.
 --- @param text string
---- @param lookupFunction function
+--- @param lookupFunction nil|function
 --- @return boolean
 function dmhub.IsRollDeterministic(text, lookupFunction) end
 
 --- Makes an instant roll and returns the result. The lookupFunction will be used to evaluate any GoblinScript included in the text.
 --- @param text string
---- @param lookupFunction function
+--- @param lookupFunction nil|function
 --- @return number
 function dmhub.RollInstant(text, lookupFunction) end
 
@@ -1237,9 +1235,9 @@ function dmhub.RegisterRemoteEvent(eventid, callback) end
 
 --- This broadcasts an event to connected computers using the peer-to-peer mechanism. By default delivery is best-effort UDP -- good for transient information like mouse positions or highlights where a dropped packet doesn't matter. If multiple messages using the same sessionid arrive out of order, the old messages will be discarded and not processed. Pass reliable = true to route via the game server's WebSocket when the event drives a state change that must not be lost.
 --- @param eventid string A unique eventid identifying the event.
---- @param sessionid A unique id identifying a 'session' which can receive multiple messages. If you want to broadcast multiple events concerning the same topic, use the same sessionid.
+--- @param sessionid string A unique id identifying a 'session' which can receive multiple messages. If you want to broadcast multiple events concerning the same topic, use the same sessionid.
 --- @param args any
---- @param reliable boolean Optional. If true, route the message through the game server (TCP) so it can't be dropped by UDP. Requires a Durable Objects or Local game; silently ignored on Firebase-backed games (falls back to UDP). Defaults to false.
+--- @param reliable nil|boolean Optional. If true, route the message through the game server (TCP) so it can't be dropped by UDP. Requires a Durable Objects or Local game; silently ignored on Firebase-backed games (falls back to UDP). Defaults to false.
 function dmhub.BroadcastRemoteEvent(eventid, sessionid, args, reliable) end
 
 --- Registers a named priority for escape listening. The named key is associated with the given priority level.
@@ -1308,7 +1306,7 @@ function dmhub:IsEntitledToOrg(orgid) end
 function dmhub:SetPatreonOrgOverride(orgid, cents) end
 
 --- ADMIN ONLY testing aid: forget the session override set by SetPatreonOrgOverride for the given creator organization, or every override when orgid is nil, so the real /Patrons entitlements apply again.
---- @param orgid string The id of the creator organization; nil clears all overrides.
+--- @param orgid? string The id of the creator organization; nil clears all overrides.
 function dmhub:ClearPatreonOrgOverride(orgid) end
 
 --- Elevates the user to GM status or removes their GM status. Only works on admin accounts.
@@ -1380,10 +1378,10 @@ function dmhub.RefreshMapLayout() end
 --- @return LuaGameSession
 function dmhub.GetSessionInfo(userid) end
 
---- Pings a connected user to measure latency. Calls the callback with the cloud round-trip time, and optionally the peer-to-peer callback with direct connection time.
+--- Pings a connected user to measure latency. Calls the callback (with no arguments) when the cloud round trip completes, and optionally the peer-to-peer callback with the direct connection time.
 --- @param userid string The userid of the user to ping.
 --- @param callback (fun(): any) The callback to call when the pong is received. This means a message will have been sent to the cloud, the cloud notified the other user, and the user responded via the cloud.
---- @param callbackPeerToPeer (fun(): any) The call when the peer-to-peer pong is received. This means a direct message was sent from this computer to the other computer. Sometimes peer-to-peer connections don't work and this may not be called.
+--- @param callbackPeerToPeer nil|(fun(time: number|nil, connectionType: nil|'direct'|'relay'): any) The call when the peer-to-peer pong is received; time and connectionType are nil when the ping did not complete. This means a direct message was sent from this computer to the other computer. Sometimes peer-to-peer connections don't work and this may not be called.
 function dmhub.PingUser(userid, callback, callbackPeerToPeer) end
 
 --- Returns all tokens that are at the given location. For tokens larger than one location, it will return them if any part of them is in the location.
@@ -1570,9 +1568,9 @@ function dmhub.ScheduleWhen(predicate, fn) end
 
 --- Center on the token with the given id, calling the callback when complete.
 --- @param tokenid string
---- @param callback (fun(): nil)
+--- @param args nil|(fun(): any)|{smooth: nil|boolean, callback: nil|(fun(): any)} A completion callback, or a table of options.
 --- @return boolean
-function dmhub.CenterOnToken(tokenid, callback) end
+function dmhub.CenterOnToken(tokenid, args) end
 
 --- Center the camera on a tile location, switching map and floor first if needed. mapid defaults to the current map; a missing or deleted floorid falls back to the current or first floor. Returns false if the map could not be found.
 --- @param args {x: number, y: number, mapid: nil|string, floorid: nil|string, smooth: nil|boolean, callback: nil|(fun(): nil)}

@@ -119,7 +119,7 @@ function MapFloorLua:GetNumberOfProjectiles(tokenid) end
 function MapFloorLua:GetProjectiles(tokenid) end
 
 --- ChangeElevation
---- @param options {type: 'rectangle'|'ellipse'|'polygon', center: nil|Vector2Arg, radius: nil|number|Vector2Arg, p1: nil|Vector2Arg, p2: nil|Vector2Arg, points: nil|(Vector2Arg[]), opacity: number, blend: nil|number, add: nil|boolean, height: number, recalculateTokenElevation: nil|boolean}
+--- @param options {type: 'rectangle'|'ellipse'|'polygon', center: nil|Vector2Arg, radius: nil|number|Vector2Arg, p1: nil|Vector2Arg, p2: nil|Vector2Arg, points: nil|(Vector2Arg[]), opacity: number, blend: nil|number, add: nil|boolean, height: number|string, recalculateTokenElevation: nil|boolean}
 function MapFloorLua:ChangeElevation(options) end
 
 --- ScaleMapElevations

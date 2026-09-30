@@ -15,14 +15,14 @@ function chat.DiceEvents(guid) end
 --- @param message string
 function chat.Send(message) end
 
---- Send a CustomChatPanel to chat.
---- @param panel CustomChatPanel
+--- Send a custom chat message (an instance of a registered game type) to chat.
+--- @param panel GameType An instance of a message type registered with RegisterGameType; it is serialized as the message's properties and rendered by the Lua chat panel.
 --- @return string The guid of the message.
 function chat.SendCustom(panel) end
 
---- Updates a CustomChatPanel in chat. The key is the guid previously returned by @see SendCustom
+--- Updates a custom chat message in chat. The key is the guid previously returned by @see SendCustom
 --- @param key string
---- @param properties CustomChatPanel
+--- @param properties GameType The replacement message: an instance of a registered game type, as passed to @see SendCustom.
 function chat.UpdateCustom(key, properties) end
 
 --- Share a game object (e.g. a spell, ability, or item) to the chat.

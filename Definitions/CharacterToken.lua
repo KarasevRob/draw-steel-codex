@@ -177,7 +177,7 @@ function CharacterToken:SerializeAppearanceFromString(s) end
 function CharacterToken:PrepareUploadAppearance() end
 
 --- Upload the @see appearance section of the token. If a snapshot from @see PrepareUploadAppearance is provided, the change will be undoable.
---- @param snapshot string A snapshot from @see PrepareUploadAppearance representing the previous appearance to restore on undo.
+--- @param snapshot? string A snapshot from @see PrepareUploadAppearance representing the previous appearance to restore on undo.
 function CharacterToken:UploadAppearance(snapshot) end
 
 --- Disguise as another token. The disguise will be uploaded.
@@ -222,8 +222,8 @@ function CharacterToken:RecalculateElevation() end
 function CharacterToken:Flip() end
 
 --- GetNameMaxLength
---- @param maxLen? number
---- @return string
+--- @param maxLen number
+--- @return nil|string The name, shortened to at most maxLen characters, or nil if the token has no name.
 function CharacterToken:GetNameMaxLength(maxLen) end
 
 --- DescribeRollAgainst
@@ -239,8 +239,8 @@ function CharacterToken:PosAtLoc(loc) end
 --- Create a local map tag using the targeting modifier label renderer. Destroy the returned marker when the preview ends.
 --- @param location Loc
 --- @param text string
---- @param category string
---- @param offsetY number
+--- @param category? string
+--- @param offsetY? number
 --- @return LuaTargetingMarkers
 function CharacterToken:CreateMapTag(location, text, category, offsetY) end
 
@@ -335,8 +335,9 @@ function CharacterToken:InvalidateObjects() end
 
 --- aspect is the width as a percentage of the height. e.g. 0.5 = width is half of height.
 --- @param aspect number
+--- @param portrait nil|string The image id of the portrait to fit. Defaults to the token's own portrait.
 --- @return Vector4
-function CharacterToken:GetPortraitRectForAspect(aspect) end
+function CharacterToken:GetPortraitRectForAspect(aspect, portrait) end
 
 --- Returns walk of swim depending on the type of movement the creature will have to move on the ground. preferWater is used if the token straddles water and land and chooses the preferred type for the token.
 --- @param preferWater boolean

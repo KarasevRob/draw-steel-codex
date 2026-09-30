@@ -1,38 +1,41 @@
 ---@meta
 
+--- Event handlers receive the panel, then any extra arguments the firing call passed. The
+--- engine (SheetPanel.cs) fires these with none, except keybind (the bind id) and rendered
+--- (width, height); Lua FireEvent/FireEventTree calls can pass more to any of them.
 --- @class PanelArgsBase:StyleArgs
---- @field keybind nil|string|(fun(panel:Panel, bind:string):nil)
---- @field monitor nil|string|(fun(panel:Panel):nil)
---- @field closePopup nil|string|(fun(panel:Panel):nil)
---- @field delete nil|string|(fun(panel:Panel):nil) @Fired when the delete key is pressed.
---- @field change nil|string|(fun(panel:Panel):nil) @Fired when the value managed by this panel is changed.
---- @field click nil|string|(fun(panel:Panel):nil) @Fired when this panel is clicked.
---- @field rightClick nil|string|(fun(panel:Panel):nil) @Fired when this panel is right-clicked.
---- @field rendered nil|string|(fun(panel:Panel,width:number,height:number):nil) @Fired when this panel is first rendered.
---- @field enable nil|string|(fun(panel:Panel):nil)
---- @field disable nil|string|(fun(panel:Panel):nil)
---- @field create nil|string|(fun(panel:Panel):nil)
---- @field think nil|string|(fun(panel:Panel):nil) @Fired every thinkTime seconds.
---- @field escape nil|string|(fun(panel:Panel):nil) @Fired when escape is set if the panel has captureEscape set
---- @field refreshGame nil|string|(fun(panel:Panel):nil) If we are monitoring the game for changes, fires when the part of the game we are monitoring changes.
---- @field imageLoaded nil|string|(fun(panel:Panel):nil) Fired when the background image this panel uses is loaded.
+--- @field keybind nil|string|(fun(panel:Panel, bind:string, ...:any):nil)
+--- @field monitor nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field closePopup nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field delete nil|string|(fun(panel:Panel, ...:any):nil) @Fired when the delete key is pressed.
+--- @field change nil|string|(fun(panel:Panel, ...:any):nil) @Fired when the value managed by this panel is changed.
+--- @field click nil|string|(fun(panel:Panel, ...:any):nil) @Fired when this panel is clicked.
+--- @field rightClick nil|string|(fun(panel:Panel, ...:any):nil) @Fired when this panel is right-clicked.
+--- @field rendered nil|string|(fun(panel:Panel,width:number,height:number, ...:any):nil) @Fired when this panel is first rendered.
+--- @field enable nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field disable nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field create nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field think nil|string|(fun(panel:Panel, ...:any):nil) @Fired every thinkTime seconds.
+--- @field escape nil|string|(fun(panel:Panel, ...:any):nil) @Fired when escape is set if the panel has captureEscape set
+--- @field refreshGame nil|string|(fun(panel:Panel, ...:any):nil) If we are monitoring the game for changes, fires when the part of the game we are monitoring changes.
+--- @field imageLoaded nil|string|(fun(panel:Panel, ...:any):nil) Fired when the background image this panel uses is loaded.
 
 --- @class PanelEventArgs
---- @field keybind nil|string|(fun(panel:Panel, bind:string):nil)
---- @field monitor nil|string|(fun(panel:Panel):nil)
---- @field closePopup nil|string|(fun(panel:Panel):nil)
---- @field delete nil|string|(fun(panel:Panel):nil) @Fired when the delete key is pressed.
---- @field change nil|string|(fun(panel:Panel):nil) @Fired when the value managed by this panel is changed.
---- @field click nil|string|(fun(panel:Panel):nil) @Fired when this panel is clicked.
---- @field rightClick nil|string|(fun(panel:Panel):nil) @Fired when this panel is right-clicked.
---- @field rendered nil|string|(fun(panel:Panel,width:number,height:number):nil) @Fired when this panel is first rendered.
---- @field enable nil|string|(fun(panel:Panel):nil)
---- @field disable nil|string|(fun(panel:Panel):nil)
---- @field create nil|string|(fun(panel:Panel):nil)
---- @field think nil|string|(fun(panel:Panel):nil) @Fired every thinkTime seconds.
---- @field escape nil|string|(fun(panel:Panel):nil) @Fired when escape is set if the panel has captureEscape set
---- @field refreshGame nil|string|(fun(panel:Panel):nil) If we are monitoring the game for changes, fires when the part of the game we are monitoring changes.
---- @field imageLoaded nil|string|(fun(panel:Panel):nil) Fired when the background image this panel uses is loaded.
+--- @field keybind nil|string|(fun(panel:Panel, bind:string, ...:any):nil)
+--- @field monitor nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field closePopup nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field delete nil|string|(fun(panel:Panel, ...:any):nil) @Fired when the delete key is pressed.
+--- @field change nil|string|(fun(panel:Panel, ...:any):nil) @Fired when the value managed by this panel is changed.
+--- @field click nil|string|(fun(panel:Panel, ...:any):nil) @Fired when this panel is clicked.
+--- @field rightClick nil|string|(fun(panel:Panel, ...:any):nil) @Fired when this panel is right-clicked.
+--- @field rendered nil|string|(fun(panel:Panel,width:number,height:number, ...:any):nil) @Fired when this panel is first rendered.
+--- @field enable nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field disable nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field create nil|string|(fun(panel:Panel, ...:any):nil)
+--- @field think nil|string|(fun(panel:Panel, ...:any):nil) @Fired every thinkTime seconds.
+--- @field escape nil|string|(fun(panel:Panel, ...:any):nil) @Fired when escape is set if the panel has captureEscape set
+--- @field refreshGame nil|string|(fun(panel:Panel, ...:any):nil) If we are monitoring the game for changes, fires when the part of the game we are monitoring changes.
+--- @field imageLoaded nil|string|(fun(panel:Panel, ...:any):nil) Fired when the background image this panel uses is loaded.
 --- @field [string] nil|string|(fun(panel:Panel, ...:any):any) Any other event by name: engine events (hover, dehover, press, linger, destroy, refreshAssets, ...) or a custom event fired with FireEvent/FireEventTree.
 
 --- DockablePanel is implemented in the codex (DMHub Core UI/DockablePanel.lua).
