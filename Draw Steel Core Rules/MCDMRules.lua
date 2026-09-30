@@ -1538,7 +1538,17 @@ TriggeredAbility.RegisterTrigger{
         damage = {
             name = "Damage",
             type = "number",
-            desc = "The amount of damage taken when triggering this event.",
+            desc = "The Stamina actually lost to this damage, after any temporary Stamina absorbed part of it. Use this to check Stamina thresholds, e.g. Stamina + Damage is the Stamina before the hit.",
+        },
+        fulldamage = {
+            name = "Full Damage",
+            type = "number",
+            desc = "The amount of damage taken, after immunities and weaknesses, including any part absorbed by temporary Stamina. Use this for effects based on 'the triggering damage'.",
+        },
+        damagethisturn = {
+            name = "Damage This Turn",
+            type = "number",
+            desc = "The total damage taken so far this combat turn (anyone's turn), including this damage and any absorbed by temporary Stamina. Outside combat, the same as Full Damage.",
         },
         rawdamage = {
             name = "Raw Damage",
@@ -1637,7 +1647,17 @@ TriggeredAbility.RegisterTrigger{
         {
             name = "Damage",
             type = "number",
-            desc = "The amount of damage dealt.",
+            desc = "The Stamina the target actually lost, after any temporary Stamina absorbed part of the damage. Use this to check Stamina thresholds, e.g. Target.Stamina + Damage is the Stamina before the hit.",
+        },
+        {
+            name = "Full Damage",
+            type = "number",
+            desc = "The amount of damage dealt, after immunities and weaknesses, including any part absorbed by the target's temporary Stamina.",
+        },
+        {
+            name = "Raw Damage",
+            type = "number",
+            desc = "The amount of damage dealt before the target's immunities and weaknesses were applied.",
         },
         {
             name = "Damage Type",

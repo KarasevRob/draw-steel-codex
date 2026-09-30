@@ -5993,6 +5993,28 @@ function creature:MinionDeath()
     g_baseMinionDeath(self)
 end
 
+--Running total of damage this creature has taken during the current combat turn
+--(anyone's turn), counting what temporary Stamina absorbed. Take Damage triggers
+--see it as Damage This Turn, e.g. the Elementalist's "5 x Reason in one turn" rule.
+creature.damageTakenThisTurn = 0
+creature.damageTakenThisTurnId = ""
+
+--Adds amount to the per-turn total and returns the new total. Outside combat
+--there is no turn to accumulate over, so it just returns amount.
+local function AccumulateDamageThisTurn(self, amount)
+    local q = dmhub.initiativeQueue
+    local turnid = q ~= nil and q:GetTurnId() or nil
+    if turnid == nil then
+        return amount
+    end
+    if self.damageTakenThisTurnId ~= turnid then
+        self.damageTakenThisTurnId = turnid
+        self.damageTakenThisTurn = 0
+    end
+    self.damageTakenThisTurn = self.damageTakenThisTurn + amount
+    return self.damageTakenThisTurn
+end
+
 function creature.TakeDamage(self, amount, note, info)
     info = info or {}
     if type(amount) == 'string' then
@@ -6148,7 +6170,12 @@ function creature.TakeDamage(self, amount, note, info)
             eventArg.attacker = nil
         end
         eventArg.damage = amount
-        eventArg.rawdamage = info.rawdamage
+        --the minion path never draws on temporary Stamina, so the two are equal.
+        eventArg.fulldamage = amount
+        eventArg.damagethisturn = AccumulateDamageThisTurn(self, math.max(0, amount))
+        --rawdamage is only set by InflictDamageInstance; a direct TakeDamage had no
+        --immunity applied, so its raw damage is just the amount.
+        eventArg.rawdamage = info.rawdamage or amount
         eventArg.damageimmunity = info.damageImmunity and info.damageImmunity.dr ~= nil
         eventArg.damagetype = eventArg.damagetype or "none"
         eventArg.damagedice = eventArg.damagedice or StringSet.new{}
@@ -6184,6 +6211,8 @@ function creature.TakeDamage(self, amount, note, info)
             local args = {
                 target = self,
                 damage = amount,
+                fulldamage = amount,
+                rawdamage = eventArg.rawdamage,
                 damagetype = eventArg.damagetype,
                 keywords = eventArg.keywords,
                 surges = eventArg.surges,
@@ -6324,7 +6353,13 @@ function creature.TakeDamage(self, amount, note, info)
         eventArg.attacker = nil
     end
     eventArg.damage = amount
-    eventArg.rawdamage = info.rawdamage
+    --damage is the Stamina actually lost; fulldamage also counts what temporary
+    --Stamina absorbed (the damage the creature took, by the rules).
+    eventArg.fulldamage = original_amount
+    eventArg.damagethisturn = AccumulateDamageThisTurn(self, math.max(0, original_amount))
+    --rawdamage is only set by InflictDamageInstance; a direct TakeDamage had no
+    --immunity applied, so its raw damage is just the amount.
+    eventArg.rawdamage = info.rawdamage or original_amount
     eventArg.damageimmunity = info.damageImmunity and info.damageImmunity.dr ~= nil
     eventArg.damagetype = eventArg.damagetype or "untyped"
     eventArg.damagedice = eventArg.damagedice or StringSet.new{}
@@ -6484,6 +6519,8 @@ function creature.TakeDamage(self, amount, note, info)
         local args = {
             target = self,
             damage = amount,
+            fulldamage = original_amount,
+            rawdamage = eventArg.rawdamage,
             damagetype = eventArg.damagetype,
             keywords = eventArg.keywords,
             surges = eventArg.surges,
