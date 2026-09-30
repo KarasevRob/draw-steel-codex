@@ -586,6 +586,11 @@ local function PickHeroImage(item, cfg, callback)
     end
 end
 
+--Shared with the titlescreen's "new items" dialog, which shows the same key
+--art cover-cropped the same way (CreatePromoGrantDialog in CodexTitlescreen.lua).
+AdventurePage.CoverWindow = CoverWindow
+AdventurePage.PickHeroImage = PickHeroImage
+
 --The rule under the hero title, after the dividers on the book covers: a thin
 --line with a diamond at its left end.
 local g_ruleWidth = 520
@@ -635,6 +640,8 @@ local function MakeTitleRule()
         },
     }
 end
+
+AdventurePage.MakeTitleRule = MakeTitleRule
 
 --------------------------------------------------------------------------------
 --Hero: full-bleed key art (still), a left-hand scrim, and the
