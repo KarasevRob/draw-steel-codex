@@ -4297,6 +4297,19 @@ function creature:InflictCondition(conditionid, args)
             args.cast:RecordInflictedCondition(conditionid, dmhub.LookupTokenId(self))
         end
 
+        --A creature clinging to the ceiling that is knocked prone lets go and falls. Deferred
+        --so this change has been committed before the engine re-runs its fall check.
+        if conditionid == "da6867b1-01e3-4570-8d1b-1b94ea1ea343" --[[Prone]] and self:try_get("ceilingCling") then
+            local clingToken = dmhub.LookupToken(self)
+            if clingToken ~= nil then
+                dmhub.Schedule(0.1, function()
+                    if clingToken.valid then
+                        clingToken:TryFall()
+                    end
+                end)
+            end
+        end
+
         local attacker = nil
         if args.casterInfo ~= nil then
             local attackerToken = dmhub.GetTokenById(args.casterInfo.tokenid)

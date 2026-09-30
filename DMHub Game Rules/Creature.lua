@@ -164,6 +164,7 @@ end
 --- @field temporary_hitpoints nil|number Current temporary hitpoints.
 --- @field damage_taken nil|number Total damage taken so far.
 --- @field currentMoveType string The creature's active movement mode (e.g. "walk", "fly", "swim").
+--- @field ceilingCling boolean True while clinging upside down to the ceiling (only meaningful while currentMoveType is "climb").
 --- @field creatureSize nil|string The creature's size override, or nil to use default.
 --- @field selectedLoadout integer The currently active loadout index.
 --- @field numLoadouts integer Total number of available loadouts.
@@ -318,6 +319,9 @@ end
 
 creature.currentMoveType = "walk"
 
+--Set by the engine when a climber at the ceiling tries to climb higher; see IsClingingToCeiling.
+creature.ceilingCling = false
+
 creature.innateActivatedAbilities = {}
 creature.innateLegendaryActions = {}
 
@@ -397,6 +401,11 @@ end
 --- @param movetype string
 function creature:SetCurrentMoveType(movetype)
 	self.currentMoveType = movetype
+
+	--clinging is a kind of climbing, so any other move type lets go of the ceiling.
+	if movetype ~= "climb" and self:try_get("ceilingCling") then
+		self.ceilingCling = nil
+	end
 end
 
 --- Set the creature's current movement type and uploads it to the cloud..
@@ -4808,6 +4817,49 @@ creature._tmp_movementcarrier = false
 
 local g_grabbedid = "70504ebe-3899-41d3-9f60-74b52ce35e39"
 local g_proneid = "da6867b1-01e3-4570-8d1b-1b94ea1ea343"
+
+--- Whether this creature may cling upside down to a ceiling: natural climbers (the Climb
+--- movement keyword, climb speed >= walk speed) that can climb right now and aren't prone.
+--- Prone is read from inflictedConditions directly rather than _tmp_prone, which only
+--- updates on the next token refresh.
+--- @return boolean
+function creature:CanClingToCeiling()
+    if not self:CanClimb() or not self:IsClimber() then
+        return false
+    end
+
+    local inflicted = self:try_get("inflictedConditions")
+    return inflicted == nil or inflicted[g_proneid] == nil
+end
+
+--- True while the creature is clinging upside down to the ceiling. The engine reads this
+--- every token refresh: it keeps the creature at ceiling height, restricts its movement to
+--- tiles with ceiling overhead, and draws the token upside down.
+--- @return boolean
+function creature:IsClingingToCeiling()
+    return self:try_get("ceilingCling") == true and self.currentMoveType == "climb" and self:CanClingToCeiling()
+end
+
+--- Set (true) or clear (false) the ceiling cling and upload it. Called by the engine.
+--- @param cling boolean
+function creature:SetAndUploadCeilingCling(cling)
+    local tok = dmhub.LookupToken(self)
+    if tok ~= nil then
+        tok:ModifyProperties{
+            description = cond(cling, "Cling to Ceiling", "Let Go of Ceiling"),
+            undoable = false,
+            combine = true,
+            execute = function()
+                --nil rather than false so a creature that never clung carries no field.
+                if cling then
+                    tok.properties.ceilingCling = true
+                else
+                    tok.properties.ceilingCling = nil
+                end
+            end,
+        }
+    end
+end
 
 function creature:Invalidate()
 	self._tmp_modifiers = nil

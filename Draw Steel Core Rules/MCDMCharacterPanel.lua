@@ -5832,7 +5832,8 @@ function TacPanel.AltitudeBox()
             local canFly = token.properties:CanFly()
             local canClimb = token.canCurrentlyClimb
             local canBurrow = token.properties:CanBurrow()
-            local visible = canFly or canClimb or canBurrow
+            --a ceiling clinger away from any wall can't "currently climb", but needs - to let go.
+            local visible = canFly or canClimb or canBurrow or token.properties:IsClingingToCeiling()
             element:SetClass("collapsed", not visible)
         end,
         refreshToken = function(element, token)
@@ -5852,7 +5853,7 @@ function TacPanel.AltitudeBox()
                 elseif moveType == "burrow" then
                     element.text = "Burrowing"
                 elseif moveType == "climb" then
-                    element.text = "Climbing"
+                    element.text = cond(token.properties:IsClingingToCeiling(), "Clinging", "Climbing")
                 else
                     element.text = "On Ground"
                 end

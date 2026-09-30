@@ -799,9 +799,18 @@ function MM.BuildZonesMode()
     --Callers that also want the paint tool armed call TakeMarkupFocus()
     --afterwards; the "New Zone Type..." path deliberately does not, because it
     --opens a modal editor for the new keyword immediately.
+    --The new entry goes BEFORE the built-in Hole entry RebuildZonePalette keeps
+    --last: Hole is never stored, so after the rebuild re-parses the palette the
+    --new type sits where Hole was, and selecting the end of the list would
+    --leave Hole selected instead of the new type.
     local AppendZoneTypeAndSelect = function(entry)
-        m.zonePaletteEntries[#m.zonePaletteEntries+1] = entry
-        m.zoneSelectedType = #m.zonePaletteEntries
+        local index = #m.zonePaletteEntries + 1
+        local last = m.zonePaletteEntries[#m.zonePaletteEntries]
+        if last ~= nil and last.kind == "hole" then
+            index = #m.zonePaletteEntries
+        end
+        table.insert(m.zonePaletteEntries, index, entry)
+        m.zoneSelectedType = index
         --a fresh type selection paints into that type's existing zone (or a
         --new one), not whatever zone was last targeted.
         m.zoneTargetId = nil

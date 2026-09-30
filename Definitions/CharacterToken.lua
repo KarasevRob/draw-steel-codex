@@ -70,6 +70,7 @@
 --- @field mapid string (Read-only) the id of the map the token is currently on.
 --- @field floorid string (Read-only) the id of the floor the token is currently on.
 --- @field canCurrentlyClimb boolean True if the creature can climb in the current location it is in now.
+--- @field isCeilingClinging boolean True while the creature is clinging upside down to the ceiling. Starts when a climber (Lua creature:CanClingToCeiling) already at the ceiling moves up again; ends when it moves down, is force-moved or teleported, or goes prone.
 --- @field isFriendOfPlayer boolean
 --- @field objectInstance LuaObjectInstance|nil
 --- @field properties Creature The token's lua properties representing game-specific character information. Often this is of type @see Creature
