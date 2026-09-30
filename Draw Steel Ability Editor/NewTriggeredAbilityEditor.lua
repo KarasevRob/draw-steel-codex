@@ -306,8 +306,8 @@ local TRIGGER_METADATA = {
         group = "abilities",
     },
     targetwithability = {
-        label = "Targeted by an Ability",
-        description = "Fires when the creature is targeted by another creature's ability.",
+        label = "Target With Ability",
+        description = "Fires when the creature uses an ability, once for each creature it targets.",
         tags = {"targeted", "target", "ability", "by"},
         group = "abilities",
     },
