@@ -638,10 +638,13 @@ function MonsterInfoDialog.Show(token)
         director = GameHud.DirectorUIVisible() and MonsterKnowledge.LocalUserSeesAll(),
     }
 
-    local screen = dmhub.screenDimensions
-    local maxHeight = math.floor(screen.y * 0.86)
-    local portraitMaxWidth = math.floor(screen.x * 0.45)
-    local blockWidth = math.min(720, math.floor(screen.x * 0.45))
+    local uiScale = dmhub.uiscale
+    local screen = dmhub.screenDimensionsBelowTitlebar
+    local screenW = screen.x / uiScale
+    local screenH = screen.y / uiScale
+    local maxHeight = math.floor(screenH * 0.86)
+    local portraitMaxWidth = math.floor(screenW * 0.45)
+    local blockWidth = math.min(720, math.floor(screenW * 0.45))
 
     local statBlock = gui.Panel{
         classes = {"bordered", "bg"},
