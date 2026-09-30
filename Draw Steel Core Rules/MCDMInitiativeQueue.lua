@@ -579,10 +579,11 @@ end
 function InitiativeQueue:DescribeEntry(initiativeid)
 	local entry = self.entries[initiativeid]
 	if entry == nil or entry:has_key("description") == false then
-		if string.startswith(entry.initiativeid, 'MONSTER-') then
-			return string.sub(entry.initiativeid, 9)
+		--use the key, not entry.initiativeid: entry is nil on the first branch.
+		if string.startswith(initiativeid, 'MONSTER-') then
+			return string.sub(initiativeid, 9)
 		else
-			local token = dmhub.GetCharacterById(entry.initiativeid)
+			local token = dmhub.GetCharacterById(initiativeid)
 			if token ~= nil then
 				return token.description
 			end
@@ -716,6 +717,8 @@ function InitiativeQueue.ClaimTurn(initiativeid, options)
 	end
 
 	local q = dmhub.initiativeQueue
+	--CanClaimTurn above returned false for a nil queue.
+	---@cast q -nil
 	q:SelectTurn(initiativeid)
 	dmhub:UploadInitiativeQueue()
 

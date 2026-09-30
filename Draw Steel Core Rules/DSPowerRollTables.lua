@@ -114,7 +114,7 @@ end
 --The characteristics one test suggests, as a set of characteristic ids. A test that
 --names none inherits the group skill's characteristic, so authoring only has to set
 --this on the tests that allow something other than the obvious one.
---- @param index number index into self.tables
+--- @param index nil|number index into self.tables; nil reads as a missing test.
 --- @return table
 function PowerRollTableGroup.GetCharacteristics(self, index)
     local t = self.tables[index]
@@ -173,6 +173,8 @@ local function CharacteristicOptions(group)
 
     local inheritText = "No characteristic"
     if attrid ~= nil then
+        --attrid is only non-nil when skill is.
+        ---@cast skill -nil
         inheritText = string.format("Inherit %s from %s", creature.attributesInfo[attrid].description, skill.name)
     end
 
@@ -248,7 +250,7 @@ function PowerRollTableGroup.CreateEditor()
             tmargin = 4,
             bmargin = 8,
             multiline = true,
-            lineType = "multilinenewline",
+            lineType = "MultiLineNewLine",
             wrap = true,
             characterLimit = 512,
             fontSize = 16,
@@ -352,7 +354,7 @@ function PowerRollTableGroup.CreateEditor()
                             tmargin = 4,
                             bmargin = 4,
                             multiline = true,
-                            lineType = "multilinenewline",
+                            lineType = "MultiLineNewLine",
                             wrap = true,
                             characterLimit = 512,
                             fontSize = 16,
@@ -445,7 +447,7 @@ function PowerRollTableGroup.CreateEditor()
                                         height = "auto",
                                         minHeight = 22,
                                         wrap = true,
-                                        lineType = "multilinenewline",
+                                        lineType = "MultiLineNewLine",
                                         characterLimit = 600,
                                         fontSize = 18,
                                         placeholderText = isCritical and "Leave blank for no critical result (natural 19-20)" or nil,

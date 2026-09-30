@@ -10841,7 +10841,7 @@ end
 --- @field rules string
 --- @field activateText string The name of mode 1 of a multi-mode trigger.
 --- @field activateRules string The rules text of mode 1 of a multi-mode trigger.
---- @field modes {text: string, rules: string, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil}[] modeIndex is the entry's position in the ability's modeList (see ModeIndexForTriggered). unavailable/conditionReason mark a mode whose condition is not met but which is offered anyway, greyed out, with that reason shown.
+--- @field modes {text: string, rules: string, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil, injectedBy: string|nil}[] modeIndex is the entry's position in the ability's modeList (see ModeIndexForTriggered). unavailable/conditionReason mark a mode whose condition is not met but which is offered anyway, greyed out, with that reason shown. injectedBy is the TriggerModeMarker of a trigger modifier that added the mode (MCDMModifyTriggers).
 --- @field casterid false|string The id of the caster of the ability that caused the trigger.
 --- @field originalAbilityRange number the range of the original ability that caused the trigger.
 --- @field abilityGuid false|string The guid of the TriggeredAbility that created this prompt.

@@ -276,9 +276,6 @@ local function FindBestCubePlanAtCurrentLoc(token, ability, candidates)
                     utility = utility,
                 }
             end
-            if type(area.Destroy) == "function" then
-                area:Destroy()
-            end
         end
     end
     return best

@@ -3,7 +3,7 @@ local mod = dmhub.GetModLoading()
 --- @class GameSystem: GameType
 --- @field new fun(o?: table): GameSystem
 --- @field rollTypes table[] Registered roll type descriptors for this game system.
---- @field leveledProficiencyTypes table[] Proficiency types that scale with level.
+--- @field leveledProficiencyTypes table<string, boolean> Set of proficiency type ids (e.g. "skill") that scale with level.
 --- @field HitpointsName string Localized term for hit points.
 --- @field AttributeName string Localized term for a single attribute.
 --- @field AttributeNamePlural string Localized plural for attributes.
@@ -102,7 +102,7 @@ GameSystem.CalculateAttributeModifier = function(attributeInfo, attributeValue)
 end
 
 GameSystem.CalculateInitiativeModifier = function(creature)
-	return self:GetAttribute('dex'):Modifier()
+	return creature:GetAttribute('dex'):Modifier()
 end
 
 --This calculates which attribute is used to add its modifier for bonus damage

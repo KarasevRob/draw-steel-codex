@@ -447,7 +447,8 @@ CreateThemeSettingsDialog = function()
                             showCreator(nil)
                             return
                         end
-                        selectedSchemeId = element.idChosen
+                        --every choosable option id here is a scheme id string.
+                        selectedSchemeId = element.idChosen --[[@as string]]
                         refreshPreview()
                         refreshCustomButtons()
                         audio.FireSoundEvent("Notify.PalleteChange_Preview")

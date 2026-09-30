@@ -102,7 +102,9 @@ function WeaponProperty.CreateEditor()
     local m_item = nil
     local m_itemOriginal = nil
 
+    --The editor stays hidden until editItem sets m_item, so every caller below has one.
     local Upload = function()
+        ---@cast m_item -nil
         printf("UPLOAD:: %s", traceback())
         dmhub.SetAndUploadTableItem(WeaponProperty.tableName, m_item)
         m_itemOriginal = DeepCopy(m_item)
@@ -169,7 +171,7 @@ function WeaponProperty.CreateEditor()
                 end,
                 change = function(element)
                     ---@cast element Dropdown
-                    m_item.itemType = element.idChosen
+                    m_item.itemType = element.idChosen --[[@as string]]
                     OnChange()
                 end,
             },
@@ -240,6 +242,8 @@ function WeaponProperty.CreateEditor()
                     element.value = item.modifiesAttacks
                 end,
                 change = function(element)
+                    --Only reachable once editItem has set m_item (the editor is hidden before).
+                    ---@cast m_item -nil
                     if m_item.modifiesAttacks == element.value then
                         return
                     end

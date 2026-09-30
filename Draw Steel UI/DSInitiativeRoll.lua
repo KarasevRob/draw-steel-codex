@@ -231,7 +231,10 @@ local function createDrawSteelBanner(options)
 
                 dmhub.Coroutine(function()
                     self:SetClassTree("shine", true)
+                    --both ids are children of this banner (see heroesText/monstersText below).
                     local targetPanel = self:Get(cond(m_heroesWin, "heroesText", "monstersText"))
+                    ---@cast targetPanel -nil
+
                     local start = self.aliveTime
                     local t = self.aliveTime - start
 
@@ -296,7 +299,9 @@ local function createDrawSteelBanner(options)
                         ConfigureCombatSetupExtensions(info.initiativeQueue.liveEncounter)
                         --Snapshot the heroes' Recoveries at the onset of combat so the
                         --victory screen can show how they changed over the fight.
-                        info.initiativeQueue.liveEncounter:RecordOnsetHeroes(g_playerTokensOpenInitiative)
+                        --both branches above just assigned a LiveEncounter.
+                        local onsetEncounter = info.initiativeQueue.liveEncounter --[[@as LiveEncounter]]
+                        onsetEncounter:RecordOnsetHeroes(g_playerTokensOpenInitiative)
                         g_selectedEncounterOpenInitiative = nil
 
                         --Combat has started: the readied encounter is consumed.
@@ -792,7 +797,7 @@ local function createDrawSteelBanner(options)
                         selectors = {"pulse"},
                         uiscale = 1.05,
                         transitionTime = 0.7,
-                        easing = "easeinOutSine",
+                        easing = "EaseInOutSine",
                     },
 
                     {
@@ -2199,6 +2204,7 @@ local function ShowCombatSetupDialog(selectedTokens, preselectEncounter, presele
         return entries
     end
 
+    ---@type string|nil
     local m_initiativeResult = "roll"
     local m_initiativeLocked = false
 
@@ -2423,7 +2429,8 @@ local function ShowCombatSetupDialog(selectedTokens, preselectEncounter, presele
                     idChosen = m_selectedEncounterId,
                     change = function(element)
                         ---@cast element Dropdown
-                        m_selectedEncounterId = element.idChosen
+                        --every m_encounterOptions id is a string.
+                        m_selectedEncounterId = element.idChosen --[[@as string]]
                         ApplyEncounterToMonsters(ResolveEncounterEntry(m_selectedEncounterId))
                         element.root:FireEventTree("refreshSurprise")
                     end,

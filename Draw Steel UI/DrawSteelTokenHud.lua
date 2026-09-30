@@ -722,6 +722,7 @@ end
 
 TokenHud.RegisterPanel{
 	id = "nameLabel",
+	---@param token CharacterToken
 	create = function(token, sharedInfo)
         if token.isObject then
             return nil
@@ -1459,7 +1460,8 @@ Commands.RegisterMacro{
             return
         end
 
-        local loc = core.Loc{ x = tonumber(x), y = tonumber(y), floorIndex = tonumber(floor) }:WithGroundLevelAltitude()
+        --the pattern above only captures integers, so tonumber cannot fail.
+        local loc = core.Loc{ x = tonumber(x) --[[@as number]], y = tonumber(y) --[[@as number]], floorIndex = tonumber(floor) --[[@as number]] }:WithGroundLevelAltitude()
         token:Move(loc, { maxCost = 10000, findVacantSpace = true })
     end,
 }

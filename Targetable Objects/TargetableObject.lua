@@ -40,6 +40,8 @@ function TargetableObject.TakeDamage(self, amount, note, info)
     local staminaAfter = self:CurrentHitpoints()
     if staminaBefore > 0 and staminaAfter <= 0 then
         local token = dmhub.LookupToken(self)
+        --Damage is only dealt to properties that belong to a live object token.
+        ---@cast token -nil
         token.objectComponent:OnDeath()
     end
 end

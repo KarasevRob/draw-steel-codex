@@ -1939,6 +1939,8 @@ function EncounterScript.Parse(text)
     local function EnsureRound(lineIndex)
         if round == nil then
             round = { number = 1, line = lineIndex, entries = {}, scaling = {}, implicit = true }
+            --only called while a montage beat is open.
+            ---@cast beat -nil
             beat.rounds[#beat.rounds + 1] = round
         end
         return round
@@ -2241,6 +2243,8 @@ function EncounterScript.Parse(text)
                     entry, option = nil, nil
                 elseif entryKind == "opportunity" or entryKind == "threat" then
                     EnsureRound(i)
+                    --EnsureRound leaves round set.
+                    ---@cast round -nil
                     --"## Opportunity: Hunter's Camp (Required)",
                     --"## Opportunity: Interrogate the Goblin (Locked)",
                     --"## Threat: The Pact (Required, Temporary)": the tags

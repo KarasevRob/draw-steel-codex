@@ -232,6 +232,8 @@ function RichAudio.CreateDisplay(self)
                 end,
 
                 refreshPlaying = function(element, soundEvent)
+                    --only fired by the root's think, after its m_audioAsset nil check.
+                    ---@cast m_audioAsset -nil
                     if soundEvent == nil then
                         element.text = FormatTime(m_audioAsset.duration)
                         return
@@ -392,6 +394,8 @@ function RichAudio.CreateEditor(self)
                 element.value = m_asset.volume
             end,
             change = function(element)
+                --refreshEditor (fired on creation) hides this control while m_asset is nil.
+                ---@cast m_asset -nil
                 m_asset.volume = element.value
                 m_asset:Upload()
             end,
@@ -416,6 +420,7 @@ function RichAudio.CreateEditor(self)
                 element.value = m_asset.loop
             end,
             change = function(element)
+                ---@cast m_asset -nil
                 m_asset.loop = element.value
                 m_asset:Upload()
             end,

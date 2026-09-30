@@ -262,6 +262,8 @@ function gui.IconEditor(args)
 					characterLimit = 64,
 					restoreOriginalTextOnEscape = true,
 					submit = function(element)
+						--caption is built right after this input, under the same captions test.
+						---@cast caption -nil
 						local node = assets.imagesTable[m_imageid]
 						if node ~= nil then
 							node.description = element.text
@@ -272,6 +274,7 @@ function gui.IconEditor(args)
 						SetCaption(caption, node)
 					end,
 					defocus = function(element)
+						---@cast caption -nil
 						element:SetClass("hidden", true)
 						caption:SetClass("hidden", false)
 						SetCaption(caption, assets.imagesTable[m_imageid])
@@ -346,6 +349,8 @@ function gui.IconEditor(args)
                         resultImage:SetClass("selected", m_imageid == value)
 
                         if caption ~= nil then
+                            --caption and captionInput are built together.
+                            ---@cast captionInput -nil
                             local node = assets.imagesTable[imageid]
                             captionInput:SetClass("hidden", true)
                             caption:SetClass("hidden", node == nil)
@@ -1208,7 +1213,7 @@ function gui.IconEditor(args)
 
 	if args.classes == nil then args.classes = {} end
 	args.classes[#args.classes+1] = "image"
-	resultPanel = gui.Panel(args)
+	resultPanel = gui.Panel(args) --[[@as IconEditorPanel]]
 
 	args.SetValue(resultPanel, value, false)
 

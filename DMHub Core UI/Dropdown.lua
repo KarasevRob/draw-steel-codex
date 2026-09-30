@@ -33,7 +33,7 @@ end
 --- @field idChosen nil|true|false|string The id of the option currently chosen.
 --- @field textOverride nil|string The text to set on the dropdown, instead of showing the currently chosen option.
 --- @field textDefault nil|string The text to display for the dropdown if there is no option currently chosen.
---- @field options DropdownOption[] The possible options to choose from
+--- @field options? DropdownOption[] The possible options to choose from; may be set later through the options property.
 --- @field hasSearch nil|boolean If true, this dropdown will provide an input field to search it. Good to use on dropdowns with many options.
 --- @field menuAlign nil|"left"|"center"|"right" How the open menu sits against the control; defaults to "center". Only has an effect alongside menuWidth, since otherwise the menu matches the control's width exactly. "left" also brings the search field over the control.
 --- @field sort nil|boolean Sorts @see options before displaying.
@@ -623,7 +623,8 @@ function gui.Dropdown(args)
 		if arguments.styles == nil then arguments.styles = {} end
 		arguments.styles = ThemeEngine.MergeStyles(arguments.styles)
 	end
-	dropdownParent = gui.Panel(arguments)
+	--the options/idChosen properties come from the get/set handlers in arguments.
+	dropdownParent = gui.Panel(arguments) --[[@as Dropdown]]
 
 	if options ~= nil then
 		dropdownParent.options = options

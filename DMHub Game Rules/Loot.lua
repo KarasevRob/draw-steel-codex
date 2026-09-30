@@ -42,6 +42,8 @@ dmhub.CreateLootComponent = function()
 end
 
 --quantity of this item not explicitly placed into slots.
+--- Shared with creature (creature.UnslottedQuantity = loot.UnslottedQuantity).
+--- @param self loot|creature
 function loot.UnslottedQuantity(self, itemid)
 	local entry = self:try_get("inventory", {})[itemid]
 	if entry == nil then
@@ -103,6 +105,10 @@ end
 
 creature.RemoveInventorySlot = loot.RemoveInventorySlot
 
+--- Shared with creature (creature.GetDefaultInventorySlotForItem = loot.GetDefaultInventorySlotForItem).
+--- @param self loot|creature
+--- @param itemid string
+--- @param defaultSlot? number Slot to fall back on when the item has no default slot.
 function loot.GetDefaultInventorySlotForItem(self, itemid, defaultSlot)
 	local entry = self:try_get("inventory", {})[itemid]
 	if entry ~= nil then
@@ -269,6 +275,8 @@ end
 
 creature.SetDefaultInventorySlotForItem = loot.SetDefaultInventorySlotForItem
 
+--- Shared with creature (creature.EnsureInventorySlots = loot.EnsureInventorySlots).
+--- @param self loot|creature
 function loot.EnsureInventorySlots(self, itemid)
 	local entry = self:try_get("inventory", {})[itemid]
 	if entry == nil then
@@ -326,6 +334,10 @@ end
 
 creature.EnsureInventorySlots = loot.EnsureInventorySlots
 
+--- Shared with creature (creature.GetItemQuantity = loot.GetItemQuantity).
+--- @param self loot|creature
+--- @param itemid string
+--- @return number
 function loot.GetItemQuantity(self, itemid)
 	local entry = self:try_get("inventory", {})[itemid]
 	if entry == nil then
@@ -363,6 +375,8 @@ function loot:SetCurrency(currencyid, value, note)
 	creature.SetCurrency(self, currencyid, value, note)
 end
 
+--- Also called by creature.GiveItem as its base implementation.
+--- @param self loot|creature
 function loot.GiveItem(self, itemid, quantity, slotIndex)
 	if slotIndex == nil then
 		slotIndex = self:GetDefaultInventorySlotForItem(itemid)
@@ -920,6 +934,8 @@ function loot.SpawnDroppedItem(token, itemid, quantity)
 	end
 end
 
+--- Also called by creature:GetInventoryWeight as its base implementation.
+--- @param self loot|creature
 function loot.GetInventoryWeight(self)
 	local result = 0
 	local gearTable = dmhub.GetTable('tbl_Gear')

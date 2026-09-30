@@ -131,7 +131,7 @@ function VisionType.CreateEditor()
                 end,
                 change = function(element)
                     ---@cast element Dropdown
-                    m_vision.type = element.idChosen
+                    m_vision.type = element.idChosen --[[@as string]]
                     Upload()
                 end,
             }

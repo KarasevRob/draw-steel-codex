@@ -339,6 +339,7 @@ local function ChipPicker(set, options, addText, onChange)
             element:SetClass("collapsed", #opts == 0)
         end,
         change = function(element)
+            ---@cast element Dropdown
             local chosen = element.idChosen
             if chosen ~= nil and chosen ~= "none" then
                 set[chosen] = true

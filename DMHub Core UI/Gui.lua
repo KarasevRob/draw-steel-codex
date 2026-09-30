@@ -2566,6 +2566,7 @@ gui.TriangleStyles = triangleStyles
 --- @field characterLimit nil|integer
 --- @field collapsedClass nil|string (Default="collapsed") set to make this use a different class to indicate collapsed.
 --- @field headerExtraClasses nil|string[] extra CSS classes to add to the header panel
+--- @field change nil|fun(element: Panel, text: string) fired with the new header text after an edit (editable nodes)
 
 --- Create a node in a tree. When collapsed, its contentPanel will be hidden.
 --- @param args TreeNodeArgs
@@ -4787,7 +4788,7 @@ local statusIconImplementationEvent = function(element, implementation)
 end
 
 --- @class ImplementationStatusIconArgs:PanelArgs
---- @field implementation 0|1|2|3|4
+--- @field implementation? 0|1|2|3|4 Initial status; omit it to set none until an "implementation" event fires.
 
 --- An icon for showing implementation status of a feature. Set value to status: 0 - won't implement, 1 - unimplemented, 2 - bronze, 3 - silver, 4 - gold.
 --- @param args ImplementationStatusIconArgs

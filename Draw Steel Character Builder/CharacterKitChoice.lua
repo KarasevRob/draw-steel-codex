@@ -122,7 +122,7 @@ end
 --- @return boolean haltSavePropagation
 function CharacterKitChoice:SaveSelection(hero, option)
     local optionId = option.id
-    local numChoices = self:NumChoices(hero)
+    local numChoices = self:NumChoices()
     if numChoices == 1 then
         hero.kitid = optionId
     else

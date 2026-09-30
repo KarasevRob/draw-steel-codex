@@ -391,7 +391,7 @@ function DTEventRollDialog.ShowDialog(args)
                 idChosen = selectedTableId,
                 change = function(element)
                     ---@cast element Dropdown
-                    selectedTableId = element.idChosen
+                    selectedTableId = element.idChosen --[[@as string]] -- tableOptions ids are table ids
                 end,
             },
         },
@@ -470,7 +470,7 @@ function DTEventRollDialog.ShowDialog(args)
         end,
     }
 
-    gui.ShowModal(dlg:Root())
+    gui.ShowModal(dlg:Root() --[[@as Panel]]) -- DialogShell.new always builds root
 end
 
 RollCheck.RegisterCustom{

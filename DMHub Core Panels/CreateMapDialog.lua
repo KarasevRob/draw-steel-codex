@@ -922,6 +922,8 @@ mod.shared.ShowCreateMapDialog = function()
         if state == nil then
             return
         end
+        --state is only set when entry is non-nil.
+        ---@cast entry -nil
 
         local creatorName = nil
         if m_creator ~= nil then
@@ -1397,6 +1399,8 @@ mod.shared.ShowCreateMapDialog = function()
                 return
             end
 
+            --the Blank Map nav item sets selectedMap in its create, so it is set by now.
+            ---@cast selectedMap -nil
             local mapType = selectedMap.data.type
             gui.CloseModal()
 
@@ -1419,6 +1423,8 @@ mod.shared.ShowCreateMapDialog = function()
                     end
 
                     local map = game.GetMap(guid)
+                    --the loop above only exits once the map exists.
+                    ---@cast map -nil
                     map:Travel()
 
                     while game.currentMapId ~= guid do
@@ -2703,6 +2709,8 @@ mod.shared.ShowCreateMapDialog = function()
 
     OpenOtherGames = function()
         ClearPackSelection()
+        --assigned further down while the dialog is built, before any row can be pressed.
+        ---@cast m_setMainMode -nil
         m_setMainMode("othergames")
         --the game rows (and their cover art) are built on first open.
         if #otherGamesList.children == 0 then
@@ -3871,7 +3879,9 @@ mod.shared.FinishMapImport = function(mapName, info)
             h = math.min(h, MAX_DIM)
         end
 
+        --the loop at the top only exits once the map exists, and nothing yields since.
         local map = game.GetMap(guid)
+        ---@cast map -nil
         map.description = mapName
         -- Provisional bounds of the right size, used only until the images
         -- are placed; FitMapBoundsToImagesCo below then replaces them with
@@ -5342,6 +5352,10 @@ mod.shared.FinishFloorImport = function(info, offsetX, offsetY)
         -- Step 2: Create a map layer on this primary floor.
         local existingFloorIds2 = {}
         local map = getMap()
+        if map == nil then
+            printf("FLOOR_IMPORT:: ERROR: Map was removed while importing the floor")
+            return
+        end
         for _, floor in ipairs(map.floors) do
             existingFloorIds2[floor.floorid] = true
         end
@@ -5459,8 +5473,8 @@ mod.shared.FinishFloorImport = function(info, offsetX, offsetY)
 
         -- Pairwise alignment delta check: compare the first 'existing' Map object
         -- to each newly-spawned one in tile-space and pixel-space.
-        if #newlySpawnedObjs > 0 then
-            map = getMap()
+        map = getMap()
+        if #newlySpawnedObjs > 0 and map ~= nil then
             local existingDiag = nil
             local existingFloorId = nil
             local existingObjId = nil

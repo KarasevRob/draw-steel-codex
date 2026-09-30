@@ -128,8 +128,9 @@ end
 
 function CharacterIncidentChoice:VisitRecursive(fn)
     fn(self)
+    --options are leaf rows with no VisitRecursive of their own (reading it raises).
     for _,o in ipairs(self.options) do
-        o:VisitRecursive(fn)
+        fn(o)
     end
 end
 

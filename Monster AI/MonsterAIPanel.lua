@@ -260,6 +260,8 @@ local function MonsterAIThread(process)
             if initiativeid == nil then
                 local claimTrigger, claimToken = FindPendingPlayerTurnClaimTrigger(queue)
                 if claimTrigger ~= nil then
+                    --a trigger is always returned with its token.
+                    ---@cast claimToken -nil
                     --Tell the table why the monsters are not moving.
                     MonsterAI.SetWaiting("turnclaim", string.format("Waiting for %s's %s",
                         claimToken.name, claimTrigger.abilityName))
@@ -303,7 +305,8 @@ local function MonsterAIThread(process)
                                     scoringErrors = move.scoringErrors,
                                 })
 
-                                if groupScore == nil or eagerness > groupScore
+                                --groupScore and groupActor are always set together.
+                                if groupScore == nil or groupActor == nil or eagerness > groupScore
                                     or (eagerness == groupScore
                                         and tostring(tok.charid) < tostring(groupActor.charid)) then
                                     groupScore = eagerness

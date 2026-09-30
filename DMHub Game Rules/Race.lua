@@ -5,7 +5,7 @@ local mod = dmhub.GetModLoading()
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
 --- @field name string Display name (e.g. "Elf", "Human").
 --- @field tableName "races" Data table name ("races").
---- @field height number Default height in feet.
+--- @field height number|string Default height; the race editor stores its free text, shown via %s in the ancestry text.
 --- @field weight string Weight description string.
 --- @field lifeSpan string Life span description string.
 --- @field size string Default creature size (e.g. "Medium").
@@ -98,6 +98,7 @@ function Race:FillClassFeatures(characterLevel, choices, result)
 	self:EnsureDomain()
 	for i,feature in ipairs(self:GetClassLevel().features) do
 		if feature.typeName == 'CharacterFeature' then
+			---@cast feature CharacterFeature
 			result[#result+1] = feature
 		else
 			feature:FillChoice(choices, result)

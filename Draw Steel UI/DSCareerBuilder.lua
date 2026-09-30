@@ -704,7 +704,9 @@ function CharSheet.BackgroundCharacteristicPanel(options)
                                                         text = "Customize Text...",
                                                         click = function()
                                                             element.popup = nil
-                                                            element.children[2]:BeginEditing()
+                                                            --the row's second child is the outcome gui.Label.
+                                                            local outcomeLabel = element.children[2] --[[@as Label]]
+                                                            outcomeLabel:BeginEditing()
                                                         end,
                                                     }
                                                 end
@@ -1583,7 +1585,9 @@ function CharSheet.BackgroundCharacteristicPanel(options)
                                                         text = "Customize Text...",
                                                         click = function()
                                                             element.popup = nil
-                                                            element.children[2]:BeginEditing()
+                                                            --the row's second child is the outcome gui.Label.
+                                                            local outcomeLabel = element.children[2] --[[@as Label]]
+                                                            outcomeLabel:BeginEditing()
                                                         end,
                                                     }
                                                 end

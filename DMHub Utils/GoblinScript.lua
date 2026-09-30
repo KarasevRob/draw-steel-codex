@@ -40,6 +40,8 @@ function RegisterGoblinScriptDebugPanel(panel)
 end
 
 local function LogDebugEntry(entry)
+    --only called under a g_debugPanel ~= nil check.
+    ---@cast g_debugPanel -nil
     if not g_debugPanel.valid then
         g_debugPanel = nil
     else
@@ -184,6 +186,8 @@ function ExecuteGoblinScript(formula, symbols, defaultValue, contextMessage)
             symbols = GenerateSymbols(symbols)
         end
 
+        --fn is never nil here (a failed compile is stored as false) and false took the branch above.
+        ---@cast fn function
         local ok, result = pcall(fn,symbols)
         local error
         if not ok then

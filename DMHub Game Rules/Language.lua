@@ -13,7 +13,7 @@ local mod = dmhub.GetModLoading()
 --- @field typicalSpeakers table Typical speaker creature types.
 --- @field script string Writing system name (e.g. "Common", "Dwarvish").
 --- @field group string UI group label (e.g. "Custom", "Standard").
---- @field commonality integer Commonality rating (higher = more common).
+--- @field commonality number Commonality rating (higher = more common).
 --- @field dead boolean If true, this is a dead language not spoken by living creatures.
 --- @field tableName "languages" Data table name ("languages").
 Language = RegisterGameType("Language")
@@ -172,8 +172,10 @@ local SetLanguage = function(tableName, languagePanel, langid)
         },
         gui.Input{
             classes = {"formStacked"},
-            text = language.commonality,
+            text = tostring(language.commonality),
             change = function(element)
+                -- Bad input writes nil, which clears the row's value so reads fall back to the default.
+                ---@diagnostic disable-next-line: assign-type-mismatch
                 language.commonality = tonumber(element.text)
                 element.text = tostring(language.commonality)
                 UploadLanguage()

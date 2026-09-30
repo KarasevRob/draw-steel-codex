@@ -1408,6 +1408,12 @@ function CreateTokenHud(token)
 		end
 	end
 
+	--the effect panels showing this token is targeted; interactive=false for a display-only target.
+	---@class TokenTargetEffectList
+	---@field [integer] Panel
+	---@field interactive? boolean
+
+	---@type TokenTargetEffectList|nil
 	local targetEffect = nil
 	local loopingEmotes = {}
 
@@ -2379,7 +2385,7 @@ function CreateTokenHud(token)
 
 			targetnoninteractive = function(element, options)
 				if targetEffect == nil then
-					targetEffect = { interactive = false }
+					targetEffect = { interactive = false } --[[@as TokenTargetEffectList]]
 					for i,effect in ipairs(element.data.PlayEffect('targetglow', true, options)) do
 						targetEffect[#targetEffect+1] = effect
 					end

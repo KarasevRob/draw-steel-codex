@@ -741,7 +741,9 @@ local function CreateResourceRow(charid)
             end
             local icon = nil
             pcall(function()
-                local classInfo = tok.properties:GetClass()
+                --a hero's properties are a character; anything else raises into the pcall.
+                local props = tok.properties --[[@as character]]
+                local classInfo = props:GetClass()
                 if classInfo ~= nil then
                     icon = classInfo:try_get("heroicResourceIcon")
                 end
@@ -1231,6 +1233,7 @@ local function CreateHeroCard(entry, opts)
     --the bottom-third overlay: name, stamina bar, resource icons on a
     --semi-opaque plate over the artwork. On the montage card the skills
     --line sits under the name, and the plate grows to make room for it.
+    ---@type Panel[]
     local overlayChildren = { nameLabel, playerLabel }
     if opts.showStats then
         overlayChildren[#overlayChildren+1] = CreateSkillsLine(charid)

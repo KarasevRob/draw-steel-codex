@@ -343,6 +343,8 @@ function RichParty.CreateDisplay(self)
                         end
                     end
 
+                    --this child is unclaimed, so at most #children-1 of the #children spots are taken.
+                    ---@cast bestSpot -nil
                     ordClaimed[bestSpot] = child
                     child.data.claimed = true
                 end

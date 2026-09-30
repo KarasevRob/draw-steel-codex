@@ -941,7 +941,8 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                 element:SetClass("collapsed-anim", true)
                 dmhub.Roll{
                     roll = rollInfo.roll,
-                    description = string.format(feature:GetName()),
+                    --GetName (via _safeFeatureName) always returns a string, "" at worst.
+                    description = string.format(feature:GetName() --[[@as string]]),
                     tokenid = dmhub.LookupTokenId(creature),
                     complete = function(rollResult)
                         local rowIndex = rollTable:RowIndexFromDiceResult(rollResult.total)

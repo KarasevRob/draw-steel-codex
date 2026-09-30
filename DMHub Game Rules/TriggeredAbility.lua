@@ -84,8 +84,8 @@ function TriggeredAbility:IsMandatory(token)
         return false
     end
 
-    --mandatory/automatic.
-    local mandatory = dmhub.GetSettingValue(self.mandatory)
+    --mandatory/automatic. Both booleans returned above, so this is a setting id.
+    local mandatory = dmhub.GetSettingValue(self.mandatory --[[@as string]])
     return mandatory
 end
 
@@ -1124,6 +1124,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 	end
 
     local subjectTarget = self:try_get("subject", "self")
+    ---@type creature|nil
     local subject = symbols and symbols.subject
 
     if subject == creature then
@@ -1633,7 +1634,10 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
                 auraControllerId = auraControllerToken.charid
             end
 
-			local trigger = ActiveTrigger.new{
+			--Re-read from the caster's available triggers each frame below; nil once it is gone.
+			---@type ActiveTrigger|nil
+			local trigger
+			trigger = ActiveTrigger.new{
 				id = guid,
                 activateText = activateText,
                 activateRules = activateRules,
@@ -2331,6 +2335,7 @@ function TriggeredAbility.ActivateOrphanedTrigger(casterToken, triggerid)
 	--pcall-protected (they cannot yield); the Trigger call is not, since this
 	--runtime forbids yielding across a pcall boundary.
 	dmhub.Coroutine(function()
+		---@type table<string, any>|nil
 		local symbols = nil
 		local targets = nil
 		local ok, err = pcall(function()
@@ -2368,6 +2373,9 @@ function TriggeredAbility.ActivateOrphanedTrigger(casterToken, triggerid)
 			CompleteAIReactionFromOptions(casterToken, aiReactionOptions)
 			return
 		end
+
+		--The pcall body always sets symbols (to at least {}) when it succeeds.
+		---@cast symbols -nil
 
 		--the first mode is just the 'activate' which shows up as true.
 		symbols.mode = record:ModeIndexForTriggered(record.triggered)

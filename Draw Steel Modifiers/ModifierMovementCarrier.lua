@@ -31,7 +31,7 @@ local function ResolveConditionCaster(context, passenger)
     local carrierToken = dmhub.GetTokenById(casterInfo.tokenid)
     local passengerToken = dmhub.LookupToken(passenger)
     if carrierToken == nil or not carrierToken.valid or carrierToken.properties == nil or
-       passengerToken == nil or not passengerToken.valid or passengerToken.id == carrierToken.id then
+       passengerToken == nil or not passengerToken.valid or passengerToken.charid == carrierToken.charid then
         return nil
     end
 
@@ -216,7 +216,7 @@ function CharacterModifier.VisitMovementCarrierPassengers(carrier, visitor)
         return
     end
 
-    local entries = MovementCarrierIndex()[carrierToken.id] or {}
+    local entries = MovementCarrierIndex()[carrierToken.charid] or {}
     for _, entry in ipairs(entries) do
         visitor(entry.token, entry.modifier, entry.context)
     end
@@ -246,15 +246,15 @@ function CharacterModifier.CountMovementCarrierCapacity(carrier, excludedMovemen
     local occupiedTargets = {}
     for _, targetToken in ipairs(dmhub.allTokensIncludingObjects) do
         if targetToken.valid and targetToken.properties ~= nil and
-           ActualGrabCarrierId(targetToken.properties) == carrierToken.id then
-            occupiedTargets[targetToken.id] = true
+           ActualGrabCarrierId(targetToken.properties) == carrierToken.charid then
+            occupiedTargets[targetToken.charid] = true
         end
     end
 
     CharacterModifier.VisitMovementCarrierPassengers(carrier, function(targetToken, modifier)
         if modifier:try_get("countsTowardGrabLimit", true) and
-           (excludedMovementTargets == nil or not excludedMovementTargets[targetToken.id]) then
-            occupiedTargets[targetToken.id] = true
+           (excludedMovementTargets == nil or not excludedMovementTargets[targetToken.charid]) then
+            occupiedTargets[targetToken.charid] = true
         end
     end)
 
@@ -323,7 +323,7 @@ function ActivatedAbilityMovementCarrierBehavior:EditorItems(parentPanel)
             idChosen = self:try_get("ongoingEffect", "none"),
             change = function(dropdown)
                 ---@cast dropdown Dropdown
-                self.ongoingEffect = dropdown.idChosen
+                self.ongoingEffect = dropdown.idChosen --[[@as string]]
                 parentPanel:FireEvent("refreshBehavior")
             end,
         },
@@ -346,8 +346,8 @@ local function FindCarrierEffectInstances(effectId, casterId, selectedToken)
                         token = targetToken,
                         seq = effect.seq,
                     }
-                    excludedMovementTargets[targetToken.id] = true
-                    if targetToken.id == selectedToken.id then
+                    excludedMovementTargets[targetToken.charid] = true
+                    if targetToken.charid == selectedToken.charid then
                         selectedOwned = true
                     end
                 end
@@ -377,13 +377,13 @@ end
 local function RemoveCarrierEffectInstances(instances, refreshTokens)
     local byToken = {}
     for _, instance in ipairs(instances) do
-        local entry = byToken[instance.token.id]
+        local entry = byToken[instance.token.charid]
         if entry == nil then
             entry = {
                 token = instance.token,
                 seqs = {},
             }
-            byToken[instance.token.id] = entry
+            byToken[instance.token.charid] = entry
             refreshTokens[#refreshTokens+1] = instance.token
         end
         entry.seqs[#entry.seqs+1] = instance.seq
@@ -415,7 +415,7 @@ function ActivatedAbilityMovementCarrierBehavior:Cast(ability, casterToken, targ
     end
 
     if targetToken == nil or casterToken == nil or not casterToken.valid or casterToken.properties == nil or
-       targetToken.id == casterToken.id then
+       targetToken.charid == casterToken.charid then
         return
     end
 
@@ -439,7 +439,7 @@ function ActivatedAbilityMovementCarrierBehavior:Cast(ability, casterToken, targ
 
     local instances, excludedMovementTargets, selectedOwned = FindCarrierEffectInstances(
         effectId,
-        casterToken.id,
+        casterToken.charid,
         targetToken
     )
     local refreshTokens = { casterToken }
@@ -473,7 +473,7 @@ function ActivatedAbilityMovementCarrierBehavior:Cast(ability, casterToken, targ
         combine = true,
         execute = function()
             targetToken.properties:ApplyOngoingEffect(effectId, nil, {
-                tokenid = casterToken.id,
+                tokenid = casterToken.charid,
                 abilityName = ability.name,
             }, {
                 sourceDescription = sourceDescription,

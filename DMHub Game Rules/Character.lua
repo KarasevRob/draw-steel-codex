@@ -431,9 +431,9 @@ function character.SkillMod(self, skillInfo)
 	return self:CalculateAttribute(skillInfo.id, baseValue)
 end
 
---- Returns true if the character has a proficiency override set for the given skill.
+--- Returns the proficiency override set for the given skill (truthy when set), or nil.
 --- @param skillInfo {id: string}
---- @return boolean
+--- @return boolean|string|nil
 function character.HasSkillProficiency(self, skillInfo)
 	return self.skillProficiencies[skillInfo.id]
 end
@@ -544,6 +544,7 @@ function character.HasSavingThrowProficiency(self, attr)
 end
 
 function character.ToggleSavingThrowProficiency(self, attr)
+	---@type true|nil
 	local newValue = true
 	if self.savingThrowProficiencies[attr] then
 		newValue = nil
@@ -693,10 +694,10 @@ function character:GetClassLevels()
 	return result
 end
 
+--[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMCustomRules.lua:33
 --- Returns all CharacterFeature objects active on this character from all sources.
 --- @param options nil|table
 --- @return CharacterFeature[]
---[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMCustomRules.lua:33
 function character:GetClassFeatures(options)
 	options = options or {}
 	local result = {}

@@ -20,7 +20,7 @@ end
 
 
 function ActivatedAbilityDamageBehavior:AccumulateSavingThrowConsequence(ability, casterToken, targets, consequences, options)
-	local tokenids = GetConsequenceTokenIds(self, ability, casterToken, targets)
+	local tokenids = ActivatedAbility.GetConsequenceTokenIds(self, ability, casterToken, targets)
 	if tokenids == false then
 		return
 	end

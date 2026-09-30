@@ -124,11 +124,13 @@ end
 function RSPWidgets.Instructions(args)
     local side = args.orientation == RSPConstants.orientSide
 
+    --- @return string
     local function Text()
-        if type(args.text) == "function" then
-            return args.text()
+        local text = args.text
+        if type(text) == "function" then
+            return text()
         end
-        return args.text
+        return text
     end
 
     return gui.Panel{

@@ -152,7 +152,7 @@ function CustomFieldCollection.CreateEditor(dataType)
 
                                 change = function(element)
                                     ---@cast element Dropdown
-                                    v.type = element.idChosen
+                                    v.type = element.idChosen --[[@as string]]
                                     dmhub.SetAndUploadTableItem(CustomFieldCollection.tableName, data)
                                 end,
                             },

@@ -2319,8 +2319,9 @@ CharacterModifier.TypeInfo.power = {
                     return
                 end
 
-                local source = dropdownSourceType.idChosen
-                local destType = dropdownDestType.idChosen
+                --both are damage type ids (strings); "none" returned above.
+                local source = dropdownSourceType.idChosen --[[@as string]]
+                local destType = dropdownDestType.idChosen --[[@as string]]
 
                 --A source may map to multiple candidate destinations; the user
                 --chooses between them at roll time. Single mappings stay stored

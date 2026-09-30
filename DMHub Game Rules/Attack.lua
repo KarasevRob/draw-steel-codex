@@ -10,7 +10,7 @@ local mod = dmhub.GetModLoading()
 --- @field name string Display name of the attack.
 --- @field iconid string Asset id for the attack icon.
 --- @field range nil|string Range string (e.g. "5", "20/60", "touch").
---- @field damageInstances {damage: string, damageType: string, damageMagical: nil|boolean, flags: table<string, boolean>}[] List of damage rolls.
+--- @field damageInstances DamageInstance[] List of damage rolls (DamageInstance game-type objects).
 --- @field hit number Hit bonus applied to the attack roll.
 --- @field isSpell boolean If true, this is a spell attack rather than a weapon attack.
 --- @field hands integer Number of hands required (1 or 2).

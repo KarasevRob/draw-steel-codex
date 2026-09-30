@@ -54,6 +54,7 @@ local mod = dmhub.GetModLoading()
 --- @field targetFilter? string "powertabletrigger": GoblinScript target filter.
 --- @field additionalModifier? CharacterModifier "powertableadditional": the "power" modifier it adds.
 --- @field original? string "powertableadditional": original text.
+--- @field gobefore? boolean "power" (as a powertableadditional's additionalModifier): apply before the base modifier instead of after.
 --- @field ability? ActivatedAbility "modifyability", "modifytrigger", "triggerdisplay", "routine": the ability it grants or modifies with.
 --- @field attributes? table[] "modifyability", "modifytrigger", "transform": list of attribute modification entries ({id = ...}).
 --- @field replaceBehaviors? string|boolean "modifyability", "modifytrigger": replacement mode ("after", ...; legacy boolean).
@@ -265,7 +266,7 @@ function CharacterModifier:ResourceCostEditor(options)
 			options = resourceOptions,
 			change = function(element)
 				---@cast element Dropdown
-				self.resourceCost = element.idChosen
+				self.resourceCost = element.idChosen --[[@as string]]
 				resultPanel:FireEvent("change")
 			end,
 		},
@@ -390,10 +391,10 @@ function CharacterModifier:UsageLimitEditor(options)
                     local text = trim(element.text)
                     element.text = text
                     if text == "" then
-                        text = nil
+                        self.resourceCostId = nil
+                    else
+                        self.resourceCostId = text
                     end
-
-                    self.resourceCostId = text
                 end,
             }
 		}
@@ -687,6 +688,7 @@ CharacterModifier.TypeInfo.attribute = {
 								Refresh()
 							end,
 							linger = function(element)
+								---@cast element Dropdown
 								local tooltip = "The value will be added to the attribute"
 								if element.idChosen == "max" then
 									tooltip = "The attribute will be set to be equal to the value. It won't change if it's already higher than the value."
@@ -830,7 +832,8 @@ CharacterModifier.TypeInfo.attribute = {
 			if attributeType.enum then
 				local isCreatureSetFilter = AttributeTypeCreatureSet.IsFilterValue(modifier.value)
 
-				local dropdownIdChosen = modifier.value
+				--Enum attribute values are string option ids; a filter table is swapped for the sentinel below.
+				local dropdownIdChosen = modifier.value --[[@as string|nil]]
 				if isCreatureSetFilter then
 					dropdownIdChosen = AttributeTypeCreatureSet.FilterSentinelId
 				end
@@ -3192,7 +3195,7 @@ function CharacterModifier:PopupEditor()
 								events = {
 									change = function(element)
 										---@cast element Dropdown
-										self.behavior = element.idChosen
+										self.behavior = element.idChosen --[[@as string]]
 
 										--A leftover triggeredAbility from a previous "trigger"
 										--behavior would linger on the modifier forever (and has

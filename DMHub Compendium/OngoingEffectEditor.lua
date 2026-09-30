@@ -121,7 +121,7 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
 				idChosen = ongoingEffect.buffType,
 				change = function(element)
 					---@cast element Dropdown
-					ongoingEffect.buffType = element.idChosen
+					ongoingEffect.buffType = element.idChosen --[[@as string]]
 					UploadOngoingEffect()
 				end,
 			},
@@ -161,7 +161,7 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
 				idChosen = ongoingEffect.condition,
 				change = function(element)
 					---@cast element Dropdown
-					ongoingEffect.condition = element.idChosen
+					ongoingEffect.condition = element.idChosen --[[@as string]]
 					local newCondition = conditionsTable[element.idChosen]
 					if newCondition ~= nil then
 						ongoingEffect.iconid = newCondition.iconid
@@ -302,6 +302,8 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
                                         option = entry
                                     end
                                 end
+                                --idChosen is always one of associationOptions, so the loop found it.
+                                ---@cast option -nil
                                 associationRules[#associationRules+1] = {
                                     id = option.id,
                                     table = option.table,
@@ -479,7 +481,7 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
                     idChosen = ongoingEffect.emoji,
                     change = function(element)
                         ---@cast element Dropdown
-                        ongoingEffect.emoji = element.idChosen
+                        ongoingEffect.emoji = element.idChosen --[[@as string]]
                         UploadOngoingEffect()
                     end,
                 },
@@ -497,7 +499,7 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
                     idChosen = ongoingEffect.casterTracking,
                     change = function(element)
                         ---@cast element Dropdown
-                        ongoingEffect.casterTracking = element.idChosen
+                        ongoingEffect.casterTracking = element.idChosen --[[@as string]]
                         UploadOngoingEffect()
                         element.parent.parent:FireEventTree("refreshCasterTracking")
                     end,
@@ -586,7 +588,7 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
                     idChosen = ongoingEffect.endActionType,
                     change = function(element)
                         ---@cast element Dropdown
-                        ongoingEffect.endActionType = element.idChosen
+                        ongoingEffect.endActionType = element.idChosen --[[@as string]]
                         UploadOngoingEffect()
                     end,
                 },
@@ -616,7 +618,7 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
                     idChosen = ongoingEffect.endTrigger,
                     change = function(element)
                         ---@cast element Dropdown
-                        ongoingEffect.endTrigger = element.idChosen
+                        ongoingEffect.endTrigger = element.idChosen --[[@as string]]
                         UploadOngoingEffect()
                     end,
                 },

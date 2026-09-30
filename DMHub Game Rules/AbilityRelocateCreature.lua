@@ -90,14 +90,15 @@ function ActivatedAbilityRelocateCreatureBehavior:FindTargetsInMovementVicinity(
         local tokens = game.GetTokensAtLoc(loc)
 
         for i,token in ipairs(tokens or {}) do
+            local alreadyInResult = false
             for _,tok in ipairs(result) do
                 if tok.id == token.charid then
-                    token = nil
+                    alreadyInResult = true
                     break
                 end
             end
 
-            if token ~= nil and token.charid ~= casterToken.charid and ability:TargetPassesFilter(casterToken, token, {}, self.vicinityFilter) then
+            if (not alreadyInResult) and token.charid ~= casterToken.charid and ability:TargetPassesFilter(casterToken, token, {}, self.vicinityFilter) then
                 result[#result+1] = token
             end
         end
@@ -629,6 +630,8 @@ function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, tar
 				if movementInfo ~= nil then
 
 					local loc = targets[1].loc
+					-- MarkMovementArrow throws on a nil loc, so a non-nil movementInfo means loc is set.
+					---@cast loc -nil
 
 					local path = movementInfo.path
                 print("RELOCATE:: to", loc.x, loc.y, loc.altitude, "->", path.destination.x, path.destination.y, path.destination.altitude)
@@ -1161,10 +1164,10 @@ function ActivatedAbilityRelocateCreatureBehavior:EditorItems(parentPanel)
         gui.Input{
             classes = "formInput",
             characterLimit = 3,
-            text = self.vicinity,
+            text = tostring(self.vicinity),
             change = function(element)
                 self.vicinity = tonumber(element.text) or self.vicinity
-                element.text = self.vicinity
+                element.text = tostring(self.vicinity)
             end,
         }
     }

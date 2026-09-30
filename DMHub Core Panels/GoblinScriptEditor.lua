@@ -144,6 +144,7 @@ function gui.GoblinScriptInput(options)
 
 				thinkTime = 0.1,
 				think = function(element)
+					---@cast element Input
 					if element.data.focusPending then
 						printf("GOBLINSCRIPT:: FOCUS PEND")
 						element.hasInputFocus = true
@@ -163,6 +164,7 @@ function gui.GoblinScriptInput(options)
 				end,
 
 				change = function(element)
+					---@cast element Input
 					if (not element.data.destroying) and (element.hasInputFocus or element.popup ~= nil) then
 						element.data.changePending = true
 						return
@@ -176,7 +178,7 @@ function gui.GoblinScriptInput(options)
 				end,
 
 				edit = function(element)
-					if dmhub.KeyPressed("tab") and element.popup ~= nil then
+					if dmhub.KeyPressed("Tab") and element.popup ~= nil then
 						return
 					end
 
@@ -596,6 +598,8 @@ function gui.GoblinScriptInput(options)
 				end
 			else
 				InitTable()
+				--InitTable creates inputTable whenever it is nil.
+				---@cast inputTable -nil
 				inputTable:FireEvent("setValue", val)
 			end
 		end,
@@ -666,7 +670,8 @@ function gui.GoblinScriptInput(options)
 								check = true
 							end
 
-							if type(displayType.value) == "table" and type(resultPanel.value) == "table" and displayType.value.id == resultPanel.value.id then
+							local displayValue = displayType.value
+							if type(displayValue) == "table" and type(resultPanel.value) == "table" and displayValue.id == resultPanel.value.id then
 								check = true
 							end
 							menuItems[#menuItems + 1] = {
@@ -850,21 +855,21 @@ end
 setting {
 	id = "goblin-script-docs:collapse-examples",
 	description = "Collapse examples in Goblin Script docs",
-	storage = "preferences",
+	storage = "preference",
 	default = false,
 }
 
 setting {
 	id = "goblin-script-docs:collapse-subject",
 	description = "Collapse subject in Goblin Script docs",
-	storage = "preferences",
+	storage = "preference",
 	default = false,
 }
 
 setting {
 	id = "goblin-script-docs:collapse-additional-fields",
 	description = "Collapse additional fields in Goblin Script docs",
-	storage = "preferences",
+	storage = "preference",
 	default = false,
 }
 
@@ -2212,9 +2217,11 @@ function gui.GoblinScriptEditorDialog(options)
 			inputEvents = { "find" },
 			editlag = 0.1,
 			edit = function(element)
+				--nil when the input was given no documentation (e.g. AbilityDelay's inputs).
+				if documentationPanel ~= nil then
+					documentationPanel:FireEventTree("docsearch", string.lower(element.text))
+				end
 
-				documentationPanel:FireEventTree("docsearch", string.lower(element.text))
-				
 			end,
 
 		},

@@ -298,6 +298,10 @@ function table.empty(t)
     return next(t) == nil
 end
 
+--- The keys of t as an array, in pairs() order. Replaces lua-core's table.keys.
+---@generic K
+---@param t table<K, any>
+---@return K[]
 function table.keys(t)
     local keys = {}
     for k, _ in pairs(t) do
@@ -323,7 +327,8 @@ function table.values(t)
 end
 
 function table.set_to_ordered_csv(set, emptyText)
-    local list = table.keys(set)
+    --this file's table.keys (the one that runs) never returns nil; the lua-core one it replaces can.
+    local list = table.keys(set) --[[@as any[] ]]
     table.sort(list)
     if #list == 0 then
         return emptyText or ""

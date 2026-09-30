@@ -787,6 +787,7 @@ local function FindBestWritChargePlan(ai, token, ability)
     -- the struck creature's occupied space, so enumerate legal endpoints.
     local chargeAbility = ability:SwitchModes(2)
     local symbols = {mode = 2}
+    ---@type fun(loc: Loc): boolean
     local filterTargetPredicate =
         chargeAbility:TargetLocPassesFilterPredicate(token, symbols)
             or function() return true end

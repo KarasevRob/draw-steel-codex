@@ -456,6 +456,8 @@ dmhub.GetLightingInfo = function(floorid)
 	end
 
 
+	--the embargo is only set once initiativeBarState is known, so the first call always samples.
+	---@cast currentGameDateAndTime -nil
 	local t = currentGameDateAndTime - math.floor(currentGameDateAndTime)
 
 	if dayInfo.var then
@@ -768,7 +770,7 @@ CreateTimeOfDayPanel = function()
 									--make sure seeking is turned off and we can jump straight there after a drag.
 									g_dateAndTimeSet = nil
 									g_dateAndTime = nil
-									g_dateAndTimeSeeking = nil
+									g_dateAndTimeSeeking = false
 								end
 
 								element.data.previewing = false

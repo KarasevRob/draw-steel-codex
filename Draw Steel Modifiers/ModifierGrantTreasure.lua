@@ -424,7 +424,7 @@ CharacterModifier.TypeInfo.granttreasure = {
                     if element.idChosen == "none" then
                         current.itemid = nil
                     else
-                        current.itemid = element.idChosen
+                        current.itemid = element.idChosen --[[@as string]]
                     end
                     claimButton:SetClass("collapsed", current.itemid == nil or IsManifestMode(modifier))
                 end,
@@ -853,7 +853,7 @@ function ActivatedAbilityManifestTreasureBehavior:EditorItems(parentPanel)
             idChosen = self.mode,
             change = function(element)
                 ---@cast element Dropdown
-                self.mode = element.idChosen
+                self.mode = element.idChosen --[[@as string]]
             end,
         },
     }

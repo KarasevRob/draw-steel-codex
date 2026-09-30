@@ -717,7 +717,7 @@ function ActivatedAbilitySaveBehavior:EditorItems(parentPanel)
             },
             change = function(element)
                 ---@cast element Dropdown
-                self.conditionsMode = element.idChosen
+                self.conditionsMode = element.idChosen --[[@as string]]
                 --parentPanel:FireEvent("refreshBehavior")
             end,
 
@@ -742,7 +742,7 @@ function ActivatedAbilitySaveBehavior:EditorItems(parentPanel)
             },
             change = function(element)
                 ---@cast element Dropdown
-                self.durationScope = element.idChosen
+                self.durationScope = element.idChosen --[[@as string]]
             end,
         },
     }
@@ -781,7 +781,7 @@ function ActivatedAbilitySaveBehavior:EditorItems(parentPanel)
             },
             change = function(element)
                 ---@cast element Dropdown
-                self.rollMode = element.idChosen
+                self.rollMode = element.idChosen --[[@as string]]
                 --parentPanel:FireEvent("refreshBehavior")
             end,
 

@@ -4,6 +4,7 @@
 --- @class MultiselectArgs:DropdownArgs
 --- @field flow? "vertical"|"horizontal"
 --- @field chipPos? "top"|"bottom"|"left"|"right" Position of chips relative to dropdown. For vertical flow: "top" or "bottom" (default "top"). For horizontal flow: "left" or "right" (default "right").
+--- @field change? fun(element: Panel, value: table<string, boolean>) Fired when the selection changes; value is the live set of selected ids (id -> true).
 
 -- Multiselect is a first-class widget — its internal selectors
 -- (multiselectChip, multiselectChipText, multiselectChipRemove) live in
@@ -317,7 +318,7 @@ local function _multiselect(args)
             if panelOpts.styles == nil then panelOpts.styles = {} end
             panelOpts.styles = ThemeEngine.MergeStyles(panelOpts.styles)
         end
-        return gui.Panel(panelOpts)
+        return gui.Panel(panelOpts) --[[@as Multiselect]]
     end
     m_panel = buildController()
 

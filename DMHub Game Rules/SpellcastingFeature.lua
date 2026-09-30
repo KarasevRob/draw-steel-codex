@@ -10,7 +10,7 @@ local mod = dmhub.GetModLoading()
 --- @field spellbook boolean If true, this class uses a spellbook.
 --- @field spellbookSize number|string|table Number of spells the spellbook can hold.
 --- @field spellbookSpells table[] List of spells in the spellbook.
---- @field spellLists table[] Spell lists available to this feature.
+--- @field spellLists string[] Ids of the spell lists (SpellList table keys) available to this feature.
 --- @field dc number Spell save DC base value.
 --- @field attackBonus number Spell attack bonus base value.
 --- @field maxSpellLevel number Maximum spell slot level available.

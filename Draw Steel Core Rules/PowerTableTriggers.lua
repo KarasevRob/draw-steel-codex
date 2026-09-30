@@ -508,7 +508,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     idChosen = modifier.type,
                     change = function(element)
                         ---@cast element Dropdown
-                        modifier.type = element.idChosen
+                        modifier.type = element.idChosen --[[@as string]]
                         Refresh()
                     end,
                 },
@@ -526,7 +526,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     idChosen = modifier.targetType,
                     change = function(element)
                         ---@cast element Dropdown
-                        modifier.targetType = element.idChosen
+                        modifier.targetType = element.idChosen --[[@as string]]
                         Refresh()
                     end,
                 },
@@ -553,7 +553,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     idChosen = modifier:try_get("multitarget", "one"),
                     change = function(element)
                         ---@cast element Dropdown
-                        modifier.multitarget = element.idChosen
+                        modifier.multitarget = element.idChosen --[[@as string]]
                         Refresh()
                     end,
                 }
@@ -571,7 +571,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                     idChosen = modifier.trigger,
                     change = function(element)
                         ---@cast element Dropdown
-                        modifier.trigger = element.idChosen
+                        modifier.trigger = element.idChosen --[[@as string]]
                         Refresh()
                     end,
                 },
@@ -605,7 +605,7 @@ CharacterModifier.TypeInfo.powertabletrigger = {
                         idChosen = modifier:try_get("damageType", "all"),
                         change = function(element)
                             ---@cast element Dropdown
-                            modifier.damageType = element.idChosen
+                            modifier.damageType = element.idChosen --[[@as string]]
                             Refresh()
                         end,
                     }
@@ -1183,6 +1183,7 @@ end
 --- @return false|string chosenTargetId
 --- @return false|string ping
 function ActiveTrigger.PowerRollRowsState(record, multitargets)
+    ---@type boolean|number
     local triggered = false
     local chosenTargetId = false
     local ping = false

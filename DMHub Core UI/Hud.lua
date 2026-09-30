@@ -423,7 +423,7 @@ end
 
 --- Close the topmost modal in the given layer (the global modalPanel or a
 --- popout window's own layer).
---- @param layer Panel
+--- @param layer Panel|nil nil (or a destroyed layer) is ignored.
 function Hud.CloseModalInLayer(self, layer)
 	if layer == nil or (not layer.valid) then
 		return

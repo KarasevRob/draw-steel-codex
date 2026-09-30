@@ -340,6 +340,7 @@ function GameHud:CreateRestingDialog(requestid, request)
 
 	local restingDialog
 
+	---@type string|nil
 	local hitDiceTokenId = nil
 	local hitDiceSelected = {}
 
@@ -359,7 +360,10 @@ function GameHud:CreateRestingDialog(requestid, request)
 		local modifier = 0
 		for k,quantity in pairs(hitDiceSelected) do
 			if quantity > 0 then
-				local token = dmhub.GetTokenById(hitDiceTokenId)
+				local token = nil
+				if hitDiceTokenId ~= nil then
+					token = dmhub.GetTokenById(hitDiceTokenId)
+				end
 				if roll ~= '' then
 					roll = roll .. '+'
 				end
@@ -432,7 +436,6 @@ function GameHud:CreateRestingDialog(requestid, request)
 		id = 'rest-dialog',
 		classes = {'framedPanel'},
 		halign = "center",
-		valign = "center",
 
 		destroy = function(element)
 			if element.data.listening then
@@ -444,7 +447,10 @@ function GameHud:CreateRestingDialog(requestid, request)
 		submit = function(element)
 			local tokenid = hitDiceTokenId
 			local hitdice = DeepCopy(hitDiceSelected)
-			local token = dmhub.GetTokenById(hitDiceTokenId)
+			local token = nil
+			if tokenid ~= nil then
+				token = dmhub.GetTokenById(tokenid)
+			end
 			local roll = currentRoll
 			hitDiceTokenId = nil
 			hitDiceSelected = {}
@@ -460,6 +466,8 @@ function GameHud:CreateRestingDialog(requestid, request)
 					complete = function(rollInfo)
 						isrolling = false
 
+						--token was found from tokenid above, so tokenid is set.
+						---@cast tokenid -nil
 						local token = dmhub.GetTokenById(tokenid)
 
 						if token ~= nil and rollInfo.total > 0 then

@@ -433,6 +433,13 @@ end
 ---@field macro string
 ---@field info CommandBuilderCommandInfo
 
+--One entry of Commands.GetAllMacros(), as Commands.RegisterMacro stores it.
+---@class CommandBuilderMacro
+---@field doc? string
+---@field summary? string
+---@field completions? function
+---@field commandInfo? CommandBuilderCommandInfo
+
 --The macros that opted into being surfaced as user-facing commands by
 --passing commandInfo to Commands.RegisterMacro (see Utils.lua for the
 --shape). Returns { { macro = registered name, info = commandInfo }, ... }
@@ -447,7 +454,7 @@ end
 function CommandBuilder.GetSurfacedCommands()
     local result = {}
     local isDM = dmhub.isDM
-    for macroName,macroInfo in pairs(Commands.GetAllMacros()) do
+    for macroName,macroInfo in pairs(Commands.GetAllMacros() --[[@as table<string, CommandBuilderMacro>]]) do
         local info = macroInfo.commandInfo
         if info ~= nil and (isDM or not info.dmonly) then
             result[#result+1] = {
@@ -863,6 +870,7 @@ function CommandBuilder.CreateStepEditorPopup(iconElement, stepIndex)
 
     local m_applyButton
 
+    ---@type Panel[]
     local children = {
         gui.Label{
             text = info.name or macroName,
@@ -941,6 +949,8 @@ function CommandBuilder.CreateCommandBrowserPopup(iconElement)
     local m_broadcast = false --whether to wrap the selection in /broadcast
 
     local function BakedCommand()
+        --only called from Add Step's click, which returns early when nothing is selected.
+        ---@cast m_selected -nil
         return BakeParamsCommand(m_selected.macro, m_selected.info.params, m_values, m_broadcast)
     end
 
@@ -982,6 +992,7 @@ function CommandBuilder.CreateCommandBrowserPopup(iconElement)
             m_selectionPanel:SetClass("collapsed", not hasSelection)
         end
         if hasSelection then
+            ---@cast m_selected -nil
             if m_selectionTitle ~= nil and m_selectionTitle.valid then
                 m_selectionTitle.text = m_selected.info.name or m_selected.macro
             end

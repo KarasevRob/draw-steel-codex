@@ -123,7 +123,6 @@ LaunchablePanel.Register{
 					height = "auto",
 					halign = "left",
                     lmargin = 16,
-					valign = "auto",
 					flow = "vertical",
 				},
 				{
@@ -146,7 +145,6 @@ LaunchablePanel.Register{
 				},
 				{
 					selectors = {"lookupValue"},
-					width = "40%",
 					width = "auto",
 					height = "auto",
 					halign = "right",

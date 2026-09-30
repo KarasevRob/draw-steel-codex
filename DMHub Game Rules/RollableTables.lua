@@ -65,8 +65,9 @@ function RollTableReference:GetTable()
 		return self.table
 	end
 
+	--tableName is a Compendium "Tables" content type, whose rows are RollTables.
 	local dataTable = dmhub.GetTable(self.tableName) or {}
-	local table = dataTable[self.key]
+	local table = dataTable[self.key] --[[@as RollTable|nil]]
 	if table ~= nil then
 		return table
 	end

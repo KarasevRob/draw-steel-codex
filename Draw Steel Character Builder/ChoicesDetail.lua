@@ -526,7 +526,8 @@ function CBChoicesDetail._artPanel()
             if creature ~= nil and creature:IsMonster() then
                 local ev = round(creature:EV())
                 local added = ev - round(creature:BaseEV())
-                local token = CharacterBuilder._getToken()
+                --_getToken's @return names an undeclared LuaCharacterToken; it is a CharacterToken.
+                local token = CharacterBuilder._getToken() --[[@as CharacterToken?]]
                 local name = token and token.name or ""
                 if name == "" then
                     name = creature:try_get("monster_type", "")

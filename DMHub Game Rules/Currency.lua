@@ -222,7 +222,7 @@ local SetData = function(tableName, currencyPanel, condid)
 			end,
 			change = function(element)
 				---@cast element Dropdown
-				currency.standard = element.idChosen
+				currency.standard = element.idChosen --[[@as string]]
 				valuePanel:FireEvent("showValue")
 				UploadCurrency()
 			end,

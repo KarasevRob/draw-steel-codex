@@ -196,6 +196,7 @@ end
 
 function CharacterOngoingEffect:GetEndAbility()
 	if self.canEndWithAction then
+		---@type string|nil
 		local resourceid = self.endActionType
 		local moveCost = nil
 		if resourceid == "halfmove" then
@@ -383,7 +384,7 @@ end
 --- @field momentaryDuration boolean
 --- @field removeOnLongRest boolean
 --- @field removeOnShortRest boolean
---- @field removeAtNextTurnEnd boolean
+--- @field removeAtNextTurnEnd boolean|number true, or a count of turn ends still to pass (2 for "end_of_next_turn_from_turnstart").
 --- @field removeAtRoundEnd boolean|number
 --- @field removeOnSave boolean
 --- @field removeOnEoEOrDying boolean

@@ -1974,7 +1974,8 @@ CreateImportAssetsDialog = function(args)
             ---@cast element Dropdown
             g_currentImporterSetting:Set(element.idChosen)
             m_currentImporter = importers[element.idChosen]
-            m_currentImporterId = element.idChosen
+            --option ids are importer id strings.
+            m_currentImporterId = element.idChosen --[[@as string]]
             import:SetActiveImporter(m_currentImporterId)
             importPanel:FireEventTree("importer", importers[element.idChosen])
         end,
@@ -2186,7 +2187,8 @@ CreateImportAssetsDialog = function(args)
 
                                     else
                                         local text = ""
-                                        for _,log in ipairs(import:GetAssetLog(asset)) do
+                                        --this alert icon is only built when the asset has a log.
+                                        for _,log in ipairs(import:GetAssetLog(asset) --[[@as table]]) do
                                             if text ~= "" then
                                                 text = text .. "\n"
                                             end
@@ -2301,6 +2303,7 @@ CreateImportAssetsDialog = function(args)
                             return a.data.ord[i] < b.data.ord[i]
                         end
                     end
+                    return false
                 end)
 
 

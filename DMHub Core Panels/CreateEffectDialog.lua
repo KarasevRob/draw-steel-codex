@@ -713,6 +713,8 @@ mod.shared.CreateEffectsLayerTexture = function()
 
 	local CreateObjectPanel = function(objid)
 		local objnode = assets:GetObjectNode(objid)
+		--objid comes from an object palette entry being dragged in, so the node exists.
+		---@cast objnode -nil
 
 		local imagePanel = gui.Panel{
 			classes = {'object-icon'},

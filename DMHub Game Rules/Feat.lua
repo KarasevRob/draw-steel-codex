@@ -122,7 +122,9 @@ function CharacterFeat:FillClassFeatures(choices, result, creature)
 		elseif feature.typeName == 'CharacterFeature' then
 			result[#result+1] = feature
 		elseif feature.typeName == 'CharacterFeatureList' then
-			for _,child in ipairs(feature.features) do
+			--ClassLevel.features does not list CharacterFeatureList, though levels do hold them.
+			local featureList = feature --[[@as CharacterFeatureList]]
+			for _,child in ipairs(featureList.features) do
 				if not PrerequisitesMet(child, creature) then
 					--skip.
 				elseif child.typeName == 'CharacterFeature' then

@@ -130,7 +130,8 @@ function CharacterComplicationChoice._optionsAndChoices(hero)
 
     for id,item in pairs(dmhub.GetTableVisible(CharacterComplication.tableName)) do
         local passFilter = true
-        if item.prerequisite ~= nil and (trim(item.prerequisite) ~= "") then
+        --stored prerequisites are formula strings (default ""); checked against live data.
+        if item.prerequisite ~= nil and (trim(item.prerequisite --[[@as string]]) ~= "") then
             passFilter = GoblinScriptTrue(ExecuteGoblinScript(item.prerequisite, hero:LookupSymbol(), 0, string.format("Complication %s prerequisite", item.name)))
         end
         if passFilter then

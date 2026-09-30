@@ -374,6 +374,7 @@ dmhub.RegisterEventHandler("ChangeCurrentFloor", function()
 		end
 
 		--Layers always report visible (only main floors carry the eye toggle), so check the parent.
+		---@type MapFloorLua|nil
 		local top = cf
 		if cf.parentFloor ~= nil then
 			top = game.GetFloor(cf.parentFloor)
@@ -440,6 +441,8 @@ local appearanceTileStyles = {
 	},
 }
 
+---@param floor MapFloorLua
+---@param onHeightChanged? fun()
 local function ShowFloorSettings(floor, onHeightChanged)
 
 	--Sub-layers (parentFloor ~= nil) are layers within a floor rather than floors in their
@@ -2756,7 +2759,8 @@ CreateLayersPanel = function()
 
 	ThemeEngine.OnThemeChanged(mod, function()
 		if resultPanel ~= nil and resultPanel.valid then
-			resultPanel.styles = ThemeEngine.MergeTokens(buildLocalStyles())
+			--MergeTokens only returns nil for nil input; buildLocalStyles always returns rules.
+			resultPanel.styles = ThemeEngine.MergeTokens(buildLocalStyles()) --[[@as StyleArgs[] ]]
 		end
 	end)
 

@@ -516,7 +516,8 @@ function AnimalCompanion:FillFreeStrikes(options, result)
                 ---@cast behavior ActivatedAbilityPowerRollBehavior
                 local matchDamageType = regex.MatchGroups(behavior.tiers[3], "[0-9]+ (?<damageType>[a-z]+) damage")
                 if matchDamageType ~= nil then
-                    damageType = matchDamageType.damageType
+                    --without options.indexes each group is a plain string.
+                    damageType = matchDamageType.damageType --[[@as string]]
                 end
                 break
             end
@@ -1076,6 +1077,8 @@ end
 
 
 function AnimalCompanion:GetHeroTokens()
+    --deliberately borrows the hero implementation for this monster subtype (it reads only the global pool).
+    ---@diagnostic disable-next-line: param-type-mismatch
     return character.GetHeroTokens(self)
 end
 
@@ -1606,6 +1609,7 @@ local function CreateRampageBox()
                     element:FireEvent("refreshCharacter", token)
                 end,
                 change = function(element)
+                    ---@cast element Input
                     local displayToken = element.parent.parent.data.displayToken
                     if displayToken == nil then return end
                     local n = tonumber(element.text) or 0

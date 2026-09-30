@@ -149,7 +149,8 @@ end
 
 function GameHud:EditJournalDialog(journalid)
 	local dataTable = dmhub.GetTable(JournalNode.tableName) or {}
-	local doc = dataTable[journalid]
+	--this prototype journal edits the JournalDocument rows it creates (JournalPanel above).
+	local doc = dataTable[journalid] --[[@as JournalDocument]]
 
 	local mainPanel
 

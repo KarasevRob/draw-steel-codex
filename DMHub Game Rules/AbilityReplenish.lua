@@ -730,7 +730,7 @@ function ActivatedAbilityReplenishBehavior:EditorItems(parentPanel)
                 textOverride = "Choose...",
                 change = function(element)
                     ---@cast element Dropdown
-                    self.resourceid = element.idChosen
+                    self.resourceid = element.idChosen --[[@as string]]
                     local options = self:get_or_add("resourceOptions", {})
                     options[#options+1] = element.idChosen
                     parentPanel:FireEvent("refreshBehavior")
@@ -750,7 +750,7 @@ function ActivatedAbilityReplenishBehavior:EditorItems(parentPanel)
                 options = options,
                 change = function(element)
                     ---@cast element Dropdown
-                    self.resourceid = element.idChosen
+                    self.resourceid = element.idChosen --[[@as string]]
                     parentPanel:FireEvent("refreshBehavior")
                 end,
 

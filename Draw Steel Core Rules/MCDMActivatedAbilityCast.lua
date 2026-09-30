@@ -58,7 +58,7 @@ GameSystem.RegisterGoblinScriptField{
         if casterToken == nil then
             return function() return false end
         end
-        local caster = casterToken:GetCreature()
+        local caster = casterToken.properties
         return function(target, characteristicid, potency)
             local targetToken = dmhub.LookupToken(target)
             if targetToken == nil then

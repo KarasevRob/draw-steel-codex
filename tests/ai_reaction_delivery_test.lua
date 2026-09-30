@@ -29,6 +29,8 @@ local function decode(v)
 end
 --The same suite can run in an isolated engine environment with its actual JSON
 --codec. All tokens, transport, and UI remain test doubles in either environment.
+--AIReactionTestJSON is injected only by the isolated engine harness; absent under plain lua.exe.
+---@diagnostic disable-next-line: undefined-global
 if AIReactionTestJSON then encode=AIReactionTestJSON.encode; decode=AIReactionTestJSON.decode end
 local serial = 0
 dmhub = {userid = "host", ToJson = encode, FromJson = decode, Time = function() return now end,
@@ -59,6 +61,8 @@ creature = {}
 function creature:try_get(k, default) local v=rawget(self,k); if v == nil then return default end; return v end
 function creature:get_or_add(k, default) local v=rawget(self,k); if v == nil then self[k]=default; return default end; return v end
 local function source(path, first, last)
+    --AIReactionTestSources is injected only by the isolated engine harness, like AIReactionTestJSON.
+    ---@diagnostic disable-next-line: undefined-global
     local s=AIReactionTestSources and AIReactionTestSources[path]
     if s == nil then local f=assert(io.open(path)); s=f:read("*a"); f:close() end
     local start=assert(s:find(first,1,true)); local finish=assert(s:find(last,start+#first,true))

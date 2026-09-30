@@ -99,7 +99,8 @@ function ActivatedAbilityOpenSheetBehavior:EditorItems(parentPanel)
             options = tabOptions,
             idChosen = self.tab,
             change = function(element)
-                self.tab = element.idChosen
+                ---@cast element Dropdown
+                self.tab = element.idChosen --[[@as string]] -- option ids are CharSheet tab ids
             end,
         },
     }

@@ -276,7 +276,8 @@ local function FindAbilityByGuid(token, guid)
 end
 
 local function LocationProfile(token, loc)
-    local lookup = GenerateSymbols(Loc.Create(loc))
+    --GenerateSymbols returns nil only when given no object.
+    local lookup = GenerateSymbols(Loc.Create(loc)) --[[@as fun(symbol: string): any]]
     local environment = lookup("environment")
     local result = {
         darkness = environment ~= nil and environment:Has("Darkness"),
@@ -517,6 +518,7 @@ local function FindDarkTeleportLoc(token, ability, preferClose)
         radius = range,
         checklos = false,
     }
+    ---@type fun(loc: Loc): boolean
     local predicate = ability:TargetLocPassesFilterPredicate(token, {}) or function() return true end
     local bestLoc = nil
     local bestScore = nil

@@ -52,6 +52,7 @@ end
 function CultureAspect:FillClassFeatures(choices, result)
 	for i,feature in ipairs(self:GetClassLevel().features) do
 		if feature.typeName == 'CharacterFeature' then
+			---@cast feature CharacterFeature
 			result[#result+1] = feature
 		else
 			feature:FillChoice(choices, result)
@@ -129,7 +130,7 @@ local SetCultureAspect = function(cultureAspectPanel, cultureAspectid)
 			idChosen = cultureAspect.category,
 			change = function(element)
 				---@cast element Dropdown
-				cultureAspect.category = element.idChosen
+				cultureAspect.category = element.idChosen --[[@as string]]
 				UploadCultureAspect()
 			end,
 		},
@@ -272,8 +273,7 @@ local ShowCultureAspectPanel = function(parentPanel)
 		Compendium.AddButton{
 
 			click = function(element)
-				dmhub.SetAndUploadTableItem(tableName, CultureAspect.CreateNew{
-				})
+				dmhub.SetAndUploadTableItem(tableName, CultureAspect.CreateNew())
 			end,
 		}
 	}

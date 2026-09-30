@@ -132,7 +132,8 @@ function MontageDocument:ChallengesDisplay()
                 }
 
                 local characteristics = {}
-                local keys = table.keys(challenge.characteristics)
+                --the live table.keys (Utils.lua) always returns a list; only the lua-core one can return nil.
+                local keys = table.keys(challenge.characteristics) --[[@as string[] ]]
                 table.sort(keys,
                     function(a, b) return creature.attributesInfo[a].order < creature.attributesInfo[b].order end)
                 for _, k in ipairs(keys) do
@@ -278,7 +279,7 @@ function MontageDocument:DisplayPanel()
                         valign = "center",
                         halign = "left",
                         vpad = 1,
-                        text = difficulty.success,
+                        text = tostring(difficulty.success),
                         savedoc = function(element)
                             element.text = tostring(difficulty.success)
                         end,
@@ -290,7 +291,7 @@ function MontageDocument:DisplayPanel()
                         valign = "center",
                         halign = "left",
                         vpad = 1,
-                        text = difficulty.failure,
+                        text = tostring(difficulty.failure),
                         savedoc = function(element)
                             element.text = tostring(difficulty.failure)
                         end,
@@ -627,11 +628,11 @@ function MontageDocument:ChallengesEditor()
                             classes = { "sizeS" },
                             width = 40,
                             valign = "center",
-                            text = challenge.maximum,
+                            text = tostring(challenge.maximum),
                             characterLimit = 2,
                             change = function(element)
                                 challenge.maximum = math.max(1, tonumber(element.text) or challenge.maximum)
-                                element.text = challenge.maximum
+                                element.text = tostring(challenge.maximum)
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },
@@ -738,7 +739,7 @@ function MontageDocument:OutcomesEditor()
                     width = 40,
                     valign = "center",
                     characterLimit = 1,
-                    text = outcome.victoriesHard,
+                    text = tostring(outcome.victoriesHard),
                     change = function(element)
                         local n = tonumber(element.text) or outcome.victoriesHard
                         outcome.victoriesHard = n
@@ -759,7 +760,7 @@ function MontageDocument:OutcomesEditor()
                     width = 40,
                     valign = "center",
                     characterLimit = 1,
-                    text = outcome.victoriesMedium,
+                    text = tostring(outcome.victoriesMedium),
                     change = function(element)
                         local n = tonumber(element.text) or outcome.victoriesMedium
                         outcome.victoriesMedium = n

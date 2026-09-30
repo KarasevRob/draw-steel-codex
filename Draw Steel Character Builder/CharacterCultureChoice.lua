@@ -44,7 +44,6 @@ function CharacterAspectChoice.CreateNew(aspect)
 end
 
 --- Populate all the culture choices
---- @param hero character
 --- @return table
 function CharacterAspectChoice.CreateAll()
     local items = {}
@@ -198,13 +197,13 @@ function CharacterCultureAggregateChoice.CreateNew(items)
             local o = aspectsTable[item.aspects.organization]
             local u = aspectsTable[item.aspects.upbringing]
             local l = languagesTable[languageId]
-            e = e and e.name or "(not found)"
-            o = o and o.name or "(not found)"
-            u = u and u.name or "(not found)"
-            l = l and l.name or nil
-            description = string.format("**Environment:** %s; **Organization:** %s; **Upbringing:** %s", e, o, u)
-            if l then
-                description = string.format("%s; **Language:** %s", description, l)
+            local eName = e and e.name or "(not found)"
+            local oName = o and o.name or "(not found)"
+            local uName = u and u.name or "(not found)"
+            local lName = l and l.name or nil
+            description = string.format("**Environment:** %s; **Organization:** %s; **Upbringing:** %s", eName, oName, uName)
+            if lName then
+                description = string.format("%s; **Language:** %s", description, lName)
             end
             g_descriptionCache[item.id] = description
         end

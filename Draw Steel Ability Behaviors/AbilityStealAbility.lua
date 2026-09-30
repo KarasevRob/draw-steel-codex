@@ -83,10 +83,9 @@ end
 
 
 --- @param ability ActivatedAbility
---- @param casterToken Token
---- @param targets Token[]
+--- @param casterToken CharacterToken
+--- @param targets AbilityTarget[]
 --- @param options table
---- @return 
 function ActivatedAbilityStealAbilityBehavior:Cast(ability, casterToken, targets, options)
     if self:try_get("ongoingEffect") == nil then
         printf("STEAL ABILITY:: NO EFFECT")

@@ -2447,7 +2447,7 @@ function ActivatedAbilityPurgeEffectsBehavior:EditorItems(parentPanel)
                     change = function(element)
                         ---@cast element Dropdown
                         if element.idChosen ~= "none" then
-                            self.conditions[#self.conditions+1] = element.idChosen
+                            self.conditions[#self.conditions+1] = element.idChosen --[[@as string]]
                         end
                         parentPanel:FireEventTree("refreshPurge")
                     end,

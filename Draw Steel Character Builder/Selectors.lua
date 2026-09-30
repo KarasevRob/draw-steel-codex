@@ -49,7 +49,7 @@ end
 
 --- Creates a panel of selectable item buttons that expands when its selector is active.
 --- Items must have `id` and `name` fields.
---- @param config {items: table[], selectorName: string, getSelected: fun(character): table|nil, getItem: fun(id): table|nil}
+--- @param config {items: table[], selectorName: string, getSelected: (fun(hero: character): string|nil), getItem?: (fun(id: string): table|nil)} getSelected returns the committed item id.
 --- @return Panel
 function CBSelectors._makeItemsPanel(config)
     local selectorPanel

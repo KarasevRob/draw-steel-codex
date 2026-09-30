@@ -680,16 +680,20 @@ local function GetDataSources(dependenciesList)
 			end
 		end
 
-		dataSources[#dataSources+1] = {
-			moduleid = m.fullid,
-			name = m.name,
-			version = m.loadedVersion,
-			latest = m.latestVersion or "?",
-			ismodule = true,
-			deprecated = m.deprecated,
-			deprecationMessage = m.deprecationMessage,
-			indent = indent,
-		}
+		--a dependency whose module record failed to download stays in the
+		--traced list, but GetModule returns nil for it; skip it.
+		if m ~= nil then
+			dataSources[#dataSources+1] = {
+				moduleid = m.fullid,
+				name = m.name,
+				version = m.loadedVersion,
+				latest = m.latestVersion or "?",
+				ismodule = true,
+				deprecated = m.deprecated,
+				deprecationMessage = m.deprecationMessage,
+				indent = indent,
+			}
+		end
 	end
 
 	dataSources[#dataSources+1] = {
@@ -881,7 +885,6 @@ local CreateModManager = function()
 	end
 
 	objectsTree = gui.Panel{
-		vscroll = true,
 		width = "100%-352",
 		height = "100%",
 		valign = "top",

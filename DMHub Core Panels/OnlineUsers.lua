@@ -680,6 +680,8 @@ CreateUserSessionPanel = function(userid)
                                 status = "No Character Assigned"
                             else
                                 local c = dmhub.GetCharacterById(sessionInfo.primaryCharacter)
+                                --the branch above already found this character.
+                                ---@cast c -nil
                                 if c.name == nil then
                                     status = "Character not yet named"
                                 else
@@ -691,6 +693,7 @@ CreateUserSessionPanel = function(userid)
 
                     statusLabel.text = status
 
+                    ---@type Color|string
                     local color = sessionInfo.displayColor
 
                     --make sure the name has a minimum brightness.

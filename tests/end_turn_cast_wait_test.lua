@@ -36,6 +36,8 @@ assert(load(section("Draw Steel Core Rules/MCDMInitiativeBar.lua",
     "--How long the ended turn stays current", "function GameHud:NextInitiative(oncomplete)")))()
 
 check(registered ~= nil and registered.id == "End Turn Casts", "handler registers")
+--check() asserts, so registered is non-nil past this point.
+---@cast registered -nil
 check(registered.priority == 0, "handler runs before the villain-action window (priority 50)")
 
 --Drive the wait the way RunBetweenTurnHandler does: resume, honor the yielded

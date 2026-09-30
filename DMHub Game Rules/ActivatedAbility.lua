@@ -90,6 +90,7 @@ end
 --- @field _tmp_payInvokedCost? boolean Transient: an invoked clone pays its own cost.
 --- @field _tmp_restrictLocs? Loc[] Transient: explicit whitelist of target squares for a pick prompt.
 --- @field _tmp_hurlCandidates? table Transient: the grabbed-creature candidates of a hurl's creature pick.
+--- @field _tmp_fromKit? boolean Transient: set by Kit:SignatureAbilities on a kit's signature ability.
 ActivatedAbility = RegisterGameType("ActivatedAbility")
 
 --- @class ActivatedAbilityBehavior: GameType

@@ -80,6 +80,8 @@ dmhub.TokenVisionUpdated = function()
                 escapeActivates = not loggedInAsTokens,
                 escapePriority = EscapePriority.EXIT_DIALOG,
                 click = function(element)
+                    --this button lives inside visionPerspectivePanel, which is only cleared once destroyed.
+                    ---@cast visionPerspectivePanel -nil
                     visionPerspectivePanel:FireEvent("close")
                 end,
             },

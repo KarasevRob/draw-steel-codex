@@ -688,6 +688,8 @@ function DramaticBanner.Create()
                 -- frame without stretching. Spine portraits frame themselves
                 -- (inspectPortrait returns a live '#spineinspect:' render), so
                 -- they are shown un-cropped.
+                --hasPortrait is token ~= nil.
+                ---@cast token -nil
                 local portrait = token.inspectPortrait
                 portraitPanel.bgimage = portrait
                 local rect = nil

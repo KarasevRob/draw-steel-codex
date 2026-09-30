@@ -6,6 +6,7 @@ local mod = dmhub.GetModLoading()
 --- @class CharacterResource: GameType
 --- @field new fun(o?: table): CharacterResource
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+--- @field history false|StatHistory Change history of a global resource entry; false until first set.
 CharacterResource = RegisterGameType("CharacterResource")
 
 local g_sharedGlobalResourceDoc = "globalResourcesv2"
@@ -106,6 +107,7 @@ function CharacterResource.GetGlobalResource(resourceid)
 end
 
 --- @return table<string, CharacterResource>
+--- @return LuaCodeModDocumentSnapshot|nil doc The shared document, for "global" resources only.
 function creature:GetResourceTable(refreshType)
 	if refreshType == "global" then
 		local doc = mod:GetDocumentSnapshot(g_sharedGlobalResourceDoc)
@@ -956,6 +958,8 @@ function creature:ConsumeResource(key, refreshType, quantity, note)
 	local totalResources = self:GetResources()[key] or 0
 	local usage = self:GetResourceUsage(key, refreshType)
 
+	--The history entry shows "remaining/total" for resources that track usage.
+	---@type number|string
 	local quantity = totalResources
 	if refreshType ~= "unbounded" and refreshType ~= "global" then
 		quantity = string.format("%d/%d", totalResources - usage, quantity)
@@ -1107,6 +1111,8 @@ function creature:RefreshResource(key, refreshType, quantity, note)
 	local totalResources = self:GetResources()[key] or 0
 	local usage = self:GetResourceUsage(key, refreshType)
 
+	--The history entry shows "remaining/total" for resources that track usage.
+	---@type number|string
 	local quantity = totalResources
 	if refreshType ~= "unbounded" and refreshType ~= "global" then
 		quantity = string.format("%d/%d", totalResources - usage, quantity)
@@ -1271,7 +1277,7 @@ end)
 
 --- @class CharacterResourceCollection: GameType
 --- @field new fun(o?: table): CharacterResourceCollection
---- @field helpSymbols table GoblinScript help symbol table for this collection (keyed by resource name).
+--- @field helpSymbols table<string, string|{name: string, type: string, desc: string}> GoblinScript help symbol table for this collection (keyed by resource name; "__name" holds the collection's name).
 --- @field lookupSymbols table GoblinScript lookup symbols populated from resource table data.
 --- Represents all resources a character currently has, used as the GoblinScript "resources" object.
 CharacterResourceCollection = RegisterGameType("CharacterResourceCollection")

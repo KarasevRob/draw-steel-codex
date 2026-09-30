@@ -813,7 +813,7 @@ function CharacterFeatureChoice:Choices(numOption, existingChoices, creature)
 				modifiers = rawget(feature, "modifiers"),
                 hasCustomPanel = feature.typeName and feature:HasCustomDropdownPanel(),
                 panel = function()
-                    return feature:CreateDropdownPanel(text)
+                    return feature:CreateDropdownPanel()
                 end,
 			}
 		end

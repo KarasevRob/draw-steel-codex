@@ -184,6 +184,6 @@ dmhub.DistanceDisplayFunction = function(num)
         return num
     end
 
-    n = MeasurementSystem.NativeToDisplay(n, sys)
-    return string.format("%s %s", n, sys.unitName)
+    local display = MeasurementSystem.NativeToDisplay(n, sys)
+    return string.format("%s %s", display, sys.unitName)
 end

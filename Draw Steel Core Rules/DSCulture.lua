@@ -219,7 +219,7 @@ local SetCulture = function(tableName, culturePanel, cultureid)
                 idChosen = culture.languageid ~= "" and culture.languageid or "none",
                 change = function(element)
                     ---@cast element Dropdown
-                    local choice = element.idChosen
+                    local choice = element.idChosen --[[@as string]]
                     if choice == "none" then
                         culture.languageid = ""
                     else
@@ -261,7 +261,7 @@ local SetCulture = function(tableName, culturePanel, cultureid)
                 idChosen = aspectId ~= "" and aspectId or "none",
                 change = function(element)
                     ---@cast element Dropdown
-                    local choice = element.idChosen
+                    local choice = element.idChosen --[[@as string]]
                     if choice == "none" then
                         culture.aspects[cat.id] = ""
                     else
@@ -371,7 +371,7 @@ local ShowCulturesPanel = function(contentPanel)
         itemListPanel,
         Compendium.AddButton{
             click = function()
-                dmhub.SetAndUploadTableItem(Culture.tableName, Culture.CreateNew{})
+                dmhub.SetAndUploadTableItem(Culture.tableName, Culture.CreateNew())
             end,
         }
     }
