@@ -192,6 +192,15 @@ TokenUI.ClearAllStatusBars = function()
 	g_statusBarRegistry = {}
 end
 
+--Handlers that get first refusal on a click on a token (after targeting clicks).
+--fn(token, isselected) returns true to consume the click. Registered by id so a
+--reload replaces rather than duplicates.
+local g_clickHandlers = {}
+
+TokenUI.RegisterClickHandler = function(id, fn)
+	g_clickHandlers[id] = fn
+end
+
 local function BoolOrFunction(val)
 	if type(val) == "function" then
 		return val()
@@ -2604,6 +2613,13 @@ function CreateTokenHud(token)
 					--mark this click as consumed so the token doesn't get selected etc.
 					token:ConsumeClick()
 					return
+				end
+
+				for _, handler in pairs(g_clickHandlers) do
+					if handler(token, isselected) then
+						token:ConsumeClick()
+						return
+					end
 				end
 
                 if token.canControl and not isselected then

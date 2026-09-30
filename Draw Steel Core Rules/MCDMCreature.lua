@@ -3359,6 +3359,15 @@ function creature:GetActivatedAbilities(options)
                 entry:FillActivatedAbilities(self, result)
             end
         end
+
+        --Abilities granted by dynamic terrain objects we are adjacent to (a
+        --Field Ballista's Deactivate). Not on the character sheet, which lists
+        --the creature's own abilities.
+        if not options.characterSheet then
+            for _, ability in ipairs(ActivatedAbility.GetGrantedAbilities(dmhub.GetTokenById(charid))) do
+                result[#result + 1] = ability
+            end
+        end
     end
 
     local gearTable = dmhub.GetTable('tbl_Gear')

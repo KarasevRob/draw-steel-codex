@@ -167,7 +167,8 @@ local function MovementCarrierIndex()
     g_movementCarrierIndex = result
     g_movementCarrierIndexBuilding = true
     local effectsTable = dmhub.GetTable(CharacterOngoingEffect.tableName) or {}
-    for _, targetToken in ipairs(dmhub.GetTokens()) do
+    --Includes object tokens: a passenger can be a map object (a hitched Field Ballista).
+    for _, targetToken in ipairs(dmhub.allTokensIncludingObjects) do
         if targetToken.valid and targetToken.properties ~= nil and
            ActualGrabCarrierId(targetToken.properties) == nil then
             local foundCarrier = false
@@ -221,6 +222,21 @@ function CharacterModifier.VisitMovementCarrierPassengers(carrier, visitor)
     end
 end
 
+--Engine hook (CharacterToken.ExecuteMove): charids of the map objects this
+--creature is carrying (a hitched Field Ballista), worked out fresh from their
+--ongoing effects. The engine's own per-update grab list isn't reliable for
+--objects, whose Lua state is only refreshed on some game updates.
+--- @return string[]
+function creature:GetCarriedObjectIds()
+    local result = {}
+    CharacterModifier.VisitMovementCarrierPassengers(self, function(targetToken)
+        if targetToken.isObject then
+            result[#result+1] = targetToken.charid
+        end
+    end)
+    return result
+end
+
 function CharacterModifier.CountMovementCarrierCapacity(carrier, excludedMovementTargets)
     local carrierToken = dmhub.LookupToken(carrier)
     if carrierToken == nil or not carrierToken.valid then
@@ -228,7 +244,7 @@ function CharacterModifier.CountMovementCarrierCapacity(carrier, excludedMovemen
     end
 
     local occupiedTargets = {}
-    for _, targetToken in ipairs(dmhub.GetTokens()) do
+    for _, targetToken in ipairs(dmhub.allTokensIncludingObjects) do
         if targetToken.valid and targetToken.properties ~= nil and
            ActualGrabCarrierId(targetToken.properties) == carrierToken.id then
             occupiedTargets[targetToken.id] = true
@@ -321,7 +337,7 @@ local function FindCarrierEffectInstances(effectId, casterId, selectedToken)
     local excludedMovementTargets = {}
     local selectedOwned = false
 
-    for _, targetToken in ipairs(dmhub.GetTokens()) do
+    for _, targetToken in ipairs(dmhub.allTokensIncludingObjects) do
         if targetToken.valid and targetToken.properties ~= nil then
             for _, effect in ipairs(targetToken.properties:try_get("ongoingEffects", {})) do
                 local casterInfo = effect:try_get("casterInfo")

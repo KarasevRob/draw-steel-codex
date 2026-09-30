@@ -44,6 +44,45 @@ function TargetableObject.TakeDamage(self, amount, note, info)
     end
 end
 
+--Engine hook (ObjectComponentTargetable.GenerateOperateCommand), asked while the
+--object is hovered: can `token` operate this object (a Field Ballista with
+--adjacent-creature abilities)? Returns the hover text and cursor to show, or
+--nil for no command. Clicking runs TargetableObject:Operate.
+--- @param token CharacterToken the local user's current token
+--- @param objectToken CharacterToken this object's token
+--- @return nil|{text: string, cursor: string}
+function TargetableObject:GetOperateCommand(token, objectToken)
+    local actionBar = rawget(_G, "DrawSteelActionBar")
+    if actionBar == nil or token == nil or not token.canControlAsUser then
+        return nil
+    end
+
+    local operation = actionBar.GetOperation()
+    if operation ~= nil and operation.object.charid == objectToken.charid then
+        return nil
+    end
+
+    if not ActivatedAbility.CanOperate(token, objectToken) then
+        return nil
+    end
+
+    return {
+        text = string.format("Operate %s", creature.GetTokenDescription(objectToken)),
+        cursor = "hand",
+    }
+end
+
+--Engine hook: the Operate command was clicked. Switches the action bar to this
+--object's abilities, operated by `token`.
+--- @param token CharacterToken
+--- @param objectToken CharacterToken
+function TargetableObject:Operate(token, objectToken)
+    local actionBar = rawget(_G, "DrawSteelActionBar")
+    if actionBar ~= nil then
+        actionBar.BeginOperating(token, objectToken)
+    end
+end
+
 dmhub.CreateTargetableComponent = function()
     return TargetableObject.new{
         attributes = creature.CreateAttributes(),

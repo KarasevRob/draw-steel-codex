@@ -24,6 +24,13 @@ end
 --- @field flavor string Flavor/lore text shown in the ability tooltip.
 --- @field range number|string|table Targeting range in world units.
 --- @field rangeOriginTokenId nil|string Serialized token id used as the targeting range origin.
+--- @field operatedByAdjacentCreature boolean An object's ability that an adjacent creature uses while the object stays the caster (Field Ballista's Release Bolt).
+--- @field grantedToAdjacentCreatures boolean An object's ability that adjacent creatures get as their own, usable only on the object (Field Ballista's Deactivate).
+--- @field operatorTokenId nil|string Charid of the creature operating the object, stamped on an operated ability's clone; that creature pays the action.
+--- @field grantingObjectTokenId nil|string Charid of the object that granted this clone; the only token it can target.
+--- @field grantedToTokenId nil|string Charid of the creature a granted clone belongs to (its caster).
+--- @field aimCasterAtTarget boolean An object caster turns to face its target while this is aimed, and keeps that facing (a Field Ballista's Release Bolt).
+--- @field _tmp_boundCaster nil|creature The creature a temporary clone was generated for.
 --- @field lineDistance number|string|table Length for line-area targeting.
 --- @field rangeDisadvantage string|number|table GoblinScript: if truthy, ranged attacks have disadvantage.
 --- @field selfTarget boolean If true, the ability always targets the caster.
@@ -1629,6 +1636,13 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
 		return false
 	end
 
+	--An ability an object grants to the creatures adjacent to it (a Field
+	--Ballista's Deactivate) can only be used on that object.
+	local grantingid = self:try_get("grantingObjectTokenId")
+	if grantingid ~= nil and targetToken.charid ~= grantingid then
+		return false
+	end
+
 	if targetToken.properties:CalculateNamedCustomAttribute("Untargetable") > 0 then
 		return false
 	end
@@ -2165,8 +2179,28 @@ function ActivatedAbility:FireUseAbility(casterToken, options)
 	end
 end
 
+--- The creature operating an object for this cast, when this ability is an
+--- object's ability being used by someone else (a Field Ballista fired by an
+--- adjacent hero). The object stays the caster -- range, rolls and usage limits
+--- are its own -- but the operator spends the action. Stamped as operatorTokenId
+--- on the temporary clone the action bar hands out while operating.
+--- @return nil|CharacterToken
+function ActivatedAbility:GetOperatorToken()
+	local operatorid = self:try_get("operatorTokenId")
+	if operatorid == nil then
+		return nil
+	end
+
+	local tok = dmhub.GetTokenById(operatorid)
+	if tok == nil or not tok.valid or tok.properties == nil then
+		return nil
+	end
+
+	return tok
+end
+
 --returns a { canAfford = bool, moveCost (optional) = number, cannotMove (optional) = true, details = list, consumables (optional) = { itemid -> quantity }, outOfAmmo (optional) = true }, each item in the list representing a cost that needs to be paid.
---an item in the details list is the form { cost = string resourceid, quantity = (optional) number, canAfford = bool, paymentOptions = {{resourceid = string, quantity = number}}, expendedOptions = {{resourceid = string, quantity = number}}, refreshType (optional) = string resource refresh frequency, description = optional string describing resource available/max, maxCharges (optional) = int, availableCharges (optional) = int }
+--an item in the details list is the form { cost = string resourceid, quantity = (optional) number, canAfford = bool, paymentOptions = {{resourceid = string, quantity = number}}, expendedOptions = {{resourceid = string, quantity = number}}, refreshType (optional) = string resource refresh frequency, description = optional string describing resource available/max, maxCharges (optional) = int, availableCharges (optional) = int, payerTokenId (optional) = charid of a token other than the caster that pays this entry }
 --the cost gives the listed resource id cost, but paymentOptions is a list of resources the token has which it could use, in preferred order.
 --expendedOptions is a list of resources the token has expended which could normally be used to pay.
 function ActivatedAbility:GetCost(casterToken, options)
@@ -2211,11 +2245,21 @@ function ActivatedAbility:GetCost(casterToken, options)
 
 	local actionResource = self:ActionResource()
 	if actionResource ~= nil and actionResource ~= "none" and resourcesTable[actionResource] ~= nil then
-		local max = resourcesAvailable[actionResource] or 0
-		local usage = creature:GetResourceUsage(actionResource, resourcesTable[actionResource].usageLimit)
+		--An operated object's action (main action, maneuver...) comes out of the
+		--operator's action economy, not the object's.
+		local payerToken = self:GetOperatorToken()
+		local payer = creature
+		local payerResources = resourcesAvailable
+		if payerToken ~= nil then
+			payer = payerToken.properties
+			payerResources = payer:GetResources()
+		end
+
+		local max = payerResources[actionResource] or 0
+		local usage = payer:GetResourceUsage(actionResource, resourcesTable[actionResource].usageLimit)
 		local available = max - usage
 
-		local numberOfActions = self:GetNumberOfActionsCost(creature, { mode = (options or {}).mode or 1 })
+		local numberOfActions = self:GetNumberOfActionsCost(payer, { mode = (options or {}).mode or 1 })
 
 		local canAfford = available >= numberOfActions
 		result.canAfford = result.canAfford and canAfford
@@ -2226,6 +2270,7 @@ function ActivatedAbility:GetCost(casterToken, options)
 			canAfford = result.canAfford,
 			paymentOptions = cond(result.canAfford, {{resourceid = actionResource, quantity = numberOfActions}}, {}),
 			expendedOptions = cond(result.canAfford, {}, {{resourceid = actionResource, quantity = numberOfActions}}),
+			payerTokenId = payerToken and payerToken.charid or nil,
 		}
 	end
 
@@ -2434,7 +2479,11 @@ function ActivatedAbility:ConsumeResources(casterToken, options)
         end
     end
 
-    for _,tok in ipairs(tokens) do
+    --Entries paid by a token other than the one being charged (the operator of
+    --an object, see GetOperatorToken). Charged after the loop, on that token.
+    local otherPayments = {}
+
+    for tokenIndex,tok in ipairs(tokens) do
         tok:ModifyProperties{
             description = "Consume Action Resources",
 
@@ -2459,7 +2508,15 @@ function ActivatedAbility:ConsumeResources(casterToken, options)
                         end
 
                         if refreshType ~= nil then
-                            tok.properties:ConsumeResource(resourceid, refreshType, payment.quantity or 1, self.name)
+                            local payerid = entry.payerTokenId
+                            if payerid ~= nil and payerid ~= tok.charid then
+                                --Only the caster's pass records it, so the payer is charged once.
+                                if tokenIndex == 1 then
+                                    otherPayments[#otherPayments+1] = { tokenid = payerid, resourceid = resourceid, refreshType = refreshType, quantity = payment.quantity or 1 }
+                                end
+                            else
+                                tok.properties:ConsumeResource(resourceid, refreshType, payment.quantity or 1, self.name)
+                            end
                         end
                     end
                 end
@@ -2482,6 +2539,18 @@ function ActivatedAbility:ConsumeResources(casterToken, options)
                 end
             end
         }
+    end
+
+    for _,payment in ipairs(otherPayments) do
+        local payerTok = dmhub.GetTokenById(payment.tokenid)
+        if payerTok ~= nil and payerTok.valid and payerTok.properties ~= nil then
+            payerTok:ModifyProperties{
+                description = "Consume Action Resources",
+                execute = function()
+                    payerTok.properties:ConsumeResource(payment.resourceid, payment.refreshType, payment.quantity, self.name)
+                end,
+            }
+        end
     end
 end
 
