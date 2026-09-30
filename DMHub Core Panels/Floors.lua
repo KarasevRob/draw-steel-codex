@@ -347,6 +347,53 @@ function FloorNavigation.ChangeFloorRelative(offset)
 	end
 end
 
+--Entering a map can land on a hidden floor (a downloaded module opens on its top floor), which
+--shows the floors below while clicks hit the invisible one. On a game/map change, hop to the
+--highest visible floor; same-map floor changes are left alone so deliberate picks stick.
+local g_lastLoadedMapKey = nil
+
+dmhub.RegisterEventHandler("ChangeCurrentFloor", function()
+	--Floor visibility is a director tool; a player's floor follows their token instead.
+	if mod.unloaded or not dmhub.isDM then
+		return
+	end
+
+	--Includes the game id: downloading a module enters a new game but keeps the same map ids.
+	local key = string.format("%s/%s", tostring(dmhub.gameid), tostring(game.currentMapId))
+	if key == g_lastLoadedMapKey then
+		return
+	end
+	g_lastLoadedMapKey = key
+
+	--Deferred as a precaution: the event fires mid-load, so let the map settle before moving.
+	dmhub.Schedule(0.1, function()
+		local currentMap = game.currentMap
+		local cf = game.currentFloor
+		if mod.unloaded or currentMap == nil or cf == nil then
+			return
+		end
+
+		--Layers always report visible (only main floors carry the eye toggle), so check the parent.
+		local top = cf
+		if cf.parentFloor ~= nil then
+			top = game.GetFloor(cf.parentFloor)
+		end
+		if top == nil or top.floorInvisible ~= true then
+			return
+		end
+
+		--Floors are listed lowest first, so walk down from the top.
+		local floors = currentMap.floors or {}
+		for i = #floors, 1, -1 do
+			local f = floors[i]
+			if f.parentFloor == nil and f.floorInvisible ~= true then
+				game.ChangeMap(currentMap, f)
+				break
+			end
+		end
+	end)
+end)
+
 --Custom themed styling for the map-appearance gallery tiles. Hover/selected states live in the style
 --cascade (not inline) so they can flip on mouse-over and recolor with the active scheme. Colors use
 --@tokens so the highlight tracks the user's color scheme.
