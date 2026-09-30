@@ -2100,7 +2100,7 @@ function ActivatedAbilityAuraBehavior:RemovePreviousAuras(ability, casterToken)
     --Collect first, mutate second: RemoveAura mutates the list we are walking.
     local doomed = {}
     for _,auraInstance in ipairs(casterToken.properties:try_get("auras", {})) do
-        if auraInstance:try_get("sourceAbilityId") == abilityid and auraInstance:try_get("casterid") == casterToken.id then
+        if auraInstance:try_get("sourceAbilityId") == abilityid and auraInstance:try_get("casterid") == casterToken.charid then
             doomed[#doomed+1] = auraInstance.guid
         end
     end
@@ -2209,7 +2209,7 @@ function ActivatedAbilityAuraBehavior:CastOnArea(ability, casterToken, targets, 
             --find and remove this instance (see RemovePreviousAuras). Only read
             --when the behavior opts in via replacePrevious.
             sourceAbilityId = ability:try_get("guid"),
-            casterid = casterToken.id,
+            casterid = casterToken.charid,
             --snapshot the caster's party allegiance so an aura that persists past the
             --caster's death (aliveafterdeath) can still tell friend from foe after the
             --caster token/record is gone. Empty string means no party, which the engine
@@ -2276,7 +2276,7 @@ function ActivatedAbilityAuraBehavior:CastOnArea(ability, casterToken, targets, 
                     ["@class"] = "ObjectComponentAura",
                     auraHeight = auraHeight,
                     properties = AuraComponent.new {
-                        casterid = casterToken.id,
+                        casterid = casterToken.charid,
                         auraid = guid,
                         aura = auraInstance,
                     },
@@ -3191,10 +3191,10 @@ end
 --- @param dist number
 --- @param state table The lane's watcher state entry.
 local function SlideLaneToken(tok, dir, dist, state)
-    g_slidingTokens[tok.id] = true
-    local history = g_slideHistory[tok.id] or {}
+    g_slidingTokens[tok.charid] = true
+    local history = g_slideHistory[tok.charid] or {}
     history[#history+1] = dmhub.Time()
-    g_slideHistory[tok.id] = history
+    g_slideHistory[tok.charid] = history
 
     dmhub.Coroutine(function()
         local ok, err = pcall(function()
@@ -3323,13 +3323,13 @@ local function SlideLaneToken(tok, dir, dist, state)
             printf("LANE:: error sliding token: %s", tostring(err))
         end
 
-        g_slidingTokens[tok.id] = nil
+        g_slidingTokens[tok.charid] = nil
 
         --Mark the token as inside so the landing position does not read as a
         --fresh entry on the next tick. The tick after that recomputes true
         --membership from live positions.
         if tok.valid then
-            state.insideTokens[tok.id] = true
+            state.insideTokens[tok.charid] = true
         end
     end)
 end
@@ -3407,7 +3407,7 @@ local function ProcessLaneObject(obj, comp, turnStartInitiativeId)
     for _,loc in ipairs(locs) do
         for _,tok in ipairs(game.GetTokensAtLoc(loc) or {}) do
             if tok.valid and (not tok.isObject) then
-                inside[tok.id] = tok
+                inside[tok.charid] = tok
             end
         end
     end

@@ -2763,7 +2763,7 @@ function MonsterAI:ExecuteSquadStrike(ability)
             if AffordableMemberAbility(attacker) ~= nil and self.TokenIsLiveCombatant(target) then
                 livePairs[#livePairs+1] = pair
                 liveAssignedTargets[pair.b] = (liveAssignedTargets[pair.b] or 0) + 1
-                assignedTargetIds[#assignedTargetIds+1] = target.id
+                assignedTargetIds[#assignedTargetIds+1] = target.charid
             end
         end
         targetPairs = livePairs

@@ -180,8 +180,8 @@ local function GetParentCurrentTargetTokenId(options, currentToken)
         for _,pair in ipairs(symbols.targetPairs or {}) do
             if pair.a == currentToken.charid or pair.a == currentToken.id then
                 local targetToken = dmhub.GetTokenById(pair.b)
-                if targetToken ~= nil and targetToken.valid and targetToken.id ~= nil then
-                    return targetToken.id
+                if targetToken ~= nil and targetToken.valid and targetToken.charid ~= nil then
+                    return targetToken.charid
                 end
             end
         end
@@ -952,8 +952,8 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                         standardAbilityParams = self:try_get("standardAbilityParams"),
                         targeting = self.targeting,
                         invokerid = invokeSource.id,
-                        casterid = cond(self.invokeOnCaster, casterToken.id, target.token.id),
-                        targetid = target.token.id,
+                        casterid = cond(self.invokeOnCaster, casterToken.id, target.token.charid),
+                        targetid = target.token.charid,
                         subjectid = subjectid,
                         symbols = symbols,
                         abilityAttr = {

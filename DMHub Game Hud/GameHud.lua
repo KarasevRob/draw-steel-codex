@@ -2481,13 +2481,13 @@ Tip.Register{
 	end,
 	whenShown = function(state)
 		local tok = dmhub.selectedTokens[1]
-		state.tokenId = tok.id
+		state.tokenId = tok.charid
 		state.startLoc = { x = tok.loc.x, y = tok.loc.y }
 	end,
 	acted = function(state)
 		if state.startLoc == nil then return false end
 		for _, tok in ipairs(dmhub.selectedTokens) do
-			if tok.id == state.tokenId then
+			if tok.charid == state.tokenId then
 				local dx = tok.loc.x - state.startLoc.x
 				local dy = tok.loc.y - state.startLoc.y
 				return (dx * dx + dy * dy) > 0.01
@@ -2558,7 +2558,7 @@ Tip.Register{
 	acted = function(state)
 		if state.tokenId == nil then return false end
 		for _, tok in ipairs(dmhub.selectedTokens) do
-			if tok.id == state.tokenId then
+			if tok.charid == state.tokenId then
 				return tok.properties:try_get("selectedLoadout", 0) == 1
 			end
 		end
@@ -2622,7 +2622,7 @@ Tip.Register{
 	acted = function(state)
 		if state.tokenId == nil then return false end
 		for _, tok in ipairs(dmhub.selectedTokens) do
-			if tok.id == state.tokenId then
+			if tok.charid == state.tokenId then
 				return BeastheartCompanionIsNearby(tok)
 			end
 		end

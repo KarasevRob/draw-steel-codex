@@ -7373,7 +7373,7 @@ local function MonsterSheetTextCard(name, text, props, live, token)
         pcall(function() isHero = props:IsHero() end)
     end
     if isHero and token ~= nil and token.valid then
-        local capturedId = token.id
+        local capturedId = token.charid
         sheetLink = gui.Label{
             classes = {"ms-sheet-link", "editOnly"},
             text = "Open on sheet",
@@ -8774,7 +8774,7 @@ function TacPanel.MultiEdit()
             local squadTokens = {}
             for _,tok in ipairs(monsterTokens) do
                 if tok.properties.minion and tok.properties:MinionSquad() == m_selectedSquadId then
-                    squadTokens[#squadTokens+1] = tok.id
+                    squadTokens[#squadTokens+1] = tok.charid
                 end
             end
 
@@ -10180,7 +10180,7 @@ function TacPanel.AddConditionMenu(args)
                 }
                 local auraInstance = AuraInstance.new{
                     guid = dmhub.GenerateGuid(),
-                    casterid = primaryToken.id,
+                    casterid = primaryToken.charid,
                     name = "Custom Aura",
                     iconid = auraDef.iconid,
                     display = {hueshift = 0, saturation = 1, brightness = 1, bgcolor = defaultBgcolor},

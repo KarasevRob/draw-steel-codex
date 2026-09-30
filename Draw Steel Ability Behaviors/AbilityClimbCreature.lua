@@ -88,7 +88,7 @@ local function IsLegalDismountLoc(riderToken, mountToken, loc)
 	end
 
 	for _,occupant in ipairs(game.GetTokensAtLoc(loc) or {}) do
-		if occupant.id ~= riderToken.id then
+		if occupant.charid ~= riderToken.charid then
 			return false
 		end
 	end

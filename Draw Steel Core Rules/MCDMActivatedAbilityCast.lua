@@ -131,7 +131,7 @@ GameSystem.RegisterGoblinScriptField{
                 return 1
             end
             for _, t in ipairs(targets) do
-                if t.token ~= nil and t.token.id == targetToken.id then
+                if t.token ~= nil and t.token.id == targetToken.charid then
                     return t.numAttackers or 1
                 end
             end

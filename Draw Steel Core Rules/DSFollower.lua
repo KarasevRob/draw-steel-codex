@@ -287,7 +287,7 @@ CreateFollowerMonster = function(followerInfo, followerType, mentorToken, option
             return
         end
 
-        mentorToken.properties:AddFollowerToMentor(newFollower.id)
+        mentorToken.properties:AddFollowerToMentor(newFollower.charid)
         
         if open ~= false then
             newFollower:ShowSheet()

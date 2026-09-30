@@ -1012,7 +1012,7 @@ DrawSteelMinion.SetSquadCaptain = function(tokens, squadid, isMakeCaptain)
     local captainid = nil
     for _,tok in ipairs(tokens) do
         if (not tok.properties.minion) then
-            captainid = tok.id
+            captainid = tok.charid
             tok:ModifyProperties{
                 groupid = groupid,
                 description = "Set Squad",
@@ -1039,7 +1039,7 @@ DrawSteelMinion.SetSquadCaptain = function(tokens, squadid, isMakeCaptain)
     if captainid ~= nil then
         local monsterTokens = dmhub.GetTokens{}
         for _,tok in ipairs(monsterTokens) do
-            if tok.id ~= captainid and (not tok.properties.minion) and tok.properties:MinionSquad() == squadid then
+            if tok.charid ~= captainid and (not tok.properties.minion) and tok.properties:MinionSquad() == squadid then
                 tok:ModifyProperties{
                     description = "Set Squad",
                     execute = function()

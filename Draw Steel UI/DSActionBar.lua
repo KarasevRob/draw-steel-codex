@@ -381,7 +381,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
     local function ReplaceTargetLineOfSightRays(rays)
         local t = {}
         for i,ray in ipairs(rays) do
-            local key = string.format("%s-%s", ray.a.id, ray.b.id)
+            local key = string.format("%s-%s", ray.a.charid, ray.b.charid)
                                             print("MARK:: BBB")
             t[key] = m_targetLineOfSightRays[key] or dmhub.MarkLineOfSight(ray.a, ray.b, ray.a.properties:GetPierceWalls())
             m_targetLineOfSightRays[key] = nil
@@ -805,7 +805,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         targets = currentSpell:PrepareTargets(token, currentSymbols, targets)
 
                         if m_markLineOfSight ~= nil then
-                            SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id), m_markLineOfSight)
+                            SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid), m_markLineOfSight)
                             m_markLineOfSight = nil
                             m_markLineOfSightToken = nil
                             m_markLineOfSightSourceToken = nil
@@ -1287,9 +1287,9 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 									firstTarget = targetToken.id
 								end
 
-                                if m_markLineOfSight ~= nil and m_markLineOfSightToken ~= nil and m_markLineOfSightToken.id == targetToken.id then
+                                if m_markLineOfSight ~= nil and m_markLineOfSightToken ~= nil and m_markLineOfSightToken.charid == targetToken.id then
 
-                                    SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.id, targetToken.id), m_markLineOfSight)
+                                    SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.charid, targetToken.id), m_markLineOfSight)
 
                                     m_markLineOfSight = nil
                                     m_markLineOfSightToken = nil
@@ -2135,7 +2135,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                             if movementInfo ~= nil then
                                 local targets = currentSpell:FindTargetsInMovementVicinity(token, movementInfo.path) or filteredTargets
                                 for _,target in ipairs(targets) do
-                                    filteredTargets[target.id] = target
+                                    filteredTargets[target.charid] = target
                                 end
                             end
 							showingMovementArrow = true
@@ -2346,8 +2346,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 									for _, step in ipairs(path.steps) do
 										local tokensAtLoc = game.GetTokensAtLoc(step)
 										for _, tok in ipairs(tokensAtLoc or {}) do
-											if tok.id ~= token.id and hitIds[tok.id] == nil then
-												hitIds[tok.id] = true
+											if tok.charid ~= token.charid and hitIds[tok.charid] == nil then
+												hitIds[tok.charid] = true
 												throughShapes[#throughShapes + 1] = dmhub.CalculateShape {
 													shape = cond(tok.creatureDimensions.x % 2 == 1, "radius", "radiusfromintersection"),
 													token = tok,
@@ -2708,7 +2708,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         targets = currentSpell:PrepareTargets(token, currentSymbols, targets)
 
                         if m_markLineOfSight ~= nil then
-                            SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id), m_markLineOfSight)
+                            SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid), m_markLineOfSight)
                             m_markLineOfSight = nil
                             m_markLineOfSightToken = nil
                             m_markLineOfSightSourceToken = nil

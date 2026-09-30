@@ -91,13 +91,13 @@ function ActivatedAbilityRelocateCreatureBehavior:FindTargetsInMovementVicinity(
 
         for i,token in ipairs(tokens or {}) do
             for _,tok in ipairs(result) do
-                if tok.id == token.id then
+                if tok.id == token.charid then
                     token = nil
                     break
                 end
             end
 
-            if token ~= nil and token.id ~= casterToken.id and ability:TargetPassesFilter(casterToken, token, {}, self.vicinityFilter) then
+            if token ~= nil and token.charid ~= casterToken.charid and ability:TargetPassesFilter(casterToken, token, {}, self.vicinityFilter) then
                 result[#result+1] = token
             end
         end
@@ -543,7 +543,7 @@ function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, tar
                                 local occupants = game.GetTokensAtLoc(candidate) or {}
                                 local blocked = false
                                 for _,occ in ipairs(occupants) do
-                                    if occ.id ~= grabbedTok.id then
+                                    if occ.charid ~= grabbedTok.id then
                                         blocked = true
                                         break
                                     end
@@ -771,8 +771,8 @@ function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, tar
 				for _,step in ipairs(path.steps) do
 					local tokensAtLoc = game.GetTokensAtLoc(step)
 					for _,tok in ipairs(tokensAtLoc or {}) do
-						if tok.id ~= casterToken.id and hitCreatures[tok.id] == nil then
-							hitCreatures[tok.id] = true
+						if tok.charid ~= casterToken.id and hitCreatures[tok.charid] == nil then
+							hitCreatures[tok.charid] = true
 							--see the note on suppressCollisionDamage below.
 							local suppressPassthroughDamage = TargetableObject.TokenSuppressesCollisionDamage(tok)
 							--each side of the collision gets a handle on the other:

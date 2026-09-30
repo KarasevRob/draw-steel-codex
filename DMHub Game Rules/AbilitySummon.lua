@@ -367,7 +367,7 @@ function ActivatedAbilitySummonBehavior:SummonedCreatureName(casterToken, symbol
         return monster.properties:try_get("monster_type")
     end
 
-    local key = string.format("%s|%s|%s", tostring(self.monsterType), tostring(self.bestiaryFilter), tostring(casterToken.id))
+    local key = string.format("%s|%s|%s", tostring(self.monsterType), tostring(self.bestiaryFilter), tostring(casterToken.charid))
     local cached = g_summonNameCache[key]
     if cached ~= nil then
         return cached.name

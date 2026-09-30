@@ -2166,7 +2166,7 @@ local function CreateNegotiationStage(args)
             guid = dmhub.GenerateGuid(),
             roll = rollStr,
             description = kind == "read" and "Read the NPC" or "Negotiation argument",
-            tokenid = tok.id,
+            tokenid = tok.charid,
             complete = function(rollInfo)
                 m_rolling = false
                 local total = rollInfo.total

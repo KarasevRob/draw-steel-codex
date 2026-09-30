@@ -1278,7 +1278,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 		targets = {}
 		local range = self:GetRange(creature)
 		for i,tok in ipairs(dmhub.allTokens) do
-			if (tok.id ~= casterToken.id or self:try_get("selfTarget", false)) and self:TargetPassesFilter(casterToken, tok, symbols) and range >= tok:Distance(casterToken) then
+			if (tok.id ~= casterToken.charid or self:try_get("selfTarget", false)) and self:TargetPassesFilter(casterToken, tok, symbols) and range >= tok:Distance(casterToken) then
 				targets[#targets+1] = {
 					loc = tok.loc,
 					token = tok,
@@ -1323,7 +1323,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 
         local tokens = dmhub.allTokens
         for i,tok in ipairs(tokens) do
-            if tok.id ~= casterToken.id and aura.area:ContainsToken(tok) and self:TargetPassesFilter(casterToken, tok, symbols) then
+            if tok.id ~= casterToken.charid and aura.area:ContainsToken(tok) and self:TargetPassesFilter(casterToken, tok, symbols) then
                 targets = targets or {}
                 targets[#targets+1] = {
                     loc = tok.loc,
@@ -1675,7 +1675,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 				end,
 			}
 
-            local tokid = casterToken.id
+            local tokid = casterToken.charid
 
             local triggers = casterToken.properties:GetAvailableTriggers() or {}
             trigger = triggers[guid]
