@@ -415,7 +415,6 @@ local function ExecuteAreaAbility(ai, token, ability, area, targets, options)
     local abilityClone = DeepCopy(ability)
 
     ai:ExecuteAbility(token, abilityClone, targets, options)
-    area:Destroy()
 end
 
 local function OffsetLoc(loc, dx, dy)
@@ -466,7 +465,6 @@ local function FindBestSplitbowLine(ai, token, ability)
                             numTargets = #targets,
                         }
                     end
-                    area:Destroy()
                 end
             end
         end
@@ -535,7 +533,6 @@ local function FindDarkTeleportLoc(token, ability, preferClose)
         end
     end
 
-    area:Destroy()
     return bestLoc
 end
 
@@ -1013,8 +1010,6 @@ MonsterAI:RegisterMove{
             if CountShadowAllies(largeArea) >= CountShadowAllies(normalArea) + 2 then
                 mode = 2
             end
-            normalArea:Destroy()
-            largeArea:Destroy()
         end
 
         local area = BuildCubeArea(token, layAbility, token.loc, mode)
@@ -1248,10 +1243,8 @@ local function FindBestUmbralHungerCube(token, ability)
                 numTargets = #targets,
             }
         end
-        area:Destroy()
     end
 
-    origins:Destroy()
     return best
 end
 

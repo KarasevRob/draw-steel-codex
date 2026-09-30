@@ -4283,7 +4283,7 @@ function GameHud.CreateEmbeddedRollDialog()
                 description = g_activeRollArgs.description .. " -- Re-rolled!",
                 amendable = g_activeRollArgs.amendable,
                 tokenid = g_activeRollArgs.tokenid,
-                silent = g_activeRollArgs.rollIsSilent,
+                silent = g_activeRollArgs.silent,
                 instant = g_activeRollArgs.instant,
                 creature = g_activeRollArgs.creature,
                 properties = g_activeRollArgs.properties,

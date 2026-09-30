@@ -6557,7 +6557,7 @@ local function makePreviewColumn(ability, schedulePreviewRefresh, editorOptions)
         -- Fail-open: on any serialisation error, return a sentinel that
         -- forces a rebuild. We'd rather waste one rebuild than freeze the
         -- preview on a malformed ability.
-        return "__fingerprint_error__" .. tostring(dmhub.GetTime and dmhub.GetTime() or 0)
+        return "__fingerprint_error__" .. tostring(dmhub.Time())
     end
 
     local previewSlot

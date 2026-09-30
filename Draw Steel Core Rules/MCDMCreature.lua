@@ -637,9 +637,9 @@ function character:Retainers()
     local retainers = {}
     local followers = self:GetFollowers()
 
-    for id, _ in ipairs(followers) do
+    for id, _ in pairs(followers) do
         local follower = dmhub.GetCharacterById(id)
-        if follower and follower:IsRetainer() then
+        if follower and follower.properties and follower.properties:IsRetainer() then
             retainers[#retainers + 1] = follower
         end
     end
@@ -7585,7 +7585,7 @@ creature.RegisterSymbol {
         local count = 0
         for _, charid in ipairs(charids) do
             local ch = dmhub.GetCharacterById(charid)
-            if ch ~= nil and ch.followerType == nil then
+            if ch ~= nil and not (ch.properties ~= nil and ch.properties:IsFollower()) then
                 count = count + 1
             end
         end

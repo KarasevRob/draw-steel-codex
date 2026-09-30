@@ -821,8 +821,9 @@ function Kit:Render(args, params)
 	end
 
 	local maneuverPanel = nil
-	if self.kitManeuver ~= false then
-		maneuverPanel = self.kitManeuverAbility:Render({
+	--kitManeuver holds the maneuver ability; some kit data stores a bare `true` with no ability.
+	if type(self.kitManeuver) == "table" then
+		maneuverPanel = self.kitManeuver:Render({
 			pad = 12,
 			width = "100%",
 		}, {

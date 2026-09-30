@@ -116,7 +116,7 @@ function creature.MCDMRollAttack(self, attack, targets, options)
 			for catid,category in pairs(rollInfo.categories) do
 				for _,group in ipairs(category.groups) do
 					if group.numFaces == 4 then
-						if group.subtraction then
+						if group.subtract then
 							boons = boons - group.numDice
 						else
 							boons = boons + group.numDice
@@ -269,10 +269,6 @@ function creature.MCDMRollAttack(self, attack, targets, options)
 					self:ClearMomentaryOngoingEffects()
 					targetCreature:ClearMomentaryOngoingEffects()
 					target:CompleteChanges('Damaged')
-
-					if selfToken ~= nil then
-						selfToken:ClearTarget(target.id)
-					end
 				end
 
 				if completeAttack then
@@ -281,11 +277,6 @@ function creature.MCDMRollAttack(self, attack, targets, options)
 			end,
 
 			cancelRoll = function()
-				if selfToken ~= nil then
-					for _,target in ipairs(targets) do
-						selfToken:ClearTarget(target.id)
-					end
-				end
 				if cancelAttack ~= nil then
 					cancelAttack()
 				end

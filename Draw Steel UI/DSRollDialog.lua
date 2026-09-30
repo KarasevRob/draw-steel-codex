@@ -692,13 +692,13 @@ function GameHud.CreateRollDialog(self)
                 str = str .. " HALF"
             end
 
-            creature.UploadExpectedCreatureDamage(hint.charid, resultPanel.data.rollid, str)
+            _G.creature.UploadExpectedCreatureDamage(hint.charid, resultPanel.data.rollid, str)
         end
     end
 
     local RemoveTargetHints = function()
         for _, hint in ipairs(targetHints or {}) do
-            creature.UploadExpectedCreatureDamage(hint.charid, resultPanel.data.rollid, nil)
+            _G.creature.UploadExpectedCreatureDamage(hint.charid, resultPanel.data.rollid, nil)
         end
     end
 
@@ -2445,7 +2445,7 @@ function GameHud.CreateRollDialog(self)
                 description = g_activeRollArgs.description .. " -- Re-rolled!",
                 amendable = g_activeRollArgs.amendable,
                 tokenid = g_activeRollArgs.tokenid,
-                silent = g_activeRollArgs.rollIsSilent,
+                silent = g_activeRollArgs.silent,
                 instant = g_activeRollArgs.instant,
                 creature = g_activeRollArgs.creature,
                 properties = g_activeRollArgs.properties,

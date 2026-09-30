@@ -2324,7 +2324,7 @@ function ActivatedAbility:GetCost(casterToken, options)
 				quantity = resourceNum,
 				canAfford = canAfford,
 				paymentOptions = cond(canAfford, paymentOptions, {}),
-				expendedOptions = cond(not canAfford, {resourceid = effectiveResourceCost, quantity = resourceNum}, {}),
+				expendedOptions = cond(not canAfford, {{resourceid = effectiveResourceCost, quantity = resourceNum}}, {}),
 			}
 		else
 			for levelNum,resourceCost in ipairs(resourceLevels) do
@@ -2348,7 +2348,7 @@ function ActivatedAbility:GetCost(casterToken, options)
 							quantity = resourceNum,
 							canAfford = canAfford,
 							paymentOptions = cond(canAfford, {{resourceid = resourceCost, quantity = resourceNum}}, {}),
-							expendedOptions = cond(not canAfford, {resourceid = resourceCost, quantity = resourceNum}, {}),
+							expendedOptions = cond(not canAfford, {{resourceid = resourceCost, quantity = resourceNum}}, {}),
 						}
 
 						if canAfford then

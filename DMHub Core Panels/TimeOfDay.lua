@@ -903,7 +903,7 @@ ShowTimeOfDaySettingsDialog = function()
 			local minutes = tonumber(minutesLabel.text)
 			local seconds = tonumber(secondsLabel.text)
 
-			if hours == nil or minutes == nil or seconds == nil or hours < 0 or minutes < 0 or seconds < 0 or hours > 23 or hours > 59 or seconds > 59 then
+			if hours == nil or minutes == nil or seconds == nil or hours < 0 or minutes < 0 or seconds < 0 or hours > 23 or minutes > 59 or seconds > 59 then
 				return
 			end
 

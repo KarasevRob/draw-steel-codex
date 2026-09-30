@@ -407,7 +407,7 @@ CreateUserSessionPanel = function(userid)
 
 		click = function(element)
 			local t = dmhub.Time()
-			if element.data.pingTime ~= nil and (t - dmhub.element.data.pingTime) < 10 then
+			if element.data.pingTime ~= nil and (t - element.data.pingTime) < 10 then
 				return
 			end
 
