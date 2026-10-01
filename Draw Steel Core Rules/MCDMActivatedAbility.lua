@@ -1614,6 +1614,8 @@ function ActivatedAbility:Render(options, params)
                     -- search is not defeated by the replacement having already run.
                     if tiersAllText:find(replacePattern:lower(), 1, true) then
                         local dest = StringInterpolateGoblinScript(replaceWith, lookupFn)
+                        --StringInterpolateGoblinScript returns nil only for a nil string.
+                        ---@cast dest -nil
                         local t1, t2, t3 = dest:match("^(.-)%s*//%s*(.-)%s*//%s*(.-)%s*$")
                         local destStr
                         if t1 ~= nil then
@@ -1628,6 +1630,8 @@ function ActivatedAbility:Render(options, params)
                 local addText = trim(modifier:try_get("addText", ""))
                 if addText ~= "" then
                     local interpolated = StringInterpolateGoblinScript(addText, lookupFn)
+                    --StringInterpolateGoblinScript returns nil only for a nil string.
+                    ---@cast interpolated -nil
                     -- Split "A // B // C" tier notation; fall back to the raw text for N/N/N numeric format.
                     local t1, t2, t3 = interpolated:match("^(.-)%s*//%s*(.-)%s*//%s*(.-)%s*$")
                     local tierNote
@@ -2175,6 +2179,8 @@ function ActivatedAbility:Render(options, params)
     local powerRollQueenPanel
 
     if powerTableBehavior ~= nil then
+        --this search repeats the one displayTiers was built from, so it is set here too.
+        ---@cast displayTiers -nil
         powerRollQueenPanel = gui.Panel {
 
             bgimage = true,

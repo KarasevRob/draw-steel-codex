@@ -5365,6 +5365,8 @@ local ShowTranslationsPanel = function(parentPanel)
 
 			for _,transid in ipairs(i18n.translations) do
 				local translation = i18n.GetTranslation(transid)
+				--transid comes from i18n.translations, the same live collection.
+				---@cast translation -nil
 
 				newDataItems[transid] = dataItems[transid] or CreateListItem{
 					select = element.aliveTime > 0.2,

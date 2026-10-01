@@ -24,7 +24,8 @@ function DTRoller.CreateNew(object, mentorId)
     local languages = DTBusinessRules.GetGlobalLanguages()
 
     local token = DTHelpers.GetTokenFromCreature(_object)
-    instance.name = (token.name and #token.name > 0 and token.name) or "(unnamed character)"
+    --nil when the creature is neither on this map nor matched among the game's characters.
+    instance.name = (token ~= nil and token.name and #token.name > 0 and token.name) or "(unnamed character)"
     instance.characteristics = DTRoller._charAttrsToList(_object)
     instance.languages = DTHelpers.MergeFlagLists(languages, _object:LanguagesKnown(), true)
     instance.skills = DTRoller._charSkillsToList(_object)

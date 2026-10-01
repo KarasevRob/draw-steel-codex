@@ -11663,15 +11663,19 @@ CreateAbilityController = function()
                 return
             end
 
-            for i = 1, #m_castingTriggers do
-                local triggerToken = dmhub.GetTokenById(m_castingTriggers[i].charid)
-                if triggerToken ~= nil and triggerToken.valid then
+            --build a new list rather than removing in place: table.remove inside a
+            --numeric for skips the next entry and indexes past the end. Forward order
+            --is kept so the last newly-triggered targetcount still wins.
+            local keptTriggers = {}
+            for _, castingTrigger in ipairs(m_castingTriggers) do
+                local triggerToken = dmhub.GetTokenById(castingTrigger.charid)
+                if triggerToken == nil or not triggerToken.valid then
+                    keptTriggers[#keptTriggers + 1] = castingTrigger
+                else
                     local availableTriggers = triggerToken.properties:GetAvailableTriggers() or {}
-                    local availableTrigger = availableTriggers[m_castingTriggers[i].id]
-                    if availableTrigger == nil then
-                        table.remove(m_castingTriggers, i)
-                    else
-                        m_castingTriggers[i] = availableTrigger
+                    local availableTrigger = availableTriggers[castingTrigger.id]
+                    if availableTrigger ~= nil then
+                        keptTriggers[#keptTriggers + 1] = availableTrigger
 
                         if availableTrigger.triggered and (not m_castingTriggersCache[availableTrigger.id]) then
                             m_castingTriggersCache[availableTrigger.id] = true
@@ -11685,6 +11689,7 @@ CreateAbilityController = function()
                     end
                 end
             end
+            m_castingTriggers = keptTriggers
         end,
         clearCastingTriggers = function(element)
             element.monitorGame = nil
@@ -12248,6 +12253,8 @@ CreateAbilityController = function()
                 local targetingType = g_currentAbility:try_get("targeting", "direct")
 
                 if (shape == 'emptyspace' or shape == 'anyspace') and (targetingType == "pathfind" or targetingType == "vacated" or targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures") then
+                    --only the 'all' target type hovers with a nil loc (point == 'all'); a space target has a real one.
+                    ---@cast loc -nil
                     if g_token.creatureDimensions.x > 1 and g_token.creatureDimensions.x % 2 == 1 then
                         for i = 3, g_token.creatureDimensions.x, 2 do
                             loc = loc.west.south
@@ -12306,6 +12313,8 @@ CreateAbilityController = function()
                         ShowMovementDiagram(g_token, movementInfo.path, cond(shifting, tr("Shift"), tr("Movement")))
                     end
                 elseif shape == "emptyspace" and targetingType == "direct" then
+                    --as above: a space target always hovers with a real loc.
+                    ---@cast loc -nil
                     --Only draw the teleport arrow when the target is on the caster's floor.
                     --For cross-floor teleport the arrow would render on the caster's floor pointing
                     --at the wrong place; leave clearMovementArrow=true so any prior arrow is removed
@@ -12478,6 +12487,8 @@ CreateAbilityController = function()
                         end
                     end
                 elseif (shape == 'emptyspace' or shape == 'anyspace') and (targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures") then
+                    --as above: a space target always hovers with a real loc.
+                    ---@cast loc -nil
                     local waypoints = {}
                     for _, pos in ipairs(m_positionTargetsChosen) do
                         waypoints[#waypoints + 1] = pos.loc
@@ -13010,6 +13021,8 @@ CreateAbilityController = function()
                             --we offset the target point to match creature movement behavior.
                             shape = "cylinder"
                             local offset = (g_token.creatureDimensions.x - 1) * 0.5
+                            --point is only cleared above for the 'all' type; a space shape keeps the hovered point.
+                            ---@cast point -nil
                             point = core.Vector3(point.x + offset, point.y + offset, point.z)
                         end
                     else
@@ -13025,6 +13038,8 @@ CreateAbilityController = function()
                 g_currentSymbols.range = range
                 if shape == "line" and g_currentAbility.canChooseLowerRange then
                     local pos = g_token:PosAtLoc(g_token.loc)
+                    --point is only cleared above for the 'all' type, never a line.
+                    ---@cast point -nil
                     local dist = math.ceil(math.max(math.abs(point.x - pos.x), math.abs(point.y - pos.y)))
                     range = math.min(range, dist)
                 end

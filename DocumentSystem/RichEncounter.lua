@@ -833,6 +833,11 @@ function RichEncounter.CreateDisplay(self)
                             local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, {
                                 fitLocation = true
                             })
+                            if token == nil then
+                                --the encounter names a monster this game's bestiary does not have.
+                                print("SPAWN:: no bestiary entry for monster", monsterid)
+                                goto nextspawn
+                            end
 
                             token.properties.initiativeGrouping = groupid
                             token.properties:OnCreateFromBestiary(token, groupid)
@@ -882,6 +887,7 @@ function RichEncounter.CreateDisplay(self)
                                 }
                             end
                         end
+                        ::nextspawn::
                     end
 
                     if initiativeQueue ~= nil then

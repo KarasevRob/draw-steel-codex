@@ -322,6 +322,9 @@ function RSPSession.Roster()
     table.sort(result, function(a, b)
         local ta = dmhub.GetCharacterById(a)
         local tb = dmhub.GetCharacterById(b)
+        --Consider only adds a charid after GetCharacterById found it, earlier in this call.
+        ---@cast ta -nil
+        ---@cast tb -nil
         return string.lower(ta.name or "") < string.lower(tb.name or "")
     end)
 
@@ -759,6 +762,9 @@ function RSPSession.FollowersOf(charid, includeRetainers)
     table.sort(result, function(a, b)
         local ta = dmhub.GetCharacterById(a)
         local tb = dmhub.GetCharacterById(b)
+        --a follower is only added once GetCharacterById found it, earlier in this call.
+        ---@cast ta -nil
+        ---@cast tb -nil
         return string.lower(ta.name or "") < string.lower(tb.name or "")
     end)
 

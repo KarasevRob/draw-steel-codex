@@ -2759,31 +2759,35 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
                         local a = CharacterIndexToLocation(layout, index1)
                         local b = CharacterIndexToLocation(layout, index2)
 
-                        local rects = {}
+                        --Pressing the right half of a page's last character gives a charIndex one
+                        --past the text, which no rect covers; select nothing rather than crash.
+                        if a ~= nil and b ~= nil then
+                            local rects = {}
 
-                        for i = a.rectIndex, b.rectIndex do
-                            local r = DeepCopy(element.data.textLayout.mergedRects[i].rect)
-                            if i == a.rectIndex then
-                                local breakIndex = a.breakIndex
-                                if breakIndex < 1 then
-                                    breakIndex = 1
+                            for i = a.rectIndex, b.rectIndex do
+                                local r = DeepCopy(element.data.textLayout.mergedRects[i].rect)
+                                if i == a.rectIndex then
+                                    local breakIndex = a.breakIndex
+                                    if breakIndex < 1 then
+                                        breakIndex = 1
+                                    end
+                                    r.x1 = element.data.textLayout.mergedRects[i].breaks[breakIndex]
                                 end
-                                r.x1 = element.data.textLayout.mergedRects[i].breaks[breakIndex]
+
+                                if i == b.rectIndex then
+                                    local breakIndex = b.breakIndex + 2
+                                    if breakIndex > #element.data.textLayout.mergedRects[i].breaks then
+                                        breakIndex = #element.data.textLayout.mergedRects[i].breaks
+                                    end
+                                    r.x2 = element.data.textLayout.mergedRects[i].breaks[breakIndex]
+                                end
+
+                                rects[#rects + 1] = r
                             end
 
-                            if i == b.rectIndex then
-                                local breakIndex = b.breakIndex + 2
-                                if breakIndex > #element.data.textLayout.mergedRects[i].breaks then
-                                    breakIndex = #element.data.textLayout.mergedRects[i].breaks
-                                end
-                                r.x2 = element.data.textLayout.mergedRects[i].breaks[breakIndex]
-                            end
-
-                            rects[#rects + 1] = r
+                            element:FireEvent("highlight", rects,
+                                element.data.textLayout.text:Substring(a.charIndex, b.charIndex))
                         end
-
-                        element:FireEvent("highlight", rects,
-                            element.data.textLayout.text:Substring(a.charIndex, b.charIndex))
                     end
                 else
                     element.data.doubleClickCharacter = false

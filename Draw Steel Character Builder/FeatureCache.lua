@@ -121,6 +121,8 @@ function CBFeatureCache:CalculateStatus()
 
     for _,item in ipairs(self:GetSortedFeatures()) do
         local feature = self:GetFeature(item.guid)
+        --CreateNew adds every guid to sorted and keyed together.
+        ---@cast feature -nil
         if not feature:SuppressStatus() then
             local featureStatus = feature:GetStatus()
             local excludeFromTotals = featureStatus.excludeFromTotals == true
@@ -719,6 +721,8 @@ function CBFeatureWrapper:_applylevelChoice(hero, optionWrapper)
             end
             if not alreadySelected then
                 local option = self:GetOption(selectedId)
+                --optionWrapper is one of this feature's own options, so its guid is keyed.
+                ---@cast option -nil
                 local numChoices = self:GetNumChoices()
                 local valueSelected = self:GetSelectedValue()
                 local selectedCost = option:GetPointsCost()

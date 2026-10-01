@@ -184,6 +184,8 @@ import.Register{
             end
 
             if (not skipping) and currentClass ~= nil then
+                --currentClassMode is set to "flavor" together with currentClass and never cleared.
+                ---@cast currentClassMode -nil
                 local lines = currentClass[currentClassMode] or {}
                 currentClass[currentClassMode] = lines
                 lines[#lines+1] = sline
@@ -220,6 +222,8 @@ import.Register{
 
         for _,sline in ipairs(sections.kits or {}) do
             if mode == "kitStats" then
+                --mode only becomes kitStats/kitAbility right after currentKit is set, and leaves them when it is cleared.
+                ---@cast currentKit -nil
                 if regex.MatchGroups(sline, "^Signature Ability$") ~= nil then
                     mode = "kitAbility"
                 else
@@ -227,6 +231,8 @@ import.Register{
                 end
 
             elseif mode == "kitAbility" then
+                --see kitStats above.
+                ---@cast currentKit -nil
                 if regex.MatchGroups(sline, "^You gain the following signature ability") ~= nil then
                     --pass. This line shouldn't be present?
                 elseif regex.MatchGroups(sline, "^[^<]") ~= nil and #currentKit.abilityLines > 3 then

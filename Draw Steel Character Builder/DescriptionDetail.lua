@@ -104,6 +104,8 @@ function CBDescriptionDetail._editPane()
                 -- TODO: Remove in production
                 if devmode() then
                     local hero = _getHero()
+                    --nil while the builder is open on a monster.
+                    if hero == nil then return end
                     local desc = hero:Description()
                     local colors = {"black", "brown", "blonde", "red", "auburn", "chestnut", "gray", "white", "silver", "platinum","blue", "green", "hazel", "amber", "violet", "gold", "copper", "teal", "crimson", "indigo"}
                     local builds = {"lithe", "burly", "stocky", "lanky", "muscular", "petite", "towering", "wiry", "broad", "slender", "compact", "gaunt"}

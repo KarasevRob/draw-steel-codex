@@ -305,6 +305,8 @@ function CharacterBuilder.CreatePanel()
             end
 
             local perks = {}
+            --levelChoices is only non-empty when hero is non-nil (early return above).
+            ---@cast hero -nil
             local features = hero:GetClassFeaturesAndChoicesWithDetails()
             if features then
                 for _,f in ipairs(features) do
@@ -522,6 +524,8 @@ function CharacterBuilder.CreatePanel()
             local cachedLevelChoices = state:Get("levelChoices")
 
             local hero = _getHero()
+            --fired only from refreshToken's IsHero branch and the hero-only Ancestry selector.
+            ---@cast hero -nil
             local levelChoices = hero:GetLevelChoices() or {}
             local inheritedAncestry = hero:InheritedAncestry()
             local inheritedAncestryId = inheritedAncestry and inheritedAncestry.id or nil
@@ -584,6 +588,8 @@ function CharacterBuilder.CreatePanel()
             }
             local careerItem = dmhub.GetTableVisible(Background.tableName)[careerId]
             if careerItem then
+                --fired only from refreshToken's IsHero branch and the hero-only Career selector.
+                ---@cast hero -nil
                 local featureDetails = {}
                 careerItem:FillFeatureDetails(levelChoices, featureDetails)
 
@@ -633,6 +639,8 @@ function CharacterBuilder.CreatePanel()
             local cachedKitId = state:Get(SEL.KIT .. ".selectedId")
 
             local hero = _getHero()
+            --fired only from refreshToken's IsHero branch and the hero-only Class selector.
+            ---@cast hero -nil
             local level = hero and hero:CharacterLevel()
             local extraLevelInfo = hero:ExtraLevelInfo()
             local classAndSubClasses = hero and hero:GetClassesAndSubClasses() or {}

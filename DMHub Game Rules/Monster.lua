@@ -387,6 +387,11 @@ end
 --SKILLS
 ---------------
 function monster.SkillMod(self, skillInfo)
+	--same contract as character.SkillMod: callers pass Skill.SkillsById[id] unchecked.
+	if skillInfo == nil then
+		return 0
+	end
+
 	--skillRatings may be absent on monsters imported by other game systems
 	--(e.g. Crows), so read it defensively rather than indexing directly.
 	local ratings = self:try_get("skillRatings")

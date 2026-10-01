@@ -263,8 +263,12 @@ function Aura:GetSimplePowerRollTrigger(options)
 
     local shiftedEntry = options ~= nil and options.enteredViaShift == true
     local shiftEntryMode = self:try_get("powerRollShiftEntryMode", "normal")
-    if shiftedEntry and shiftEntryMode == "ignore" and not options.adjacentOnly then
-        return nil
+    if shiftedEntry and shiftEntryMode == "ignore" then
+        --shiftedEntry is only true when options ~= nil.
+        ---@cast options -nil
+        if not options.adjacentOnly then
+            return nil
+        end
     end
 
     local rollBehaviorType = rawget(_G, "ActivatedAbilityPowerRollBehavior")
@@ -684,7 +688,9 @@ function Aura:GenerateEditor(options)
     }
 
     local objectAuraFolder = assets:GetObjectNode("auras");
-    for i, auraObject in ipairs(objectAuraFolder.children) do
+    --the core "auras" object folder can be deleted from a game; offer no objects then.
+    local auraObjects = objectAuraFolder ~= nil and objectAuraFolder.children or {}
+    for i, auraObject in ipairs(auraObjects) do
         if not auraObject.isfolder then
             objectChoices[#objectChoices + 1] = {
                 id = auraObject.id,
@@ -1824,6 +1830,8 @@ end
 function AuraInstance:FillActivatedAbilities(creature, resultAbilities)
     if self.aura.canrelocate and self:GetArea() ~= nil then
         local area = self:GetArea()
+        --GetArea only reads the stored area, which the condition above found non-nil.
+        ---@cast area -nil
 
         --A relocated aura's stored area is an explicit-locations shape (see
         --ActivatedAbilityMoveAuraBehavior.SetCasterAuraArea), whose shape
@@ -2296,6 +2304,8 @@ function ActivatedAbilityAuraBehavior:CastOnArea(ability, casterToken, targets, 
             execute = function()
                 if ability:RequiresConcentration() and casterToken.properties:HasConcentration() and obj ~= nil then
                     local concentration = casterToken.properties:MostRecentConcentration()
+                    --HasConcentration() in the condition above guarantees a most recent entry.
+                    ---@cast concentration -nil
                     local objects = concentration:get_or_add("objects", {})
                     objects[#objects + 1] = {
                         floorid = obj.floorid,

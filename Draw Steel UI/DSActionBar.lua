@@ -1744,6 +1744,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                             end
                         end
                     end
+                    m_castingTriggers = keptTriggers
                 end,
                 clearCastingTriggers = function(element)
                     element.monitorGame = nil
@@ -2158,6 +2159,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         local targetingType = currentSpell:try_get("targeting", "direct")
 
                         if (shape == 'emptyspace' or shape == 'anyspace') and (targetingType == "pathfind" or targetingType == "vacated" or targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures") then
+                            --only the 'all' target type hovers with a nil loc (point == 'all'); a space target has a real one.
+                            ---@cast loc -nil
 							if token.creatureDimensions.x > 1 and token.creatureDimensions.x%2 == 1 then
                                 for i=3,token.creatureDimensions.x,2 do
                                     loc = loc.west.south
@@ -2183,6 +2186,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 							showingMovementArrow = true
 							clearMovementArrow = false
 						elseif (shape == 'emptyspace' or shape == 'anyspace') and (targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures") then
+                            --as above: a space target always hovers with a real loc.
+                            ---@cast loc -nil
 							local throughCreatures = currentSpell:try_get("forcedMovementThroughCreatures", false)
 							local reboundOptions = token.properties:GetForcedPushOptions()
 							local isVerticalSlidePreview = (currentSymbols.forcedmovement or currentSpell:try_get("forcedMovement")) == "vertical_slide"
@@ -2475,6 +2480,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 									--we offset the target point to match creature movement behavior.
 									shape = "cylinder"
 									local offset = (token.creatureDimensions.x-1)*0.5
+									--point is only cleared above for the 'all' type; a space shape keeps the hovered point.
+									---@cast point -nil
 									point = core.Vector3(point.x+offset, point.y+offset, point.z)
 								end
 							else
@@ -2486,6 +2493,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         currentSymbols.range = range
                         if shape == "line" and spell.canChooseLowerRange then
                             local pos = token:PosAtLoc(token.loc)
+                            --point is only cleared above for the 'all' type, never a line.
+                            ---@cast point -nil
                             local dist = math.ceil(math.max(math.abs(point.x - pos.x), math.abs(point.y - pos.y)))
                             range = math.min(range, dist)
                         end
@@ -3520,6 +3529,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 			element.data.baseSpell = currentSpell
 
 			local attack = currentSpell.attackOverride
+			--checked non-nil with try_get("attackOverride") at the top of this handler.
+			---@cast attack -nil
 			local ammoType = attack.ammoType
 
 			local consumeAmmo = attack:try_get("consumeAmmo", {})
@@ -6583,20 +6594,23 @@ function GameHud:ShowActionBarEditDialog(creature, actionBar, pagingPanels)
 					children[targetIndex] = element
 
 					local token = dmhub.LookupToken(creature)
-					token:ModifyProperties{
-						description = "Reorder action bar",
-						execute = function()
-							creature.actionbar = creature:try_get("actionbar", {})
+					--nil if the token left the map while this dialog was open; nothing to save to.
+					if token ~= nil then
+						token:ModifyProperties{
+							description = "Reorder action bar",
+							execute = function()
+								creature.actionbar = creature:try_get("actionbar", {})
 
-							creature.actionbar[tab] = creature.actionbar[tab] or {}
+								creature.actionbar[tab] = creature.actionbar[tab] or {}
 
-							for i,child in ipairs(children) do
-								if child:HasClass("empty") == false and child.data.id ~= nil then
-									creature.actionbar[tab][child.data.id] = i
+								for i,child in ipairs(children) do
+									if child:HasClass("empty") == false and child.data.id ~= nil then
+										creature.actionbar[tab][child.data.id] = i
+									end
 								end
-							end
-						end,
-					}
+							end,
+						}
+					end
 
 
 

@@ -2446,6 +2446,8 @@ function MarkdownDocument.PartitionTokensIntoBlocks(tokens)
                 }
                 blocks[#blocks + 1] = current
             end
+            --joinsCurrent is only true when current was already non-nil.
+            ---@cast current -nil
 
             current.tokens[#current.tokens + 1] = token
             local tokenEnd = token.srcLineEnd or token.srcLine

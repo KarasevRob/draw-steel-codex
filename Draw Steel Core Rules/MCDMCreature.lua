@@ -923,8 +923,8 @@ function creature:RefreshToken(token)
 end
 
 function creature:MarkTurnSkipped(initiativeid)
-    if dmhub.initiativeQueue == nil then return end
     local q = dmhub.initiativeQueue
+    if q == nil then return end
     self.skipTurnInitiativeId = initiativeid or ""
     self.skipTurnRoundId = q:GetRoundId() or ""
     local entry = q.entries[initiativeid]
@@ -932,8 +932,8 @@ function creature:MarkTurnSkipped(initiativeid)
 end
 
 function creature:IsTurnSkipped(token)
-    if dmhub.initiativeQueue == nil then return false end
     local q = dmhub.initiativeQueue
+    if q == nil then return false end
     if self:try_get("skipTurnRoundId", "") ~= (q:GetRoundId() or "") then return false end
     local myInitiativeId = InitiativeQueue.GetInitiativeId(token)
     if self:try_get("skipTurnInitiativeId", "") ~= myInitiativeId then return false end
@@ -1189,6 +1189,8 @@ function creature:RefreshSquadInfo(token)
 
     --create a shared table for our minion squad.
     local squad = self:MinionSquad()
+    --MinionSquad only returns nil for non-minions, which returned above.
+    ---@cast squad -nil
     if self:has_key("_tmp_minionSquad") == false or self._tmp_minionSquad.name ~= squad then
         local minionSquad = g_minionSquadTables[squad]
 
@@ -2504,6 +2506,8 @@ function creature:FlankedBy(otherToken)
     local token = dmhub.LookupToken(self)
     local flanking = self:GetFlankingTokens()
     for _, tok in ipairs(flanking) do
+        --GetFlankingTokens returns {} when LookupToken(self) is nil, so this loop only runs with a token.
+        ---@cast token -nil
         if tok.properties:try_get("_tmp_grantsFlanking", "") ~= token.charid and tok.charid == otherToken.charid then
             return true
         end
@@ -3557,6 +3561,8 @@ function creature:RollOngoingEffectSave(id, abilityOptions)
     if index == nil then
         return
     end
+    --instance is set together with index.
+    ---@cast instance -nil
 
     if SuppressSaveAgainstOtherEffects(self) then
         return
@@ -3574,6 +3580,10 @@ function creature:RollOngoingEffectSave(id, abilityOptions)
     end
 
     local abilityTemplate = MCDMUtils.GetStandardAbility("Save vs Ongoing Effect")
+    if abilityTemplate == nil then
+        printf("RollOngoingEffectSave: unknown standard ability: Save vs Ongoing Effect")
+        return
+    end
     local ability = abilityTemplate:MakeTemporaryClone()
     MCDMUtils.DeepReplace(ability, "<<condition>>", ongoingEffectEntry.name)
     for _, behavior in ipairs(ability.behaviors) do
@@ -3681,6 +3691,10 @@ function creature:RollConditionSave(condid, abilityOptions)
     local conditionTable = dmhub.GetTable(CharacterCondition.tableName)
     local conditionInfo = conditionTable[condid]
     local abilityTemplate = MCDMUtils.GetStandardAbility("Save")
+    if abilityTemplate == nil then
+        printf("RollConditionSave: unknown standard ability: Save")
+        return
+    end
     local ability = abilityTemplate:MakeTemporaryClone()
     MCDMUtils.DeepReplace(ability, "<<condition>>", conditionInfo.name)
 
@@ -3811,6 +3825,8 @@ function creature:GetRelevantEnemyTokens()
                 and (not token:IsFriend(tok)) then
             local include = true
             if combatActive then
+                --combatActive is only true when q is non-nil.
+                ---@cast q -nil
                 local initiativeid = InitiativeQueue.GetInitiativeId(tok)
                 include = initiativeid ~= nil and q.entries[initiativeid] ~= nil
             end
@@ -6871,6 +6887,8 @@ function creature:DispatchEventAndWait(eventName, info)
         self:DispatchEvent(eventName, info)
         return
     end
+    --charid is nil whenever token is.
+    ---@cast token -nil
 
     local waitid = dmhub.GenerateGuid()
     info = info or {}
@@ -7057,6 +7075,10 @@ function creature:PersistentAbilities()
                     return
                 end
                 local m_token = dmhub.LookupToken(self)
+                if m_token == nil then
+                    --the token was removed during the cast, or a synced write replaced self.
+                    return
+                end
                 local persistentAbilities = self:try_get("persistentAbilities", {})
                 for _, entry in ipairs(persistentAbilities) do
                     if entry.name == ability.name then
@@ -7896,6 +7918,8 @@ local function GroupingHud(groupid)
                 local selectedTokens = dmhub.selectedOrPrimaryTokens
 
                 local floor = game.GetFloor(floorid)
+                --at least two valid tokens are on floorid (count > 1 above), so the floor exists.
+                ---@cast floor -nil
 
                 local center = { x = 0, y = 0 }
                 local count = 0

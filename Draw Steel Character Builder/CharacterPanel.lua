@@ -865,6 +865,8 @@ function CBCharPanel._headerPanel()
 
         refreshAppearance = function(element, info)
             local token = _getToken(element)
+            --nil when no character sheet is open (CharacterSheet.instance is false).
+            if token == nil then return end
             element.SetValue(element, token.portrait, false)
             element:FireEvent("imageLoaded")
             element:FireEvent("updatePopout", token.popoutPortrait)
@@ -872,6 +874,7 @@ function CBCharPanel._headerPanel()
 
         change = function(element)
             local token = _getToken(element)
+            if token == nil then return end
             token.portrait = element.value
             token:UploadAppearance()
         end,

@@ -385,6 +385,11 @@ function CharSheet.StartingEquipmentDisplay(claimedKey, hasclassStyle)
                                                     end
 
                                                     displayedItem = itemInfo
+                                                    --nil when the id is in none of the three tables (e.g. the item was deleted).
+                                                    if itemInfo == nil then
+                                                        element.text = ""
+                                                        return
+                                                    end
                                                     element.text = string.format("%s x %d", tr(itemInfo.name), itemEntry.quantity)
 
                                                 end,
@@ -2157,6 +2162,10 @@ function CharSheet.ClassChoicePanel(options, classIndex)
 			    local creature = CharacterSheet.instance.data.info.token.properties
 
                 local class = GetSelectedClass()
+                --nil while no class panel is displayed (e.g. no classes to choose from).
+                if class == nil then
+                    return
+                end
 
                 creature:SetClass(class.id, 1)
 

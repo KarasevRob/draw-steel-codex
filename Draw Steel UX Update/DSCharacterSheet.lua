@@ -3333,8 +3333,11 @@ function DSCharacterSheet.ActionsPanel()
 
 							linger = function(element)
 								local tooltip = CreateAbilityTooltip(otherAbilities[i], {token = CharacterSheet.instance.data.info.token})
-								tooltip.selfStyle.halign = "center"
-								tooltip.selfStyle.valign = "top"
+								--nil for an ability marked notooltip.
+								if tooltip ~= nil then
+									tooltip.selfStyle.halign = "center"
+									tooltip.selfStyle.valign = "top"
+								end
 								element.tooltip = tooltip
 							end,
 
@@ -3634,8 +3637,11 @@ function DSCharacterSheet.ActionsPanel()
 
 								linger = function(element)
 									local tooltip = CreateAbilityTooltip(attackAbilities[i], {token = CharacterSheet.instance.data.info.token})
-									tooltip.selfStyle.halign = "center"
-									tooltip.selfStyle.valign = "top"
+									--nil for an ability marked notooltip.
+									if tooltip ~= nil then
+										tooltip.selfStyle.halign = "center"
+										tooltip.selfStyle.valign = "top"
+									end
 									element.tooltip = tooltip
 								end,
 
@@ -3865,8 +3871,11 @@ function DSCharacterSheet.ActionsPanel()
 
 								linger = function(element)
 									local tooltip = CreateAbilityTooltip(spellAbilities[i], {token = CharacterSheet.instance.data.info.token})
-									tooltip.selfStyle.halign = "center"
-									tooltip.selfStyle.valign = "top"
+									--nil for an ability marked notooltip.
+									if tooltip ~= nil then
+										tooltip.selfStyle.halign = "center"
+										tooltip.selfStyle.valign = "top"
+									end
 									element.tooltip = tooltip
 								end,
 

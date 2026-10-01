@@ -916,51 +916,54 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
     if feature:HasRoll() then
         local rollTable = feature:GetRollTable()
         local rollInfo = rollTable:CalculateRollInfo()
-        local faces = CharacterBuilder._validateRollFaces(rollInfo.rollFaces)
-        roller = gui.UserDice{
-            floating = true,
-            width = CBStyles.SIZES.SELECT_BUTTON_HEIGHT,
-            height = CBStyles.SIZES.SELECT_BUTTON_HEIGHT,
-            halign = "left",
-            valign = "top",
-            hmargin = 8,
-            tmargin = 6,
-            faces = faces,
-            data= {
-                featureId = feature:GetGuid(),
-            },
-            press = function(element)
-                local state = _getState()
-                if state == nil then return end
-                local creature = _getCreature()
-                if creature == nil then return end
-                local cachedFeature = getCachedFeature(state, element.data.featureId)
-                if cachedFeature == nil then return end
-                local controller = getFeatureSelController(element)
-                if controller == nil then return end
-                element:SetClass("collapsed-anim", true)
-                dmhub.Roll{
-                    roll = rollInfo.roll,
-                    --GetName (via _safeFeatureName) always returns a string, "" at worst.
-                    description = string.format(feature:GetName() --[[@as string]]),
-                    tokenid = dmhub.LookupTokenId(creature),
-                    complete = function(rollResult)
-                        local rowIndex = rollTable:RowIndexFromDiceResult(rollResult.total)
-                        if rowIndex == nil then return end
+        -- nil when the table's row weights sum below 1 (e.g. no rows yet): nothing to roll, so no roller.
+        if rollInfo ~= nil then
+            local faces = CharacterBuilder._validateRollFaces(rollInfo.rollFaces)
+            roller = gui.UserDice{
+                floating = true,
+                width = CBStyles.SIZES.SELECT_BUTTON_HEIGHT,
+                height = CBStyles.SIZES.SELECT_BUTTON_HEIGHT,
+                halign = "left",
+                valign = "top",
+                hmargin = 8,
+                tmargin = 6,
+                faces = faces,
+                data= {
+                    featureId = feature:GetGuid(),
+                },
+                press = function(element)
+                    local state = _getState()
+                    if state == nil then return end
+                    local creature = _getCreature()
+                    if creature == nil then return end
+                    local cachedFeature = getCachedFeature(state, element.data.featureId)
+                    if cachedFeature == nil then return end
+                    local controller = getFeatureSelController(element)
+                    if controller == nil then return end
+                    element:SetClass("collapsed-anim", true)
+                    dmhub.Roll{
+                        roll = rollInfo.roll,
+                        --GetName (via _safeFeatureName) always returns a string, "" at worst.
+                        description = string.format(feature:GetName() --[[@as string]]),
+                        tokenid = dmhub.LookupTokenId(creature),
+                        complete = function(rollResult)
+                            local rowIndex = rollTable:RowIndexFromDiceResult(rollResult.total)
+                            if rowIndex == nil then return end
 
-                        local row = rollTable.rows[rowIndex]
-                        local option = cachedFeature:GetOption(row.id)
-                        controller:FireEvent("applyItem", option)
+                            local row = rollTable.rows[rowIndex]
+                            local option = cachedFeature:GetOption(row.id)
+                            controller:FireEvent("applyItem", option)
 
-                        element:SetClass("collapsed-anim", false)
-                    end,
-                }
-            end,
-            refreshBuilderState = function(element, state)
-                local visible = state:Get(selector .. ".blockFeatureSelection") ~= true
-                element:SetClass("collapsed", not visible)
-            end,
-        }
+                            element:SetClass("collapsed-anim", false)
+                        end,
+                    }
+                end,
+                refreshBuilderState = function(element, state)
+                    local visible = state:Get(selector .. ".blockFeatureSelection") ~= true
+                    element:SetClass("collapsed", not visible)
+                end,
+            }
+        end
     end
 
     local injections = feature:UIInjections() or {}

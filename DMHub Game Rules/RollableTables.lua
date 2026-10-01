@@ -1160,6 +1160,10 @@ end
 
 function RollTable:RowIndexFromDiceResult(rollNum)
 	local rollInfo = self:CalculateRollInfo()
+	--nil when the rows' weights sum below 1: no row can match.
+	if rollInfo == nil then
+		return nil
+	end
 
 	--Clamp to the table's valid range so an added Modifier that pushes the total
 	--past either end still maps to the nearest edge row instead of falling off

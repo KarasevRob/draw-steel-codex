@@ -794,7 +794,8 @@ CharacterModifier.TypeInfo.attribute = {
 								if element.idChosen ~= "none" then
 									modifier.attribute = element.idChosen
 									local newAttributeType = CustomAttribute.GetAttributeType(modifier.attribute)
-									if newAttributeType ~= attributeType then
+									--nil when a custom attribute names a type no loaded code registers.
+									if newAttributeType ~= nil and newAttributeType ~= attributeType then
 										modifier.value = newAttributeType:DefaultModifierValue()
 									end
 								end

@@ -706,7 +706,7 @@ Commands.RegisterMacro{
     command = function(str)
         local n = tonumber(str) or 2000
         local gh = GameHud.instance
-        if gh == nil then print("No GameHud.instance") return end
+        if not gh then print("No GameHud.instance") return end
 
         --Snapshot live state so the timed ops behave identically regardless
         --of any tip currently showing.

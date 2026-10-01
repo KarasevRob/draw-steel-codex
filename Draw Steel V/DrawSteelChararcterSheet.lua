@@ -1239,8 +1239,9 @@ end
 --does not propagate to ancestors, while hover propagates from the editor's
 --inner widgets up to the container this is attached to.
 local function ImplementationStatusHover(element)
+    --CharacterSheet.instance is false, not nil, while no sheet exists.
     local sheet = CharacterSheet.instance
-    if sheet == nil then
+    if not sheet then
         return
     end
     local token = sheet.data.info.token
@@ -2079,7 +2080,7 @@ function CharSheet.CharacterSheetAndAvatarPanel()
                 end,
                 click = function(element)
                     local sheet = CharacterSheet.instance
-                    if sheet == nil then
+                    if not sheet then
                         return
                     end
                     local token = sheet.data.info.token
@@ -2229,7 +2230,7 @@ function CharSheet.CharacterSheetAndAvatarPanel()
                     end,
                     change = function(element)
                         local sheet = CharacterSheet.instance
-                        if sheet == nil then
+                        if not sheet then
                             return
                         end
                         local c = sheet.data.info.token.properties
@@ -2258,7 +2259,7 @@ function CharSheet.CharacterSheetAndAvatarPanel()
                     end,
                     click = function(element)
                         local sheet = CharacterSheet.instance
-                        if sheet == nil then
+                        if not sheet then
                             return
                         end
                         local c = sheet.data.info.token.properties
@@ -5890,7 +5891,7 @@ local function DSCharSheet()
                                     -- names the base level and the revert path.
                                     hover = function(element)
                                         local sheet = CharacterSheet.instance
-                                        if sheet == nil then
+                                        if not sheet then
                                             return
                                         end
                                         local token = sheet.data.info.token
@@ -5913,7 +5914,7 @@ local function DSCharSheet()
                                     -- editing and this is a no-op.
                                     click = function(element)
                                         local sheet = CharacterSheet.instance
-                                        if sheet == nil then
+                                        if not sheet then
                                             return
                                         end
                                         local token = sheet.data.info.token

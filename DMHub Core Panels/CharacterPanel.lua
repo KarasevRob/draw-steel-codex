@@ -1102,6 +1102,8 @@ local function CreateMonsterEntry(nodeid, startHidden)
                 end
 
                 local dock = element:FindParentWithClass("dock")
+                --bestiary rows only live inside a DockablePanel, whose container is always a dock.
+                ---@cast dock -nil
 
                 local monsterEntry = assets.monsters[nodeid]
                 if monsterEntry == nil then
@@ -1148,6 +1150,8 @@ local function CreateMonsterEntry(nodeid, startHidden)
                 end
 
                 local dock = element:FindParentWithClass("dock")
+                --bestiary rows only live inside a DockablePanel, whose container is always a dock.
+                ---@cast dock -nil
                 local monsterEntry = assets.monsters[nodeid]
                 if monsterEntry == nil then
                     return
@@ -2349,14 +2353,18 @@ end
 --similar to a bestiary entry but is an entry for a live character.
 CharacterPanel.CreateCharacterEntry = function(charid, party)
     local token = dmhub.GetCharacterById(charid)
-    --callers pass the id of a live character; token is never reassigned below.
-    ---@cast token -nil
+    --nil for a party id with no character record: RefreshParty keeps those ids.
+    if token == nil then
+        return
+    end
     local creature = token.properties
 
     if creature == nil then
         return
     end
 
+    --assigned below during construction, before any handler that reads it can run.
+    ---@type Panel
     local resultPanel = nil
 
     local novelContentAlert = nil
@@ -2495,6 +2503,8 @@ CharacterPanel.CreateCharacterEntry = function(charid, party)
             --on a row, so scroll-past costs nothing.
             linger = function(element)
                 local dock = element:FindParentWithClass("dock")
+                --character rows only live inside a DockablePanel, whose container is always a dock.
+                ---@cast dock -nil
 
                 local panel = token:Render {}
                 if panel ~= nil then
@@ -2947,9 +2957,12 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 
     for _, charid in ipairs(partyMembers) do
         local child = memberPanes[charid] or CharacterPanel.CreateCharacterEntry(charid, party)
-        newMemberPanes[charid] = child
-        child:FireEventTree("prepareRefresh")
-        children[#children + 1] = child
+        --nil when the id has no loaded character (see CreateCharacterEntry): leave it out.
+        if child ~= nil then
+            newMemberPanes[charid] = child
+            child:FireEventTree("prepareRefresh")
+            children[#children + 1] = child
+        end
     end
 
     table.sort(children, function(a, b)

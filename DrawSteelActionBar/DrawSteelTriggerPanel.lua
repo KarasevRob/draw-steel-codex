@@ -774,7 +774,7 @@ mod.shared.CreateTriggerPanel = function()
                                         --this changes the target of the trigger.
 								        local targetToken = dmhub.GetTokenById(trigger.targets[1])
                                         local casterToken = dmhub.GetTokenById(trigger.casterid)
-                                        if targetToken == nil then
+                                        if targetToken == nil or casterToken == nil then
                                             return
                                         end
                                         local symbols = {
@@ -1007,7 +1007,7 @@ mod.shared.CreateTriggerPanel = function()
                                             --this changes the target of the trigger.
                                             local targetToken = dmhub.GetTokenById(trigger.targets[1])
                                             local casterToken = dmhub.GetTokenById(trigger.casterid)
-                                            if targetToken == nil then
+                                            if targetToken == nil or casterToken == nil then
                                                 return
                                             end
                                             local symbols = {
@@ -1269,7 +1269,7 @@ mod.shared.CreateTriggerPanel = function()
                                         --this changes the target of the trigger.
 								        local targetToken = dmhub.GetTokenById(targetId)
                                         local casterToken = dmhub.GetTokenById(trigger.casterid)
-                                        if targetToken == nil then
+                                        if targetToken == nil or casterToken == nil then
                                             return
                                         end
                                         local symbols = {
@@ -1858,7 +1858,7 @@ mod.shared.CreateTriggerPanel = function()
                                             --this changes the target of the trigger.
                                             local targetToken = dmhub.GetTokenById(targetId)
                                             local casterToken = dmhub.GetTokenById(trigger.casterid)
-                                            if targetToken == nil then
+                                            if targetToken == nil or casterToken == nil then
                                                 return
                                             end
                                             local symbols = {

@@ -1277,6 +1277,8 @@ CreateChatPanel = function()
 	local function ArgCompletionPress(element)
 		local macroName, args, partial, argIndex = Commands.GetCurrentArg(inputPanel.text)
 		if macroName == nil then return end
+		--GetCurrentArg returns args whenever it returns a macroName.
+		---@cast args -nil
 		local completionValue = element.data.commandText
 		-- Rebuild: /command <previous args> <completionValue>
 		local commandPrefix = string.match(inputPanel.text, "^(/%S+)") or inputPanel.text
@@ -1892,6 +1894,9 @@ CreateChatPanel = function()
 					if completionIsArgMode then
 						-- Replace just the current arg, preserving previous args
 						local macroName, args, partial, argIndex = Commands.GetCurrentArg(element.text)
+						--Arg mode is only set by UpdateCompletions after GetCurrentArg parsed this same
+						--text (every edit re-runs it), so args is present.
+						---@cast args -nil
 						local commandPrefix = string.match(element.text, "^(/%S+)") or element.text
 						local parts = {commandPrefix}
 						for i = 1, #args do

@@ -1074,6 +1074,10 @@ local CreateEditorPanel = function(fieldInfo, displayInfo, options, valueIndex, 
 								stabilization = label:Get("objectSmoothingSlider").value,
 							}
 
+							--nil while the DM HUD is inactive; try again next think.
+							if eventSource == nil then
+								return
+							end
 							eventSource:Listen(label)
 						end,
 						thinkTime = 0.5,
@@ -1164,6 +1168,10 @@ local CreateEditorPanel = function(fieldInfo, displayInfo, options, valueIndex, 
 								path = val,
 							}
 
+							--nil while the DM HUD is inactive; try again next think.
+							if eventSource == nil then
+								return
+							end
 							eventSource:Listen(label)
 						end,
 						thinkTime = 0.2,

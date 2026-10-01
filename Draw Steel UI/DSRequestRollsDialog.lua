@@ -1000,7 +1000,8 @@ function GameHud:RequireRollListenerPanel()
 								ShowPromptDialog(1)
 
 								--if we didn't kick off an auto roll set us to dialog status now.
-								request = dmhub.GetPlayerActionRequest(k)
+								--k came from GetPlayerActionRequests() earlier in this same synchronous handler.
+								request = dmhub.GetPlayerActionRequest(k) --[[@as LuaPlayerActionRequest]]
 								if request.info.tokens[tokid].status == nil then
 									request:BeginChanges()
 									request.info.tokens[tokid].status = 'dialog'
@@ -2326,6 +2327,8 @@ function GameHud:ShowRollSummaryDialog(actionid, resultTable)
 							if success then
 
 								if damageCalc ~= nil then
+									--damageEntry is set in the same loop step that sets damageCalc.
+									---@cast damageEntry -nil
 									children[#children+1] = gui.Label{
 										classes = {"consequenceLabel", "avoided"},
 										text = string.format("%s %s (%s)", damageEntry.amount, damageEntry.damageType, damageCalc.summary or "saved"),
@@ -2339,6 +2342,8 @@ function GameHud:ShowRollSummaryDialog(actionid, resultTable)
 								end
 							else
 								if damageCalc ~= nil then
+									--damageEntry is set in the same loop step that sets damageCalc.
+									---@cast damageEntry -nil
 									children[#children+1] = gui.Label{
 										classes = {"consequenceLabel"},
 										text = string.format("%s %s (%s)", damageEntry.amount, damageEntry.damageType, damageCalc.summary or "full damage"),

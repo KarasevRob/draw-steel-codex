@@ -13991,7 +13991,8 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 	for _,charid in ipairs(partyMembers) do
 
 		local token = dmhub.GetCharacterById(charid)
-		local creature = token.properties
+		--nil for a party id with no character record: RefreshParty keeps those ids.
+		local creature = token and token.properties
 
 		if creature ~= nil then
 			local key = charid

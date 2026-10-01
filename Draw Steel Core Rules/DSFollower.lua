@@ -133,6 +133,8 @@ end
 ---@param followerid string
 function character:AddFollowerToMentor(followerid)
     local token = dmhub.LookupToken(self)
+    --callers pass a mentor token's properties; LookupToken resolves those on any map.
+    ---@cast token -nil
     token:ModifyProperties{
         description = "Assign Follower",
         execute = function()
@@ -146,6 +148,8 @@ end
 ---@param followerid string
 function character:RemoveFollowerFromMentor(followerid)
     local token = dmhub.LookupToken(self)
+    --callers pass a mentor token's properties; LookupToken resolves those on any map.
+    ---@cast token -nil
     local dti = self:GetDowntimeInfo()
     --GetDowntimeInfo only returns nil for a creature with no token, and token is used below.
     ---@cast dti -nil

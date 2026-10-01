@@ -918,6 +918,8 @@ function Encounter.Rebalance(self, party)
         local candidates = {}
         for _, monsterid in ipairs(allTypesList) do
             local info = Info(monsterid)
+            --allTypesList only holds ids whose Info() was non-nil (and cached) when the slots were built.
+            ---@cast info -nil
             if not info.boss and (allowMinionStart or not info.minion) and info.unitEV <= budget then
                 candidates[#candidates + 1] = {
                     monsterid = monsterid,
@@ -933,6 +935,8 @@ function Encounter.Rebalance(self, party)
 
             --2. a paired minion squad, then a second of the same monster.
             local info = Info(first.monsterid)
+            --first.monsterid came from allTypesList, whose Info() is non-nil and cached.
+            ---@cast info -nil
             if not info.minion then
                 local minion = PairedMinion(roster, first.monsterid)
                 if minion ~= nil then
@@ -957,6 +961,8 @@ function Encounter.Rebalance(self, party)
                     local nonMinions = GroupNonMinions(roster, s)
                     for _, monsterid in ipairs(slot.types) do
                         local info = Info(monsterid)
+                        --slot.types only holds ids whose Info() was non-nil (and cached).
+                        ---@cast info -nil
                         if Count(roster, s, monsterid) > 0 and not info.boss
                             and (info.minion or nonMinions < 2) then
                             local delta = AddDelta(roster, s, monsterid)
@@ -1450,6 +1456,8 @@ function Encounter.RestoreMounts(self, entries)
         end
 
         if mountCharid ~= nil and entry.token ~= nil then
+            --mountCharid is only set from a non-nil mountRef.
+            ---@cast mountRef -nil
             --how deep in a stack of riders this one sits, so a stack is rebuilt
             --from the bottom up rather than in whatever order the groups spawned.
             --The walk is bounded in case saved data ever describes a loop.

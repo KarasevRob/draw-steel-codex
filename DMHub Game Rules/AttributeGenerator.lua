@@ -35,6 +35,8 @@ AttributeGenerator.points = 27
 
 function AttributeGenerator:GetPointBuyDefaultValue()
     local t = self:GetPointBuyTable()
+    --GetPointBuyTable returns pointBuyTable only after has_key, else a fresh default table.
+    ---@cast t -nil
     local firstValue = nil
 
     for k,entry in ipairs(t.entries) do

@@ -2997,6 +2997,10 @@ function RollProperties:Outcomes()
 		local t = self.tableRef:GetTable()
         if t ~= nil then
             local rollInfo = t:CalculateRollInfo()
+            --nil when the rows' weights sum below 1 (e.g. every row at weight 0): no outcomes.
+            if rollInfo == nil then
+                return result
+            end
 
             for i,row in ipairs(t.rows) do
                 result[#result+1] = {
@@ -3339,6 +3343,8 @@ function creature.RollAttackHit(self, attack, target, options)
 	end
 
 	if attackRanged and target ~= nil then
+		--only ActivatedAbility passes a target, and it calls this on a live caster token's properties.
+		---@cast selfToken -nil
 		local range = selfToken:DistanceInFeet(target) - 2.5
 
 		if range > attack:RangeNormal() then
@@ -5992,6 +5998,8 @@ function creature:CalculateAttribute(attributeName, baseValue, mods)
 			return result
 		end
 
+		--cache and key are assigned together in the mods == nil branch above.
+		---@cast key -nil
 		cache[key] = result
 	end
 
@@ -7618,7 +7626,9 @@ function creature:ActiveOngoingEffects(excludeTemporary)
 	for i,cond in ipairs(items) do
 		if cond.typeName ~= "CharacterOngoingEffectInstance" then
 			local tok = dmhub.LookupToken(self)
-			dmhub.CloudError(string.format("Invalid ongoing effect: %s -> %s", tok.charid, json(cond)))
+			--no token when these properties are not bound to any token (e.g. a detached copy).
+			local charid = tok ~= nil and tok.charid or "(no token)"
+			dmhub.CloudError(string.format("Invalid ongoing effect: %s -> %s", charid, json(cond)))
 		else
 			if not cond:Expired() then
 				result[#result+1] = cond
@@ -11744,6 +11754,9 @@ function creature:DispatchAvailableTrigger(triggerInfo)
         --watcher -- here or on another of this user's clients -- to consume
         --the acceptance first (which removes the record and turns the
         --adoption into a no-op).
+        --isInteraction needs a non-nil triggerInfo already listed, and the de-dup loop
+        --only clears triggerInfo when it is not listed.
+        ---@cast triggerInfo -nil
         local stored = availableTriggers[triggerInfo.id]
         if stored ~= nil and stored.triggered ~= false and (not stored.dismissed) and stored.powerRollModifier == false then
             local token = dmhub.LookupToken(self)
@@ -13345,6 +13358,8 @@ end
 creature.AdminFunctions = {"RepairInventorySlots"}
 function creature:RepairInventorySlots()
 	local tok = dmhub.LookupToken(self)
+	--only run from the engine's admin context menu on a token on the map.
+	---@cast tok -nil
 	local maxslot = 0
 	for k,info in pairs(self:try_get('inventory', {})) do
 		for _,entry in ipairs(info.slots or {}) do

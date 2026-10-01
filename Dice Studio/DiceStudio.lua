@@ -2448,7 +2448,8 @@ local CreateMaterialPropertiesPanel = function(opts)
 		if numFaces ~= nil then
 			return dicestudio:GetMaterialPropertiesForType(numFaces)
 		end
-		return dicestudio:GetMaterialProperties(matid)
+		--Callers only pass "builtin" or "material", which the engine always resolves.
+		return dicestudio:GetMaterialProperties(matid) --[[@as DiceMaterialStudioProperties]]
 	end
 
 	-- The DiceMaterialLua backing this panel (used for shader-property discovery

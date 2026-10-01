@@ -197,6 +197,8 @@ local function CollectPortals(auraName)
                 end
 
                 if auraInstance ~= nil and string.lower(auraInstance:try_get("name", "")) == wanted then
+                    -- auraInstance is only ever read out of a non-nil props.
+                    ---@cast props -nil
                     -- core.Loc carries no floor of its own, so WithDifferentFloor is the only
                     -- thing that sets one, and it must be the OBJECT's floor.
                     local portalLoc = core.Loc{

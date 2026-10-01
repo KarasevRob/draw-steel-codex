@@ -268,6 +268,8 @@ DrawSteelMinion.SetSummoner = function(monsterToken, summonerToken)
     monsterToken:UploadToken("Assign Summoner")
 
     if newSummonerId ~= nil then
+        --newSummonerId is only set from a valid summonerToken.
+        ---@cast summonerToken -nil
         if monsterToken.properties.minion then
             --minions join the summoner's roster (so they appear in the Summoner
             --panel and squad manager) and group into the summoner's initiative
@@ -1092,6 +1094,8 @@ DrawSteelMinion.GroupInitiativeForTokens = function(tokens)
 
     for _,tok in ipairs(grownTokens) do
         local initiativeid = InitiativeQueue.GetInitiativeId(tok)
+        --nil only for a token without properties, which the write just below needs anyway.
+        ---@cast initiativeid -nil
         existingInitiative[initiativeid] = true
         tok:ModifyProperties{
             description = "Set Initiative",

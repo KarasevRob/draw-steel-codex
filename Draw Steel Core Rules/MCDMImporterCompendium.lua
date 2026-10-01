@@ -52,6 +52,8 @@ UnitTest(function()
     local result = regex.MatchGroups(input, pattern)
 
     UnitTestNe(result, nil)
+    --UnitTestNe raises when result is nil.
+    ---@cast result -nil
 
     UnitTestEq(result["year"], "2024")
     UnitTestEq(result["month"], "02")

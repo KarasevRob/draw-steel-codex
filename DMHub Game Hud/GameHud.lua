@@ -2362,7 +2362,7 @@ end
 function Tip.ResetAll()
 	dmhub.SetSettingValue("tipsLearned", {})
 	local gh = GameHud.instance
-	if gh == nil then return end
+	if not gh then return end
 	gh.activeTipId = nil
 	gh._tipState = nil
 	gh._tipLastScan = nil
@@ -2381,7 +2381,7 @@ end
 function Tip.Clear(id)
 	Tip.MarkLearned(id)
 	local gh = GameHud.instance
-	if gh == nil then return end
+	if not gh then return end
 	if gh:try_get("activeTipId") == id then
 		gh:_ClearActiveTip()
 	end

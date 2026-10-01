@@ -1827,6 +1827,9 @@ function DTProjectEditor:_createRollButton(options)
 
             if element.data.characterRolls(element) > 0 then
                 local characterRoller = DTRoller.CreateNew(token.properties)
+                --rolls > 0 means downtime info, which only a character has, and
+                --CreateNew returns nil only for a non-character, non-follower object.
+                ---@cast characterRoller -nil
                 menuItems[#menuItems + 1] = {
                     text = characterRoller:GetName(),
                     click = function()

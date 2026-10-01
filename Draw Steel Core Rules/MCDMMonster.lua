@@ -141,9 +141,16 @@ function monster:FillFreeStrikes(options, result)
         local rangedSignature = signature
         if signature:HasKeyword("Melee") and signature:HasKeyword("Ranged") then
             local splitSignature = signature:BifurcateIntoMeleeAndRanged(self)
-            meleeSignature = splitSignature.meleeVariation
-            rangedSignature = splitSignature.rangedVariation
+            --with disableSplitIntoMeleeAndRanged the ability comes back unsplit and has no
+            --variations; it then serves as both, as the action bar uses it.
+            if splitSignature.meleeAndRanged then
+                meleeSignature = splitSignature.meleeVariation
+                rangedSignature = splitSignature.rangedVariation
+            end
         end
+        --a split (meleeAndRanged) ability always carries both variations.
+        ---@cast meleeSignature -nil
+        ---@cast rangedSignature -nil
 
         if signature:HasKeyword("Melee") then
             signatureRanges.Melee = meleeSignature:GetRange(self)

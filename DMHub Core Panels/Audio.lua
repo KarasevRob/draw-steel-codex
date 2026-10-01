@@ -999,7 +999,7 @@ WriteAudioLogSubscription = function()
     local subs = doc.data.subs
     local cur = (subs ~= nil) and subs[uid] or nil
     --Skip the write when nothing changed (avoids doc churn on every load/reload).
-    if (cur == nil) == (want == nil) and (cur == nil or (cur.m == want.m and cur.e == want.e)) then
+    if (cur == nil and want == nil) or (cur ~= nil and want ~= nil and cur.m == want.m and cur.e == want.e) then
         return
     end
     doc:BeginChange()
@@ -1640,6 +1640,8 @@ local function SeekBroadcastClip(assetid, t)
 	end
 
 	if seekedTogether then
+		--seekedTogether is only set inside the pl ~= nil branch above.
+		---@cast pl -nil
 		for _,tid in ipairs(pl.tracks) do
 			local instance = audio.currentlyPlaying[tid]
 			if instance ~= nil then
@@ -2787,6 +2789,8 @@ function VariantPools.Fire(poolid, opts)
 		return nil
 	end
 	local entry = GetPool(poolid)
+	--IsPool just read this same row and found a table.
+	---@cast entry -nil
 	local members = VariantPools.Members(poolid)
 	if #members == 0 then
 		return nil
@@ -5315,6 +5319,8 @@ local function BuildSoundPanelContent()
 		progressBar.selfStyle.width = "100%-134"
 
 		if pl ~= nil then
+			--pl is only looked up when playing ~= nil.
+			---@cast playing -nil
 			--"Following game mode" only has signed copy for the auto-switch case;
 			--manual playlist plays stay silent about their origin. Additionally
 			--gated on the hero card actually SHOWING a track of the driving
