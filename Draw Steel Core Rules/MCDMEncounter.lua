@@ -5260,6 +5260,10 @@ local function IsElectedHost()
     return best == dmhub.userid
 end
 
+--Shared with other host-only round work (EnvironmentalKeyword's end-of-round
+--zone spread) so every such job elects the same client.
+LiveEncounter.IsElectedHost = IsElectedHost
+
 -- ---------------------------------------------------------------------------
 -- Host runtime: the handler ctx and the heartbeat driver
 -- ---------------------------------------------------------------------------

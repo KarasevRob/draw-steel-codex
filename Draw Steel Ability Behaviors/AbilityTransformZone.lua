@@ -143,7 +143,22 @@ function ActivatedAbilityTransformZoneBehavior:TransformZonesAt(squares)
         return 0
     end
 
-    local toKeyword = self.toKeyword
+    return ActivatedAbilityTransformZoneBehavior.RewriteZoneRecords(orderedZoneids, fromKeyword, self.toKeyword, self.reveal)
+end
+
+--- Rewrites the given zone records (ids into the current map's
+--- floor.markupZones) from fromKeyword into toKeyword, or removes them when
+--- toKeyword is "none". A record whose stored keyword is no longer fromKeyword
+--- is skipped, so a second request for an already-converted zone does nothing.
+--- Shared by the Transform Zone behavior and the end-of-round zone spread
+--- (EnvironmentalKeyword.SpreadZonesAtEndOfRound). Returns the number of
+--- records changed.
+--- @param zoneids string[]
+--- @param fromKeyword string
+--- @param toKeyword string
+--- @param reveal boolean When true, a rewritten zone becomes visible to players.
+--- @return number
+function ActivatedAbilityTransformZoneBehavior.RewriteZoneRecords(zoneids, fromKeyword, toKeyword, reveal)
     local newKeyword = nil
     if toKeyword ~= "none" then
         newKeyword = (dmhub.GetTable(EnvironmentalKeyword.tableName) or {})[toKeyword]
@@ -159,7 +174,7 @@ function ActivatedAbilityTransformZoneBehavior:TransformZonesAt(squares)
     --otherwise hold the right to rewrite them.
     ElevateToHostPermissions()
     local ok, err = pcall(function()
-        for _,zoneid in ipairs(orderedZoneids) do
+        for _,zoneid in ipairs(zoneids) do
             local floor = FindZoneFloor(zoneid)
             if floor ~= nil then
                 local stored = floor.markupZones[zoneid]
@@ -177,7 +192,7 @@ function ActivatedAbilityTransformZoneBehavior:TransformZonesAt(squares)
                         end
                         record.pattern = record.pattern or {}
                         record.pattern.color = MapMarkupImpl.KeywordColor(toKeyword, newKeyword)
-                        if self.reveal then
+                        if reveal then
                             record.playerVisible = true
                         end
                         if newKeyword:try_get("appearanceDefaultOff", false) == true then
