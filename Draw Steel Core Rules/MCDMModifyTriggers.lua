@@ -1091,7 +1091,7 @@ CharacterModifier.TypeInfo.modifytrigger = {
                         idChosen = modifier:try_get("replaceBehaviors", "after"),
                         change = function(element)
                             ---@cast element Dropdown
-                            modifier.replaceBehaviors = element.idChosen
+                            modifier.replaceBehaviors = element.idChosen --[[@as string]]
                         end,
                     },
                 }

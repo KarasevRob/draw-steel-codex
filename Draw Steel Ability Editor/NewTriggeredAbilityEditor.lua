@@ -7078,7 +7078,7 @@ function TriggeredAbility:GenerateEmbeddedEditor()
                 options = TriggeredAbility.mandatoryTriggerSettings,
                 change = function(element)
                     ---@cast element Dropdown
-                    self.mandatory = element.idChosen
+                    self.mandatory = element.idChosen --[[@as boolean|string]]
                     RefreshPromptVisibility()
                 end,
             },

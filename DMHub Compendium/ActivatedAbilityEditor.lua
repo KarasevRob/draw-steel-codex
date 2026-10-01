@@ -615,7 +615,7 @@ function ActivatedAbility:TargetTypeEditor()
                 },
                 change = function(element)
                     ---@cast element Dropdown
-                    self.multipleModes = element.idChosen
+                    self.multipleModes = element.idChosen --[[@as boolean|string]]
                     if self.multipleModes and self:try_get("modeList") == nil then
                         self.modeList = {
                         }
