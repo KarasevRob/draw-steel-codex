@@ -422,6 +422,8 @@ function AttributeGenerator.CreateEditor()
         },
 
         change = function(element)
+            --only the editor controls fire change, and SetData builds them only once m_data is set.
+            ---@cast m_data -nil
             dmhub.SetAndUploadTableItem(AttributeGenerator.tableName, m_data)
             resultPanel.data.SetData(m_key)
         end,

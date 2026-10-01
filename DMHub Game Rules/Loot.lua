@@ -367,12 +367,13 @@ function loot:Empty()
 	return true
 end
 
+-- The creature currency helpers only touch the `currency` table, which loot shares.
 function loot:GetCurrency(currencyid)
-	return creature.GetCurrency(self, currencyid)
+	return creature.GetCurrency(self --[[@as creature]], currencyid)
 end
 
 function loot:SetCurrency(currencyid, value, note)
-	creature.SetCurrency(self, currencyid, value, note)
+	creature.SetCurrency(self --[[@as creature]], currencyid, value, note)
 end
 
 --- Also called by creature.GiveItem as its base implementation.

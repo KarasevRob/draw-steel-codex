@@ -68,7 +68,7 @@ function Variant:HasQuantity()
 end
 
 function Variant:RollQuantity()
-	return dmhub.RollInstant(self.quantity)
+	return dmhub.RollInstant(tostring(self.quantity))
 end
 
 function Variant:Value()

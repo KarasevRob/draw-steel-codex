@@ -63,6 +63,7 @@ ActivatedAbilityModifyCastBehavior.RegisterParam{
 --- @field new fun(o?: table): ActivatedAbilityPowerRollBehavior
 --- @field tiers string[] The three power table tier texts (tier 1, 2, 3), set when the behavior is created.
 --- @field callback? fun(token: CharacterToken, tier: number) Transient per-target result hook set by ActivatedAbilityPowerRollBehavior.CustomRoll.
+--- @field ExecuteCommand fun(self: ActivatedAbilityPowerRollBehavior, ability: ActivatedAbility, casterToken: CharacterToken|nil, targetToken: CharacterToken|nil, options: table, rule: string) Borrowed from ActivatedAbilityDrawSteelCommandBehavior (assigned below).
 ActivatedAbilityPowerRollBehavior = RegisterGameType("ActivatedAbilityPowerRollBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbilityPowerRollBehavior.summary = 'Roll on Power Table'
@@ -1220,10 +1221,11 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
 
     for _,behavior in ipairs(ability.behaviors) do
         if behavior.typeName == "ActivatedAbilityModifyPowerRollBehavior" and behavior:IsFiltered(ability, casterToken, options) == false then
-            local filterCondition = trim(behavior.modifier:try_get("filterCondition", ""))
+            local modBehavior = behavior --[[@as ActivatedAbilityModifyPowerRollBehavior]]
+            local filterCondition = trim(modBehavior.modifier:try_get("filterCondition", ""))
             if filterCondition == "" or dmhub.EvalGoblinScript(filterCondition, caster:LookupSymbol(options.symbols), "Filter condition for power roll modifier") then
                 modifiersOnCaster[#modifiersOnCaster+1] = {
-                    mod = behavior.modifier,
+                    mod = modBehavior.modifier,
                 }
             end
         end
@@ -1546,7 +1548,8 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         local skillid = self:try_get("skillid", "none")
         local skill = dmhub.GetTable(Skill.tableName)[skillid]
         if skill ~= nil and caster:ProficientInSkill(skill) then
-            for _,mod in ipairs(modifiersApplied) do
+            --nil when no target produced a row; the later readers guard the same way.
+            for _,mod in ipairs(modifiersApplied or {}) do
                 if mod.modifier.name == "Skilled" then
                     mod.hint.result = true
                 end
@@ -3404,6 +3407,8 @@ function RollPropertiesPowerTable:CustomPanel(message)
 
             local liveResult = { total = total, naturalRoll = total - m_mod, boons = m_boons, banes = m_banes, tiers = m_tiers, autofailure = m_autofailure, autosuccess = m_autosuccess, nottierone = m_nottierone, nottierthree = m_nottierthree }
             local index = self:PromoteTierOnCrit(DiceResultToTier(liveResult), liveResult)
+            --diceface only arrives from dice events the refresh handler listens to after it builds m_rows.
+            ---@cast m_rows -nil
             for i,row in ipairs(m_rows) do
                 if row ~=nil and row.valid then
                     row:SetClassImmediate("highlighted", i == index)

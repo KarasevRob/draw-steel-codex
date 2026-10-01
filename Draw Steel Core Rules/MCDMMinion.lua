@@ -39,8 +39,6 @@ local function getColorFromString(str)
     return g_defaultColors[index]
 end
 
---- @module DrawSteelMinion
-
 --- @class DrawSteelMinion: GameType
 --- @field new fun(o?: table): DrawSteelMinion
 --- @field squads nil|table<string, {color: string}> Per-session squad color overrides, keyed by squad name.
@@ -48,9 +46,9 @@ end
 DrawSteelMinion = RegisterGameType("DrawSteelMinion")
 
 
---- Given the name of a squad get the color we should display for it.
+--- Given the name of a squad get the color we should display for it, as a color string.
 --- @param name string
---- @return Color
+--- @return string
 DrawSteelMinion.GetSquadColor = function(name)
 	local doc = mod:GetDocumentSnapshot(g_docid)
     if doc.data.squads == nil or doc.data.squads[name] == nil then
@@ -63,7 +61,7 @@ end
 
 --- Set the color for a squad.
 --- @param name string
---- @return Color
+--- @param color string A color string, as GetSquadColor returns.
 DrawSteelMinion.SetSquadColor = function(name, color)
     local doc = mod:GetDocumentSnapshot(g_docid)
     doc:BeginChange()
@@ -275,6 +273,8 @@ DrawSteelMinion.SetSummoner = function(monsterToken, summonerToken)
             --panel and squad manager) and group into the summoner's initiative
             --slot, mirroring what AbilitySummon does at cast time.
             local squadName = monsterToken.properties:MinionSquad()
+            --MinionSquad only returns nil for a non-minion.
+            ---@cast squadName -nil
             local monsterType = monsterToken.properties:try_get("monster_type", "")
             summonerToken:ModifyProperties{
                 description = "Assign Summoner",
@@ -1058,6 +1058,7 @@ end
 --- @param tokens CharacterToken[]
 --- @return boolean
 DrawSteelMinion.CanGroupInitiative = function(tokens)
+    ---@type string|false
     local initiativeid = false
     for _,tok in ipairs(tokens) do
         if tok.properties.initiativeGrouping == false or (initiativeid ~= false and tok.properties.initiativeGrouping ~= initiativeid) then
@@ -1463,9 +1464,9 @@ DrawSteelMinion.SquadHud = function(floorid, squad)
 
             if #squad.tokens ~= m_numTokens then
                 m_numTokens = #squad.tokens
-                local color = core.Color(squad.color)
-                color.v = color.v*0.35
-                color = color.tostring
+                local dimmed = core.Color(squad.color)
+                dimmed.v = dimmed.v*0.35
+                local color = dimmed.tostring
                 local children = {}
                 if m_numTokens > 1 then
                     for i=1,m_numTokens-1 do
@@ -2082,7 +2083,7 @@ DrawSteelMinion.withCaptainEffects = {}
 --handle "with captain" traits.
 
 ---@param text string
----@return CharacterFeature
+---@return CharacterFeature|nil
 function DrawSteelMinion.GetWithCaptainEffect(text)
     if text == nil or text == false or text == "" then
         return nil

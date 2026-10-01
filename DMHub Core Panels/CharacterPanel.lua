@@ -1876,6 +1876,7 @@ local CreateBestiaryFolder = function(nodeid, startHidden)
             --does the toggle. A handler here too made one label click toggle
             --twice (expand + immediately collapse).
             editname = function(element)
+                ---@cast element Label
                 element:BeginEditing()
             end,
         },
@@ -2405,7 +2406,8 @@ CharacterPanel.CreateCharacterEntry = function(charid, party)
             parts[#parts + 1] = ancestry
         end
 
-        local classInfo = props:IsHero() and props:GetClass() or nil
+        --IsHero() is true only on the character subtype, which defines GetClass.
+        local classInfo = props:IsHero() and (props --[[@as character]]):GetClass() or nil
         if classInfo ~= nil then
             parts[#parts + 1] = classInfo.name
         end
@@ -2666,7 +2668,10 @@ CharacterPanel.CreateCharacterEntry = function(charid, party)
                         local invisible = not token.invisibleToPlayers
 
                         --make this operate on all selected characters.
-                        for _, charid in ipairs(dmhub.GetSelectedCharacters()) do
+                        local selected = dmhub.GetSelectedCharacters()
+                        --this file's dmhub.GetSelectedCharacters (above) always returns a table.
+                        ---@cast selected -nil
+                        for _, charid in ipairs(selected) do
                             local tok = dmhub.GetCharacterById(charid)
                             if tok ~= nil then
                                 tok.invisibleToPlayers = invisible
@@ -2743,7 +2748,7 @@ CharacterPanel.CreateCharacterEntry = function(charid, party)
                                         for _, cid in ipairs(charids) do
                                             local tok = dmhub.GetCharacterById(cid)
                                             if tok ~= nil then
-                                                local classInfo = tok.properties:IsHero() and tok.properties:GetClass() or nil
+                                                local classInfo = tok.properties:IsHero() and (tok.properties --[[@as character]]):GetClass() or nil
                                                 track("character_delete", {
                                                     class = classInfo and classInfo.name or "",
                                                     ancestry = tok.properties:RaceOrMonsterType() or "",
@@ -3231,7 +3236,7 @@ CharacterPanel.CreatePartyCharacters = function(partyid)
                                     corpse.objectInstance:Destroy()
                                 end
 
-                                local classInfo = tok.properties:IsHero() and tok.properties:GetClass() or nil
+                                local classInfo = tok.properties:IsHero() and (tok.properties --[[@as character]]):GetClass() or nil
                                 track("character_delete", {
                                     class = classInfo and classInfo.name or "",
                                     ancestry = tok.properties:RaceOrMonsterType() or "",
@@ -4028,7 +4033,8 @@ local CreateBestiaryAndPartyPanel = function(noBestiary)
                                     handler = nil
                                     local c = trackToken
                                     if c ~= nil and c.valid then
-                                        local classInfo = c.properties:GetClass()
+                                        --created above by game.CreateCharacter("character", ...).
+                                        local classInfo = (c.properties --[[@as character]]):GetClass()
                                         local kitTable = dmhub.GetTable("kits")
                                         local kitId = c.properties:try_get("kitid")
                                         track("character_create", {

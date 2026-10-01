@@ -2542,7 +2542,7 @@ Tip.Register{
 		return true
 	end,
 	whenShown = function(state)
-		state.tokenId = dmhub.selectedTokens[1].id
+		state.tokenId = dmhub.selectedTokens[1].charid
 		--Highlight by id, not class: the "light-btn" class is unfortunately
 		--reused for the unrelated look-up-between-floors button in
 		--MCDMCharacterPanel.lua, so class targeting hits the wrong element
@@ -2610,7 +2610,7 @@ Tip.Register{
 		return not BeastheartCompanionIsNearby(tok)
 	end,
 	whenShown = function(state)
-		state.tokenId = dmhub.selectedTokens[1].id
+		state.tokenId = dmhub.selectedTokens[1].charid
 		tutorial.SetTutorial{
 			name = "tip-beastheart-call",
 			entries = {

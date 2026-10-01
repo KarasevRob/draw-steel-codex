@@ -27,7 +27,7 @@ Class = RegisterGameType("Class")
 
 --- @class ClassLevel: GameType
 --- @field new fun(o?: table): ClassLevel
---- @field features (CharacterFeature|CharacterChoice)[] Features and choices granted at this level.
+--- @field features (CharacterFeature|CharacterFeatureList|CharacterChoice|CharacterSingleFeat)[] Features and choices granted at this level.
 ClassLevel = RegisterGameType("ClassLevel") --type which represents the benefits a character gets at a specific level.
 
 --- @class CharacterChoice: GameType
@@ -49,7 +49,7 @@ CharacterSubclassChoice = RegisterGameType("CharacterSubclassChoice", "Character
 
 --- @class CharacterFeatureList: GameType
 --- @field new fun(o?: table): CharacterFeatureList
---- @field features (CharacterChoice|CharacterFeature)[] The grouped features, set by CreateNew.
+--- @field features (CharacterFeature|CharacterFeatureList|CharacterChoice|CharacterSingleFeat)[] The grouped features, set by CreateNew.
 CharacterFeatureList = RegisterGameType("CharacterFeatureList")
 
 --- @param options nil|table

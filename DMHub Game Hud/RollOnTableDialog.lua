@@ -232,7 +232,7 @@ function GameHud.CreateRollOnTableDialog(self)
 						end,
 					})
 					if hookResult == "intercept" then
-						chat.PreviewChat{''}
+						chat.PreviewChat('')
 						return
 					end
 				end
@@ -282,7 +282,7 @@ function GameHud.CreateRollOnTableDialog(self)
 					end,
 				}
 
-				chat.PreviewChat{''}
+				chat.PreviewChat('')
 			end,
 		}
 	}
@@ -567,6 +567,8 @@ function GameHud.CreateRollOnTableDialog(self)
 		diceface = function(element, guid, num)
 			m_dicefaces[guid] = num
 			local total = 0
+			--diceface only arrives from dice events listened to in the roll's begin handler, which sets m_rolls first.
+			---@cast m_rolls -nil
 			for i,roll in ipairs(m_rolls) do
 				if m_dicefaces[roll.guid] == nil then
 					return
@@ -691,7 +693,8 @@ function RollOnTableProperties:CustomPanel(message)
                         if message.tokenid ~= nil then
                             local token = dmhub.GetCharacterById(message.tokenid)
                             if token ~= nil then
-                                s = StringInterpolateGoblinScript(s, token.properties)
+                                --a non-nil string in gives a non-nil string out.
+                                s = StringInterpolateGoblinScript(s, token.properties) --[[@as string]]
                             end
                         end
                         element:FireEventTree("setText", s)

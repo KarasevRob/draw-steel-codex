@@ -373,7 +373,7 @@ local g_materialFields = {
 
 		{
 			name = "_Matcap1NormalMapScale",
-			requires = "_Matcap1CustomNormal",
+			--requires = "_Matcap1CustomNormal", (was a duplicate key; the later "_Matcap2Enable" always won)
 			requires = "_Matcap2Enable",
 			type = "Range",
 			description = "Normal Scale",
@@ -2975,7 +2975,8 @@ CreateDiceStudioPanel = function()
 			end
 		end,
 		change = function(element)
-			local chosen = element.idChosen
+			--Every option id is a dice-set file name (GetLocalFiles).
+			local chosen = element.idChosen --[[@as string]]
 
 			local DoLoad = function()
 				studio:Load(chosen)
@@ -4211,7 +4212,8 @@ CreateDiceStudioPanel = function()
 			end,
 			change = function(element)
 				---@cast element Dropdown
-				local id = element.idChosen
+				--Every option id is a sound name or "none" (BuildSoundOptions).
+				local id = element.idChosen --[[@as string]]
 				studio:SetEventSound(eventName, id == "none" and "" or id)
 				volumeRow:SetClass("collapsed", id == "none")
 				RefreshDice()

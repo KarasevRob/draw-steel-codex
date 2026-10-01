@@ -939,6 +939,8 @@ ShowTimeOfDaySettingsDialog = function()
 				valign = "top",
 				margin = 8,
 				click = function(element)
+					--this button lives inside the dialog, so the dialog exists when it is clicked.
+					---@cast m_dayNightSettingsDialog Panel
 					m_dayNightSettingsDialog:SetClass("hidden", true)
 				end,
 			},

@@ -263,13 +263,13 @@ function TargetableObject.CreateMultiPropertiesEditor(components)
                 classes = {"field-editor-input"},
                 halign = "right",
                 valign = "center",
-                text = (components[1].properties.max_hitpoints or 1) - (components[1].properties.damage_taken or 0),
+                text = tostring((components[1].properties.max_hitpoints or 1) - (components[1].properties.damage_taken or 0)),
                 width = 30,
                 characterLimit = 3,
                 events = {
                     refresh = function(element)
                         local stamina = (components[1].properties.max_hitpoints or 1) - (components[1].properties.damage_taken or 0)
-                        element.text = stamina
+                        element.text = tostring(stamina)
                     end,
                     change = function(element)
                         local n = tonumber(element.text)
@@ -301,14 +301,14 @@ function TargetableObject.CreateMultiPropertiesEditor(components)
             },
             gui.Input{
                 classes = {"field-editor-input"},
-                text = components[1].properties.max_hitpoints or 1,
+                text = tostring(components[1].properties.max_hitpoints or 1),
                 width = 30,
                 halign = "right",
                 valign = "center",
                 characterLimit = 3,
                 events = {
                     refresh = function(element)
-                        element.text = components[1].properties.max_hitpoints or 1
+                        element.text = tostring(components[1].properties.max_hitpoints or 1)
                     end,
                     change = function(element)
                         local n = tonumber(element.text)

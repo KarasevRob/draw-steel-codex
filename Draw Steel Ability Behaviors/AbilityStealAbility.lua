@@ -84,7 +84,7 @@ end
 
 --- @param ability ActivatedAbility
 --- @param casterToken CharacterToken
---- @param targets AbilityTarget[]
+--- @param targets {loc: Loc, token: CharacterToken}[] Steal Ability targets creatures, so every target carries a token.
 --- @param options table
 function ActivatedAbilityStealAbilityBehavior:Cast(ability, casterToken, targets, options)
     if self:try_get("ongoingEffect") == nil then
@@ -111,7 +111,7 @@ function ActivatedAbilityStealAbilityBehavior:Cast(ability, casterToken, targets
 
             if passesFilter then
                 local synth = DeepCopy(a)
-                synth.stolenFrom = target.token.id
+                synth.stolenFrom = target.token.charid
 
                 results[#results+1] = synth
             end
@@ -128,7 +128,7 @@ function ActivatedAbilityStealAbilityBehavior:Cast(ability, casterToken, targets
     end
 
     local casterInfo = {
-        tokenid = casterToken.id
+        tokenid = casterToken.charid
     }
 
     if casterToken.properties ~= nil then

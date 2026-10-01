@@ -1877,6 +1877,7 @@ end
 --------------------------------------------------------------------------------
 
 --Sizes chosen to mirror the real hosts a panel gets mounted in.
+---@type {id: string, text: string, width: string|number|nil, height: string|number}[]
 local g_stagePresets = {
     { id = "full",   text = "Full",         width = "100%", height = "100%" },
     { id = "dock",   text = "Dock width",   width = nil,    height = "100%" },

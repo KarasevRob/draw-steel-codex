@@ -1132,6 +1132,7 @@ local ShowAppearanceDialog = function(keyword, UploadKeyword, onChanged)
 
 	--=== dialog shell ===
 
+	---@type Panel[]
 	local children = {
 		gui.Label{
 			classes = {"dialogTitle"},

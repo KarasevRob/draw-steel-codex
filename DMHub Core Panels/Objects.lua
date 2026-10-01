@@ -2248,7 +2248,7 @@ mod.shared.CreateObjectEditor = function(options)
             	dockablePanel:SetClass("highlightPanel", false)
 			end
 
-			if focusInfo.oldFocus ~= element and focusInfo.newFocus == nil and (not dmhub.KeyPressed("escape")) then
+			if focusInfo.oldFocus ~= element and focusInfo.newFocus == nil and (not dmhub.KeyPressed("Escape")) then
 				focusInfo.newFocus = element
 			end
         end,

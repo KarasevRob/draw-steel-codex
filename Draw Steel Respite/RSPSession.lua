@@ -771,9 +771,6 @@ function RSPSession.FollowersOf(charid, includeRetainers)
     return result
 end
 
---- Heroes with their followers indented beneath them, ready for a list.
---- @param charids string[] heroes, already in the order they should appear
---- @return table[] entries {charid, indent}
 --- The rows a run step shows. Every covered hero with its followers beneath
 --- it, plus any hero the non-participants rule excluded who still has
 --- followers: followers may always act, and the hero row is what they hang
@@ -801,7 +798,9 @@ function RSPSession.ActingEntries(charids)
     return entries
 end
 
---- @param charids string[]
+--- Heroes with their followers indented beneath them, ready for a list.
+--- Each entry is {charid, indent, owner?}.
+--- @param charids string[] heroes, already in the order they should appear
 --- @return table[] entries
 function RSPSession.EntriesWithFollowers(charids)
     local entries = {}

@@ -5963,7 +5963,7 @@ local function BuildSoundPanelContent()
 		create = function(element)
 			element.data.themeSub = ThemeEngine.OnThemeChanged(mod, function()
 				if element.valid then
-					element.styles = ThemeEngine.MergeTokens(AudioSoundboardButtonStyles)
+					element.styles = ThemeEngine.MergeTokens(AudioSoundboardButtonStyles) --[[@as StyleArgs[] ]]
 					element.data.themeTick = not element.data.themeTick
 					element:SetClassTree("themeRefreshTick", element.data.themeTick == true)
 				end
@@ -11896,6 +11896,7 @@ local function CreateStudioNowPlayingStrip()
 	--and stop. table.sort is not needed here -- PlayOrderOf/PlayingTracksForCategory
 	--(module-scoped, chunk D7) already return tracks oldest-first.
 	local function CreateCategoryRow(categoryLabel, entries)
+		---@type Panel[]
 		local children = {
 			gui.Label{
 				classes = {"sizeXs", "bold"},

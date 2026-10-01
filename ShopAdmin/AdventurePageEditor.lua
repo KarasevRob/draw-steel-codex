@@ -2084,6 +2084,7 @@ function AdventurePageEditor.Create()
 
     local enableCheck = gui.Check{
         text = "Use adventure page",
+        value = false,
         tooltip = "Give this adventure the full store page. Turning it off deletes the page settings and the item goes back to the plain details layout.",
         change = function(element)
             if m_item == nil then

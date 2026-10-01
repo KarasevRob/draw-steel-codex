@@ -1190,7 +1190,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
             local range = ExecuteGoblinScript(subjectRangeFormula, creature:LookupSymbol(symbols), nil, "Calculate Subject Range")
             if range ~= nil then
                 local distance = SubjectRangeDistance(self:try_get("trigger", ""), subjectToken, casterToken, symbols)
-                range = tonumber(range)
+                range = tonumber(range) --[[@as number]] -- a range formula evaluates to a number
                 if distance > range then
                     --out of range.
 

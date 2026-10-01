@@ -178,6 +178,8 @@ end
 
 --abilities require any matches to happen at the start of the text.
 ActivatedAbility.patternMatchPrefix = "^\\s*"
+--- Borrowed from CharacterFeature: returns the ability (or a filled-in clone of it) and the match groups, or nil.
+--- @type fun(self: ActivatedAbility, bestiaryEntry: table|nil, name: string, description: string): ActivatedAbility|nil, table|nil
 ActivatedAbility.MatchMCDMEffect = CharacterFeature.MatchMCDMMonsterTrait
 
 --- A monster-trait row in one of the importer tables: a CharacterFeature plus

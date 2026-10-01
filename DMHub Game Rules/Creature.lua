@@ -856,7 +856,7 @@ function creature:GetMonsterType()
 	return nil
 end
 
---- @param token CharacterToken
+--- @param token CharacterToken|MonsterAssetLua Anything with a name and properties; bestiary entries are passed too.
 --- @return string
 function creature.GetTokenDescription(token)
 	if token == nil then
@@ -886,7 +886,9 @@ end
 --- It is an opportunity to randomize things like hitpoints, name, etc.
 --- Called by the engine when the creature is created from the bestiary.
 --- Use to randomize hitpoints, name, etc.
-function creature:OnCreateFromBestiary()
+--- @param token? CharacterToken The token being created; unused here, read by the monster override.
+--- @param groupid? string The spawn group; unused here, read by the monster override.
+function creature:OnCreateFromBestiary(token, groupid)
 	self.damage_taken = 0
 
 	--belt and braces: OnAddToBestiary should already have stripped these, but an entry

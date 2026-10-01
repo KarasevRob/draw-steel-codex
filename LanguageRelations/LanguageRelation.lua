@@ -215,6 +215,9 @@ local function createListItem(options)
 								local item = table[options.key]
 								local newItem = DeepCopy(item)
 								newItem.id = dmhub.GenerateGuid()
+								--Unreachable: XrightClick is a disabled handler. generateDuplicateName is
+								--local to Compendium.lua, so this would need its own copy if re-enabled.
+								---@diagnostic disable-next-line: undefined-global
 								newItem.name = generateDuplicateName(newItem.name)
 								dmhub.SetAndUploadTableItem(options.tableName, newItem)
 

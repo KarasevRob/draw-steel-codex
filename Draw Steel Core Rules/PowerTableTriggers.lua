@@ -272,10 +272,11 @@ CharacterModifier.TypeInfo.powertabletrigger = {
             dismissOnTrigger = true,
         }
 
+        --`or 0`: a nil write would read back as the ActiveTrigger class default, 0, anyway.
         if selfClone.powerRollModifier:try_get("resourceCostType") == "cost" then
-            entry.heroicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1))
+            entry.heroicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1)) or 0
         elseif selfClone.powerRollModifier:try_get("resourceCostType") == "epic" then
-            entry.epicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1))
+            entry.epicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1)) or 0
         end
 
         if self:try_get("abilityTargets", "") ~= "" then

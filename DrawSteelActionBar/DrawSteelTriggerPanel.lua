@@ -790,7 +790,7 @@ mod.shared.CreateTriggerPanel = function()
                                         local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
                                         local rangeType = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetRange", "none")
                                         if rangeType == "ability" then
-                                            sourceToken = dmhub.GetTokenById(trigger.casterid)
+                                            sourceToken = casterToken
                                             range = trigger.originalAbilityRange
                                         elseif rangeType == "distance" then
                                             range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
@@ -1023,7 +1023,7 @@ mod.shared.CreateTriggerPanel = function()
                                             local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
                                             local rangeType = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetRange", "none")
                                             if rangeType == "ability" then
-                                                sourceToken = dmhub.GetTokenById(trigger.casterid)
+                                                sourceToken = casterToken
                                                 range = trigger.originalAbilityRange
                                             elseif rangeType == "distance" then
                                                 range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
@@ -1285,7 +1285,7 @@ mod.shared.CreateTriggerPanel = function()
                                         local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
                                         local rangeType = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetRange", "none")
                                         if rangeType == "ability" then
-                                            sourceToken = dmhub.GetTokenById(trigger.casterid)
+                                            sourceToken = casterToken
                                             range = trigger.originalAbilityRange
                                         elseif rangeType == "distance" then
                                             range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)
@@ -1874,7 +1874,7 @@ mod.shared.CreateTriggerPanel = function()
                                             local range = tonumber(ExecuteGoblinScript(trigger.powerRollModifier.range, g_token.properties:LookupSymbol(symbols), 10))
                                             local rangeType = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetRange", "none")
                                             if rangeType == "ability" then
-                                                sourceToken = dmhub.GetTokenById(trigger.casterid)
+                                                sourceToken = casterToken
                                                 range = trigger.originalAbilityRange
                                             elseif rangeType == "distance" then
                                                 range = trigger.powerRollModifier.powerRollModifier:try_get("changeTargetDistance", 10)

@@ -1499,8 +1499,9 @@ function Aura.FireForcedMovementTriggersForPath(c, token, path)
 
     --Mirrors the caster-token fallback in creature:EnterAura: a non-uploadable token
     --cannot own the triggered cast, so fall back to the creature's own token.
+    ---@type CharacterToken|nil
     local auraCasterToken = token
-    if auraCasterToken.valid == false or (not auraCasterToken.uploadable) then
+    if token.valid == false or (not token.uploadable) then
         auraCasterToken = dmhub.LookupToken(c)
     end
 
@@ -3262,7 +3263,9 @@ local function SlideLaneToken(tok, dir, dist, state)
             local path = tok:Move(destLoc, {
                 straightline = true,
                 maxCost = 30000,
-                movementType = "move",
+                --This was "move", which is not a MovementType: the engine ignored it and
+                --used its straight-line default, Pushed. Named explicitly, nothing changes.
+                movementType = "Pushed",
                 forcedMovementDistance = dist,
                 rebound = forcedPushOptions.rebound,
                 maxBounces = forcedPushOptions.maxBounces,

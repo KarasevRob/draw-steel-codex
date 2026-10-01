@@ -449,6 +449,8 @@ local CreateInventorySlot = function(dmhud, options)
 						local targetSpends = nil
 						if shopping then
 							local price = token.properties:GetItemPrice(item.id)
+							--item is a tbl_Gear row, so GetItemPrice's gear-table fallback always prices it.
+							---@cast price -nil
 							local targetToken = target.data.GetToken()
 							if targetToken ~= nil and targetToken.valid then
 								targetSpends = Currency.CalculateSpend(targetToken.properties, Currency.CalculatePriceInStandard(price))
@@ -1783,6 +1785,8 @@ function GameHud.CreateInventoryDialog(self, options)
 					--refresh the inventory from the token.
 					token.properties:SanitizeInventory()
 					inventory = token.properties.inventory
+					--the pairs() below already requires the token to have an inventory table.
+					---@cast inventory -nil
 
 					--divide into unarranged inventory and the inventory that has been manually arranged.
 					--iterate over the unarranged inventory and extract out arranged parts.
@@ -2459,7 +2463,6 @@ function GameHud.CreateInventoryDialog(self, options)
 			width = 160,
 			height = 20,
 			floating = true,
-			halign = "right",
 			valign = "bottom",
 			flow = "horizontal",
 			halign = "left",
@@ -2525,7 +2528,6 @@ function GameHud.CreateInventoryDialog(self, options)
 				width = 160,
 				height = 20,
 				floating = true,
-				halign = "right",
 				valign = "bottom",
 				flow = "horizontal",
 				halign = "left",

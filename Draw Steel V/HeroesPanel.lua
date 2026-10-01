@@ -457,6 +457,7 @@ local CreateDirectorPanel = function(userid)
             local playerInfo = dmhub.GetPlayerInfo(userid)
             local partyid = playerInfo.partyid
 
+            ---@type Party|nil
             local playerParty = Party.PlayerParty()
 
             local partySubmenu = {}
@@ -852,6 +853,7 @@ local CreatePlayerPanel = function(userid)
             local playerInfo = dmhub.GetPlayerInfo(userid)
             local partyid = playerInfo.partyid
 
+            ---@type Party|nil
             local playerParty = Party.PlayerParty()
 
             local partySubmenu = {}
@@ -2380,6 +2382,7 @@ local function CreateLinesVeilsSection()
                     local chips = {}
                     for _,topic in ipairs(list) do
                         local topicid = topic.topicid
+                        ---@type Panel[]
                         local chipChildren = {
                             gui.Label{
                                 classes = { "multiselectChipText", group.chipClass },
@@ -2552,6 +2555,7 @@ local function CreateChecklistItemRow(item)
             text = markDef.text,
             linger = gui.Tooltip(markDef.tooltip),
             click = function(element)
+                ---@type string|nil
                 local newMark = markid
                 if CurrentMark() == markid then
                     newMark = nil
@@ -2905,6 +2909,7 @@ local function CreateToolsConfigSection()
         { id = "starswishes", text = "Stars & Wishes" },
     }
 
+    ---@type Panel[]
     local children = {
         SafetySectionHeader("Tools in Play"),
         SafetyCaption("Choose which safety tools are active for this campaign. Safety tools work best when the whole table opts in during session zero."),

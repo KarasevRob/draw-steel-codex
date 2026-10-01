@@ -1566,17 +1566,6 @@ function DTProjectEditor:_createRollsPanel()
     }
 end
 
---- Creates a roll button for making downtime project rolls
---- @param options table|nil Options table with styling and callback properties
----   - confirm: function(rolls, controller, roller) - Callback when rolls are confirmed, receives array of DTRoll objects and the roller
----   - width: number - Button width (default: 24)
----   - height: number - Button height (default: 24)
----   - margin: number - Button margin (default: 0)
----   - borderWidth/border: number - Border width (default: 0)
----   - halign: string - Horizontal alignment (default: nil)
----   - hmargin: number - Horizontal margin (default: nil)
----   - vmargin: number - Vertical margin (default: nil)
---- @return table button The roll button element
 --- Picks which characteristic a project roll is made with
 --- A project may allow several and nobody would choose anything but their best,
 --- so it is derived rather than asked for. The baseline roll dialog carries one
@@ -1941,7 +1930,8 @@ function DTProjectEditor:_createOwnedProjectButtons()
                         end
                     }
                 }
-                CharacterSheet.instance:AddChild(DTShareDialog.CreateAsChild(options))
+                --CreateAsChild only returns nil when given no options.
+                CharacterSheet.instance:AddChild(DTShareDialog.CreateAsChild(options) --[[@as Panel]])
             end
         end,
         linger = function(element)
@@ -2315,7 +2305,8 @@ function DTProjectEditor._createProgressListItem(item, deleteEvent)
     if not item then return gui.Panel{} end
 
     -- Format timestamp for display (remove seconds and timezone)
-    local displayTime = item:GetCommitDate()
+    --commitDate comes from os.date with a format string, so it is a string, never an osdate table.
+    local displayTime = item:GetCommitDate() --[[@as string?]]
 
     -- Format amount with color coding
     local amount = item:GetAmount()

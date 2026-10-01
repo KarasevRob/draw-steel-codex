@@ -770,6 +770,7 @@ function CharSheet.CharacterHitpointsPanel()
 							end,
 
 							refreshToken = function(element, info)
+								---@cast element Label
 								local creature = info.token.properties
 								element.editable = creature:IsMonster()
 								local newValue = creature:MaxHitpoints()
@@ -1392,7 +1393,7 @@ function CharSheet.CharacterSheetSavingThrowPanel()
 										--info.token.properties:ToggleSavingThrowProficiency(saveid)
 										--CharacterSheet.instance:FireEvent('refreshAll')
 
-										printf("SAVE:: %s: %s has: %s; has default: %s", saveid, json(info.token.properties.savingThrowRatings[saveid]), json(info.token.properties:HasSavingThrowProficiency(saveid), "selected"), json(info.token.properties:HasDefaultSavingThrowProficiency(saveid)))
+										printf("SAVE:: %s: %s has: %s; has default: %s", saveid, json(info.token.properties.savingThrowRatings[saveid]), json(info.token.properties:HasSavingThrowProficiency(saveid)), json(info.token.properties:HasDefaultSavingThrowProficiency(saveid)))
 										local panels = {}
 
 										panels[#panels+1] = gui.Label{
@@ -1971,6 +1972,7 @@ function CharSheet.CharacterSheetProficiencesAndLanguagesPanel()
 				local equipmentTable = dmhub.GetTable("tbl_Gear")
 				for k,prof in pairs(proficiencies) do
 					local catInfo = dataTable[k]
+					---@type EquipmentCategory|equipment
 					local itemInfo = catInfo
 					
 					if catInfo == nil then
@@ -2128,6 +2130,7 @@ local EditResistanceEntry = function(creature, resistanceEntry, params)
 					end,
 
 					refresh = function(element)
+						---@cast element Dropdown
 						element.optionChosen = resistanceEntry.apply
 					end,
 				},
@@ -2202,6 +2205,7 @@ local EditResistanceEntry = function(creature, resistanceEntry, params)
 					end,
 
 					refresh = function(element)
+						---@cast element Dropdown
 						if resistanceEntry:try_get('nonmagic', false) then
 							element.optionChosen = 'nonmagic'
 						else
@@ -4350,6 +4354,7 @@ function CharSheet.AttrPanel(attrid)
 								text = tostring(baseValue),
 								events = {
 									create = function(element)
+										---@cast element Label
 										element:BeginEditing()
 									end,
 									change = function(element)

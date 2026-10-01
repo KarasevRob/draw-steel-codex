@@ -2732,6 +2732,8 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
 
             local pressCharacter = element.data.FindMouseoverChar(element)
             if pressCharacter ~= nil then
+                --cleared to nil by a triple click so the next press starts a fresh click count.
+                ---@type number|nil
                 local t = dmhub.Time()
 
                 if dmhub.DeepEqual(element.data.lastPressCharacter, pressCharacter) and (t - (element.data.lastPressCharacterTime or 0)) < 1 then
@@ -3346,15 +3348,15 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
                 npage = trim(string.lower(npage))
             end
 
-            m_npage = nil
+            local labelPage = nil
             for i, label in ipairs(document.summary.pageLabels) do
                 if npage == string.lower(label) then
-                    m_npage = i - 1
+                    labelPage = i - 1
                     break
                 end
             end
 
-            m_npage = m_npage or tonumber(npage) or 1
+            m_npage = labelPage or tonumber(npage) or 1
 
             m_searchResults = nil
             m_searchText = nil
@@ -3632,7 +3634,7 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
                     classes = {"sizeXs"},
                     width = "auto",
                     height = "auto",
-                    hmargin = "4",
+                    hmargin = 4,
                     text = "/ " .. (document.summary.pageLabels[#document.summary.pageLabels] or string.format("%d", document.summary.npages)),
                 },
                 gui.Button {
@@ -3673,15 +3675,15 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
 
                         change = function(element)
                             m_zoom = clamp((tonumber(element.text) / 100) or m_zoom, 0.05, 8)
-                            element.text = string.format("%d", round(m_zoom * 100)),
-                                RefreshPage()
+                            element.text = string.format("%d", round(m_zoom * 100))
+                            RefreshPage()
                         end,
 
                         command = function(element, cmd)
                             if cmd == "zoomin" or cmd == "zoomout" then
                                 m_zoom = clamp(m_zoom + cond(cmd == "zoomout", -0.2, 0.2), 0.05, 8)
-                                element.text = string.format("%d", round(m_zoom * 100)),
-                                    RefreshPage()
+                                element.text = string.format("%d", round(m_zoom * 100))
+                                RefreshPage()
                             end
                         end,
                     },

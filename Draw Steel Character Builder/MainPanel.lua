@@ -212,7 +212,7 @@ function CharacterBuilder.CreatePanel()
             if hero == nil then hero = _getHero() end
             if hero == nil then error("HOW TF IS HERO NIL?") end
             local cultureAggregates = CharacterCultureAggregateChoice.CreateAll(hero)
-            local aspectFeatures = CharacterAspectChoice.CreateAll(hero)
+            local aspectFeatures = CharacterAspectChoice.CreateAll()
             if cultureAggregates or aspectFeatures then
                 local levelChoices = hero:GetLevelChoices()
 
@@ -409,6 +409,8 @@ function CharacterBuilder.CreatePanel()
 
                 local hero = props
                 if hero:IsHero() then
+                    --IsHero() is true only on character instances.
+                    ---@cast hero character
 
                     -- Validate the description info
                     local desc = hero:Description()

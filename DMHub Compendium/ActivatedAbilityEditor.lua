@@ -346,11 +346,11 @@ function ActivatedAbility:PersistencePanel()
 					height = 20,
 					fontSize = 16,
 					characterLimit = 2,
-					text = self:Persistence().cost or 1,
+					text = tostring(self:Persistence().cost or 1),
 					change = function(element)
 						local persistence = self:get_or_add("persistence", {})
 						persistence.cost = tonumber(element.text) or 1
-						element.text = persistence.cost
+						element.text = tostring(persistence.cost)
 					end,
 				}
 			},
@@ -1819,11 +1819,8 @@ function ActivatedAbility:BehaviorEditor(options)
 	local commonPanel = nil
 	
 	if not options.behaviorOnly then
-		commonPanel = self:TargetTypeEditor{
-			refreshAbility = function(element)
-				resultPanel:FireEvent("refreshAbility")
-			end
-		}
+		-- TargetTypeEditor takes no arguments; it refreshes itself.
+		commonPanel = self:TargetTypeEditor()
 	end
 
 	local behaviorDropdown = gui.Panel{
@@ -2584,7 +2581,7 @@ function ActivatedAbilityBehavior:OngoingEffectEditor(parentPanel, list, options
 				text = tostring(self.duration),
 				events = {
 					change = function(element)
-						self.duration = math.floor(tonumber(element.text)) or 1
+						self.duration = math.floor(tonumber(element.text) or 1)
 					end
 				}
 			},
@@ -3259,7 +3256,8 @@ function ActivatedAbilityCastSpellBehavior.AbilityModifierEditor(self, parentPan
 		end,
 	}
 
-	ActivatedAbilityAugmentedAbilityBehavior.AbilityModifierEditor(self, parentPanel, list)
+	-- Reused on purpose: a cast-spell behavior carries the same `modifier` field the editor reads.
+	ActivatedAbilityAugmentedAbilityBehavior.AbilityModifierEditor(self --[[@as ActivatedAbilityAugmentedAbilityBehavior]], parentPanel, list)
 end
 
 function ActivatedAbilityBehavior:CheckTypeEditor(parentPanel, title, attributeName, list)
@@ -4057,7 +4055,7 @@ function ActivatedAbility:ShowEditActivatedAbilityDialog(options)
 				color = "@fgStrong",
 				priority = 4,
 			},
-		})) do
+		}) --[[@as table[] ]]) do -- non-empty input, so never nil
 			themeStyles[#themeStyles+1] = rule
 		end
 	end

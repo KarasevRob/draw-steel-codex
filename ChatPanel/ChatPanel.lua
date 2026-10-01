@@ -1315,6 +1315,8 @@ CreateChatPanel = function()
 					if macroInfo.completions ~= nil then
 						local _, typedArgs, partial, ai = Commands.GetCurrentArg(text)
 						if typedArgs ~= nil then
+							--GetCurrentArg returns args and partial together, so partial is set here.
+							---@cast partial -nil
 							local ok, suggestions = pcall(macroInfo.completions, typedArgs, ai)
 							if ok and suggestions ~= nil then
 								-- Filter by partial prefix (case-insensitive)
@@ -1801,6 +1803,7 @@ CreateChatPanel = function()
 				end
 			end,
 			uparrow = function(element)
+				---@cast element Input
 				if CompletionsArrow("up") then
 					return
 				end
@@ -1833,6 +1836,7 @@ CreateChatPanel = function()
 				UpdateCompletions()
 			end,
 			downarrow = function(element)
+				---@cast element Input
 				if CompletionsArrow("down") then
 					return
 				end
@@ -1888,6 +1892,7 @@ CreateChatPanel = function()
 				end
 			end,
 			submit = function(element)
+				---@cast element Input
 
 				local completionText = GetAndClearCompletionSelected()
 				if completionText ~= nil then
@@ -1942,6 +1947,7 @@ CreateChatPanel = function()
 				--Does not include executing a command.
 			end,
 			slash = function(element)
+				---@cast element Input
 				element.hasFocus = true
 				element.text = "/"
 				element.caretPosition = 1

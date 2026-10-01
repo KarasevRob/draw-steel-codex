@@ -1393,7 +1393,7 @@ end
 --- @field text string
 --- @field customPanel nil|Panel
 --- @field placement nil|"left"|"right"
---- @field value boolean Whether the checkbox is checked or not.
+--- @field value? boolean Whether the checkbox is checked or not. Defaults to false.
 
 --- A check box.
 --- @param args CheckBoxArgs
@@ -2574,7 +2574,7 @@ local triangleStyles = {
 gui.TriangleStyles = triangleStyles
 
 --- @class TreeNodeArgs:PanelArgs
---- @field text string
+--- @field text? string
 --- @field panelHeight nil|number
 --- @field contentPanel Panel
 --- @field editable nil|boolean
@@ -2772,7 +2772,7 @@ end
 
 --- Given a panel, returns it nicely framed in a tooltip.
 --- @param panel Panel The panel containing the contents of the tooltip.
---- @param params PanelArgs
+--- @param params? PanelArgs
 --- @return Panel
 function gui.TooltipFrame(panel, params)
 	params = params or {}

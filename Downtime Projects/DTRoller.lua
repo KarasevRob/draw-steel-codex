@@ -11,7 +11,7 @@
 DTRoller = RegisterGameType("DTRoller")
 
 --- Creates a new downtime roller instance
---- @param object character|follower|DTRoll The entity to abstract for the roll
+--- @param object creature|follower|DTRoll The entity to abstract for the roll (anything else returns nil)
 --- @param mentorId? string The id of the object's mentor
 --- @return DTRoller|nil instance The new downtime roller instance
 function DTRoller.CreateNew(object, mentorId)
