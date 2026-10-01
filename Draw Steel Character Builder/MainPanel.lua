@@ -459,7 +459,7 @@ function CharacterBuilder.CreatePanel()
 
         removeAncestry = function(element)
             local state = element.data.state
-            local hero = _getHero(state)
+            local hero = _getHero()
             if hero and (hero:try_get("raceid") or hero:try_get("subraceid")) then
                 element:AddChild(CharacterBuilder._confirmDialog{
                     title = "Confirm Change Ancestry",
@@ -476,7 +476,7 @@ function CharacterBuilder.CreatePanel()
 
         removeCareer = function(element)
             local state = element.data.state
-            local hero = _getHero(state)
+            local hero = _getHero()
             if hero then
                 element:AddChild(CharacterBuilder._confirmDialog{
                     title = "Confirm Change Career",
@@ -492,7 +492,7 @@ function CharacterBuilder.CreatePanel()
 
         removeClass = function(element)
             local state = element.data.state
-            local hero = _getHero(state)
+            local hero = _getHero()
             if hero then
                 element:AddChild(CharacterBuilder._confirmDialog{
                     title = "Confirm Change Class",
