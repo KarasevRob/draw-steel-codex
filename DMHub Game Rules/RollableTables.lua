@@ -1223,7 +1223,10 @@ function RollTable:Roll(choiceIndex, collection, depth)
 					for i=1,quantity do
 						local dataTable = dmhub.GetTable(item.dataTable) or {}
 						local subtable = dataTable[item.key]
-						subtable:Roll(item:try_get("choiceIndex"), collection, depth+1)
+						--the row can point at a table that has since been deleted; it then adds nothing.
+						if subtable ~= nil then
+							subtable:Roll(item:try_get("choiceIndex"), collection, depth+1)
+						end
 					end
 				end
 			else
