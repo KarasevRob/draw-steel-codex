@@ -1095,12 +1095,22 @@ function ActivatedAbility.HasOperatedAbilities(token)
     return HasAbilityWithFlag(token, "operatedByAdjacentCreature")
 end
 
---- Can operatorToken use objectToken's operated abilities right now?
+--- Does this token have abilities it grants to adjacent creatures (a
+--- Candelabra's Throw)?
+--- @param token nil|CharacterToken
+--- @return boolean
+function ActivatedAbility.HasGrantedAbilities(token)
+    return HasAbilityWithFlag(token, "grantedToAdjacentCreatures")
+end
+
+--- Can operatorToken use objectToken's adjacent-creature abilities right now?
+--- Either kind counts, so clicking an object that only grants abilities still
+--- opens its operate bar.
 --- @param operatorToken nil|CharacterToken
 --- @param objectToken nil|CharacterToken
 --- @return boolean
 function ActivatedAbility.CanOperate(operatorToken, objectToken)
-    return ActivatedAbility.HasOperatedAbilities(objectToken) and IsAdjacentUser(operatorToken, objectToken)
+    return (ActivatedAbility.HasOperatedAbilities(objectToken) or ActivatedAbility.HasGrantedAbilities(objectToken)) and IsAdjacentUser(operatorToken, objectToken)
 end
 
 --Map-object tokens report hasTokenOnThisMap = false even when they are on this
@@ -1180,6 +1190,57 @@ function ActivatedAbility.GetGrantedAbilitiesFrom(objectToken, creatureToken)
         end
     end
     return result
+end
+
+--- The one ability creatureToken can use on objectToken, when the object has
+--- exactly one (a Candelabra's Throw); nil when it has none or several.
+--- Clicking such an object casts it straight away instead of opening the
+--- operate bar (TargetableObject:Operate).
+--- @param objectToken CharacterToken
+--- @param creatureToken CharacterToken
+--- @return nil|ActivatedAbility
+function ActivatedAbility.GetSingleAdjacentAbility(objectToken, creatureToken)
+    local list = ActivatedAbility.GetOperatedAbilities(objectToken, creatureToken)
+    for _, ability in ipairs(ActivatedAbility.GetGrantedAbilitiesFrom(objectToken, creatureToken)) do
+        list[#list+1] = ability
+    end
+    if #list == 1 then
+        return list[1]
+    end
+    return nil
+end
+
+--- Why a player may not use an adjacent-creature ability right now, or nil.
+--- Mirrors the action bar's greyed-chip rule: it only binds players under
+--- Strictly Enforce Action Economy and Resource Costs (strict:resources).
+--- @param ability ActivatedAbility from GetSingleAdjacentAbility
+--- @param creatureToken CharacterToken the creature using it (and paying)
+--- @param objectToken CharacterToken the object it comes from
+--- @return nil|string
+function ActivatedAbility.AdjacentAbilityBlockedReason(ability, creatureToken, objectToken)
+    if dmhub.isDM or not dmhub.GetSettingValue("strict:resources") then
+        return nil
+    end
+
+    --a granted ability is cast by the creature; an operated one by the object.
+    local caster = cond(ability.grantedToAdjacentCreatures, creatureToken, objectToken)
+
+    local filterMessage = ability:AbilityFilterFailureMessage(caster.properties)
+    if filterMessage ~= nil then
+        return filterMessage
+    end
+
+    local rid = ability:try_get("actionResourceId")
+    local turnBound = rid == CharacterResource.actionResourceId or rid == CharacterResource.maneuverResourceId or rid == CharacterResource.freeManeuverResourceId
+    local q = dmhub.initiativeQueue
+    if turnBound and q ~= nil and not q.hidden and not creatureToken.properties:IsOurTurn() then
+        return "Not your turn"
+    end
+
+    if not ability:GetCost(caster).canAfford then
+        return "Can't afford it"
+    end
+    return nil
 end
 
 --Tokens on the map with granted abilities, worked out once per frame:

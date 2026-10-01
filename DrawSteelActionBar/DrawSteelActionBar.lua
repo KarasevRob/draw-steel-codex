@@ -1427,6 +1427,29 @@ function DrawSteelActionBar.BeginOperating(operatorToken, objectToken)
     return true
 end
 
+--- Cast an object's only adjacent-creature ability straight from a click on
+--- the object (a Candelabra's Throw), without binding the bar to the object.
+--- Runs through invokeAbility, so the drawers hide while it is aimed and
+--- Escape or cancelling returns the bar to the creature.
+--- @param creatureToken CharacterToken the adjacent creature using it
+--- @param objectToken CharacterToken
+--- @param ability ActivatedAbility from ActivatedAbility.GetSingleAdjacentAbility
+function DrawSteelActionBar.CastAdjacentAbility(creatureToken, objectToken, ability)
+    if gamehud == nil or gamehud.actionBarPanel == nil then
+        return
+    end
+
+    DrawSteelActionBar._operate.EndOperating(true)
+    if g_currentAbility ~= nil and g_abilityController ~= nil then
+        g_abilityController:FireEvent("cancelCasting")
+    end
+
+    --a granted ability is the creature's own; an operated one is cast by the
+    --object, with the creature paying (operatorTokenId on the clone).
+    local caster = cond(ability.grantedToAdjacentCreatures, creatureToken, objectToken)
+    gamehud.actionBarPanel:FireEventTree("invokeAbility", caster, ability, {})
+end
+
 --- Stop operating an object and return the bar to the operator.
 function DrawSteelActionBar.EndOperating()
     DrawSteelActionBar._operate.EndOperating()
@@ -1541,7 +1564,8 @@ function DrawSteelActionBar._operate.Upkeep()
 
     if not operate.promptShown then
         operate.promptShown = DrawSteelActionBar.ShowCastPrompt{
-            text = string.format("Operating %s", creature.GetTokenDescription(operation.object)),
+            --"Using" for an object that only grants abilities (a Candelabra).
+            text = string.format("%s %s", cond(ActivatedAbility.HasOperatedAbilities(operation.object), "Operating", "Using"), creature.GetTokenDescription(operation.object)),
             choices = {
                 { text = "Stop", click = function() operate.EndOperating() end },
             },
@@ -11389,9 +11413,11 @@ CreateAbilityController = function()
 
             --An ability an object grants to the creatures next to it (a Field
             --Ballista's Move or Deactivate) can only target that object, so it
-            --starts with it targeted and goes ahead without a click on it.
+            --starts with it targeted and goes ahead without a click on it. One
+            --that targets a square (throwing a Candelabra) picks its square as
+            --usual.
             local grantingid = ability:try_get("grantingObjectTokenId")
-            if grantingid ~= nil and #g_targetsChosen == 0 then
+            if grantingid ~= nil and #g_targetsChosen == 0 and ability.targetType == "target" then
                 g_targetsChosen[1] = grantingid
                 ability = ability:MakeTemporaryClone()
                 ability.castImmediately = true

@@ -41,6 +41,8 @@ local mod = dmhub.GetModLoading()
 --- @field script string|nil Optional Lua zone-script source, edited in the Edit Script dialog. When set, one instance of the script runs on EVERY client for each zone of this keyword on the current map (Entire Map blankets included). The source must RETURN a table of handlers, all optional: create(zone), destroy(zone), locsChanged(zone), think(zone), and thinkInterval (seconds between think calls, default 1). destroy is guaranteed to run when the zone is de-instantiated: erased or deleted, its keyword deleted, the map changed, the script edited, or mods reloaded. If locsChanged is absent the script is restarted (destroy then create) whenever the zone's tiles change. The zone object passed to handlers carries zoneid/floorid/floorIndex/mapid, name, keyword (type name), keywordid, color, altitude, height (nil = unlimited), entireMap, locs (list of Loc userdata, ready for e.g. dmhub.CreateWorldDistortion), locsAndAdjacent (locs plus every tile 8-way adjacent to the zone; computed lazily on first read and refreshed when the zone's tiles change) and data (an empty scratch table for script state). No class default: absent = no script.
 --- @field entryEffectRule string|nil A rules-engine rule string (the same syntax as a power table tier, e.g. "3 fire damage; burning (save ends)") applied, with no roll, to any creature entering the area or starting its turn there. Same field name as Aura; copied onto zone auras (Aura:GetSimpleEntryEffectTrigger). Never applies to adjacent-only contact. No class default: absent = no entry effect.
 --- @field spreadsInto string|nil Id (environmentalKeywords key) of the keyword this keyword spreads into. At the end of each combat round, every zone record of that keyword sharing an edge (4-adjacency; corners do not count) with a zone of this keyword on the same floor becomes this keyword, is revealed to players, and each creature in it takes this keyword's entryEffectRule. Zones are snapshotted first, so the spread advances one zone per round (EnvironmentalKeyword.SpreadZonesAtEndOfRound). No class default: absent = no spread.
+--- @field objectKeyword string|nil An object keyword (the Core keywords on a map object, matched ignoring case, e.g. "burning"). When a Targetable object with it is in a zone of this keyword, the zone record becomes objectKeywordBecomes and is revealed to players, e.g. a burning Candelabra thrown into Flammable Oil setting it alight. Checked by the elected host every 0.7s, so it catches however the object got there (EnvironmentalKeyword.ObjectKeywordZoneTick). Only meaningful with objectKeywordBecomes. No class default: absent = none.
+--- @field objectKeywordBecomes string|nil Id (environmentalKeywords key) of the keyword a zone of this keyword becomes when an object with objectKeyword is in it. No class default: absent = none.
 --- @field mapFeature CharacterFeature|nil Map-wide features: modifiers granted to every creature on a map that has at least one zone of this keyword, anywhere on any floor (e.g. a trap's "Allied Awareness" ability). Each modifier's own filter decides which creatures take it. A player-controlled creature only counts zones that are visible to players, so a concealed trap never tips off the heroes. No class default: absent = none.
 --- @field mapid string|nil When set, this keyword is a map-scoped zone type: it was created from that map's Zone Types palette and is hidden from the compendium, other maps' palettes, and keyword dropdowns until promoted ("Make Available to All Maps" clears the field). No class default: absent = a full keyword.
 --- @field hidden? boolean Soft-delete flag (unhidden_pairs skips it); set when an unused map-scoped zone type is retired.
@@ -2561,6 +2563,56 @@ local SetData = function(tableName, keywordPanel, keyid)
 		},
 	}
 
+	--optional object trigger: a zone of this keyword with an object carrying
+	--the given object keyword in it becomes another keyword (e.g. a burning
+	--Candelabra setting Flammable Oil alight).
+	children[#children+1] = gui.Panel{
+		classes = {"formStackedRow"},
+		gui.Label{
+			classes = {"formStacked"},
+			text = "Changes When an Object With This Keyword Is In It:",
+			hover = gui.Tooltip("Optional. An object keyword (e.g. burning). When a targetable object with that keyword is in a zone of this type, however it got there, the zone becomes the type chosen below and is revealed to players."),
+		},
+		gui.Input{
+			classes = {"formStacked"},
+			width = "100%",
+			text = keyword:try_get("objectKeyword", "") or "",
+			placeholderText = "e.g. burning",
+			characterLimit = 64,
+			change = function(element)
+				local text = trim(element.text)
+				if text == "" then
+					keyword.objectKeyword = nil
+				else
+					keyword.objectKeyword = text
+				end
+				UploadKeyword()
+			end,
+		},
+	}
+	children[#children+1] = gui.Panel{
+		classes = {"formStackedRow"},
+		gui.Label{
+			classes = {"formStacked"},
+			text = "...and Becomes:",
+		},
+		gui.Dropdown{
+			classes = {"formStacked"},
+			options = spreadOptions,
+			idChosen = keyword:try_get("objectKeywordBecomes") or "none",
+			hasSearch = true,
+			change = function(element)
+				---@cast element Dropdown
+				if element.idChosen == "none" or element.idChosen == nil then
+					keyword.objectKeywordBecomes = nil
+				else
+					keyword.objectKeywordBecomes = element.idChosen --[[@as string]]
+				end
+				UploadKeyword()
+			end,
+		},
+	}
+
 	--list of modifiers that this keyword applies to affected creatures.
 	children[#children+1] = gui.Panel{
 		width = 800,
@@ -3258,6 +3310,78 @@ function EnvironmentalKeyword.ZoneSpreadRoundTick()
 	end
 end
 
+--- Object-triggered zone changes (EnvironmentalKeyword.objectKeyword /
+--- objectKeywordBecomes), e.g. a burning Candelabra thrown, dragged or pushed
+--- into Flammable Oil turning the whole patch into Burning Oil. Polled rather
+--- than hooked because nothing reports an object's moves to Lua. Runs on the
+--- elected host, in or out of combat; converting a record is idempotent
+--- (RewriteZoneRecords skips a record that already changed). Only Targetable
+--- objects count: they are the ones with tokens.
+function EnvironmentalKeyword.ObjectKeywordZoneTick()
+	if game.currentMap == nil or rawget(_G, "ActivatedAbilityTransformZoneBehavior") == nil then
+		return
+	end
+
+	--zone keyword id -> {objectKeyword (lower case), into}
+	local keywordsTable = dmhub.GetTable(EnvironmentalKeyword.tableName) or {}
+	local rules = nil
+	for k,keyword in unhidden_pairs(keywordsTable) do
+		local objectKeyword = trim(keyword:try_get("objectKeyword", "") or "")
+		local into = keyword:try_get("objectKeywordBecomes")
+		if objectKeyword ~= "" and type(into) == "string" and into ~= k and keywordsTable[into] ~= nil then
+			rules = rules or {}
+			rules[k] = { objectKeyword = string.lower(objectKeyword), into = into }
+		end
+	end
+	if rules == nil then
+		return
+	end
+
+	local electedHost = rawget(rawget(_G, "LiveEncounter") or {}, "IsElectedHost")
+	if electedHost == nil or not electedHost() then
+		return
+	end
+
+	local conversions = {}   --"from|to" -> {fromKeyword, toKeyword, zoneids, seen}
+	for _,tok in ipairs(dmhub.allTokensIncludingObjects or {}) do
+		if tok.valid and tok.isObject then
+			local component = tok.objectComponent
+			local levelObject = component ~= nil and component.levelObject or nil
+			local objectKeywords = levelObject ~= nil and levelObject.keywords or nil
+			if objectKeywords ~= nil then
+				local lowered = {}
+				for kw,_ in pairs(objectKeywords) do
+					lowered[string.lower(kw)] = true
+				end
+				for _,loc in ipairs(tok.locsOccupying or {}) do
+					for _,instance in ipairs(AuraInstancesCoveringSquare(loc)) do
+						local auraDef = instance:try_get("aura")
+						local fromId = auraDef ~= nil and auraDef:try_get("environmentalKeywordId") or nil
+						local rule = fromId ~= nil and rules[fromId] or nil
+						local zoneid = instance:try_get("guid")
+						if rule ~= nil and zoneid ~= nil and lowered[rule.objectKeyword] then
+							local key = fromId .. "|" .. rule.into
+							local entry = conversions[key]
+							if entry == nil then
+								entry = { fromKeyword = fromId, toKeyword = rule.into, zoneids = {}, seen = {} }
+								conversions[key] = entry
+							end
+							if not entry.seen[zoneid] then
+								entry.seen[zoneid] = true
+								entry.zoneids[#entry.zoneids+1] = zoneid
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	for _,entry in pairs(conversions) do
+		ActivatedAbilityTransformZoneBehavior.RewriteZoneRecords(entry.zoneids, entry.fromKeyword, entry.toKeyword, true)
+	end
+end
+
 --0.7s heartbeat, like the encounter-script driver. The Schedule chain never
 --overlaps itself and stops on hot reload via mod.unloaded.
 local function ScheduleZoneSpreadWatcher()
@@ -3268,6 +3392,10 @@ local function ScheduleZoneSpreadWatcher()
 		local ok, err = pcall(EnvironmentalKeyword.ZoneSpreadRoundTick)
 		if not ok then
 			print("ZONESPREAD:: round watcher failed:", tostring(err))
+		end
+		ok, err = pcall(EnvironmentalKeyword.ObjectKeywordZoneTick)
+		if not ok then
+			print("ZONESPREAD:: object keyword watcher failed:", tostring(err))
 		end
 		ScheduleZoneSpreadWatcher()
 	end)

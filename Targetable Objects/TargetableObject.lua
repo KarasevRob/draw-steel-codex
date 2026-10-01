@@ -68,21 +68,46 @@ function TargetableObject:GetOperateCommand(token, objectToken)
         return nil
     end
 
+    --An object with just one ability (a Candelabra's Throw) names it: the
+    --click casts it directly. When the rules won't allow it right now, the
+    --hover says why and the click does nothing.
+    local single = ActivatedAbility.GetSingleAdjacentAbility(objectToken, token)
+    if single ~= nil then
+        local reason = ActivatedAbility.AdjacentAbilityBlockedReason(single, token, objectToken)
+        return {
+            text = cond(reason == nil, single.name, string.format("%s (%s)", single.name, reason)),
+            cursor = "hand",
+        }
+    end
+
+    --"Use" for an object that only grants abilities (a Candelabra to throw).
+    local verb = cond(ActivatedAbility.HasOperatedAbilities(objectToken), "Operate", "Use")
     return {
-        text = string.format("Operate %s", creature.GetTokenDescription(objectToken)),
+        text = string.format("%s %s", verb, creature.GetTokenDescription(objectToken)),
         cursor = "hand",
     }
 end
 
---Engine hook: the Operate command was clicked. Switches the action bar to this
---object's abilities, operated by `token`.
+--Engine hook: the Operate command was clicked. An object with one ability
+--casts it straight away (Escape cancels; the action bar is never taken
+--over); one with several switches the action bar to them, operated by `token`.
 --- @param token CharacterToken
 --- @param objectToken CharacterToken
 function TargetableObject:Operate(token, objectToken)
     local actionBar = rawget(_G, "DrawSteelActionBar")
-    if actionBar ~= nil then
-        actionBar.BeginOperating(token, objectToken)
+    if actionBar == nil then
+        return
     end
+
+    local single = ActivatedAbility.GetSingleAdjacentAbility(objectToken, token)
+    if single ~= nil then
+        if ActivatedAbility.AdjacentAbilityBlockedReason(single, token, objectToken) == nil then
+            actionBar.CastAdjacentAbility(token, objectToken, single)
+        end
+        return
+    end
+
+    actionBar.BeginOperating(token, objectToken)
 end
 
 dmhub.CreateTargetableComponent = function()
