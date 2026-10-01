@@ -169,7 +169,8 @@ function DrawSteelActionBar.ClearCastHint()
     DrawSteelActionBar.ShowCastPrompt(nil)
 end
 
---- @type nil|Panel
+--Set in CreateActionBar, before any handler that reads it can run.
+--- @type Panel
 local g_triggerPanel = nil
 
 --- @type nil|Panel
@@ -539,7 +540,8 @@ local function SquadIsActiveMinionToken(tok)
     return false
 end
 
---- @type nil|Panel
+--Set in CreateAbilityController, before any handler that reads it can run.
+--- @type Panel
 local g_channeledResourcePanel
 
 local g_casterTokenStack = {}
@@ -2953,6 +2955,8 @@ local function ActionBarDrawer(args)
             },
 
             refresh = function(element)
+                --Fired from the root refresh, which halts propagation when there is no token.
+                ---@cast g_creature -nil
                 local movementSpeed = math.max(0, g_creature:CurrentMovementSpeed())
                 local moved = g_creature:DistanceMovedThisTurn()
 
@@ -3162,6 +3166,8 @@ local function ActionBarDrawer(args)
 
         refresh = function(element)
             if g_token == nil then return end
+            --g_creature is always set alongside g_token (g_token.properties).
+            ---@cast g_creature -nil
             local newToken = g_token.charid ~= element.data.lastcharid
 
             element.data.lastcharid = g_token.charid
@@ -3342,6 +3348,8 @@ local function ActionBarDrawer(args)
 
                 local isAvailable = true
                 if m_resourceid ~= nil then
+                    --m_resourceid is cleared at construction whenever m_resourceInfo is missing.
+                    ---@cast m_resourceInfo -nil
                     local usage = g_creature:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
                     local available = (g_resources[m_resourceid] or 0) - usage
                     isAvailable = count > 0 or available > 0
@@ -3401,6 +3409,7 @@ local function ActionBarDrawer(args)
             local hideAbilityIcon = true
 
             if m_resourceid ~= nil then
+                ---@cast m_resourceInfo -nil
                 local usage = DrawSteelActionBar._operate.ResourceToken().properties:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
                 local available = (g_resources[m_resourceid] or 0) - usage
 
@@ -3482,6 +3491,7 @@ local function ActionBarDrawer(args)
                 press = function(element)
                     if g_creature == nil or g_token == nil then return end
                     if m_resourceid ~= nil then
+                        ---@cast m_resourceInfo -nil
                         local tok = DrawSteelActionBar._operate.ResourceToken()
                         local usage = tok.properties:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
                         local available = (g_resources[m_resourceid] or 0) - usage
@@ -3580,6 +3590,10 @@ local function CreateTriggerReactionPanel()
             element:FireEvent("think")
         end,
         think = function(element)
+            --thinkTime stays set after the countdown expires and clears m_state.
+            if m_state == nil then
+                return
+            end
             local time = dmhub.Time()
             local elapsed = time - m_stateBaseline
             local r = ((m_state.current + elapsed) - m_state.start)/(m_state.expire - m_state.start)
@@ -4319,6 +4333,8 @@ local function AbilityHeading(args)
         end,
 
         rightClick = function(element)
+            --A chip is only shown once its "ability" event has bound m_ability.
+            ---@cast m_ability -nil
             local entries = {}
             entries[#entries + 1] = {
                 text = 'Share to Chat',
@@ -4351,6 +4367,7 @@ local function AbilityHeading(args)
                 end
 
                 if innateAbility then
+                    ---@cast innateAbility -nil
                     entries[#entries + 1] = {
                         text = 'Edit Ability',
                         click = function()
@@ -4360,6 +4377,9 @@ local function AbilityHeading(args)
                                 close = function()
                                     --resolved at close time, as the original g_token read was.
                                     local tok = CasterToken()
+                                    if tok == nil then
+                                        return
+                                    end
                                     tok:ModifyProperties{
                                         description = "Edit Innate Ability",
                                         execute = function()
@@ -4868,6 +4888,9 @@ local function TriggerPreviewPanel()
                 text = 'Share to Chat',
                 click = function()
                     element.popup = nil
+                    if g_token == nil then
+                        return
+                    end
                     chat.ShareObjectInfo(nil, nil, { charid = g_token.charid, ability = m_trigger })
                 end,
             }
@@ -7143,6 +7166,8 @@ local function OverviewColumnFooter()
                 return
             end
 
+            --The prompt is dropped above whenever there is no column.
+            ---@cast m_column -nil
             local name = m_column.name or "creature"
             if prompt.ability ~= nil then
                 promptLabel.text = string.format("Choose which %s uses %s", name, prompt.ability.name)
@@ -8670,6 +8695,10 @@ ActionMenu = function()
                 }
                 m_commonSignatureWrapper.children = { m_abilitiesSubmenu, m_spacer, m_signatureSubmenu }
             end
+            --All three are created together with m_commonSignatureWrapper above.
+            ---@cast m_abilitiesSubmenu -nil
+            ---@cast m_signatureSubmenu -nil
+            ---@cast m_spacer -nil
             m_abilitiesSubmenu:FireEventTree("abilities", abilitiesByGrouping["Abilities"], "Abilities")
             m_signatureSubmenu:FireEventTree("abilities", abilitiesByGrouping["Signature Abilities"], "Signature Abilities")
             m_spacer:SetClass("collapsed", abilitiesByGrouping["Signature Abilities"] == nil)
@@ -9036,6 +9065,9 @@ local function AdoptLineOfSightMark()
     if m_markLineOfSight == nil then
         return
     end
+    --Both tokens are assigned together with m_markLineOfSight.
+    ---@cast m_markLineOfSightSourceToken -nil
+    ---@cast m_markLineOfSightToken -nil
     SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id),
         m_markLineOfSight)
     m_markLineOfSight = nil
@@ -9058,6 +9090,8 @@ local function ClearLineOfSightMark()
 end
 
 -- Casting Triggers.
+--Assigned together with a non-empty m_castingTriggers, the only state it is read in.
+--- @type table<string, boolean>
 local m_castingTriggersCache = nil
 local m_castingTriggers = nil
 local m_castingTriggersOwnerPanel = nil
@@ -9186,6 +9220,9 @@ local function CreateTargetInfo(spell)
         guid = dmhub.GenerateGuid(),
         action = spell,
         execute = function(targetToken, info) --info has {targetEffect = {list of effect panels}}
+            --Target reticules only exist while a cast is being targeted.
+            ---@cast g_token -nil
+            ---@cast g_currentAbility -nil
             -- Squad coordinated strike: clicking a squad minion arms a lock for
             -- that minion (click again to disarm); the next enemy click locks
             -- the pair, making that minion the creature's main attacker.
@@ -9410,6 +9447,8 @@ local AddRadiusMarker = function(locOverride, radius, color, filterFunction)
     if g_currentAbility ~= nil then
         tokenCasting = g_currentAbility:GetRangeSource(g_token)
     end
+    --Only called while targeting a cast, when g_token is the caster.
+    ---@cast tokenCasting -nil
 
 
     local locs = tokenCasting.locsOccupying
@@ -9505,6 +9544,8 @@ local function DistanceFromCasterInTiles(loc)
     if g_currentAbility ~= nil then
         tokenCasting = g_currentAbility:GetRangeSource(g_token)
     end
+    --Only called while targeting a cast, when g_token is the caster.
+    ---@cast tokenCasting -nil
 
     local best = nil
     for _, occLoc in ipairs(tokenCasting.locsOccupying) do
@@ -9647,6 +9688,8 @@ local m_altitudeController
 local m_shiftController
 
 local g_ammoChoicePanel = nil
+--Set in CreateAbilityController, before any cast can read it.
+--- @type Panel
 local g_synthesizedSpellsPanel = nil
 local g_castChargesInput = nil
 
@@ -10814,6 +10857,8 @@ CreateAbilityController = function()
                 element:SetClass("collapsed", true)
                 return
             end
+            --A cast is in progress, so g_token is its caster.
+            ---@cast g_token -nil
 
             local changeMode = false
             local children = {}
@@ -11926,6 +11971,8 @@ CreateAbilityController = function()
 
             g_castMessage.data.promptText = promptText
             g_castMessage:FireEvent("refresh")
+            --This handler is part of the ability controller, so it exists.
+            ---@cast g_abilityController -nil
             g_abilityController:SetClass("collapsed", false)
             g_castButton:FireEvent("setVisible", false)
 
@@ -12043,7 +12090,7 @@ CreateAbilityController = function()
         end,
 
         highlightTargetToken = function(element, targetToken)
-            if g_token == nil or not g_token.valid then
+            if g_token == nil or not g_token.valid or g_currentAbility == nil then
                 return
             end
             element:FireEvent("unhighlightTargetToken")
@@ -12986,6 +13033,8 @@ CreateAbilityController = function()
                 if g_currentAbility ~= nil then
                     numTargets = g_currentAbility:GetNumTargets(g_token, g_currentSymbols)
                 end
+                --maphover returned at its top when no ability is being cast.
+                ---@cast g_currentAbility -nil
 
                 if numTargets > 1 or targetingType == "pathfind" or (g_pointTargeting.shapeConfirmedLoc ~= nil and g_pointTargeting.shapeConfirmedLoc.str == startingLoc.str) then
                     g_pointTargeting.shapeRequiresConfirm = false
@@ -13034,6 +13083,7 @@ CreateAbilityController = function()
                             tostring(g_token and g_token.floorIndex or "nil")))
                     end
                 end
+                ---@cast g_currentAbility -nil
 
                 --For cube targeting, anchor the cube's bottom at the altitude the
                 --altitude controller has resolved on the hovered loc (ground by default,
@@ -13777,6 +13827,8 @@ CreateAbilityController = function()
                 --so the attack cross-section goes with it.
                 CrossSection.ClearAttack()
                 if m_markLineOfSight ~= nil then
+                    ---@cast m_markLineOfSightSourceToken -nil
+                    ---@cast m_markLineOfSightToken -nil
                     SetTargetLineOfSightRayForKey(
                         string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id),
                         m_markLineOfSight)
@@ -13877,6 +13929,9 @@ local function CalculateSpellTargetFocusing(symbols)
 
     local potentialTargetTokens = {}
     if g_currentAbility == nil then return potentialTargetTokens end
+    --A cast is in progress, so g_token (and its g_creature) is the caster.
+    ---@cast g_token -nil
+    ---@cast g_creature -nil
     local spell = g_currentAbility
     --DIAG: slider position, hoisted for the trace at the end of the function.
     --A stuck "Objects" is what explains an armed=0 pass. nil = never resolved.

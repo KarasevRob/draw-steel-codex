@@ -13,7 +13,8 @@ Compendium.Register{
 
 ShowShopPanel = function(parentPanel)
     local m_couponMonitor = nil
-    ---@type ShopItemLua?
+    --Set by editingPanel's item event before the panel is first shown, never cleared.
+    ---@type ShopItemLua
     local m_item = nil
 
     --Left-list view state, shared between the editing panel's Hidden checkbox

@@ -1987,6 +1987,8 @@ local CreateSpellRow = function(options)
 			classes = {"spellIcon", "icon"},
 			halign = "left",
 			refreshSpell = function(element)
+				--the row's own refreshSpell (fired first) has already stored the spell.
+				---@cast m_spell -nil
 				element.bgimage = m_spell:GetIcon()
 				element.selfStyle = m_spell:GetIconDisplay()
 			end,
@@ -1996,6 +1998,7 @@ local CreateSpellRow = function(options)
 		gui.Label{
 			classes = {"spellNameLabel"},
 			refreshSpell = function(element)
+				---@cast m_spell -nil
 				element.text = m_spell.name
 			end,
 		},
@@ -2011,6 +2014,7 @@ local CreateSpellRow = function(options)
 
 		gui.ImplementationStatusIcon{
 			refreshSpell = function(element)
+				---@cast m_spell -nil
 				element:FireEvent("implementation", m_spell:try_get("implementation", 1))
 			end,
 		},

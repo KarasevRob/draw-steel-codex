@@ -12346,6 +12346,7 @@ CreateAudioStudio = function()
 			libraryNormalGroup:SetClass("collapsed", active)
 			libraryBuildGroup:SetClass("collapsed", not active)
 			if active then
+				---@cast m_studioBuildMode -nil
 				local targetName
 				if m_studioBuildMode.poolid ~= nil then
 					targetName = VariantPools.Name(m_studioBuildMode.poolid) or "variant pool"

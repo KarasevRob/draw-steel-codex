@@ -386,6 +386,8 @@ local ShowAppearanceDialog = function(keyword, UploadKeyword, onChanged)
 	end
 
 	local modalLayer = nil
+	--assigned below, before the dialog is shown or any handler can run.
+	---@type Panel
 	local dialogPanel = nil
 
 	local Commit = function()
@@ -1685,6 +1687,8 @@ end
 --an unedited starter template is never saved.
 ZoneScripts.ShowDialog = function(keyword, UploadKeyword, onChanged)
 	local modalLayer = nil
+	--assigned below, before the dialog is shown or any handler can run.
+	---@type Panel
 	local dialogPanel = nil
 
 	local Commit = function(text)

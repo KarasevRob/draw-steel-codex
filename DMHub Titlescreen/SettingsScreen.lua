@@ -5024,6 +5024,8 @@ local CreateEmailConfirmationPanel = function()
 		removeRow:SetClass("collapsed", removing == false)
 
 		if removing then
+			--removing requires HasStoredAddress(), so m_state is set.
+			---@cast m_state table
 			removeLabel.text = string.format("Remove %s? We'll delete the address from your account and stop sending you email. You can add one again at any time. Your sign-in account is not affected.", m_state.email)
 		end
 
@@ -6343,6 +6345,8 @@ function CreateSettingsScreen(dialog, args)
 				end
 
 				m_selectedTab = args.text
+				--assigned at the end of construction, before any input can arrive.
+				---@cast m_screenRoot -nil
 				m_screenRoot:FireEventTree("refreshTab")
 			end,
 		}
@@ -6983,6 +6987,9 @@ function CreateSettingsScreen(dialog, args)
 						end
 					end,
 					edit = function(element)
+						--assigned at the end of construction; create (which can fire
+						--edit) runs from Start(), a frame later.
+						---@cast m_screenRoot -nil
 						if element.text ~= "" then
 							m_screenRoot:FireEventTree("forceBuild")
 						end

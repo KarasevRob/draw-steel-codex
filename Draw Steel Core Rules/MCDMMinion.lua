@@ -1811,6 +1811,11 @@ DrawSteelMinion.SquadHud = function(floorid, squad)
 
                         m_lock:SetClass("hidden", squad.pos == nil)
 
+                        --calculate leaves these unset while the squad has no valid tokens.
+                        if m_pos == nil or m_targetPos == nil then
+                            return
+                        end
+
                         m_pos.x = m_pos.x + (m_targetPos.x - m_pos.x) * 0.1
                         m_pos.y = m_pos.y + (m_targetPos.y - m_pos.y) * 0.1
 

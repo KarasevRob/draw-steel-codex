@@ -409,12 +409,15 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 	---@type ActivatedAbility?
 	local currentSpell = nil
 
+    ---@type nil|function
     local m_allowedAltitudeCalculator = nil
 
 	--symbols for the ability being used. Includes upcasting and things.
 	local currentSymbols = { mode = 1, charges = 1 }
 
+    ---@type table<string, boolean>|nil
     local m_castingTriggersCache = nil
+    ---@type table[]|nil
     local m_castingTriggers = nil
     local m_castingTriggersOwnerPanel = nil
 
@@ -448,6 +451,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 
 	local resourcePanels
 
+	--set while an ability is being targeted (spell panel focus), nil otherwise.
+	---@type nil|fun(forceCast?: boolean)
 	local CurrentCalculateSpellTargeting = nil
 	local CalculateSpellTargetFocusing = nil
 	local spellRange = nil
@@ -490,6 +495,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 					height = 24,
 
 					press = function(element)
+						--the loadout panel is only built and shown while a token is selected.
+						---@cast token -nil
 						token:ModifyProperties{
 							description = "Change loadout",
 							execute = function()
@@ -548,6 +555,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 				},
 
 				refreshLoadout = function(element)
+					--only fired by GetLoadoutPanel, which recalculate calls after its token check.
+					---@cast token -nil
 					local equipment = token.properties:Equipment()
 					local gearTable = dmhub.GetTable("tbl_Gear")
 					local highestSlotUsed = 0
@@ -621,6 +630,9 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
     end
 
 	local AddRadiusMarker = function(locOverride, radius, color, filterFunction)
+        if token == nil then
+            return
+        end
         local tokenCasting = token
         if currentSpell ~= nil then
 		    tokenCasting = currentSpell:GetRangeSource(token)
@@ -708,6 +720,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 		end
 
 		if spellPanel == nil then
+			--assigned below before any closure built in this branch can run.
+			---@cast spellPanel Panel
 
 			local SetTargetsInRadius = function(tokens)
 
@@ -805,6 +819,9 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         targets = currentSpell:PrepareTargets(token, currentSymbols, targets)
 
                         if m_markLineOfSight ~= nil then
+                            --highlightTargetToken sets these two whenever it sets m_markLineOfSight.
+                            ---@cast m_markLineOfSightSourceToken -nil
+                            ---@cast m_markLineOfSightToken -nil
                             SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid), m_markLineOfSight)
                             m_markLineOfSight = nil
                             m_markLineOfSightToken = nil
@@ -1209,6 +1226,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 				end,
 
 				clearreactions = function(element)
+					--only fired from focus, which needs a selected token.
+					---@cast token -nil
 					if token.properties:has_key("activeReactions") then
 						for _,reaction in ipairs(token.properties.activeReactions) do
 							if TimestampAgeInSeconds(reaction.timestamp) < 30 and reaction.ability == spell.name then
@@ -1233,6 +1252,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 				end,
 
 				refreshSpell = function(element, newSpell)
+					--spell panels are only built (and refreshed) for a selected token.
+					---@cast token -nil
 					spell = newSpell
 
                     local isManeuver = spell:IsManeuver()
@@ -1288,6 +1309,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 								end
 
                                 if m_markLineOfSight ~= nil and m_markLineOfSightToken ~= nil and m_markLineOfSightToken.charid == targetToken.id then
+                                    --set together with m_markLineOfSight in highlightTargetToken.
+                                    ---@cast m_markLineOfSightSourceToken -nil
 
                                     SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.charid, targetToken.id), m_markLineOfSight)
 
@@ -1350,6 +1373,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 						return
 					end
 
+					--the action bar is hidden whenever no token is selected, so it cannot be hovered then.
+					---@cast token -nil
 					for _,reaction in ipairs(token.properties:try_get("activeReactions", {})) do
 						local tmp_reactionsCleared = token.properties:try_get("_tmp_reactionsCleared", {})
 						if TimestampAgeInSeconds(reaction.timestamp) < 30 and reaction.ability == spell.name and (not tmp_reactionsCleared[reaction.guid]) then
@@ -1428,6 +1453,10 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 					if spell == nil then
 						return
 					end
+
+					--a spell panel is only focused from the visible action bar (or invokeAbility,
+					--which selects the caster first), so a token is selected.
+					---@cast token -nil
 
                     pointTargetShapeRequiresConfirm = false
                     pointTargetShapeConfirmedLoc = nil
@@ -1688,6 +1717,11 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         return
                     end
 
+                    --this panel only monitors characters while it is focused with casting triggers;
+                    --ClearCastingTriggers stops the monitor when it clears them.
+                    ---@cast m_castingTriggers -nil
+                    ---@cast m_castingTriggersCache -nil
+                    ---@cast CurrentCalculateSpellTargeting -nil
                     for i=1,#m_castingTriggers do
                         local triggerToken = dmhub.GetTokenById(m_castingTriggers[i].charid)
                         if triggerToken ~= nil and triggerToken.valid then
@@ -1855,6 +1889,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                     if token == nil or not token.valid then
                         return
                     end
+                    --fired on the focused spell panel; focus sets currentSpell and defocus clears it.
+                    ---@cast currentSpell -nil
                     print("MARK:: UNHIGHLIGHT")
 					element:FireEvent("unhighlightTargetToken")
 
@@ -1910,6 +1946,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 				end,
 
 				rightClick = function(element)
+					--the action bar is hidden whenever no token is selected, so it cannot be clicked then.
+					---@cast token -nil
 
 					local entries = {}
 					entries[#entries+1] = {
@@ -2078,6 +2116,10 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 						spellPanel:FireEvent('cancel')
                         return
 					end
+
+                    --map events only reach the focused (mapfocus) spell panel, and focus sets
+                    --currentSpell; the altitude controller re-fires this only while it is shown.
+                    ---@cast currentSpell -nil
 
                     local _ = g_profileMapHover.Begin
 
@@ -2479,6 +2521,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 						pointTargetShape = nil
 					end
 
+					--the "if currentSpell ~= nil" above re-widens the type; see the cast at the top.
+					---@cast currentSpell -nil
 					local selfTarget = currentSpell:try_get("selfTarget", false)
 					local targetTokens = self.tokenInfo.TokensInShape(pointTargetShape)
                     if not pathfinding then
@@ -2632,6 +2676,13 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         loc = info.loc
                     end
 
+                    --the selection can be cleared mid-cast (maphover handles the same case above).
+                    if token == nil then
+                        return
+                    end
+                    --map events only reach the focused (mapfocus) spell panel, and focus sets currentSpell.
+                    ---@cast currentSpell -nil
+
                     local shape = spell.targetType
 
 					local locOverride = spell:try_get("casterLocOverride")
@@ -2708,6 +2759,9 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         targets = currentSpell:PrepareTargets(token, currentSymbols, targets)
 
                         if m_markLineOfSight ~= nil then
+                            --highlightTargetToken sets these two whenever it sets m_markLineOfSight.
+                            ---@cast m_markLineOfSightSourceToken -nil
+                            ---@cast m_markLineOfSightToken -nil
                             SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid), m_markLineOfSight)
                             m_markLineOfSight = nil
                             m_markLineOfSightToken = nil
@@ -2817,7 +2871,7 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         alt = alt-1
                     end
 
-                    if element.data.currentLocInfo.loc ~= nil then
+                    if element.data.currentLocInfo.loc ~= nil and m_allowedAltitudeCalculator ~= nil then
                         local minAltitude, maxAltitude = m_allowedAltitudeCalculator(element.data.currentLocInfo.loc)
                         alt = math.clamp(alt, minAltitude, maxAltitude)
                     end
@@ -2865,6 +2919,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                 if info.loc == nil then
                     return
                 end
+                --the "loc" event is only fired after checking the calculator is set.
+                ---@cast m_allowedAltitudeCalculator -nil
                 local minAltitude, maxAltitude = m_allowedAltitudeCalculator(info.loc)
                 local target = m_altitudeController.data.target
                 local alt = info.loc.altitude
@@ -3125,6 +3181,9 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 		end,
 
 		select = function(element, level)
+			--level buttons are only shown while an ability is being cast; focus sets both of these.
+			---@cast currentCostProposal -nil
+			---@cast CurrentCalculateSpellTargeting -nil
 
 			for i,info in ipairs(currentCostProposal.details) do
 				if #info.paymentOptions > 0 and info.paymentOptions[1].level ~= nil then
@@ -3187,6 +3246,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 				return
 			end
 
+			--focusspell is fired after focus (or a cost change) has set the cost proposal.
+			---@cast currentCostProposal -nil
 			local castingLevel = currentSpell.level + (currentSymbols.upcast or 0)
 			local availableLevels = {}
 			local validLevels = {}
@@ -3308,6 +3369,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 				return
 			end
 
+			--focusspell only runs while an ability is being cast, which needs a selected token.
+			---@cast token -nil
 			local resources = token.properties:GetResources()[resource.id] or 0
 			local resourcesAvailable = resources - token.properties:GetResourceUsage(resource.id, resource.usageLimit)
 			local baseCost = 0
@@ -3368,6 +3431,10 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 		end,
 
 		select = function(element, charges)
+			--channel buttons are only shown while an ability is being cast; focus sets all of these.
+			---@cast currentSpell -nil
+			---@cast token -nil
+			---@cast CurrentCalculateSpellTargeting -nil
 
 			--recalculate with the new cost proposal.
 			currentCostProposal = currentSpell:GetCost(token, {charges = charges, mode = currentSymbols.mode})
@@ -3400,6 +3467,9 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 		edit = function(element)
 			local charges = tonumber(element.text)
 			if charges ~= nil then
+				--the input is only shown while an ability is being cast (defocus collapses it and
+				--clears its text, which leaves charges nil).
+				---@cast currentSpell -nil
 				currentCostProposal = currentSpell:GetCost(token, {charges = charges*currentSpell:ChannelIncrement(), mode = currentSymbols.mode})
 				currentSymbols.charges = charges
 				currentSymbols.upcast = Spell.CalculateUpcast(currentCostProposal).upcast
@@ -3508,6 +3578,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 
 							resourcesBar:FireEventTree("cost", currentCostProposal)
 
+							--ammo choices are only offered while an ability is being cast.
+							---@cast CurrentCalculateSpellTargeting -nil
 							CurrentCalculateSpellTargeting()
 						end,
 
@@ -3607,6 +3679,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 			local changeMode = false
 			local children = {}
 
+			--refreshModes only runs while an ability is being cast, which needs a selected token.
+			---@cast token -nil
 			for i,mode in ipairs(currentSpell.modeList) do
 				local available = true
 				if mode.condition ~= nil and mode.condition ~= "" then
@@ -3627,6 +3701,11 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 
 						press = function(element)
 							currentSymbols.mode = i
+							--refreshModes can schedule this press 0.05s ahead; the cast may have
+							--finished (defocus) by the time it fires.
+							if currentSpell == nil or CurrentCalculateSpellTargeting == nil then
+								return
+							end
 							currentCostProposal = currentSpell:GetCost(token, { mode = currentSymbols.mode })
 							CurrentCalculateSpellTargeting()
 							resourcesBar:FireEventTree("cost", currentCostProposal)
@@ -3713,6 +3792,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                         g_preferredForcedMovementType:Set(moveType)
                         currentSymbols.forcedmovement = moveType
 
+                        --these buttons are only shown while an ability is being cast.
+                        ---@cast CurrentCalculateSpellTargeting -nil
                         CurrentCalculateSpellTargeting()
 
                         castMessage:FireEvent("refresh")
@@ -3824,6 +3905,9 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 
 					element.data.resourceBar:FireEvent('recalculate', m_token, m_token.properties)
 				else
+					--a cost proposal only exists while an ability is being cast, and focus sets
+					--CurrentCalculateSpellTargeting alongside it.
+					---@cast CurrentCalculateSpellTargeting -nil
 
 					for i,info in ipairs(currentCostProposal.details) do
 						local index = nil
@@ -3865,6 +3949,8 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 					local isoption = false
 					local isselected = false
 					local illegal = false
+					--focusspell is fired after focus (or a cost change) has set the cost proposal.
+					---@cast currentCostProposal -nil
 					for i,info in ipairs(currentCostProposal.details) do
 						for j,option in ipairs(info.paymentOptions) do
 							if option.resourceid == element.data.resourceid then

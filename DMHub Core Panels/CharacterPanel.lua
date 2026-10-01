@@ -1237,6 +1237,7 @@ local function CreateMonsterEntry(nodeid, startHidden)
                         text = 'Edit Monster',
                         click = function(element)
                             local monster = node.monster
+                            ---@cast monster -nil
 
                             local token = monster:GetLocalGameBestiaryToken()
                             if token == nil then
@@ -1276,6 +1277,7 @@ local function CreateMonsterEntry(nodeid, startHidden)
 
                     if devmode() then
                         local monster = node.monster
+                        ---@cast monster -nil
                         if monster.properties:has_key("import") then
                             menuItems[#menuItems + 1] = {
                                 text = cond(monster.properties.import.override, 'Revert Override', 'Override Import'),
@@ -2347,6 +2349,8 @@ end
 --similar to a bestiary entry but is an entry for a live character.
 CharacterPanel.CreateCharacterEntry = function(charid, party)
     local token = dmhub.GetCharacterById(charid)
+    --callers pass the id of a live character; token is never reassigned below.
+    ---@cast token -nil
     local creature = token.properties
 
     if creature == nil then
@@ -4296,6 +4300,8 @@ CharacterPanel.CreatePinnedCharacterPanel = function(charid, options)
                 element.children = { summaryPanel, detailsPanel }
                 createdDetailsPanel = true
             end
+            --built together with summaryPanel just above.
+            ---@cast detailsPanel -nil
 
             summaryPanel:SetClass("collapsed", false)
             detailsPanel:SetClass("collapsed", false)

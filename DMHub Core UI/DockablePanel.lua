@@ -1024,7 +1024,9 @@ CreateDockablePanelTabbedContainer = function(options)
 
 	local metrics = CalculatePanelMetrics()
 
-	---@type Panel?
+	--Set by the "dock" event, which addPanel/addPanelNoSize fire right after every
+	--container is built, so no UI handler below can run before it is set.
+	---@type Panel
 	local dock = nil
 
 	---@type Panel

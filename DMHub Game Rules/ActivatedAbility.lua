@@ -2127,6 +2127,7 @@ function ActivatedAbility:FireUseAbility(casterToken, options)
 		local persistence = self:Persistence()
 		if persistence ~= nil and persistence.enabled and dmhub.initiativeQueue ~= nil and (not dmhub.initiativeQueue.hidden) then
 			local q = dmhub.initiativeQueue
+			---@cast q -nil
 			
 			local targets = {}
 			for _,target in ipairs(options.targets or {}) do

@@ -355,7 +355,8 @@ local CreateInventorySlot = function(dmhud, options)
 	local slotPanel = nil
 
 	--will be populated with the parent dialog that owns this.
-	---@type Panel?
+	--SetSlot sets it before any item is shown, and every reader needs an item.
+	---@type Panel
 	local parentDialog = nil
 
 	local testVisibilityFunction = nil
@@ -373,6 +374,8 @@ local CreateInventorySlot = function(dmhud, options)
 		draggable = false,
 
 		canDragOnto = function(element, target)
+			--the icon is only draggable while the slot holds an item.
+			---@cast item -nil
 			if options.rearrange and target.data.singleInventorySlot and token ~= nil and target.data.GetToken() == token then
 				return target.data.GetGuid() ~= gui --return true as long as it's not literally the same slot.
 			elseif token ~= nil and target.data.GetToken ~= nil and target.data.GetToken() == token then
@@ -422,6 +425,8 @@ local CreateInventorySlot = function(dmhud, options)
 
 		events = {
 			drag = function(element, target)
+				--the icon is only draggable while the slot holds an item.
+				---@cast item -nil
 				if target ~= nil then
 					if target.data.singleInventorySlot then
 						--rearrange a slot.
@@ -610,6 +615,9 @@ local CreateInventorySlot = function(dmhud, options)
 			change = function(element)
 				local price = tonumber(element.text)
 				if price ~= nil and priceDisplayCurrency ~= nil then
+					--the price is only shown for a shop slot holding an item.
+					---@cast token -nil
+					---@cast item -nil
 					token:BeginChanges()
 					token.properties:SetItemPrice(item.id, {[priceDisplayCurrency] = price})
 					printf("PRICE:: %s -> %s : %s", item.id, json({[priceDisplayCurrency] = price}), json(token.properties:GetItemPrice(item.id)))
@@ -1770,6 +1778,8 @@ function GameHud.CreateInventoryDialog(self, options)
 				local unarrangedInventory = inventory
 				local arrangedInventory = {}
 				if not basicInventory then
+					--an opened token dialog always has its token.
+					---@cast token -nil
 					--refresh the inventory from the token.
 					token.properties:SanitizeInventory()
 					inventory = token.properties.inventory
@@ -2231,6 +2241,8 @@ function GameHud.CreateInventoryDialog(self, options)
 				end,
 
 				linger = function(element)
+					--currency icons are only visible in an opened token dialog.
+					---@cast token -nil
 					local currencyTable = dmhub.GetTable(Currency.tableName) or {}
 					local currency = currencyTable[id]
 					if currency == nil then
@@ -2302,6 +2314,8 @@ function GameHud.CreateInventoryDialog(self, options)
 					text = '5',
 					events = {
 						change = function(element)
+							--only editable while an opened token dialog shows it.
+							---@cast token -nil
 							local baseval = 0
 							local mult = 1
 							local val = element.text
@@ -2393,6 +2407,8 @@ function GameHud.CreateInventoryDialog(self, options)
 				valign = "center",
 
 				press = function(element)
+					--only pressable while an opened token dialog shows it.
+					---@cast token -nil
 					local val = {}
 					for i,currency in ipairs(standardEntry) do
 						local currencyid = currency.id
@@ -2454,6 +2470,8 @@ function GameHud.CreateInventoryDialog(self, options)
 			end,
 
 			hover = function(element)
+				--only hoverable while an opened token dialog shows it.
+				---@cast token -nil
 				local capacity = token.properties:CarryingCapacity()
 				local weight = round(token.properties:GetInventoryWeight()*100)*0.01
 				local text = string.format("Weight: %s lbs.", tostring(weight))
@@ -2483,7 +2501,8 @@ function GameHud.CreateInventoryDialog(self, options)
 				hmargin = 4,
 				text = "Encumbrance",
 				refreshInventory = function(element)
-					if permanentOptions.isshop then
+					--no _opened check here, so this also runs on a dialog never opened.
+					if permanentOptions.isshop or token == nil then
 						return
 					end
 
@@ -2527,6 +2546,8 @@ function GameHud.CreateInventoryDialog(self, options)
 					editable = true,
 					refreshInventory = function(element)
 						if permanentOptions.isshop then
+							--isshop is only set by open(), which sets the token.
+							---@cast token -nil
 							element.text = tonumber(token.properties.discount)
 						end
 					end,
@@ -2535,6 +2556,8 @@ function GameHud.CreateInventoryDialog(self, options)
 						local n = tonumber(element.text)
 						if n ~= nil then
 							n = round(n)
+							--only editable while an opened shop dialog shows it.
+							---@cast token -nil
 							token:BeginChanges()
 							token.properties.discount = n
 							token:CompleteChanges("Changed discount")
@@ -2574,6 +2597,8 @@ function GameHud.CreateInventoryDialog(self, options)
 					if not _opened then
 						return
 					end
+					--an opened trade dialog always has its token.
+					---@cast token -nil
 
 					local totalCurrency = 0
 					for k,_ in pairs(token.properties:try_get("currency", {})) do
@@ -2585,6 +2610,8 @@ function GameHud.CreateInventoryDialog(self, options)
 					if tokenTradingWith == nil then
 						return
 					end
+					--only clickable while an opened trade dialog shows it.
+					---@cast token -nil
 
 					GameHud.LootAll(token, tokenTradingWith, self.inventoryDialog)
 
@@ -2670,6 +2697,8 @@ function GameHud.CreateInventoryDialog(self, options)
 					if not _opened then
 						return
 					end
+					--only the untitled main dialog reads the token, and it has one once opened.
+					---@cast token -nil
 					if inventoryDialogTitle or token.name then
 						element.text = inventoryDialogTitle or string.format("%s's Inventory", token.description or token.name)
 					else
@@ -2788,6 +2817,8 @@ function GameHud.CreateInventoryDialog(self, options)
 
 			GetDefaultSlotForItem = function(itemid)
 				local defaultSlot = resultPanel.data.GetFirstFreeSlotAfter((npage-1)*itemsPerPage+1)
+				--callers (AddItem, a slot's Give To) only reach this with a token.
+				---@cast token -nil
 				return token.properties:GetDefaultInventorySlotForItem(itemid, defaultSlot)
 			end,
 
@@ -3266,7 +3297,8 @@ end
 local CreateEquipmentSlot = function(dmhud, options)
 	---@type Panel
 	local slotPanel = nil
-	---@type CharacterToken?
+	--SetToken runs on every slot when the equipment dialog opens, before it is shown.
+	---@type CharacterToken
 	local token = nil
 	---@type equipment?
 	local item = nil --the item currently in the slot.

@@ -491,6 +491,8 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
                 height = 100,
             },
             update = function(element, parentElement)
+                --only fired after beginDrag has set m_dragAnchor.
+                ---@cast m_dragAnchor -nil
                 local mousePoint = parentElement.mousePoint
                 local imageWidth = parentElement.renderedWidth
                 local imageHeight = parentElement.renderedHeight
@@ -510,6 +512,8 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
                 element.selfStyle.height = (y2 - y1) * imageHeight
             end,
             finish = function(element, parentElement)
+                --the drag handler checks m_dragAnchor before firing this.
+                ---@cast m_dragAnchor -nil
                 local mousePoint = parentElement.mousePoint
                 local imageWidth = parentElement.renderedWidth
                 local imageHeight = parentElement.renderedHeight

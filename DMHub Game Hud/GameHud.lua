@@ -1716,6 +1716,8 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 				)
 
 				m_tiletooltip = element.tooltip
+				--FloatTooltipNearTile just installed the TooltipFrame as the tooltip.
+				---@cast m_tiletooltip Panel
 
 				--let the diagram (and the floor arrow) see the initial args;
 				--on reuse the FireEventTree above keeps them updated.

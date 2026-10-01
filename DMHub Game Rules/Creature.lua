@@ -5158,6 +5158,7 @@ function creature:PumpRemoteInvokes()
 		--AbilityInvokeAbility) back to live objects, e.g. the tokens in
 		--symbols.cast.targets.
 		local invoke = DeserializeEventValue(DeepCopy(remoteInvokes[1]))
+		---@cast invoke -nil
 
 		token:ModifyProperties{
 			description = "Clear Invoke",
@@ -10723,6 +10724,7 @@ function creature:DispatchEvent(eventName, info)
 	end
 
 	local token = dmhub.LookupToken(self)
+	---@cast token -nil
 	local activecontroller = token.activeControllerId
 
 	--we are the best choice to handle this event.

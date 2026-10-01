@@ -1913,6 +1913,7 @@ function DTProjectEditor:_createOwnedProjectButtons()
 
                 -- Build the list of characters to show
                 local me = getToken()
+                if me == nil then return end
                 local function inPartyAndNotMe(t)
                     return t.id ~= me.id and t.partyId == me.partyId
                 end

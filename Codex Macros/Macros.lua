@@ -2319,6 +2319,8 @@ do
             -- candidates for subsequent rounds.
             local subCands = {}
             if classObj then
+                -- classObj is only set when classMatch matched.
+                ---@cast classMatch -nil
                 subCands = BuildChar_Candidates(subs,
                     function(v) return v.primaryClassId == classMatch.cand.id end)
             end
@@ -2377,6 +2379,7 @@ do
                     "\". Start with a class name, e.g. /buildchar Shadow Black Ash.")
                 return
             end
+            ---@cast classMatch -nil
 
             local subclassChoiceGuid = nil
             if subMatch then

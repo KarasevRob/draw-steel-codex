@@ -778,6 +778,9 @@ function CharSheet.FramePreviewPanel()
 
                             think = function(element)
                                 if dragging then
+                                    --press sets dragging together with both of these.
+                                    ---@cast dragAnchor -nil
+                                    ---@cast dragValue -nil
                                     local dx = element.mousePoint.x - dragAnchor.x
                                     local dy = element.mousePoint.y - dragAnchor.y
                                     local val = {

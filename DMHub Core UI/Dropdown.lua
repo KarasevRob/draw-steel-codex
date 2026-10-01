@@ -43,6 +43,21 @@ end
 --- @field menuWidth nil|number Width of the open menu; defaults to the control's width.
 --- @field optionChosen nil|true|false|string Older name for idChosen.
 --- @field centerPopup nil|boolean If true, the menu that displays from this dropdown will appear parented to the root of the panel hierarchy and in the center -- i.e. it should pop up in the middle of the screen rather than attached to the dropdown.
+--- @field keybind nil|string|(fun(panel:Dropdown, bind:string, ...:any):nil)
+--- @field monitor nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field closePopup nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field delete nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field change nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field click nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field rightClick nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field rendered nil|string|(fun(panel:Dropdown, width:number,height:number, ...:any):nil)
+--- @field enable nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field disable nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field create nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field think nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field escape nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field refreshGame nil|string|(fun(panel:Dropdown, ...:any):nil)
+--- @field imageLoaded nil|string|(fun(panel:Dropdown, ...:any):nil)
 
 
 --- Create a Dropdown panel

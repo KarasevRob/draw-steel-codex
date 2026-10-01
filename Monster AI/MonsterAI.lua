@@ -4704,6 +4704,8 @@ function MonsterAI:ExecuteAbility(casterToken, ability, targets, options)
 	local OnFinishCast = ability:try_get("OnFinishCast")
     ability.OnFinishCast = function (ability, options)
         if maliceHistory ~= nil and not options.abort and not options.atexit then
+            --maliceKey is set together with maliceHistory above.
+            ---@cast maliceKey -nil
             maliceHistory[maliceKey] = true
         end
         if OnFinishCast then

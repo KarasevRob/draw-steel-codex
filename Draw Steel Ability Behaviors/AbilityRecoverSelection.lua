@@ -71,6 +71,9 @@ function ActivatedAbilityRecoverySelectionBehavior:Cast(ability, casterToken, ta
             recoveryInfo = v
         end
     end
+    if recoveryInfo == nil then
+        return
+    end
 
     local conditionsTable = dmhub.GetTable(CharacterCondition.tableName)
     local ongoingEffectsTable = dmhub.GetTable(CharacterOngoingEffect.tableName)

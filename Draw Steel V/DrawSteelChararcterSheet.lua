@@ -8504,6 +8504,8 @@ local function FeaturesIndexPanel()
             height = "auto",
             flow = "horizontal",
             press = cond(expandable, function(element)
+                --only installed on expandable rows, which always build tri.
+                ---@cast tri -nil
                 local nowExpanded = not tri:HasClass("expanded")
                 tri:SetClass("expanded", nowExpanded)
                 body:SetClass("collapsed", not nowExpanded)

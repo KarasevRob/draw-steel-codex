@@ -1860,7 +1860,9 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 			if dismissed and not self:HasDismissBehaviors() then
 				dismissed = false
 			end
-			if accepted or dismissed then
+			--casterToken is nil when the caster went invalid in the same frame the
+			--answer was read and the re-fetch above found no token: nothing to cast.
+			if (accepted or dismissed) and casterToken ~= nil then
 				if aiActivityId ~= nil then
 					casterToken.properties:SetAIActivityReactionResolving(aiActivityId, guid)
 				end

@@ -1189,6 +1189,8 @@ function CharSheet.CharacterSheetSkillsPanel()
 											text = option.text,
 											press = function(element)
 												if option.id == "custom" then
+													--only monsters get the "custom" option, and they always build customInput.
+													---@cast customInput -nil
 													customInput:SetClass("collapsed", false)
 													for _,p in ipairs(panels) do
 														p:SetClass("selected", p == element)
@@ -6210,6 +6212,7 @@ function CharSheet.MainSheet()
 				end
 
 				local rootPanel = CharacterSheet.instance
+				---@cast rootPanel Panel
 
 				local creature = CharacterSheet.instance.data.info.token.properties
 

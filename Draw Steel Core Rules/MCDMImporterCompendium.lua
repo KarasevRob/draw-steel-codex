@@ -401,6 +401,8 @@ local function CreateEditPanel(tableName)
                                 end,
 
                                 runtest = function(element, text)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local trait, matches = m_item:MatchMCDMMonsterTrait(nil, text, text)
                                     if matches ~= nil then
                                         element.text = "Match"
@@ -414,6 +416,8 @@ local function CreateEditPanel(tableName)
                                 classes = {"deleteButton", "sizeS"},
                                 valign = "center",
                                 click = function(element)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local testCases = m_item:try_get("testCases") or {}
                                     table.remove(testCases, i)
                                     editPanel:FireEvent("change")
@@ -441,6 +445,8 @@ local function CreateEditPanel(tableName)
                 width = 160,
                 text = "Add Test Case",
                 click = function(element)
+                    --this button sits in the panel that stays collapsed until an item is set.
+                    ---@cast m_item -nil
                     m_item.testCases = m_item:try_get("testCases") or {}
                     m_item.testCases[#m_item.testCases+1] = {
                         text = "Sample trait text",
@@ -885,6 +891,8 @@ local function CreateEditAbilityEffectsPanel(tableName)
                                 end,
 
                                 runtest = function(element, text)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local trait, matches = m_item:MatchMCDMEffect(nil, text, text)
                                     if matches ~= nil then
                                         element.text = "Match"
@@ -898,6 +906,8 @@ local function CreateEditAbilityEffectsPanel(tableName)
                                 classes = {"deleteButton", "sizeS"},
                                 valign = "center",
                                 click = function(element)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local testCases = m_item:try_get("testCases") or {}
                                     table.remove(testCases, i)
                                     editPanel:FireEvent("change")
@@ -925,6 +935,8 @@ local function CreateEditAbilityEffectsPanel(tableName)
                 width = 160,
                 text = "Add Test Case",
                 click = function(element)
+                    --this button sits in the panel that stays collapsed until an item is set.
+                    ---@cast m_item -nil
                     m_item.testCases = m_item:try_get("testCases") or {}
                     m_item.testCases[#m_item.testCases+1] = {
                         text = "Sample effect text",

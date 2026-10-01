@@ -190,6 +190,8 @@ local ShowObjectTooltip = function(element)
 							},
 							events = {
 								imageDimensions = function(element, info)
+									--node.components above already errors on a nil node.
+									---@cast node -nil
 									if element.bgsprite == nil then
 										dmhub.Debug('NO BG SPRITE')
 									end
@@ -463,6 +465,8 @@ local g_objectEntryStyles = {
 
 local function CreateObjectEntry(nodeid, parentElement, options)
 	local node = assets:GetObjectNode(nodeid)
+	--Callers pass the id of a live node; refreshAssets keeps it non-nil after that.
+	---@cast node -nil
 
 	local searchActive = false
 	local matchesSearch = true
@@ -629,7 +633,12 @@ local function CreateObjectEntry(nodeid, parentElement, options)
 			end,
 
 			refreshAssets = function(element)
-				node = assets:GetObjectNode(nodeid)
+				local refreshed = assets:GetObjectNode(nodeid)
+				if refreshed == nil then
+					--the object was deleted; the parent folder's refresh removes this entry.
+					return
+				end
+				node = refreshed
 				objImagePanel.bgimageStreamed = node.thumbnailId
 
 				if element:HasClass('focus') then
@@ -925,6 +934,8 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 	local isCollapsed = true
 	local refreshAssetsDirty = false
 	local node = assets:GetObjectNode(nodeid)
+	--Callers pass the root ('') or a live folder's id; refreshAssets keeps it non-nil after that.
+	---@cast node -nil
 
 	---@type Panel
 	local folderPane = nil
@@ -1450,7 +1461,12 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 
 				refreshAssetsDirty = isCollapsed
 
-				node = assets:GetObjectNode(nodeid)
+				local refreshed = assets:GetObjectNode(nodeid)
+				if refreshed == nil then
+					--the folder was deleted; its parent folder's refresh removes it.
+					return
+				end
+				node = refreshed
 
 				if (not isCollapsed) or searchNodes ~= nil then
 					local newElements = {}

@@ -38,6 +38,62 @@
 --- @field imageLoaded nil|string|(fun(panel:Panel, ...:any):nil) Fired when the background image this panel uses is loaded.
 --- @field [string] nil|string|(fun(panel:Panel, ...:any):any) Any other event by name: engine events (hover, dehover, press, linger, destroy, refreshAssets, ...) or a custom event fired with FireEvent/FireEventTree.
 
+--- The standard events again, on each engine widget's Args class with the panel typed as
+--- that widget, so a handler written in gui.Label{...}, gui.Input{...} or gui.TextEditor{...}
+--- gets a Label/Input/TextEditor `element` with no ---@cast. A subclass field overrides the
+--- inherited PanelArgsBase one. Custom events are not covered: a [string] catch-all here would
+--- also land on the instance (Label extends LabelArgs) and turn off undefined-field on it.
+--- @class LabelArgs
+--- @field keybind nil|string|(fun(panel:Label, bind:string, ...:any):nil)
+--- @field monitor nil|string|(fun(panel:Label, ...:any):nil)
+--- @field closePopup nil|string|(fun(panel:Label, ...:any):nil)
+--- @field delete nil|string|(fun(panel:Label, ...:any):nil)
+--- @field change nil|string|(fun(panel:Label, ...:any):nil)
+--- @field click nil|string|(fun(panel:Label, ...:any):nil)
+--- @field rightClick nil|string|(fun(panel:Label, ...:any):nil)
+--- @field rendered nil|string|(fun(panel:Label, width:number,height:number, ...:any):nil)
+--- @field enable nil|string|(fun(panel:Label, ...:any):nil)
+--- @field disable nil|string|(fun(panel:Label, ...:any):nil)
+--- @field create nil|string|(fun(panel:Label, ...:any):nil)
+--- @field think nil|string|(fun(panel:Label, ...:any):nil)
+--- @field escape nil|string|(fun(panel:Label, ...:any):nil)
+--- @field refreshGame nil|string|(fun(panel:Label, ...:any):nil)
+--- @field imageLoaded nil|string|(fun(panel:Label, ...:any):nil)
+
+--- @class InputArgs
+--- @field keybind nil|string|(fun(panel:Input, bind:string, ...:any):nil)
+--- @field monitor nil|string|(fun(panel:Input, ...:any):nil)
+--- @field closePopup nil|string|(fun(panel:Input, ...:any):nil)
+--- @field delete nil|string|(fun(panel:Input, ...:any):nil)
+--- @field change nil|string|(fun(panel:Input, ...:any):nil)
+--- @field click nil|string|(fun(panel:Input, ...:any):nil)
+--- @field rightClick nil|string|(fun(panel:Input, ...:any):nil)
+--- @field rendered nil|string|(fun(panel:Input, width:number,height:number, ...:any):nil)
+--- @field enable nil|string|(fun(panel:Input, ...:any):nil)
+--- @field disable nil|string|(fun(panel:Input, ...:any):nil)
+--- @field create nil|string|(fun(panel:Input, ...:any):nil)
+--- @field think nil|string|(fun(panel:Input, ...:any):nil)
+--- @field escape nil|string|(fun(panel:Input, ...:any):nil)
+--- @field refreshGame nil|string|(fun(panel:Input, ...:any):nil)
+--- @field imageLoaded nil|string|(fun(panel:Input, ...:any):nil)
+
+--- @class TextEditorArgs
+--- @field keybind nil|string|(fun(panel:TextEditor, bind:string, ...:any):nil)
+--- @field monitor nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field closePopup nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field delete nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field change nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field click nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field rightClick nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field rendered nil|string|(fun(panel:TextEditor, width:number,height:number, ...:any):nil)
+--- @field enable nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field disable nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field create nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field think nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field escape nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field refreshGame nil|string|(fun(panel:TextEditor, ...:any):nil)
+--- @field imageLoaded nil|string|(fun(panel:TextEditor, ...:any):nil)
+
 --- DockablePanel is implemented in the codex (DMHub Core UI/DockablePanel.lua).
 --- Its table-constructor members are declared here because LuaLS binds this class
 --- to this declaration, so fields in the codex's `DockablePanel = {...}` literal are

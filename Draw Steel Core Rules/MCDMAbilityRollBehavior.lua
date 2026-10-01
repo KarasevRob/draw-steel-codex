@@ -630,6 +630,8 @@ ActivatedAbilityPowerRollBehavior.GetPowerTablePopulateCustom = function(rollPro
                 end
 
                 if m_endTime ~= nil and dmhub.Time() > m_endTime then
+                    --m_endTime is only set by diceface, which follows beginRoll storing m_rollInfo.
+                    ---@cast m_rollInfo -nil
                     element:FireEvent("diceend")
                     m_endTime = nil
                     m_finished = true
@@ -1790,7 +1792,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
             m_canceled = true
         end
 
-        if g_activeRollPanel ~= nil and g_activeRollPanel.valid and g_activeRoll.guid == rollKey and dmhub.HoldAmendableRollOpen ~= nil and dmhub.HoldAmendableRollOpen() and (holdOpenRefreshAt == nil or holdOpenRefreshAt < dmhub.Time()-2) then
+        if g_activeRollPanel ~= nil and g_activeRollPanel.valid and g_activeRoll ~= nil and g_activeRoll.guid == rollKey and dmhub.HoldAmendableRollOpen ~= nil and dmhub.HoldAmendableRollOpen() and (holdOpenRefreshAt == nil or holdOpenRefreshAt < dmhub.Time()-2) then
             holdOpenRefreshAt = dmhub.Time()
             refreshAtPanel = g_activeRollPanel
             g_activeRollPanel:FireEvent("recordInteracting")
@@ -3040,6 +3042,7 @@ function RollPropertiesPowerTable:CustomPanel(message)
                     local isActive = g_activeRoll ~= nil and g_activeRoll.amendable and g_activeRoll.guid == messageGuid
                         and (not StrictRollsEnforced())
                     if isActive  then
+                        ---@cast g_activeRoll -nil
                         local oldMod = BoonsAndBanesToMod(m_boons, m_banes)
                         local currentValue = m_boons - m_banes
 
@@ -3173,6 +3176,8 @@ function RollPropertiesPowerTable:CustomPanel(message)
                 for i,label in ipairs(boonsBanesLabels) do
                     label:SetClassImmediate("selected", i == selectedIndex)
                 end
+                --set and cleared together with boonsBanesLabels.
+                ---@cast m_boonsBanesPanel -nil
                 m_boonsBanesPanel:SetClass("active", isActive)
             end
 

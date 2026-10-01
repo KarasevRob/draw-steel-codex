@@ -2205,6 +2205,7 @@ end
 -- ability.modeList (array of {text, rules, condition, hasAbility, variation}).
 _buildModesBlock = function(ability, fireChange)
     local children = {}
+    ---@type Panel
     local modesListPanel = nil
 
     children[#children + 1] = _makeFieldRow("Modes",
@@ -4505,6 +4506,7 @@ local function _buildPresentationSection(ability, fireChange)
     -- ----------------------------------------------------------------
     -- Custom Icon toggle + conditional controls
     -- ----------------------------------------------------------------
+    ---@type Panel
     local customIconControls = nil
 
     local customIconCheck = gui.Check{

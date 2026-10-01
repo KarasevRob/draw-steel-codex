@@ -14826,6 +14826,8 @@ RailScriptButtonDialog = function(toolkitid, idx)
         --(came from the community) and packid (shared BY the
         --user) both survive the rebuild.
         if sbuttonEditId ~= nil then
+            --the dialog returned early unless the edited button exists.
+            ---@cast existing -nil
             item.pack = existing.pack
             item.packid = existing.packid
             local defs = dmhub.GetSettingValue("iconrailscriptbuttons") or {}

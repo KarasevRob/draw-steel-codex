@@ -1342,6 +1342,8 @@ function ShowRequireRollDialog(args)
 				end
 
 				checkSelectedIndex = options.index
+				--this button lives in the dialog, so the dialog is open.
+				---@cast g_requireRollDialog -nil
 				g_requireRollDialog:FireEventTree("refreshDiceCheck")
 			end,
 		}
@@ -1484,6 +1486,7 @@ function ShowRequireRollDialog(args)
 								change = function(element)
 									---@cast element Dropdown
 									checkInfo.group:Set(element.idChosen)
+									---@cast g_requireRollDialog -nil
 									g_requireRollDialog:FireEventTree('refreshDiceCheck')
 								end,
 							}
@@ -1535,6 +1538,7 @@ function ShowRequireRollDialog(args)
 						change = function(element, val)
 							m_characteristics = val
 							SyncCheckIndexesFromCharacteristics()
+							---@cast g_requireRollDialog -nil
 							g_requireRollDialog:FireEventTree("refreshSkill")
 						end,
 					},
@@ -1617,6 +1621,8 @@ function ShowRequireRollDialog(args)
 					}),
 
 					refreshDiceCheck = function(element)
+						--only fired down the open dialog's tree.
+						---@cast g_requireRollDialog -nil
 						local children = {}
 
 						local checkInfo = RollCheck.Checks[checkSelectedIndex]
@@ -1906,6 +1912,7 @@ function ShowRequireRollDialog(args)
 					initiative = (args.checkType == "Initiative"),
 					changeSelection = function(element, tokenids)
 						tokenIdsSelected = tokenids
+						---@cast g_requireRollDialog -nil
 						g_requireRollDialog:FireEventTree('changePartySelection', tokenids)
 					end
 				}
