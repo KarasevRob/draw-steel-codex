@@ -15028,7 +15028,7 @@ RailScriptButtonDialog = function(toolkitid, idx)
         valign = "center",
         change = function(element)
             ---@cast element Dropdown
-            m_mode = element.idChosen
+            m_mode = element.idChosen --[[@as string]]
             codeSection:SetClass("collapsed", m_mode ~= "script")
             commandSection:SetClass("collapsed", m_mode ~= "command")
             RefreshScriptStatus()
@@ -16284,7 +16284,7 @@ local function RailShowCommunityBrowser(side, opts)
                 rmargin = 32,
                 change = function(dropdownElement)
                     ---@cast dropdownElement Dropdown
-                    m_sort = dropdownElement.idChosen or "hearts"
+                    m_sort = dropdownElement.idChosen --[[@as string]] or "hearts"
                     RenderCards()
                 end,
             },

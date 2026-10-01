@@ -832,7 +832,7 @@ function ActivatedAbility:TargetTypeEditor()
 				idChosen = self.durationType,
 				change = function(element)
 					---@cast element Dropdown
-					self.durationType = element.idChosen
+					self.durationType = element.idChosen --[[@as string]]
 					resultPanel:FireEventTree("refreshSpell")
 				end,
 			},
@@ -1999,7 +1999,7 @@ function ActivatedAbilityBehavior:ApplyToEditor(parentPanel, list)
 			idChosen = self.applyto,
 			change = function(element)
 				---@cast element Dropdown
-				self.applyto = element.idChosen
+				self.applyto = element.idChosen --[[@as string]]
 				parentPanel:FireEvent('refreshBehavior')
 			end,
 		},
@@ -2563,7 +2563,7 @@ function ActivatedAbilityBehavior:OngoingEffectEditor(parentPanel, list, options
 				elseif element.idChosen == 'momentary' then
 					self.duration = "momentary"
 				elseif element.idChosen == 'end_of_next_turn' or element.idChosen == 'until_rest' or element.idChosen == 'until_long_rest' or element.idChosen == 'endround' or element.idChosen == 'save_ends' or element.idChosen == "eoe_or_dying" or element.idChosen == "eoe" or element.idChosen == 'endnextround' or element.idChosen == 'eoe' then
-					self.duration = element.idChosen
+					self.duration = element.idChosen --[[@as string]]
 				else
 					self.duration = nil
 				end
@@ -2801,7 +2801,7 @@ function ActivatedAbilityBehavior:DamageTypeEditor(parentPanel, list)
 			idChosen = self.damageType,
 			change = function(element)
 				---@cast element Dropdown
-				self.damageType = element.idChosen
+				self.damageType = element.idChosen --[[@as string]]
 			end,
 		},
 	}
@@ -2890,7 +2890,7 @@ function ActivatedAbilityBehavior:AuraEditor(parentPanel, list)
 			idChosen = self.duration,
 			change = function(element)
 				---@cast element Dropdown
-				self.duration = element.idChosen
+				self.duration = element.idChosen --[[@as string]]
 				parentPanel:FireEvent('refreshBehavior')
 			end,
 		},

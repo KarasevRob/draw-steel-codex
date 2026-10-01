@@ -876,7 +876,7 @@ DockablePanel.Register{
                     width = 200, height = 24, fontSize = 14,
                     change = function(element)
                         ---@cast element Dropdown
-                        m_mode = element.idChosen
+                        m_mode = element.idChosen --[[@as string]]
                     end,
                 },
             },

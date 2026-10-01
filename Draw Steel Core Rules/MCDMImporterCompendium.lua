@@ -272,7 +272,7 @@ local function CreateEditPanel(tableName)
                     change = function(element)
                         ---@cast element Dropdown
                         if m_item ~= nil then
-                            m_item.importMatchType = element.idChosen
+                            m_item.importMatchType = element.idChosen --[[@as string]]
                             editPanel:FireEvent("change")
                             editPanel:FireEventTree("testCasesChanged")
                         end
@@ -779,7 +779,7 @@ local function CreateEditAbilityEffectsPanel(tableName)
                     change = function(element)
                         ---@cast element Dropdown
                         if m_item ~= nil then
-                            m_item.importMatchType = element.idChosen
+                            m_item.importMatchType = element.idChosen --[[@as string]]
                             editPanel:FireEvent("change")
                         end
                     end,

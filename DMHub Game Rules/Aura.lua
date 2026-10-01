@@ -929,7 +929,7 @@ function Aura:GenerateEditor(options)
                     idChosen = self.objectid,
                     change = function(element)
                         ---@cast element Dropdown
-                        self.objectid = element.idChosen
+                        self.objectid = element.idChosen --[[@as string]]
                     end,
                 },
             },
@@ -947,7 +947,7 @@ function Aura:GenerateEditor(options)
                     idChosen = self.applyto,
                     change = function(element)
                         ---@cast element Dropdown
-                        self.applyto = element.idChosen
+                        self.applyto = element.idChosen --[[@as string]]
                     end,
                 },
             },
@@ -1185,7 +1185,7 @@ function Aura:GenerateEditor(options)
                     idChosen = self.relocateResource,
                     change = function(element)
                         ---@cast element Dropdown
-                        self.relocateResource = element.idChosen
+                        self.relocateResource = element.idChosen --[[@as string]]
                     end,
                 },
             },

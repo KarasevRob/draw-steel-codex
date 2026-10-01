@@ -683,7 +683,7 @@ ShowShopPanel = function(parentPanel)
                     if element.idChosen == "none" then
                         m_item.artistid = nil
                     else
-                        m_item.artistid = element.idChosen
+                        m_item.artistid = element.idChosen --[[@as string]]
                     end
 
                     m_item:Upload()
@@ -767,7 +767,7 @@ ShowShopPanel = function(parentPanel)
                 end,
                 change = function(element)
                     ---@cast element Dropdown
-                    m_item.itemType = element.idChosen
+                    m_item.itemType = element.idChosen --[[@as string]]
                     m_item:Upload()
                     editingPanel:FireEventTree("item", m_item)
                 end,
@@ -905,7 +905,7 @@ ShowShopPanel = function(parentPanel)
                     end,
                     change = function(element)
                         ---@cast element Dropdown
-                        m_item.assetid = element.idChosen
+                        m_item.assetid = element.idChosen --[[@as string]]
                         m_item:Upload()
                         --New dice set: refresh both live previews.
                         PreviewDiceDisplays()

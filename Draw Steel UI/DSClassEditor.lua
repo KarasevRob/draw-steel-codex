@@ -1241,7 +1241,7 @@ local SetClass = function(tableName, classPanel, classid)
 				idChosen = class.primaryClassId,
 				change = function(element)
 					---@cast element Dropdown
-					class.primaryClassId = element.idChosen
+					class.primaryClassId = element.idChosen --[[@as string]]
 					class:ForceDomains()
 					UploadClass()
 				end,

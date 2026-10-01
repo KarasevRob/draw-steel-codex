@@ -1034,7 +1034,7 @@ function MM.BuildZonesMode()
                     },
                     change = function(element)
                         ---@cast element Dropdown
-                        heightMode = element.idChosen
+                        heightMode = element.idChosen --[[@as string]]
                         heightAmountPanel:SetClass("collapsed", heightMode ~= "amount")
                     end,
                 },

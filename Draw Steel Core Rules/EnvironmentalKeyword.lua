@@ -2368,7 +2368,7 @@ local SetData = function(tableName, keywordPanel, keyid)
 			options = table.append_arrays({{id = "none", text = "none"}}, map(rules.damageTypesAvailable, function(a) return {id = a, text = a} end)),
 			change = function(element)
 				---@cast element Dropdown
-				keyword.movedamage = element.idChosen
+				keyword.movedamage = element.idChosen --[[@as string]]
 				moveDamageDetails:SetClass("collapsed", element.idChosen == "none")
 				UploadKeyword()
 			end,
@@ -2410,7 +2410,7 @@ local SetData = function(tableName, keywordPanel, keyid)
 			},
 			change = function(element)
 				---@cast element Dropdown
-				keyword.movementDamageFilter = element.idChosen
+				keyword.movementDamageFilter = element.idChosen --[[@as string]]
 				UploadKeyword()
 			end,
 		},

@@ -2779,7 +2779,7 @@ function RunRestoreOldVersionDialog(root, game)
         idChosen = m_selectedDurationId,
         change = function(element)
             ---@cast element Dropdown
-            m_selectedDurationId = element.idChosen
+            m_selectedDurationId = element.idChosen --[[@as string]]
             m_selectedBookmarkId = nil
             customDateRow:SetClass("hidden", element.idChosen ~= "custom")
             if bookmarksList ~= nil and bookmarksList.valid then

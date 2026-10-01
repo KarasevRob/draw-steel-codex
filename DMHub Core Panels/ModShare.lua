@@ -2440,7 +2440,7 @@ local showShareModuleDialog = function(options)
                     if element.idChosen == "self" then
                         moduleInstance.authorid = module.savedAuthorid or dmhub.GetDisplayName(dmhub.userid)
                     else
-                        moduleInstance.authorid = element.idChosen
+                        moduleInstance.authorid = element.idChosen --[[@as string]]
                     end
                     m_publishAsOrg = element.idChosen ~= "self"
                     dialogPanel:FireEventTree("refreshModule")
@@ -2733,7 +2733,7 @@ local showShareModuleDialog = function(options)
                 sort = true,
                 change = function(element)
                     ---@cast element Dropdown
-                    moduleInstance.coverDocumentId = element.idChosen ~= "none" and element.idChosen or nil
+                    moduleInstance.coverDocumentId = element.idChosen ~= "none" and element.idChosen --[[@as string]] or nil
                 end,
             },
         },
@@ -3104,7 +3104,7 @@ local showShareModuleDialog = function(options)
 				width = 260,
 				change = function(element)
 					---@cast element Dropdown
-					moduleInstance.moduleType = element.idChosen
+					moduleInstance.moduleType = element.idChosen --[[@as string]]
 					RefreshModuleType()
 				end,
 			},
@@ -6006,7 +6006,7 @@ mod.shared.ShowExportDialog = function()
 			},
 			change = function(element)
 				---@cast element Dropdown
-				hz = element.idChosen
+				hz = element.idChosen --[[@as string]]
 			end,
 
 		},
@@ -6095,7 +6095,7 @@ mod.shared.ShowExportDialog = function()
 			},
 			change = function(element)
 				---@cast element Dropdown
-				exportType = element.idChosen
+				exportType = element.idChosen --[[@as string]]
 				if exportType == "tour" then
 					tourSettingsPanel:FireEvent("refreshTour")
 				else

@@ -799,7 +799,7 @@ function CreateFollowerEditorDialog(follower, options)
                 idChosen = follower.retainerType or "none",
                 change = function(element)
                     ---@cast element Dropdown
-                    follower.retainerType = element.idChosen
+                    follower.retainerType = element.idChosen --[[@as string]]
                     editorPanel:FireEventTree("refreshAll")
                 end,
             }

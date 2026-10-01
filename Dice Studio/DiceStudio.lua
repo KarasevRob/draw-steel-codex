@@ -4332,7 +4332,7 @@ CreateDiceStudioPanel = function()
 			end,
 			change = function(element)
 				---@cast element Dropdown
-				studio:SetImpactFamily(element.idChosen)
+				studio:SetImpactFamily(element.idChosen --[[@as string]])
 				RefreshDice()
 			end,
 		}
@@ -6827,7 +6827,7 @@ end
 				end,
 				change = function(element)
 					---@cast element Dropdown
-					studio.font = element.optionChosen
+					studio.font = element.optionChosen --[[@as string]]
 				end,
 			},
 		},
@@ -6850,7 +6850,7 @@ end
 				end,
 				change = function(element)
 					---@cast element Dropdown
-					studio.border = element.optionChosen
+					studio.border = element.optionChosen --[[@as string]]
 				end,
 			},
 		},
@@ -6882,7 +6882,7 @@ end
 					end,
 					change = function(element)
 						---@cast element Dropdown
-						studio.specialMovement = element.idChosen
+						studio.specialMovement = element.idChosen --[[@as "none"|"portal"|"teleport"]]
 						RefreshDice()
 						element.root:FireEventTree("refreshDice")
 					end,
@@ -7260,7 +7260,7 @@ end
                             if element.idChosen == "none" then
                                 studio.numbersMaterialName = nil
                             else
-                                studio.numbersMaterialName = element.idChosen
+                                studio.numbersMaterialName = element.idChosen --[[@as string]]
                             end
                             RefreshDice()
                         end,

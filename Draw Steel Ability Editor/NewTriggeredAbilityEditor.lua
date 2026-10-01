@@ -5816,7 +5816,7 @@ local function buildTestTriggerCard(ability, opts)
                             ---@cast element Dropdown
                             if element.idChosen and element.idChosen ~= "none" then
                                 local cur = parseChosen(v.raw)
-                                cur[string.lower(element.idChosen)] = true
+                                cur[string.lower(element.idChosen --[[@as string]])] = true
                                 v.raw = joinChosen(cur)
                                 rebuild()
                                 refreshTest()
@@ -7049,7 +7049,7 @@ function TriggeredAbility:GenerateEmbeddedEditor()
                 options = self.DespawnBehaviors,
                 change = function(element)
                     ---@cast element Dropdown
-                    self.despawnBehavior = element.idChosen
+                    self.despawnBehavior = element.idChosen --[[@as string]]
                 end,
             },
         }

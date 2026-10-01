@@ -964,7 +964,7 @@ function CBCharPanel._headerPanel()
                     end
                 else
                     extra.encounter = nil
-                    hero.levelOverride = element.idChosen
+                    hero.levelOverride = element.idChosen --[[@as integer]]
                 end
                 hero.extraLevelInfo = extra
 

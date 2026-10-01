@@ -2477,7 +2477,7 @@ local function CreateLinesVeilsSection()
             idChosen = "line",
             change = function(element)
                 ---@cast element Dropdown
-                kindChosen = element.idChosen
+                kindChosen = element.idChosen --[[@as string]]
             end,
         },
         gui.Button{
