@@ -182,6 +182,7 @@ function CharSheet.RaceChoicePanel(options)
         end,
 
         create = function(element)
+            ---@cast element LuaSheetCarousel
             element.targetPosition = 0
             element:FireEvent("refreshBuilder")
         end,

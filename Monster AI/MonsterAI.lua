@@ -2001,6 +2001,7 @@ function MonsterAI:HandleMaliceAbilityStartOfTurn(initiativeid, actingTokens, qu
             })
         elseif #eligibleCasters > 0 and registration.abilities ~= nil and registration.abilities[1] ~= nil then
             local caster = nil
+            ---@type ActivatedAbility
             local ability = nil
             local unavailableReasons = {}
             local unavailableByToken = {}
@@ -2180,6 +2181,7 @@ function MonsterAI:HandleMaliceAbilityStartOfTurn(initiativeid, actingTokens, qu
 end
 
 function MonsterAI:ExecuteVillainActionCandidate(candidate)
+    ---@type CharacterToken?
     local token = candidate.token
     local ability = candidate.ability
     local action = candidate.action
@@ -2761,7 +2763,7 @@ function MonsterAI:ExecuteSquadStrike(ability)
             if AffordableMemberAbility(attacker) ~= nil and self.TokenIsLiveCombatant(target) then
                 livePairs[#livePairs+1] = pair
                 liveAssignedTargets[pair.b] = (liveAssignedTargets[pair.b] or 0) + 1
-                assignedTargetIds[#assignedTargetIds+1] = target.id
+                assignedTargetIds[#assignedTargetIds+1] = target.charid
             end
         end
         targetPairs = livePairs
@@ -3888,6 +3890,15 @@ function MonsterAI.MoveMatchesMonster(token, move, includeDisabled)
     return false
 end
 
+--What FindTurnEagernessMove builds and returns.
+---@class MonsterAIEagernessResult
+---@field score number
+---@field moveId? string
+---@field abilityName? string
+---@field reason? string
+---@field scoringInfo? table
+---@field scoringErrors? string
+
 --Initiative eagerness evaluates the same registered and synthesized move scores
 --used on a real turn, but does not execute anything or emit each planning log.
 function MonsterAI:FindTurnEagernessMove(token, queue)
@@ -3899,6 +3910,7 @@ function MonsterAI:FindTurnEagernessMove(token, queue)
     local previousSuppressLogs = self:try_get("_tmp_suppressDecisionLogs", false)
     self._tmp_suppressDecisionLogs = true
 
+    ---@type MonsterAIEagernessResult
     local result = nil
     local scoringErrors = {}
     local ok, err = pcall(function()
@@ -4104,6 +4116,7 @@ function MonsterAI:FindAdvancePlan(token, paths)
                         local goal = enemy.loc:dir(x, y)
                         if not self:MovementLocOverlapsCreature(token, goal) then
                             local preview = mover:MarkMovementArrow(goal, {})
+                            ---@type LuaPath?
                             local path = preview ~= nil and preview.path or nil
                             local reachableGoal = false
                             if path ~= nil and path.destination.xyfloorOnly.str == goal.xyfloorOnly.str then
@@ -4691,6 +4704,8 @@ function MonsterAI:ExecuteAbility(casterToken, ability, targets, options)
 	local OnFinishCast = ability:try_get("OnFinishCast")
     ability.OnFinishCast = function (ability, options)
         if maliceHistory ~= nil and not options.abort and not options.atexit then
+            --maliceKey is set together with maliceHistory above.
+            ---@cast maliceKey -nil
             maliceHistory[maliceKey] = true
         end
         if OnFinishCast then

@@ -386,10 +386,10 @@ function CharacterBuilder.CreatePanel()
             local cachedTokenId = state:Get("tokenId")
             local token = info and info.token or _getToken()
             if token ~= nil then
-                if cachedTokenId ~= token.id then
+                if cachedTokenId ~= token.charid then
                     element.data.state = CharacterBuilderState.CreateNew()
                     state = element.data.state
-                    state:Set{ key = "tokenId", value = token.id }
+                    state:Set{ key = "tokenId", value = token.charid }
                 end
 
                 local props = token.properties

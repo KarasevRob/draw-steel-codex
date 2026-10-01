@@ -54,6 +54,7 @@ function ai:ExecuteWithTheoreticalMovementLoc(_, goal, fn)
 end
 local paths = {{loc = start, cost = 0}, {loc = nearStep, cost = 10}, {loc = farStep, cost = 20}}
 local plan = ai:FindAdvancePlan(mover, paths)
+assert(plan ~= nil, "an advance plan is found")
 assert(plan.enemy == farEnemy, "prefer cheaper traversable route over geometric distance")
 assert(plan.loc == farStep, "use furthest affordable route step")
 assert(mover.loc == start and mover.cleared, "planning restores position and clears preview")

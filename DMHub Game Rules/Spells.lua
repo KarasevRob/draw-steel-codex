@@ -6,6 +6,8 @@ local mod = dmhub.GetModLoading()
 --- @class Spell:ActivatedAbility
 --- @field new fun(o?: table): Spell
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+--- @field components {v?: boolean, s?: boolean, m?: string} Verbal / somatic flags and the material component text.
+--- @field hidden? boolean Soft-delete flag; set when the spell is deleted.
 --- An ActivatedAbility variant that represents a castable spell, with spell level and slot tracking.
 Spell = RegisterGameType("Spell", "ActivatedAbility")
 
@@ -508,7 +510,7 @@ function Spell:GenerateEditor(options)
 					id = "material-spell-component-check",
 					text = "Material",
 					minWidth = 100,
-					value = self.components.m,
+					value = self.components.m ~= nil,
 					halign = "right",
 					change = function(element)
 						self.components.m = cond(element.value, "")
@@ -687,6 +689,7 @@ function Spell:GenerateEditor(options)
 				gui.Dropdown{
 					classes = "formDropdown",
 					create = function(element)
+						---@cast element Dropdown
 						local options = {
 							{
 								id = "none",
@@ -696,6 +699,8 @@ function Spell:GenerateEditor(options)
 
 						local projectileFolderId = "14d073f8-d00a-4ab4-b184-0545124c9940"
 						local objectProjectilesFolder = assets:GetObjectNode(projectileFolderId);
+						--The built-in Projectiles object folder always exists.
+						---@cast objectProjectilesFolder -nil
 						for i,projectileObject in ipairs(objectProjectilesFolder.children) do
 							if not projectileObject.isfolder then
 								options[#options+1] = {

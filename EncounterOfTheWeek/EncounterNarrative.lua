@@ -391,6 +391,8 @@ function EncounterNarrative.ActiveAnnounce()
     if type(announce) ~= "table" or announce.text == nil then
         return nil
     end
+    --announce is a table only when m is non-nil.
+    ---@cast m -nil
     if m.phase ~= "arriving" and m.phase ~= "choosing" then
         return nil
     end

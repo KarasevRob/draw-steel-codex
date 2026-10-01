@@ -119,24 +119,6 @@ function CharSheet.RegisterSheetAction(action)
 	CharSheet.SheetActions[index] = action
 end
 
-dmhub.IsDialogOpen = function()
-	--a popped-out sheet lives in its own OS window and must not count as a
-	--dialog covering the main window.
-	if g_charSheet ~= nil and g_charSheet.valid and g_charSheet.enabled and (not g_charSheet.data.poppedOut) then
-		return true
-	end
-
-	if gui.GetModal() ~= nil then
-		return true
-	end
-
-	if gamehud ~= nil and gamehud.inventoryDialog ~= nil and gamehud.inventoryDialog.valid and gamehud.inventoryDialog.enabled then
-		return true
-	end
-
-	return false
-end
-
 local CharacterSheetStyles = {
 
 	{

@@ -4,6 +4,7 @@ local mod = dmhub.GetModLoading()
 --- @field new fun(o?: table): ActivatedAbilityReplenishBehavior
 --- @field resourceid string Id of the CharacterResource to replenish.
 --- @field quantity nil|number|string|table Amount to restore; nil means restore to full.
+--- @field resourceOptions? string[] Resource ids the replenished amount can be split between (editor list); read with try_get.
 --- Behavior that replenishes a resource (such as hit points, spell slots, or action points) on the target.
 ActivatedAbilityReplenishBehavior = RegisterGameType("ActivatedAbilityReplenishBehavior", "ActivatedAbilityBehavior")
 
@@ -729,7 +730,7 @@ function ActivatedAbilityReplenishBehavior:EditorItems(parentPanel)
                 textOverride = "Choose...",
                 change = function(element)
                     ---@cast element Dropdown
-                    self.resourceid = element.idChosen
+                    self.resourceid = element.idChosen --[[@as string]]
                     local options = self:get_or_add("resourceOptions", {})
                     options[#options+1] = element.idChosen
                     parentPanel:FireEvent("refreshBehavior")
@@ -749,7 +750,7 @@ function ActivatedAbilityReplenishBehavior:EditorItems(parentPanel)
                 options = options,
                 change = function(element)
                     ---@cast element Dropdown
-                    self.resourceid = element.idChosen
+                    self.resourceid = element.idChosen --[[@as string]]
                     parentPanel:FireEvent("refreshBehavior")
                 end,
 

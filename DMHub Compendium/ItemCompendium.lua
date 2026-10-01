@@ -282,7 +282,6 @@ mod.shared.InventoryCompendiumEditor = function(categories)
         height = 1000,
         width = 840,
         hmargin = 16,
-        halign = "top",
         vscroll = true,
         styles = {
             {

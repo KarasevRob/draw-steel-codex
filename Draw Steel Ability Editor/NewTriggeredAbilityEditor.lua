@@ -306,8 +306,8 @@ local TRIGGER_METADATA = {
         group = "abilities",
     },
     targetwithability = {
-        label = "Targeted by an Ability",
-        description = "Fires when the creature is targeted by another creature's ability.",
+        label = "Target With Ability",
+        description = "Fires when the creature uses an ability, once for each creature it targets.",
         tags = {"targeted", "target", "ability", "by"},
         group = "abilities",
     },
@@ -6557,7 +6557,7 @@ local function makePreviewColumn(ability, schedulePreviewRefresh, editorOptions)
         -- Fail-open: on any serialisation error, return a sentinel that
         -- forces a rebuild. We'd rather waste one rebuild than freeze the
         -- preview on a malformed ability.
-        return "__fingerprint_error__" .. tostring(dmhub.GetTime and dmhub.GetTime() or 0)
+        return "__fingerprint_error__" .. tostring(dmhub.Time())
     end
 
     local previewSlot

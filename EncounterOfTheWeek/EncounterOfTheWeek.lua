@@ -1425,7 +1425,10 @@ local function PlaceMyHeroes(heroes, clipboardIds)
     local anchor = StartZoneAnchor()
     if anchor == nil then
         printf("EotW: no Start zone on this map; placing heroes at the camera")
-        anchor = dmhub.cameraPosition
+        --the paste APIs need a Loc (a Vector2 fails the engine's cast); world
+        --coordinates map 1:1 to tile coordinates.
+        local cam = dmhub.cameraPosition
+        anchor = core.Loc{ x = round(cam.x), y = round(cam.y), floorIndex = game.currentFloorIndex }
     end
 
     local changed = false

@@ -994,6 +994,7 @@ Importers = {
             local attr = nil
             local spellcastingLevel = nil
             local preparedSpells = nil
+            ---@type table<number, string[]>
             local preparedSpellsByLevel = nil
 
             for k,v in pairs(doc.spellcasting) do

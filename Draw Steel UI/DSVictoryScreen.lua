@@ -3227,7 +3227,7 @@ function DSVictoryScreen.Create()
 
             --once the Director awards Victories, play the icon-drop animation
             --(once; victory outcomes only).
-            if active and outcome == "victory" and element.data.shown and not element.data.awardPlayed
+            if live ~= nil and outcome == "victory" and element.data.shown and not element.data.awardPlayed
                 and live:try_get("victoriesAwarded", false) then
                 element.data.awardPlayed = true
                 element:FireEvent("playAward", live)

@@ -2384,6 +2384,7 @@ end
 
 local MakeShopItemText = function(options)
 	local m_itemId = ""
+	---@type ShopItemLua
 	local m_item = nil
 
 	options = options or {}
@@ -2408,29 +2409,84 @@ local MakeShopItemText = function(options)
 			end,
 		},
 
-		gui.Label{
-			classes = {"authorLabel"},
-			data = {
-				artistid = nil,
+		--The artist (or an adventure's publisher) with the adventure's tag
+		--chips beside it, sharing a line to leave room for the description.
+		gui.Panel{
+			flow = "horizontal",
+			width = "100%",
+			height = "auto",
+
+			gui.Label{
+				classes = {"authorLabel"},
+				data = {
+					artistid = nil,
+				},
+				refreshItem = function(element, item)
+					local artist = nil
+					if item.artistid ~= nil then
+						artist = assets.artists[item.artistid]
+					end
+
+					--Adventures have no artist; their page config names the
+					--publisher instead, shown as plain (unclickable) text.
+					local adventure = AdventurePage.Read(item)
+					local publisher = adventure ~= nil and adventure.publisher or ""
+
+					element.data.artistid = nil
+					if artist ~= nil then
+						element:SetClass("collapsed", false)
+						element.text = artist.name
+						element.data.artistid = item.artistid
+					elseif publisher ~= "" then
+						element:SetClass("collapsed", false)
+						element.text = "By " .. publisher
+					else
+						element:SetClass("collapsed", true)
+					end
+				end,
+
+				click = function(element)
+					if element.data.artistid == nil then
+						return
+					end
+					element:FireEventOnParents("focusArtist", element.data.artistid)
+				end,
 			},
-			refreshItem = function(element, item)
-				local artist = nil
-				if item.artistid ~= nil then
-					artist = assets.artists[item.artistid]
-				end
 
-				if artist == nil then
-					element:SetClass("collapsed", true)
-				else
-					element:SetClass("collapsed", false)
-					element.text = artist.name
-					element.data.artistid = item.artistid
-				end
-			end,
-
-			click = function(element)
-				element:FireEventOnParents("focusArtist", element.data.artistid)
-			end,
+			--An adventure's tags ("Level 2", "1-2 sessions"), as small versions
+			--of the chips on its store page (AdventurePage's hero).
+			gui.Panel{
+				classes = {"collapsed"},
+				flow = "horizontal",
+				width = "auto",
+				height = "auto",
+				lmargin = 10,
+				valign = "top",
+				refreshItem = function(element, item)
+					local adventure = AdventurePage.Read(item)
+					local chips = {}
+					for i, tag in ipairs(adventure ~= nil and adventure.tags or {}) do
+						chips[#chips + 1] = gui.Label{
+							text = tag,
+							fontSize = 11,
+							color = "#d9d2c5ff",
+							width = "auto",
+							height = 20,
+							hpad = 8,
+							borderBox = true,
+							textAlignment = "center",
+							lmargin = cond(i == 1, 0, 6),
+							bgimage = "panels/square.png",
+							bgcolor = "#00000059",
+							borderWidth = 1,
+							borderColor = "#ffffff38",
+							cornerRadius = 10,
+						}
+					end
+					element.children = chips
+					element:SetClass("collapsed", #chips == 0)
+				end,
+			},
 		},
 
 		gui.Label{
@@ -2461,6 +2517,18 @@ local MakeShopItemText = function(options)
 				local text = item.details
 				if text == nil then
 					text = ""
+				end
+
+				--Adventures keep their description in the page config (about,
+				--or failing that the one-line tagline) rather than details.
+				if text == "" then
+					local adventure = AdventurePage.Read(item)
+					if adventure ~= nil then
+						text = adventure.about or ""
+						if text == "" then
+							text = adventure.tagline or ""
+						end
+					end
 				end
 
 				if item.hasBundle then

@@ -12,7 +12,7 @@
 --- @field hasTokenOnAnyMap boolean If this token is deployed on a map somewhere.
 --- @field summonerid nil|string (Read-only) the tokenid of the token that summoned this token, if there is one.
 --- @field bestiaryId nil|string (Read-only) The id of this token's entry in the bestiary, if it was spawned from or added to the bestiary. nil for tokens with no bestiary entry. Used to key per-monster-type state such as what players have learned about the monster.
---- @field mountObject nil|LuaObjectComponent The object that this token is mounted on. e.g. sitting on a chair.
+--- @field mountObject nil|LuaObjectComponentMount The object that this token is mounted on. e.g. sitting on a chair.
 --- @field mountedOn nil|string The tokenid of the token this token is mounted on.
 --- @field saddleUnlocked boolean If mounted on a saddle, returns true if that saddle is in the 'unlocked' state.
 --- @field selfOrMount CharacterToken (Read-only) If mounted on a token, returns the token mounted on. Otherwise is equal to this token itself.
@@ -45,7 +45,7 @@
 --- @field primaryCharacter boolean (Read-only) True if this is the primary character of the current user.
 --- @field playerControlledAndPrimary boolean (Read-only) True if this is the primary character of a player.
 --- @field activeControllerId nil|string (Read-only) the userid of the user who is best suited to responding to prompts on this token right now. Will return nil if the current user is the best suited to responding to prompts on this character.
---- @field canSee boolean (Read-only) True if the current user can see this token (it's in their vision).
+--- @field canSee boolean (Read-only) True if the current user can see this token (it's in their vision). False for a token that is not spawned on the current map, e.g. one from dmhub.GetCharacterById that lives on another map.
 --- @field sheet Panel The panel that is attached to this token to display their UI.
 --- @field topsheet Panel The panel that is attached to this token to display their UI.
 --- @field bottomsheet Panel The panel that is attached to this token to display their UI.
@@ -70,6 +70,7 @@
 --- @field mapid string (Read-only) the id of the map the token is currently on.
 --- @field floorid string (Read-only) the id of the floor the token is currently on.
 --- @field canCurrentlyClimb boolean True if the creature can climb in the current location it is in now.
+--- @field isCeilingClinging boolean True while the creature is clinging upside down to the ceiling. Starts when a climber (Lua creature:CanClingToCeiling) already at the ceiling moves up again; ends when it moves down, is force-moved or teleported, or goes prone.
 --- @field isFriendOfPlayer boolean
 --- @field objectInstance LuaObjectInstance|nil
 --- @field properties Creature The token's lua properties representing game-specific character information. Often this is of type @see Creature
@@ -107,8 +108,8 @@
 --- @field lookAtMouse boolean
 --- @field floorIndex number
 --- @field initiativeStatus InitiativeStatus (Read-only) the initiative status of the token.
---- @field countFloorsWithVisionAbove number The number of floors above this token that the token can 'look up' at. Generally this requires there being a hole directly above the token. A roof or canopy floor ends the count: roofs are shown from below by the roof/canopy cutaway and are never looked up at.
---- @field countFloorsAbove number The number of floors above this token, regardless of whether there are holes above them. A roof or canopy floor ends the count.
+--- @field countFloorsWithVisionAbove number The number of floors above this token that the token can 'look up' at. Generally this requires there being a hole directly above the token.
+--- @field countFloorsAbove number The number of floors above this token, regardless of whether there are holes above them.
 CharacterToken = {}
 
 --- Returns true if this token id is not a 'real' in game token but instead a preview token shown to an in app camera.
@@ -176,7 +177,7 @@ function CharacterToken:SerializeAppearanceFromString(s) end
 function CharacterToken:PrepareUploadAppearance() end
 
 --- Upload the @see appearance section of the token. If a snapshot from @see PrepareUploadAppearance is provided, the change will be undoable.
---- @param snapshot string A snapshot from @see PrepareUploadAppearance representing the previous appearance to restore on undo.
+--- @param snapshot? string A snapshot from @see PrepareUploadAppearance representing the previous appearance to restore on undo.
 function CharacterToken:UploadAppearance(snapshot) end
 
 --- Disguise as another token. The disguise will be uploaded.
@@ -221,8 +222,8 @@ function CharacterToken:RecalculateElevation() end
 function CharacterToken:Flip() end
 
 --- GetNameMaxLength
---- @param maxLen? number
---- @return string
+--- @param maxLen number
+--- @return nil|string The name, shortened to at most maxLen characters, or nil if the token has no name.
 function CharacterToken:GetNameMaxLength(maxLen) end
 
 --- DescribeRollAgainst
@@ -238,8 +239,8 @@ function CharacterToken:PosAtLoc(loc) end
 --- Create a local map tag using the targeting modifier label renderer. Destroy the returned marker when the preview ends.
 --- @param location Loc
 --- @param text string
---- @param category string
---- @param offsetY number
+--- @param category? string
+--- @param offsetY? number
 --- @return LuaTargetingMarkers
 function CharacterToken:CreateMapTag(location, text, category, offsetY) end
 
@@ -334,8 +335,9 @@ function CharacterToken:InvalidateObjects() end
 
 --- aspect is the width as a percentage of the height. e.g. 0.5 = width is half of height.
 --- @param aspect number
+--- @param portrait nil|string The image id of the portrait to fit. Defaults to the token's own portrait.
 --- @return Vector4
-function CharacterToken:GetPortraitRectForAspect(aspect) end
+function CharacterToken:GetPortraitRectForAspect(aspect, portrait) end
 
 --- Returns walk of swim depending on the type of movement the creature will have to move on the ground. preferWater is used if the token straddles water and land and chooses the preferred type for the token.
 --- @param preferWater boolean
@@ -408,27 +410,27 @@ function CharacterToken:ConsumeClick() end
 function CharacterToken:Render(args, options) end
 
 --- Renders a movement radius marker showing how far the token can move. Returns a reference controlling it. Remember to call Destroy on it when you want the radius to disappear!
---- @param movementAllowance movement allowance in decitiles.
+--- @param movementAllowance number movement allowance in decitiles.
 --- @param args nil|{waypoints: nil|Loc[], mask: nil|Loc[], filter: nil|function, moveFlags: nil|('IgnoreMovementType'|'CannotMoveThroughFriends'|'CanFly'|'IgnoreOtherCreatures'|'Shifting'|'IgnoreWalls')[] }
 --- @return LuaMultiObjectReference
 function CharacterToken:MarkMovementRadius(movementAllowance, args) end
 
 --- Returns the exact list of tiles that MarkMovementRadius would highlight, given the same arguments. Uses identical underlying logic, so callers can confine targeting to exactly the tiles the movement radius draws.
---- @param movementAllowance movement allowance in decitiles.
+--- @param movementAllowance number movement allowance in decitiles.
 --- @param args nil|{waypoints: nil|Loc[], mask: nil|Loc[], filter: nil|function, moveFlags: nil|('IgnoreMovementType'|'CannotMoveThroughFriends'|'CanFly'|'IgnoreOtherCreatures'|'Shifting'|'IgnoreWalls')[] }
 --- @return Loc[]
 function CharacterToken:CalculateMovementPerimeter(movementAllowance, args) end
 
 --- Returns every tile a straight-line jump of the given distance and jump height could land on: within distance of the token, no full-height wall or too-tall height-limited wall/block on the line, and no ground along the line rising more than jumpHeight above the takeoff ground. Landing lower is always allowed. Mirrors Move with movementType='jump', so the set matches where such a jump can actually go.
---- @param distance jump distance in tiles (Chebyshev).
---- @param jumpHeight the height in tiles the jump clears; also the most the ground may rise above the takeoff along the line or at the landing tile.
+--- @param distance number jump distance in tiles (Chebyshev).
+--- @param jumpHeight number the height in tiles the jump clears; also the most the ground may rise above the takeoff along the line or at the landing tile.
 --- @return Loc[]
 function CharacterToken:CalculateJumpReachable(distance, jumpHeight) end
 
 --- Draw a movement arrow. @see ClearMovementArrow to clear the movement arrow.
 --- @param targetLoc Loc
 --- @param options nil|table
---- @return nil|{path: LuaPath, collideWith: CharacterToken[]}
+--- @return nil|{path: LuaPath, collideWith: nil|CharacterToken[], bounceCollisions: nil|{speed: number, collideWith: CharacterToken[], destination: Loc}[]}
 function CharacterToken:MarkMovementArrow(targetLoc, options) end
 
 --- Plan a same-floor straight charge with at most one jump. Prefer guaranteed routes; optional tier capabilities permit a roll-dependent route with fixed takeoff/landing and per-tier outcomes. Does not move the token.

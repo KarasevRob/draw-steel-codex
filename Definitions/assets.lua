@@ -94,7 +94,7 @@ function assets:CreateNewImageLibrary(options) end
 
 --- Finds an emoji asset by its ID or name, optionally filtering by emoji type. Returns nil if not found.
 --- @param name string The emoji ID or display name.
---- @param emojiType string The emoji type filter, or nil for any type.
+--- @param emojiType nil|string The emoji type filter, or nil for any type.
 --- @return nil|EmojiAssetLua
 function assets:FindEmojiByIdOrName(name, emojiType) end
 
@@ -117,7 +117,7 @@ function assets.UploadPDFDocumentAsset(options) end
 --- @param tableArgs table The folder properties.
 function assets:UploadNewDocumentFolder(tableArgs) end
 
---- Uploads an audio file. Automatically converts FLAC and M4A (AAC/MPEG-4) files to MP3. Options include path, guid, parentFolder, description, error, progress, and upload callbacks.
+--- Uploads an audio file. Automatically converts FLAC and M4A (AAC/MPEG-4) files to MP3, and any other file Unity cannot decode (e.g. Opus) to Ogg Vorbis. Options include path, guid, parentFolder, description, error, progress, and upload callbacks.
 --- @param options table Upload options.
 --- @return nil|string The GUID of the uploaded audio asset, or nil on failure.
 function assets:UploadAudioAsset(options) end

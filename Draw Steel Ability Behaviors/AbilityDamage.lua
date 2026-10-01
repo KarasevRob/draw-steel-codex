@@ -20,7 +20,7 @@ end
 
 
 function ActivatedAbilityDamageBehavior:AccumulateSavingThrowConsequence(ability, casterToken, targets, consequences, options)
-	local tokenids = GetConsequenceTokenIds(self, ability, casterToken, targets)
+	local tokenids = ActivatedAbility.GetConsequenceTokenIds(self, ability, casterToken, targets)
 	if tokenids == false then
 		return
 	end
@@ -34,6 +34,11 @@ function ActivatedAbilityDamageBehavior:AccumulateSavingThrowConsequence(ability
 	}
 end
 
+--One entry of Cast's targetGroups: the targets sharing one damage roll.
+---@class AbilityDamageTargetGroup
+---@field targets table[]
+---@field roll string
+---@field count integer
 
 function ActivatedAbilityDamageBehavior:Cast(ability, casterToken, targets, options)
 	if #targets == 0 then
@@ -59,6 +64,7 @@ function ActivatedAbilityDamageBehavior:Cast(ability, casterToken, targets, opti
     end
 
 	if self:try_get('separateRolls') then
+		---@type AbilityDamageTargetGroup
 		local prevGroup = nil
 		local prevTargetToken = nil
 		for i,target in ipairs(targets) do

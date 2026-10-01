@@ -21,6 +21,8 @@ local mod = dmhub.GetModLoading()
 --- @field spellsKnownFormula string GoblinScript formula for number of spells known.
 --- @field hasSpellbook boolean If true, the class uses a spellbook instead of a spell list.
 --- @field spellbookSizeFormula string GoblinScript formula for spellbook size.
+--- @field startingCurrency? string Starting main currency amount as typed in the class editor; read with try_get.
+--- @field heroicResourceChecklist? table[] Heroic resource gain items ({guid, name, quantity, ...}); created via get_or_add.
 Class = RegisterGameType("Class")
 
 --- @class ClassLevel: GameType
@@ -30,18 +32,24 @@ ClassLevel = RegisterGameType("ClassLevel") --type which represents the benefits
 
 --- @class CharacterChoice: GameType
 --- @field new fun(o?: table): CharacterChoice
+--- @field guid string Identifies the choice; the key of the hero's picks in its level choices.
 CharacterChoice = RegisterGameType("CharacterChoice")
 
 --- @class CharacterFeatureChoice:CharacterChoice
 --- @field new fun(o?: table): CharacterFeatureChoice
+--- @field guid string Unique id of this choice; choices made are keyed by it.
+--- @field options (CharacterFeature|CharacterFeatureList|CharacterChoice|CharacterSingleFeat)[] The options to choose from (features, feature lists, nested choices, single feats).
+--- @field prerequisites? CharacterPrerequisite[] Prerequisites that must be met to make this choice.
 CharacterFeatureChoice = RegisterGameType("CharacterFeatureChoice", "CharacterChoice")
 
 --- @class CharacterSubclassChoice:CharacterChoice
 --- @field new fun(o?: table): CharacterSubclassChoice
+--- @field classid string Id of the class whose subclasses are offered (set by the class editor).
 CharacterSubclassChoice = RegisterGameType("CharacterSubclassChoice", "CharacterChoice")
 
 --- @class CharacterFeatureList: GameType
 --- @field new fun(o?: table): CharacterFeatureList
+--- @field features (CharacterChoice|CharacterFeature)[] The grouped features, set by CreateNew.
 CharacterFeatureList = RegisterGameType("CharacterFeatureList")
 
 --- @param options nil|table
@@ -805,7 +813,7 @@ function CharacterFeatureChoice:Choices(numOption, existingChoices, creature)
 				modifiers = rawget(feature, "modifiers"),
                 hasCustomPanel = feature.typeName and feature:HasCustomDropdownPanel(),
                 panel = function()
-                    return feature:CreateDropdownPanel(text)
+                    return feature:CreateDropdownPanel()
                 end,
 			}
 		end

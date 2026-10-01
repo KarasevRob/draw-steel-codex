@@ -4480,6 +4480,7 @@ end
 --- @field name string Display name of the library script.
 --- @field description string What the script does, shown in pickers and the compendium.
 --- @field code string The Lua source; must return a definition table.
+--- @field guid string Stable id; OnDeserialize generates one if missing.
 EncounterScript = RegisterGameType("EncounterScript")
 
 EncounterScript.name = "New Encounter Script"
@@ -4815,6 +4816,7 @@ end
 --- @field params table {paramid = value} chosen by the director.
 --- @field victoryText string|nil Cached resolved victory text (edit-time snapshot; what players see).
 --- @field defeatText string|nil Cached resolved defeat text (edit-time snapshot; what players see).
+--- @field guid string Unique id of this attached script; OnDeserialize fills it in when missing.
 EncounterScriptInstance = RegisterGameType("EncounterScriptInstance")
 
 EncounterScriptInstance.scriptid = ""
@@ -5257,6 +5259,10 @@ local function IsElectedHost()
     end
     return best == dmhub.userid
 end
+
+--Shared with other host-only round work (EnvironmentalKeyword's end-of-round
+--zone spread) so every such job elects the same client.
+LiveEncounter.IsElectedHost = IsElectedHost
 
 -- ---------------------------------------------------------------------------
 -- Host runtime: the handler ctx and the heartbeat driver

@@ -24,7 +24,8 @@ function ActivatedAbility:ConsumeResources(caster, options)
     local paid = {}
     for _,pair in ipairs(options.symbols.targetPairs) do
         if not paid[pair.a] then
-            local t = dmhub.GetTokenById(pair.a)
+            --The GetTokenById double below returns the plain minion tables built in this test.
+            local t = dmhub.GetTokenById(pair.a) --[[@as {actions: integer}]]
             t.actions = t.actions - 1
             paid[pair.a] = true
         end

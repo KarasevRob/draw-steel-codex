@@ -82,6 +82,7 @@ assert(ok and chosen == ranged, "altitude chooses ranged instead of melee variat
 dmhub.allTokens = {goblin, pixie}
 local burst = setmetatable({targetType = "all", range = 1}, {__index = ability})
 local _, targets = ai:ExecuteAbility(goblin, burst)
+assert(targets ~= nil, "burst resolves targets")
 assert(#targets == 1 and targets[1].token == goblin, "burst excludes vertically distant creatures")
 local map = setmetatable({targetType = "map"}, {__index = ability})
 _, targets = ai:ExecuteAbility(goblin, map)

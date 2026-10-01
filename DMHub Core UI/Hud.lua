@@ -2,6 +2,7 @@ local mod = dmhub.GetModLoading()
 
 --- @class Hud: GameType
 --- @field new fun(o?: table): Hud
+--- @field dialog SheetContainer The engine's sheet container; every Hud is a GameHud built by dmhub.CreateGameHud.
 --- @field dialogWorldPanel Panel Host for world-space dialogs; set by Hud.MainDialogPanel.
 --- @field mainDialogPanel Panel Main dialog layer; set by Hud.MainDialogPanel.
 --- @field modalPanel Panel Modal dialog layer; set by Hud.ModalDialogPanel.
@@ -422,7 +423,7 @@ end
 
 --- Close the topmost modal in the given layer (the global modalPanel or a
 --- popout window's own layer).
---- @param layer Panel
+--- @param layer Panel|nil nil (or a destroyed layer) is ignored.
 function Hud.CloseModalInLayer(self, layer)
 	if layer == nil or (not layer.valid) then
 		return
@@ -480,11 +481,11 @@ function Hud.GetModal(self, owner)
 end
 
 --- @class ModalMessageArgs
---- @param title nil|string @message shown at the top
---- @param message string @message taking up the bulk of the dialog.
---- @param panel nil|Panel An arbitrary panel to display in the center.
---- @param options nil|{text: string, execute: function} a list of buttons that will be displayed at the bottom.
---- @param owner nil|Panel The element this message concerns. If it lives in a native popout window, the message appears in THAT window instead of the main one.
+--- @field title nil|string message shown at the top
+--- @field message nil|string message taking up the bulk of the dialog.
+--- @field panel nil|Panel An arbitrary panel to display in the center.
+--- @field options nil|{text: string, execute?: function}[] a list of buttons that will be displayed at the bottom.
+--- @field owner nil|Panel The element this message concerns. If it lives in a native popout window, the message appears in THAT window instead of the main one.
 
 --- Display a modal message dialog.
 --- @param args ModalMessageArgs
@@ -805,6 +806,9 @@ end
 --- @field combatSettingsButton Panel
 --- @field castingSpell boolean
 --- @field currentInitiativeId? string
+--- @field interactionQueue fun()[] Pending popup interactions, run one per Think when the player is free; set by the hud constructors.
+--- @field openInventoryDialogs Panel[] Inventory dialogs currently open; set by the hud constructors.
+--- @field CreateRollResultPanel fun(self: GameHud): Panel Defined in the engine TextAsset roll-display.txt.
 GameHud = RegisterGameType("GameHud", "Hud")
 
 -- Fullscreen host panel for the shop/inventory screen. Set by

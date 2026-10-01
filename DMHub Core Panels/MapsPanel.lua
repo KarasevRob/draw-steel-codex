@@ -593,7 +593,11 @@ local CreateMapTokenContainer = function(map, onClick)
 							return
 						end
 
-						local partyid = tok.partyid
+						--same as the deprecated tok.partyid, which reads an empty id as nil.
+						local partyid = tok.partyId
+						if partyid == "" then
+							partyid = nil
+						end
 						local party = GetParty(partyid)
 						if party ~= nil then
 							gui.Tooltip(string.format("%s -- %s", tok.description, party.name))(element)

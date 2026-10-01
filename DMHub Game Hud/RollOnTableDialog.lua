@@ -74,12 +74,22 @@ function GameHud.CreateRollOnTableDialog(self)
 
     local resultPanel
 
+	--- The options handed to ShowDialog (see RequireDCDialog's dialogParams).
+	---@class RollOnTableDialogOptions
+	---@field tableRef RollTableReference
+	---@field creature creature?
+	---@field rollProperties RollOnTableProperties
+	---@field completeRoll? fun(rollInfo: table)
+	---@field cancelRoll? function
+
+	---@type RollOnTableDialogOptions
 	local m_options = nil
     local m_guid = nil
     local m_cancelRoll = nil
 
 	local m_shown = 0
 	
+	---@type RollTable
 	local m_table = nil
 
 	local tablePanel
@@ -581,6 +591,8 @@ end
 
 --- @class RollOnTableProperties: RollProperties
 --- @field new fun(o?: table): RollOnTableProperties
+--- @field tableRef RollTableReference? The table this roll is on; set by the roll-on-table dialog.
+--- @field overrideRollTotal? number Roll total that replaces the dice result; set by the Timeline override flow.
 RollOnTableProperties = RegisterGameType("RollOnTableProperties", "RollProperties")
 
 function RollOnTableProperties:GetOutcome(rollInfo)

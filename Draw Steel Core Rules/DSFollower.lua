@@ -147,6 +147,8 @@ end
 function character:RemoveFollowerFromMentor(followerid)
     local token = dmhub.LookupToken(self)
     local dti = self:GetDowntimeInfo()
+    --GetDowntimeInfo only returns nil for a creature with no token, and token is used below.
+    ---@cast dti -nil
     token:ModifyProperties{
         description = "Remove Follower",
         execute = function()
@@ -287,7 +289,7 @@ CreateFollowerMonster = function(followerInfo, followerType, mentorToken, option
             return
         end
 
-        mentorToken.properties:AddFollowerToMentor(newFollower.id)
+        mentorToken.properties:AddFollowerToMentor(newFollower.charid)
         
         if open ~= false then
             newFollower:ShowSheet()

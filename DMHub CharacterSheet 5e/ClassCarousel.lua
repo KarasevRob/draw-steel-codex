@@ -278,6 +278,9 @@ function CharSheet.StartingEquipmentDisplay(claimedKey, hasclassStyle)
                                                     mainPanel = iconPanel
                                                     fadedPanel = iconPanelCrossfade
                                                 end
+                                                -- mainPanel and fadedPanel are set together with iconPanelCrossfade and cleared together in removeCrossfade.
+                                                ---@cast mainPanel -nil
+                                                ---@cast fadedPanel -nil
 
                                                 fadedPanel.bgimage = imageid
                                                 mainPanel:SetClass("fade", true)
@@ -343,6 +346,7 @@ function CharSheet.StartingEquipmentDisplay(claimedKey, hasclassStyle)
                                                     local equipmentCategoriesTable = dmhub.GetTable(EquipmentCategory.tableName)
                                                     local currencyTable = dmhub.GetTable(Currency.tableName)
 
+                                                    ---@type equipment|EquipmentCategory|Currency|nil
                                                     local itemInfo = inventoryTable[itemEntry.itemid]
                                                     
                                                     if itemInfo == nil then

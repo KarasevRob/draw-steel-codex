@@ -863,6 +863,8 @@ function EncounterMontage.AssistSkillFor(charid, option, usedSkillId)
                 pcall(function() trained = tok.properties:ProficientInSkill(skillInfo) end)
             end
             if trained then
+                --trained is only set when skillInfo was found.
+                ---@cast skillInfo -nil
                 return skillid, skillInfo.name
             end
         end
@@ -1012,6 +1014,8 @@ function EncounterMontage.AdvanceScene()
     if not EncounterMontage.LocalUserPacesScene(m) then
         return false
     end
+    --LocalUserPacesScene is false when m is nil.
+    ---@cast m -nil
     local index = EncounterMontage.SceneCursor(m)
     local scene = m.turn.scene
     if index == nil or index > #(scene.steps or {}) then
@@ -1396,7 +1400,11 @@ local function SpawnAlly(monsterid, heroEntry, userid)
     if token == nil then
         return nil
     end
-    pcall(function() token.properties:OnCreateFromBestiary(token, dmhub.GenerateGuid()) end)
+    pcall(function()
+        --a bestiary spawn's properties are a monster.
+        local props = token.properties --[[@as monster]]
+        props:OnCreateFromBestiary(token, dmhub.GenerateGuid())
+    end)
     --partyId FIRST: its setter force-writes ownerId = "PARTY", so ownership
     --must be written after it (see ClaimPastedHero in EncounterOfTheWeek.lua).
     pcall(function() token.partyId = GetDefaultPartyID() end)
@@ -1506,6 +1514,8 @@ function EncounterMontage.ApplyEffects(effects, ctx)
                 if itemid == nil then
                     applied[#applied + 1] = string.format("Unknown item '%s'", effect.name)
                 else
+                    --FindGear returns the item alongside any id it finds.
+                    ---@cast item -nil
                     local names = {}
                     for _, target in ipairs(Targets(effect)) do
                         local grantOk = pcall(GrantItem, target.token, itemid, item.name, effect.qty)
@@ -1658,8 +1668,11 @@ function EncounterMontage.ApplyEffects(effects, ctx)
                 if monsterid == nil then
                     applied[#applied + 1] = string.format("Unknown monster '%s'", effect.name)
                 elseif #joined == 0 then
+                    --FindMonster returns the asset alongside any id it finds.
+                    ---@cast asset -nil
                     applied[#applied + 1] = string.format("%s cannot join: no hero", asset.name)
                 else
+                    ---@cast asset -nil
                     --one ally per hero the clause landed on (a narrative
                     --option several heroes took brings several allies).
                     local names = {}
@@ -2729,6 +2742,8 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         if option == nil or (option.roll == nil and (option.delve == nil or t.delve ~= nil)) then
             return "ignored choose: no such option"
         end
+        --option is only found when entry is.
+        ---@cast entry -nil
         if option.delve ~= nil and t.delve == nil then
             local script = EncounterMontage.FindMapScript()
             local delve = EncounterScript.FindDelve(script ~= nil and script.parse or nil, option.delve)
@@ -2795,6 +2810,8 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             t.status = "choosing"
             return "ignored roll: option vanished"
         end
+        --option is only found when entry is.
+        ---@cast entry -nil
         local tierIndex = TierIndexForRoll(option.roll, req.tier, req.natural)
         --what the acting hero rolled WITH: the assist uses the same
         --characteristic, and a hero may only assist with a skill this one is

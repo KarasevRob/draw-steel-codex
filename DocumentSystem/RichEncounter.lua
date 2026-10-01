@@ -3,6 +3,8 @@ local mod = dmhub.GetModLoading()
 
 ---@class RichEncounter: RichTag
 --- @field new fun(o?: table): RichEncounter
+--- @field encounter Encounter The encounter this tag shows and places; set by RichEncounter.Create.
+--- @field spawns? string[] Charids of the monsters this tag placed on the map; absent until placed.
 RichEncounter = RegisterGameType("RichEncounter", "RichTag")
 RichEncounter.tag = "encounter"
 
@@ -226,6 +228,7 @@ function RichEncounter.CreateDisplay(self)
 
         press = function(element)
             SetOpen(not m_open)
+            resultPanel.data.encounter = nil
             gui.SetFocus(resultPanel)
         end,
 
@@ -1030,6 +1033,7 @@ function RichEncounter.CreateDisplay(self)
                     end
 
                     gui.SetFocus(nil)
+                    element.data.encounter = nil
 
                     self.spawns = charids
 
@@ -1071,12 +1075,15 @@ function RichEncounter.CreateDisplay(self)
                 dmhub.DeregisterEventHandler(element.data.monitorid)
             end
         end,
+        --Focus plus data.encounter arms the engine's click-to-place, so only
+        --"Place on Map" sets data.encounter; any other click on the widget
+        --disarms rather than sticking the roster to the cursor.
         press = function(element)
+            element.data.encounter = nil
             gui.SetFocus(element)
         end,
         refreshTag = function(element, tag)
             self = tag or self
-            element.data.encounter = self.encounter
             m_balancedEncounter = self.encounter:CloneForNumberOfHeroes()
 
             --match the host sheet's page (opt-in; nil palette = app theme).

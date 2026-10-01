@@ -1434,6 +1434,8 @@ function SkillDisplayParser(skillInput)
     local resultPanel
     local skillInfo = Skill.FindByName(skillInput)
     print("The skill is", skillInfo.name, "and the id is", skillInfo.id)
+    --the line above already fails on a nil skill, so the handlers below never see one.
+    ---@cast skillInfo -nil
     
     resultPanel = gui.Panel{
         flow = "horizontal",
@@ -2807,6 +2809,8 @@ function DSCharacterSheet.CharacterSheetSkillsPanelLegacy()
 											text = option.text,
 											press = function(element)
 												if option.id == "custom" then
+													--only monsters get the "custom" option, and they always build customInput.
+													---@cast customInput -nil
 													customInput:SetClass("collapsed", false)
 													for _,p in ipairs(panels) do
 														p:SetClass("selected", p == element)
@@ -3991,9 +3995,12 @@ function DSCharacterSheet.CharacterFeaturesPanel()
 
 				local key = string.format("%d-%s-%s", i, featureInfo.feature.guid, levelStr)
 
+				---@type Panel?
 				local featurePanel = featurePanels[key]
 
 				if featurePanel == nil then
+					--the closures below only run once featurePanel is built.
+					---@cast featurePanel Panel
 
 					local tri = gui.Panel{
 						classes = {"triangle"},

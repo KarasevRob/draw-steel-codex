@@ -302,6 +302,7 @@ local function PreferForcedMovementCandidate(candidateAltitude, candidateScore, 
 end
 
 local function FindBestPullLocation(invokerToken, casterToken, abilityClone, symbols, range, forcedMovement, preferAltitude)
+    ---@type fun(loc: Loc): boolean
     local filterTargetPredicate = abilityClone:TargetLocPassesFilterPredicate(casterToken, symbols)
         or function() return true end
     local shape = dmhub.CalculateShape{
@@ -376,9 +377,6 @@ local function FindBestPullLocation(invokerToken, casterToken, abilityClone, sym
     end
 
     casterToken:ClearMovementArrow()
-    if type(shape.Destroy) == "function" then
-        shape:Destroy()
-    end
     return bestLoc
 end
 

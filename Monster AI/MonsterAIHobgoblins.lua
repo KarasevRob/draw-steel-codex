@@ -393,9 +393,6 @@ local function FindBestCubePlan(token, ability, candidates, allyPenalty)
                     utility = utility,
                 }
             end
-            if type(area.Destroy) == "function" then
-                area:Destroy()
-            end
         end
     end
     return best
@@ -1472,9 +1469,6 @@ MonsterAI:RegisterMove{
         local teleport = FindHellfireTeleport(ai, token, area)
         if teleport ~= nil then
             TeleportCreature(ai, teleport.token, teleport.loc, 2)
-        end
-        if type(area.Destroy) == "function" then
-            area:Destroy()
         end
 
         area = BuildCubeArea(token, hellfire, scoringInfo.center)

@@ -623,6 +623,7 @@ end
 
 local function CreateTriggeredAbilityPanel()
     local resultPanel
+    ---@type TriggeredAbilityDisplay
     local m_triggeredAbility = nil
 
     resultPanel = gui.Panel {
@@ -4299,6 +4300,15 @@ local function DSCharSheet()
                                         end
                                         local baseValue = token.properties:GetBaseAttribute(attrid).baseValue
                                         local modifiers = token.properties:DescribeModifications(attrid, baseValue)
+
+                                        --the listed modifiers can add up past the hero cap; say why the score shows lower.
+                                        local uncapped = token.properties:CalculateAttribute(attrid, baseValue)
+                                        if token.properties:HeroCharacteristicIsCapped(attrid, uncapped) then
+                                            modifiers[#modifiers+1] = {
+                                                key = "Hero Maximum",
+                                                value = string.format("Capped at %d", creature.heroCharacteristicMax),
+                                            }
+                                        end
 
                                         print("POPUP::", attrid, info.description)
 
@@ -8494,6 +8504,8 @@ local function FeaturesIndexPanel()
             height = "auto",
             flow = "horizontal",
             press = cond(expandable, function(element)
+                --only installed on expandable rows, which always build tri.
+                ---@cast tri -nil
                 local nowExpanded = not tri:HasClass("expanded")
                 tri:SetClass("expanded", nowExpanded)
                 body:SetClass("collapsed", not nowExpanded)

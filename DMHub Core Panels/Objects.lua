@@ -190,6 +190,8 @@ local ShowObjectTooltip = function(element)
 							},
 							events = {
 								imageDimensions = function(element, info)
+									--node.components above already errors on a nil node.
+									---@cast node -nil
 									if element.bgsprite == nil then
 										dmhub.Debug('NO BG SPRITE')
 									end
@@ -463,11 +465,14 @@ local g_objectEntryStyles = {
 
 local function CreateObjectEntry(nodeid, parentElement, options)
 	local node = assets:GetObjectNode(nodeid)
+	--Callers pass the id of a live node; refreshAssets keeps it non-nil after that.
+	---@cast node -nil
 
 	local searchActive = false
 	local matchesSearch = true
 	local parentCollapsed = false
 
+	---@type Panel
 	local resultPanel = nil
 
 
@@ -628,7 +633,12 @@ local function CreateObjectEntry(nodeid, parentElement, options)
 			end,
 
 			refreshAssets = function(element)
-				node = assets:GetObjectNode(nodeid)
+				local refreshed = assets:GetObjectNode(nodeid)
+				if refreshed == nil then
+					--the object was deleted; the parent folder's refresh removes this entry.
+					return
+				end
+				node = refreshed
 				objImagePanel.bgimageStreamed = node.thumbnailId
 
 				if element:HasClass('focus') then
@@ -924,7 +934,10 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 	local isCollapsed = true
 	local refreshAssetsDirty = false
 	local node = assets:GetObjectNode(nodeid)
+	--Callers pass the root ('') or a live folder's id; refreshAssets keeps it non-nil after that.
+	---@cast node -nil
 
+	---@type Panel
 	local folderPane = nil
 
 	--the root folder gets additional UI, such as a search and ways to add objects.
@@ -1058,6 +1071,7 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 		}
 	end
 
+	---@type Panel
 	local triangle = nil
 	triangle = gui.Panel({
 				bgimage = 'panels/triangle.png',
@@ -1447,7 +1461,12 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 
 				refreshAssetsDirty = isCollapsed
 
-				node = assets:GetObjectNode(nodeid)
+				local refreshed = assets:GetObjectNode(nodeid)
+				if refreshed == nil then
+					--the folder was deleted; its parent folder's refresh removes it.
+					return
+				end
+				node = refreshed
 
 				if (not isCollapsed) or searchNodes ~= nil then
 					local newElements = {}
@@ -1886,6 +1905,7 @@ local function CreateObjectInstanceHierarchy()
 	local resultPanel
 
 	local m_currentFloorId = nil
+	---@type Panel?
 	local bodyPanel = nil
 
 	local triangle = nil
@@ -1943,6 +1963,8 @@ local function CreateObjectInstanceHierarchy()
 
 								thinkTime = 0.3,
 								think = function(element)
+									--built by the time it thinks (LuaLS sees the nil it had when this closure was made).
+									---@cast bodyPanel Panel
 									if bodyPanel:HasClass("collapsed") then
 										return
 									end
@@ -1954,6 +1976,7 @@ local function CreateObjectInstanceHierarchy()
 								end,
 
 								refreshObjectInstances = function(element)
+									---@cast bodyPanel Panel
 									if bodyPanel:HasClass("collapsed") then
 										return
 									end

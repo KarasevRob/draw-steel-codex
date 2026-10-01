@@ -2097,6 +2097,21 @@ end
 --- @field hasAlpha nil|boolean @Default=true Whether the picker has a bar for alpha.
 --- @field hdrRange nil|boolean @Default=1 Set to above 1 to allow this color to include colors brighter than 100%.
 --- @field value nil|Color|string The color value selected in the picker.
+--- @field keybind nil|string|(fun(panel:ColorPicker, bind:string, ...:any):nil)
+--- @field monitor nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field closePopup nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field delete nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field change nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field click nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field rightClick nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field rendered nil|string|(fun(panel:ColorPicker, width:number,height:number, ...:any):nil)
+--- @field enable nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field disable nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field create nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field think nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field escape nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field refreshGame nil|string|(fun(panel:ColorPicker, ...:any):nil)
+--- @field imageLoaded nil|string|(fun(panel:ColorPicker, ...:any):nil)
 
 --- @class ColorPicker:Panel
 --- @field value string|Color The color value picked by the color picker.
@@ -2127,6 +2142,7 @@ function gui.ColorPicker(args)
 		options.data = {}
 	end
 
+	---@type Panel
 	local mainPanel = nil
 
 	options.data.getColor = function()
@@ -2565,6 +2581,7 @@ gui.TriangleStyles = triangleStyles
 --- @field characterLimit nil|integer
 --- @field collapsedClass nil|string (Default="collapsed") set to make this use a different class to indicate collapsed.
 --- @field headerExtraClasses nil|string[] extra CSS classes to add to the header panel
+--- @field change nil|fun(element: Panel, text: string) fired with the new header text after an edit (editable nodes)
 
 --- Create a node in a tree. When collapsed, its contentPanel will be hidden.
 --- @param args TreeNodeArgs
@@ -2579,6 +2596,7 @@ function gui.TreeNode(args)
 	local panelHeight = options.panelHeight or 30
 	options.panelHeight = nil
 
+	---@type Panel
 	local contentPanel = options.contentPanel
 	options.contentPanel = nil
 
@@ -2600,6 +2618,8 @@ function gui.TreeNode(args)
 	if contentPanel == nil then
 		dmhub.Error('gui.TreeNode must have a contentPanel')
 	end
+	--contentPanel is a required arg; the check above only reports a caller bug.
+	---@cast contentPanel Panel
 
 	local isCollapsed = not options.expanded
 	options.expanded = nil
@@ -2613,6 +2633,7 @@ function gui.TreeNode(args)
 
 	refreshCollapsed()
 
+	---@type Panel
 	local resultPanel = nil
 
 	local triangle = gui.Panel({
@@ -2976,7 +2997,12 @@ end
 --- @field disabled nil|boolean
 --- @field submenu nil|(ContextMenuEntry[])
 --- @field bind nil|string The keybind the entry has
---- @field hasNewContent nil|boolean If true, this has new content and will be marked as such.
+--- @field hasNewContent nil|fun(): boolean If it returns true, this has new content and will be marked as such.
+--- @field icon nil|string Image shown to the left of the text.
+--- @field hidden nil|boolean If true the entry is skipped by gui.ContextMenu.
+--- @field id nil|string Id given to the item's panel.
+--- @field tooltip nil|string|LabelArgs Shown on hover, via gui.Tooltip.
+--- @field rightClickMenu nil|(ContextMenuEntry[]) Entries of a menu opened by right-clicking this entry.
 
 
 
@@ -3406,6 +3432,7 @@ local g_recentAudioUploads = {}
 function gui.AudioEditor(args)
 	local resultPanel
 
+	---@type Panel
 	local spectrumPanel = nil
 
 	args = DeepCopy(args)
@@ -3602,6 +3629,7 @@ function gui.AudioEditor(args)
 
 		press = function(element)
 
+			---@type Panel
 			local popupPanel = nil
 			local searchText = ''
 			-- Reassigned once searchInput exists; lets a row trigger a full
@@ -4211,6 +4239,8 @@ function gui.CreateTokenImage(tokenArg, options)
 		bgimage = bgimage,
 
 		imageLoaded = function(element)
+			--there is only a portrait to load once a token is known.
+			---@cast token -nil
 			--now we have loaded the portrait for sure, make sure the rect is right.
 			if token.popoutPortrait then
 				element.selfStyle.imageRect = {x1 = popoutBorder, y1 = popoutBorder, x2 = 1 - popoutBorder, y2 = 1 - popoutBorder}
@@ -4222,6 +4252,8 @@ function gui.CreateTokenImage(tokenArg, options)
 		end,
 
 		token = function(element, tok)
+			--FireEventTree runs the root's token handler first, which stores tok in token.
+			---@cast token -nil
 			element.bgimage = tok.portrait
 
 			if tok.popoutPortrait then
@@ -4777,7 +4809,7 @@ local statusIconImplementationEvent = function(element, implementation)
 end
 
 --- @class ImplementationStatusIconArgs:PanelArgs
---- @field implementation 0|1|2|3|4
+--- @field implementation? 0|1|2|3|4 Initial status; omit it to set none until an "implementation" event fires.
 
 --- An icon for showing implementation status of a feature. Set value to status: 0 - won't implement, 1 - unimplemented, 2 - bronze, 3 - silver, 4 - gold.
 --- @param args ImplementationStatusIconArgs
@@ -4836,7 +4868,14 @@ function gui.Curve(options)
 	--the id of shapes made by editor info.
 	local editorInfoIds = {}
 
+	--- A curve point in normalized [0-1] editor units; z is the tangent gradient.
+	--- @class GuiCurvePoint
+	--- @field x number
+	--- @field y number
+	--- @field z number
+
 	--the actual point that the tangent is for.
+	--- @type GuiCurvePoint?
 	local tangentPoint = nil
 
 	--the id of the shape displaying the current tangent.
@@ -4855,13 +4894,17 @@ function gui.Curve(options)
 	local dragging = nil
 
 	--the mouse position and original position of the start of the drag.
+	--- @type Vector2
 	local dragAnchor = nil
+	--- @type {x: number, y: number}
 	local dragStartPos = nil
 
 	local CloseToTangent = function(point)
 		if tangentid == nil then
 			return false
 		end
+		--RefreshTangent sets tangentPoint whenever it creates tangentid.
+		---@cast tangentPoint -nil
 
 		if tangentPoint.z < -1 or tangentPoint.z > 1 then
 			local g = 1/tangentPoint.z
@@ -4984,6 +5027,9 @@ function gui.Curve(options)
 					return
 				end
 
+				--press only starts a drag on a highlighted point, and nothing clears
+				--highlightedIndex while dragging without also clearing dragging.
+				---@cast highlightedIndex -nil
 				local highlightedPoint = points[highlightedIndex]
 
 				if highlightedIndex ~= 1 and highlightedIndex ~= #points then
@@ -5022,6 +5068,8 @@ function gui.Curve(options)
 					return
 				end
 
+				--a tangent drag only starts while a tangent (and so tangentPoint) is shown.
+				---@cast tangentPoint -nil
 				local dx = point.x - tangentPoint.x
 				local dy = point.y - tangentPoint.y
 

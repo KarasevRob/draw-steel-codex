@@ -1728,6 +1728,7 @@ local function OptionCard(entry, option, index, m)
         --the table; an assist may still move it before anything is applied.
         landed = m.turn.baseTier
     end
+    ---@type Panel[]
     local children = {
         gui.Label{ classes = {"eotwOptionName"}, text = option.name, interactable = false },
     }
@@ -2213,6 +2214,8 @@ local function CreateSceneStage()
         if not EncounterMontage.LocalUserPacesScene(m) then
             return
         end
+        --LocalUserPacesScene is false when m is nil.
+        ---@cast m -nil
         local index = EncounterMontage.SceneCursor(m)
         if index ~= nil and index <= #((m.turn.scene or {}).steps or {}) then
             m_prompt:SetClass("collapsed", false)
@@ -3883,6 +3886,8 @@ local function CreateStage(args)
             introLabel:SetClass("collapsed", (beat.intro or "") == "")
             m_turnSignature = nil
             if not embedded then
+                --backdrop is built whenever the stage is not embedded.
+                ---@cast backdrop -nil
                 local scene = EncounterMontage.SceneImage(script, beat)
                 if scene ~= m_scene then
                     m_scene = scene
@@ -4300,6 +4305,8 @@ local function CreateNarrativeHeroColumn(hero, section)
             local waiting = true
             if m.phase == "choosing" then
                 if chosen then
+                    --chosen is choice ~= nil.
+                    ---@cast choice -nil
                     waiting = false
                     if individual then
                         text = (section.options[tonumber(choice.optionIndex) or 0] or {}).name or "Chosen"
@@ -4311,6 +4318,7 @@ local function CreateNarrativeHeroColumn(hero, section)
                     text = "Choosing..."
                 end
             elseif chosen then
+                ---@cast choice -nil
                 waiting = false
                 local index = tonumber(choice.optionIndex) or 0
                 text = (section.options[index] or {}).name or ""
@@ -4566,6 +4574,8 @@ local function CreateNarrativeStage(args)
             end
             optionsRow.children = cards
             if not embedded then
+                --backdrop is built whenever the stage is not embedded.
+                ---@cast backdrop -nil
                 local scene = EncounterNarrative.SceneImage(script, beat, section)
                 if scene ~= m_scene then
                     m_scene = scene

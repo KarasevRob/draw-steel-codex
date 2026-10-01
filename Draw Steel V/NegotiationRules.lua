@@ -3,6 +3,7 @@ local mod = dmhub.GetModLoading()
 
 --- @class MCDMNegotiation: GameType
 --- @field new fun(o?: table): MCDMNegotiation
+--- @field accepted table<string, boolean> userid -> whether that player accepted the offer; Create sets it.
 MCDMNegotiation = RegisterGameType("MCDMNegotiation")
 --- @class MCDMMotivation: GameType
 --- @field new fun(o?: table): MCDMMotivation
@@ -1527,7 +1528,7 @@ function NegotiationDocument:EditPanel()
             idChosen = doc:try_get("attitude", "suspicious"),
             change = function(element)
                 ---@cast element Dropdown
-                doc.attitude = element.idChosen
+                doc.attitude = element.idChosen --[[@as string]] -- option ids are attitude ids
                 CustomDocument.NotifyEdited(element)
             end,
         },
@@ -2166,7 +2167,7 @@ local function CreateNegotiationStage(args)
             guid = dmhub.GenerateGuid(),
             roll = rollStr,
             description = kind == "read" and "Read the NPC" or "Negotiation argument",
-            tokenid = tok.id,
+            tokenid = tok.charid,
             complete = function(rollInfo)
                 m_rolling = false
                 local total = rollInfo.total
@@ -2930,7 +2931,7 @@ local function CreateNegotiationRunner()
             idChosen = m_attitude,
             change = function(element)
                 ---@cast element Dropdown
-                m_attitude = element.idChosen
+                m_attitude = element.idChosen --[[@as string]] -- option ids are attitude ids
             end,
         }
 
@@ -3449,6 +3450,7 @@ local function CreateNegotiationRunner()
         local pr = live:try_get("pendingReveal", false)
         if pr and (pr.kind or "") ~= "" then
             local kindName = pr.kind == "pitfall" and "pitfall" or "motivation"
+            ---@type Panel[]
             local pickChildren = { Micro(string.format(
                 "%s learned a %s - which one?", pr.whoName or "A hero", kindName), "#e4ddd0") }
             for _, t in ipairs(live.traits) do
@@ -3605,6 +3607,7 @@ local function CreateNegotiationRunner()
                 local o = live.offers[NegotiationRules.OfferIndex(interest)]
                     or { terms = "", revealed = false }
                 local terms = (o.terms or "")
+                ---@type Panel[]
                 local rowChildren = {
                     gui.Label{
                         classes = { "sizeS" },

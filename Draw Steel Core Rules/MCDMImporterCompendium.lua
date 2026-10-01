@@ -178,7 +178,15 @@ end
 ActivatedAbility.patternMatchPrefix = "^\\s*"
 ActivatedAbility.MatchMCDMEffect = CharacterFeature.MatchMCDMMonsterTrait
 
+--- A monster-trait row in one of the importer tables: a CharacterFeature plus
+--- the pattern that recognizes it in imported text and its test cases.
+--- @class MCDMImporterTraitItem: CharacterFeature
+--- @field importMatch? string
+--- @field importMatchType? string
+--- @field testCases? {text: string}[]
+
 local function CreateEditPanel(tableName)
+    ---@type MCDMImporterTraitItem?
     local m_item = nil
     local editPanel
     editPanel = gui.Panel{
@@ -393,6 +401,8 @@ local function CreateEditPanel(tableName)
                                 end,
 
                                 runtest = function(element, text)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local trait, matches = m_item:MatchMCDMMonsterTrait(nil, text, text)
                                     if matches ~= nil then
                                         element.text = "Match"
@@ -406,6 +416,8 @@ local function CreateEditPanel(tableName)
                                 classes = {"deleteButton", "sizeS"},
                                 valign = "center",
                                 click = function(element)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local testCases = m_item:try_get("testCases") or {}
                                     table.remove(testCases, i)
                                     editPanel:FireEvent("change")
@@ -433,6 +445,8 @@ local function CreateEditPanel(tableName)
                 width = 160,
                 text = "Add Test Case",
                 click = function(element)
+                    --this button sits in the panel that stays collapsed until an item is set.
+                    ---@cast m_item -nil
                     m_item.testCases = m_item:try_get("testCases") or {}
                     m_item.testCases[#m_item.testCases+1] = {
                         text = "Sample trait text",
@@ -583,7 +597,19 @@ Compendium.Register{
     end,
 }
 
+--- An ability-effect row in one of the importer tables (or standardAbilities):
+--- an ActivatedAbility plus its import pattern, test cases and insert options.
+--- @class MCDMImporterEffectItem: ActivatedAbility
+--- @field importMatch? string
+--- @field importMatchType? string
+--- @field testCases? {text: string}[]
+--- @field hiddenFromInvoke? boolean
+--- @field documentation? string
+--- @field insertAtStart? boolean
+--- @field invokeSurroundingAbility? boolean
+
 local function CreateEditAbilityEffectsPanel(tableName)
+    ---@type MCDMImporterEffectItem?
     local m_item = nil
     local editPanel
 
@@ -865,6 +891,8 @@ local function CreateEditAbilityEffectsPanel(tableName)
                                 end,
 
                                 runtest = function(element, text)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local trait, matches = m_item:MatchMCDMEffect(nil, text, text)
                                     if matches ~= nil then
                                         element.text = "Match"
@@ -878,6 +906,8 @@ local function CreateEditAbilityEffectsPanel(tableName)
                                 classes = {"deleteButton", "sizeS"},
                                 valign = "center",
                                 click = function(element)
+                                    --test-case rows only exist once setdata has stored an item.
+                                    ---@cast m_item -nil
                                     local testCases = m_item:try_get("testCases") or {}
                                     table.remove(testCases, i)
                                     editPanel:FireEvent("change")
@@ -905,6 +935,8 @@ local function CreateEditAbilityEffectsPanel(tableName)
                 width = 160,
                 text = "Add Test Case",
                 click = function(element)
+                    --this button sits in the panel that stays collapsed until an item is set.
+                    ---@cast m_item -nil
                     m_item.testCases = m_item:try_get("testCases") or {}
                     m_item.testCases[#m_item.testCases+1] = {
                         text = "Sample effect text",

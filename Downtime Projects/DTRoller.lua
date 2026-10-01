@@ -100,7 +100,7 @@ end
 function DTRoller:GetTokenID()
     if self.object then
         local token = DTHelpers.GetTokenFromCreature(self.object)
-        if token then return token.id end
+        if token then return token.charid end
     end
     return nil
 end
@@ -112,7 +112,7 @@ end
 function DTRoller:GetFollowerID()
     if self.object and DTRoller._isFollowerType(self.object) then
         local token = DTHelpers.GetTokenFromCreature(self.object)
-        if token then return token.id end
+        if token then return token.charid end
     end
     return nil
 end
@@ -135,7 +135,7 @@ function DTRoller._validateConstructor(object)
                 local followerId = object:GetRolledByFollowerID()
                 if followerId and #followerId then
                     local follower = dmhub.GetCharacterById(followerId)
-                    if follower then return follower.properties, token.id end
+                    if follower then return follower.properties, token.charid end
                 end
 
                 return token.properties

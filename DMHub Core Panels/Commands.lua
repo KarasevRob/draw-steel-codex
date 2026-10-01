@@ -487,7 +487,8 @@ local function allCommandCompletions(args, argIndex)
     if argIndex ~= 1 then return {} end
     local result = {}
     local seen = {}
-    local macros = Commands.GetAllMacros()
+    --Commands is stubbed as table<string, function>, but GetAllMacros returns the Commands._macros info table.
+    local macros = Commands.GetAllMacros() --[[@as table<string, {doc?: string, summary?: string}>]]
     for name, info in pairs(macros) do
         if not seen[name] then
             seen[name] = true

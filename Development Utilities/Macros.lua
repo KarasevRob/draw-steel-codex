@@ -123,6 +123,8 @@ Commands.RegisterMacro{
             description = "schema-guard test: bad attributes shape",
             undoable = false,
             execute = function()
+                --the wrong type is the point: this write must trip the server's schema guard.
+                ---@diagnostic disable-next-line: assign-type-mismatch
                 token.properties.attributes = "this-should-be-rejected"
             end,
         }

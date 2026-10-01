@@ -232,6 +232,7 @@ local NumCols = 4
 local SlotDim = 72
 
 local CreateSpellPanel = function(dmhud, options)
+	---@type Panel
 	local dialogPanel = nil
 	local spell = nil
 	local resultPanel
@@ -820,6 +821,7 @@ function GameHud.ShowAddSpellDialog(self, options)
 	local dialogWidth = 1200
 	local dialogHeight = 980
 
+	---@type Panel
 	local resultPanel = nil
 
 	local mainFormPanel = gui.Panel{
@@ -1720,6 +1722,14 @@ local CreateSpellRow = function(options)
 	local immutable = options.immutable
 	options.immutable = nil
 
+	--- One entry of a creature's innateSpellcasting list.
+	---@class CSSpellsInnateEntry
+	---@field spellid string
+	---@field attrid string
+	---@field useResources? boolean
+	---@field usageLimitOptions? table|string
+
+	---@type CSSpellsInnateEntry
 	local m_innateInfo = nil
 
 	local refreshUsesLabel = nil
@@ -1762,6 +1772,7 @@ local CreateSpellRow = function(options)
 
 
 	else
+		---@type Spell
 		local m_spell = nil
 		local editableClass = cond(immutable, nil, "editable")
 
@@ -1907,6 +1918,7 @@ local CreateSpellRow = function(options)
 	end
 
 
+	---@type Spell?
 	local m_spell = nil
 	local args = {
 		classes = {"spellRow", cond(slotted, "slotted", cond(index%2 == 1, "oddRow", "evenRow"))},
@@ -1975,6 +1987,8 @@ local CreateSpellRow = function(options)
 			classes = {"spellIcon", "icon"},
 			halign = "left",
 			refreshSpell = function(element)
+				--the row's own refreshSpell (fired first) has already stored the spell.
+				---@cast m_spell -nil
 				element.bgimage = m_spell:GetIcon()
 				element.selfStyle = m_spell:GetIconDisplay()
 			end,
@@ -1984,6 +1998,7 @@ local CreateSpellRow = function(options)
 		gui.Label{
 			classes = {"spellNameLabel"},
 			refreshSpell = function(element)
+				---@cast m_spell -nil
 				element.text = m_spell.name
 			end,
 		},
@@ -1999,6 +2014,7 @@ local CreateSpellRow = function(options)
 
 		gui.ImplementationStatusIcon{
 			refreshSpell = function(element)
+				---@cast m_spell -nil
 				element:FireEvent("implementation", m_spell:try_get("implementation", 1))
 			end,
 		},
@@ -2451,6 +2467,7 @@ local CreateCharSheetSpells = function()
 	local m_innateSpellcastingPanel
 
 	local CreateSpellcastingFeaturePanel = function()
+		---@type SpellcastingFeature
 		local m_spellcasting = nil
 
 

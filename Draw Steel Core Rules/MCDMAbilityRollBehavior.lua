@@ -61,6 +61,8 @@ ActivatedAbilityModifyCastBehavior.RegisterParam{
 
 --- @class ActivatedAbilityPowerRollBehavior : ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityPowerRollBehavior
+--- @field tiers string[] The three power table tier texts (tier 1, 2, 3), set when the behavior is created.
+--- @field callback? fun(token: CharacterToken, tier: number) Transient per-target result hook set by ActivatedAbilityPowerRollBehavior.CustomRoll.
 ActivatedAbilityPowerRollBehavior = RegisterGameType("ActivatedAbilityPowerRollBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbilityPowerRollBehavior.summary = 'Roll on Power Table'
@@ -628,6 +630,8 @@ ActivatedAbilityPowerRollBehavior.GetPowerTablePopulateCustom = function(rollPro
                 end
 
                 if m_endTime ~= nil and dmhub.Time() > m_endTime then
+                    --m_endTime is only set by diceface, which follows beginRoll storing m_rollInfo.
+                    ---@cast m_rollInfo -nil
                     element:FireEvent("diceend")
                     m_endTime = nil
                     m_finished = true
@@ -1075,6 +1079,7 @@ function creature:DescribeModifiersOnTarget(ability, targetToken)
 end
 
 
+---@type ActiveRollLua?
 local g_activeRoll = nil --the active roll object of the roll we are currently doing.
 local g_activeRollPanel = nil --the panel showing the roll that is currently active.
 
@@ -1622,6 +1627,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         rollProperties.overrideMessage = string.format("%s forced tier %d (/testai)", dmhub.userDisplayName, forcedTier)
     end
 
+    ---@type ChatMessageDiceRollInfoLua
     local m_rollInfo = nil
 
     --Acquire the embedded roll dialog, queuing behind any other ability roll
@@ -1786,7 +1792,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
             m_canceled = true
         end
 
-        if g_activeRollPanel ~= nil and g_activeRollPanel.valid and g_activeRoll.guid == rollKey and dmhub.HoldAmendableRollOpen ~= nil and dmhub.HoldAmendableRollOpen() and (holdOpenRefreshAt == nil or holdOpenRefreshAt < dmhub.Time()-2) then
+        if g_activeRollPanel ~= nil and g_activeRollPanel.valid and g_activeRoll ~= nil and g_activeRoll.guid == rollKey and dmhub.HoldAmendableRollOpen ~= nil and dmhub.HoldAmendableRollOpen() and (holdOpenRefreshAt == nil or holdOpenRefreshAt < dmhub.Time()-2) then
             holdOpenRefreshAt = dmhub.Time()
             refreshAtPanel = g_activeRollPanel
             g_activeRollPanel:FireEvent("recordInteracting")
@@ -2229,6 +2235,7 @@ end
 function ActivatedAbility:GetRollCharacteristicValue(caster)
     for _,behavior in ipairs(self.behaviors) do
         if behavior.typeName == "ActivatedAbilityPowerRollBehavior" and not behavior:try_get("resistanceRoll", false) then
+            ---@cast behavior ActivatedAbilityPowerRollBehavior
             return behavior:GetRollCharacteristicValue(caster)
         end
     end
@@ -3035,6 +3042,7 @@ function RollPropertiesPowerTable:CustomPanel(message)
                     local isActive = g_activeRoll ~= nil and g_activeRoll.amendable and g_activeRoll.guid == messageGuid
                         and (not StrictRollsEnforced())
                     if isActive  then
+                        ---@cast g_activeRoll -nil
                         local oldMod = BoonsAndBanesToMod(m_boons, m_banes)
                         local currentValue = m_boons - m_banes
 
@@ -3168,6 +3176,8 @@ function RollPropertiesPowerTable:CustomPanel(message)
                 for i,label in ipairs(boonsBanesLabels) do
                     label:SetClassImmediate("selected", i == selectedIndex)
                 end
+                --set and cleared together with boonsBanesLabels.
+                ---@cast m_boonsBanesPanel -nil
                 m_boonsBanesPanel:SetClass("active", isActive)
             end
 

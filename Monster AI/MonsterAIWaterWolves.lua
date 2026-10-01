@@ -440,6 +440,7 @@ end
 
 local function FindChangeCourseSlide(ai, invokerToken, casterToken, abilityClone, symbols)
     local range = abilityClone:GetRange(casterToken.properties, symbols)
+    ---@type fun(loc: Loc): boolean
     local predicate = abilityClone:TargetLocPassesFilterPredicate(casterToken, symbols)
         or function() return true end
     local arrowOptions = {
@@ -478,9 +479,6 @@ local function FindChangeCourseSlide(ai, invokerToken, casterToken, abilityClone
     end
 
     casterToken:ClearMovementArrow()
-    if type(shape.Destroy) == "function" then
-        shape:Destroy()
-    end
 
     if best ~= nil then
         casterToken:MarkMovementArrow(best.loc, arrowOptions)
@@ -631,7 +629,7 @@ MonsterAI:RegisterPrompt{
         end
         local target = dmhub.GetTokenById(plan.targetid)
         ai._tmp_waterWolfLeapPlan = nil
-        if LiveCreature(target) and not target:IsFriend(casterToken)
+        if target ~= nil and LiveCreature(target) and not target:IsFriend(casterToken)
             and MonsterAI.TargetDistance(casterToken, target) <= abilityClone:GetRange(casterToken.properties)
             and abilityClone:TargetPassesFilter(casterToken, target, symbols) then
             return {targets = {{token = target}}}

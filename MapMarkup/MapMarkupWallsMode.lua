@@ -1036,6 +1036,7 @@ function MM.BuildWallsMode()
                     end
                 end
 
+                ---@type string|nil
                 local activeid = m.toolId
                 if activeInfo == nil or activeInfo.mapTool == nil then
                     activeid = nil

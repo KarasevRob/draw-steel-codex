@@ -116,7 +116,7 @@ function ActivatedAbilityPlaySoundBehavior:EditorItems(parentPanel)
             options = soundOptions,
             change = function(element)
                 ---@cast element Dropdown
-                self.soundEvent = element.idChosen
+                self.soundEvent = element.idChosen --[[@as string]] -- option ids are audio.soundEvents names
             end,
         }
     }

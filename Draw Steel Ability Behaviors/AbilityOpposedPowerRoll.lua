@@ -2,6 +2,8 @@ local mod = dmhub.GetModLoading()
 
 --- @class ActivatedAbilityOpposedRollBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityOpposedRollBehavior
+--- @field attackAttributes {attribute: string|nil, skill: string|nil}[] The attacker's roll: characteristic id and optional skill id per entry.
+--- @field defenseAttributes {attribute: string|nil, skill: string|nil}[] The defender's roll, same shape.
 ActivatedAbilityOpposedRollBehavior = RegisterGameType("ActivatedAbilityOpposedRollBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbilityOpposedRollBehavior.summary = 'Opposed Power Roll'

@@ -169,7 +169,8 @@ function DrawSteelActionBar.ClearCastHint()
     DrawSteelActionBar.ShowCastPrompt(nil)
 end
 
---- @type nil|Panel
+--Set in CreateActionBar, before any handler that reads it can run.
+--- @type Panel
 local g_triggerPanel = nil
 
 --- @type nil|Panel
@@ -213,6 +214,25 @@ local g_creature
 --the director's multi-monster overview ("Unique Abilities" drawer).
 --- @type CharacterToken[]
 local g_selectedTokens = {}
+
+--A creature operating an object (a Field Ballista): the bar is bound to the
+--object and lists only its adjacent-creature abilities. The object is the
+--caster; the operator's actions pay (ActivatedAbility:GetOperatorToken), and
+--the drawers count the operator's actions. `operation` is nil when not
+--operating. Started by DrawSteelActionBar.BeginOperating; ends on the stop
+--tile, Escape, a new selection, or the operator no longer being adjacent.
+--Kept on the global table, with its helpers, because this file's main chunk
+--is at Lua's 200-local limit.
+--A Lua reload mid-operation would otherwise leave the object stuck as the
+--engine's selected-token override (the character panel would keep showing it).
+if rawget(DrawSteelActionBar, "_operate") ~= nil and DrawSteelActionBar._operate.operation ~= nil then
+    pcall(function() dmhub.tokenInfo:PopSelectedTokenOverride() end)
+end
+--- @class ActionBarOperate
+--- @field operation nil|{operator: CharacterToken, object: CharacterToken}
+--- @field promptShown nil|boolean True while our "Operating X" prompt is up.
+--- @field menuPanel nil|Panel The drawer menu; the prompt hides while it is open.
+DrawSteelActionBar._operate = { operation = nil }
 
 --Identity of the current selection (charids in selection order). The engine
 --only re-fires the bar's "refresh" when the PRIMARY selected token changes;
@@ -260,7 +280,7 @@ end
 --Action / Maneuver / Move drawers are identical across creatures so they are
 --hidden.
 local function InOverviewMode()
-    if not dmhub.isDM then
+    if not dmhub.isDM or DrawSteelActionBar._operate.operation ~= nil then
         return false
     end
     if #g_selectedTokens < 2 then
@@ -520,7 +540,8 @@ local function SquadIsActiveMinionToken(tok)
     return false
 end
 
---- @type nil|Panel
+--Set in CreateAbilityController, before any handler that reads it can run.
+--- @type Panel
 local g_channeledResourcePanel
 
 local g_casterTokenStack = {}
@@ -600,6 +621,7 @@ local function RefreshCastingDurationEffects()
     local liveBehaviors = {}
     for _, behavior in ipairs(g_currentAbility.behaviors) do
         if behavior.typeName == "ActivatedAbilityApplyAbilityDurationEffect" then
+            ---@cast behavior ActivatedAbilityApplyAbilityDurationEffect
             liveBehaviors[behavior] = true
 
             local shouldApply = behavior:CastingFilterPasses(g_token, g_currentSymbols)
@@ -1312,18 +1334,257 @@ local function PushCasterToken(token)
     g_creature = g_token.properties
 end
 
+--The token the bar is bound to when no cast has pushed a caster: the object
+--being operated, else the selection.
+--- @return nil|CharacterToken
+function DrawSteelActionBar._operate.BaseBarToken()
+    if DrawSteelActionBar._operate.operation ~= nil then
+        return DrawSteelActionBar._operate.operation.object
+    end
+    return dmhub.selectedOrPrimaryTokens[1]
+end
+
 local function TryPopCasterToken()
     if #g_casterTokenStack == 0 then
         return false
     end
 
     dmhub.tokenInfo:PopSelectedTokenOverride(g_casterTokenStack[#g_casterTokenStack])
-    g_token = dmhub.selectedOrPrimaryTokens[1]
+    g_token = DrawSteelActionBar._operate.BaseBarToken()
     print("ActionBar:: pop g_token =", g_token)
     g_creature = g_token and g_token.properties or nil
 
     g_casterTokenStack[#g_casterTokenStack] = nil
     return true
+end
+
+--True while the bar is showing an operated object's abilities (and not some
+--other caster pushed on top of it by an invoked cast).
+--- @return boolean
+function DrawSteelActionBar._operate.IsOperatingBound()
+    return DrawSteelActionBar._operate.operation ~= nil and g_token ~= nil and g_token.valid and g_token.charid == DrawSteelActionBar._operate.operation.object.charid
+end
+
+--The token whose action economy the drawers show and spend: the operator
+--while operating, otherwise the bar's own token. Only called while the bar
+--is bound to a token.
+--- @return CharacterToken
+function DrawSteelActionBar._operate.ResourceToken()
+    if DrawSteelActionBar._operate.IsOperatingBound() then
+        return DrawSteelActionBar._operate.operation.operator
+    end
+    return g_token --[[@as CharacterToken]]
+end
+
+--- @param norefresh nil|boolean true when called from inside the bar's own refresh
+function DrawSteelActionBar._operate.EndOperating(norefresh)
+    if DrawSteelActionBar._operate.operation == nil then
+        return
+    end
+
+    --A cast in flight is cancelled first: it may have pushed a caster of its
+    --own, which has to come off the override stack before ours does.
+    if g_currentAbility ~= nil and g_abilityController ~= nil then
+        g_abilityController:FireEvent("cancelCasting")
+    end
+
+    DrawSteelActionBar._operate.operation = nil
+    dmhub.tokenInfo:PopSelectedTokenOverride()
+
+    if DrawSteelActionBar._operate.promptShown then
+        DrawSteelActionBar._operate.promptShown = false
+        DrawSteelActionBar.ClearCastPrompt()
+    end
+
+    if (not norefresh) and g_actionBar ~= nil and g_actionBar.valid then
+        g_actionBar:FireEventTree("closemenu")
+        g_actionBar:FireEventTree("refresh")
+    end
+end
+
+--- Bind the action bar to objectToken's adjacent-creature abilities, with
+--- operatorToken spending the actions (a hero firing a Field Ballista). The
+--- object becomes the selected-token override, so the character panel shows it.
+--- @param operatorToken CharacterToken
+--- @param objectToken CharacterToken
+--- @return boolean started
+function DrawSteelActionBar.BeginOperating(operatorToken, objectToken)
+    if not ActivatedAbility.CanOperate(operatorToken, objectToken) then
+        return false
+    end
+
+    DrawSteelActionBar._operate.EndOperating(true)
+
+    if g_currentAbility ~= nil and g_abilityController ~= nil then
+        g_abilityController:FireEvent("cancelCasting")
+    end
+
+    DrawSteelActionBar._operate.operation = { operator = operatorToken, object = objectToken }
+    dmhub.tokenInfo:PushSelectedTokenOverride(objectToken)
+
+    if g_actionBar ~= nil and g_actionBar.valid then
+        g_actionBar:FireEventTree("closemenu")
+        g_actionBar:FireEventTree("refresh")
+    end
+    return true
+end
+
+--- Cast an object's only adjacent-creature ability straight from a click on
+--- the object (a Candelabra's Throw), without binding the bar to the object.
+--- Runs through invokeAbility, so the drawers hide while it is aimed and
+--- Escape or cancelling returns the bar to the creature.
+--- @param creatureToken CharacterToken the adjacent creature using it
+--- @param objectToken CharacterToken
+--- @param ability ActivatedAbility from ActivatedAbility.GetSingleAdjacentAbility
+function DrawSteelActionBar.CastAdjacentAbility(creatureToken, objectToken, ability)
+    if gamehud == nil or gamehud.actionBarPanel == nil then
+        return
+    end
+
+    DrawSteelActionBar._operate.EndOperating(true)
+    if g_currentAbility ~= nil and g_abilityController ~= nil then
+        g_abilityController:FireEvent("cancelCasting")
+    end
+
+    --a granted ability is the creature's own; an operated one is cast by the
+    --object, with the creature paying (operatorTokenId on the clone).
+    local caster = cond(ability.grantedToAdjacentCreatures, creatureToken, objectToken)
+    gamehud.actionBarPanel:FireEventTree("invokeAbility", caster, ability, {})
+end
+
+--- Stop operating an object and return the bar to the operator.
+function DrawSteelActionBar.EndOperating()
+    DrawSteelActionBar._operate.EndOperating()
+end
+
+--- @return nil|{operator: CharacterToken, object: CharacterToken}
+function DrawSteelActionBar.GetOperation()
+    return DrawSteelActionBar._operate.operation
+end
+
+--An object caster turning to face its target while an ability with "Turn to
+--Face Target" is aimed (a Field Ballista's Release Bolt). The engine eases the
+--turn at the object's Turn Speed and streams it live to the other players; the
+--final facing is saved when the ability is cast. On the global table: this file
+--is at the 200-local limit.
+--- @class ActionBarAim
+--- @field token nil|CharacterToken The object currently being aimed.
+DrawSteelActionBar._aim = { token = nil }
+
+--Where the ability is pointing: its first chosen target, else the token or map
+--point under the mouse.
+--- @return nil|{x: number, y: number}
+function DrawSteelActionBar._aim.TargetPoint()
+    local chosen = g_targetsChosen[1]
+    if chosen ~= nil then
+        local tok = dmhub.GetTokenById(chosen)
+        if tok ~= nil and tok.valid then
+            return tok.pos
+        end
+    end
+    local hovered = dmhub.tokenHovered
+    if hovered ~= nil and hovered.valid and (g_token == nil or hovered.charid ~= g_token.charid) then
+        return hovered.pos
+    end
+    return dmhub.GetMouseWorldPoint()
+end
+
+--Polled with the operate upkeep: aims the caster while such an ability is being
+--targeted, and lets go (turning back) if the cast is abandoned.
+function DrawSteelActionBar._aim.Update()
+    local aim = DrawSteelActionBar._aim
+    local caster = g_token
+    local aiming = g_currentAbility ~= nil and g_currentAbility.aimCasterAtTarget
+        and caster ~= nil and caster.valid and caster.isObject and caster.objectComponent ~= nil
+
+    if aim.token ~= nil and ((not aiming) or caster == nil or aim.token.charid ~= caster.charid) then
+        if aim.token.valid and aim.token.objectComponent ~= nil then
+            aim.token.objectComponent:ClearAim()
+        end
+        aim.token = nil
+    end
+
+    if not aiming or caster == nil then
+        return
+    end
+
+    local point = aim.TargetPoint()
+    if point ~= nil then
+        caster.objectComponent:AimAt(point.x, point.y)
+        aim.token = caster
+    end
+end
+
+--Called as the ability is cast: points at the chosen target and keeps that facing.
+--- @param casterToken nil|CharacterToken
+--- @param targets nil|table The cast's targets ({token=} or {loc=} entries).
+function DrawSteelActionBar._aim.Commit(casterToken, targets)
+    local aim = DrawSteelActionBar._aim
+    if aim.token == nil or casterToken == nil or aim.token.charid ~= casterToken.charid then
+        return
+    end
+
+    local target = targets ~= nil and targets[1] or nil
+    if target ~= nil and target.token ~= nil and target.token.valid then
+        casterToken.objectComponent:AimAt(target.token.pos.x, target.token.pos.y)
+    end
+    casterToken.objectComponent:CommitAim()
+    aim.token = nil
+end
+
+--Polled by the bar's container, since nothing refreshes the bar when a token
+--merely moves. Ends operating once the operator can no longer operate the
+--object, and keeps "Operating X [Stop]" in the cast prompt whenever no cast
+--is using that prompt.
+function DrawSteelActionBar._operate.Upkeep()
+    local operate = DrawSteelActionBar._operate
+    local operation = operate.operation
+    if operation == nil then
+        return
+    end
+
+    if g_currentAbility ~= nil or #g_casterTokenStack > 0 then
+        --A cast may put its own prompt up; ours goes back once it is done.
+        operate.promptShown = false
+        return
+    end
+
+    if not ActivatedAbility.CanOperate(operation.operator, operation.object) then
+        operate.EndOperating()
+        return
+    end
+
+    --Hidden while a drawer menu is open, which it would otherwise sit on top of.
+    local menu = operate.menuPanel
+    if menu ~= nil and menu.valid and not menu:HasClass("hidden") then
+        if operate.promptShown then
+            operate.promptShown = false
+            DrawSteelActionBar.ClearCastPrompt()
+        end
+        return
+    end
+
+    if not operate.promptShown then
+        operate.promptShown = DrawSteelActionBar.ShowCastPrompt{
+            --"Using" for an object that only grants abilities (a Candelabra).
+            text = string.format("%s %s", cond(ActivatedAbility.HasOperatedAbilities(operation.object), "Operating", "Using"), creature.GetTokenDescription(operation.object)),
+            choices = {
+                { text = "Stop", click = function() operate.EndOperating() end },
+            },
+        }
+    end
+end
+
+--Clicking the creature that is operating an object takes the bar back to it.
+if TokenUI ~= nil and TokenUI.RegisterClickHandler ~= nil then
+    TokenUI.RegisterClickHandler("operateObject", function(token)
+        local operation = DrawSteelActionBar._operate.operation
+        if operation == nil or token == nil or token.charid ~= operation.operator.charid then
+            return false
+        end
+        DrawSteelActionBar._operate.EndOperating()
+        return true
+    end)
 end
 
 --- @type nil|string
@@ -2694,6 +2955,8 @@ local function ActionBarDrawer(args)
             },
 
             refresh = function(element)
+                --Fired from the root refresh, which halts propagation when there is no token.
+                ---@cast g_creature -nil
                 local movementSpeed = math.max(0, g_creature:CurrentMovementSpeed())
                 local moved = g_creature:DistanceMovedThisTurn()
 
@@ -2903,9 +3166,24 @@ local function ActionBarDrawer(args)
 
         refresh = function(element)
             if g_token == nil then return end
+            --g_creature is always set alongside g_token (g_token.properties).
+            ---@cast g_creature -nil
             local newToken = g_token.charid ~= element.data.lastcharid
 
             element.data.lastcharid = g_token.charid
+
+            --Operating an object: only Main Action and Maneuver (which also
+            --lists free abilities) apply. Trigger and Respite are the drawers
+            --no branch below un-collapses, so they are restored here.
+            if DrawSteelActionBar._operate.IsOperatingBound() then
+                if args.type ~= "action" and args.type ~= "maneuver" then
+                    resultPanel:SetClass("collapsed", true)
+                    return
+                end
+                resultPanel:SetClass("collapsed", false)
+            elseif args.type == "trigger" or args.type == "respite" then
+                resultPanel:SetClass("collapsed", false)
+            end
 
             --Director multi-monster overview: the "unique" drawer exists only
             --in overview mode, and while it is up the per-creature Main
@@ -3010,7 +3288,7 @@ local function ActionBarDrawer(args)
                 return
             end
 
-            if args.type ~= "trigger" and (not g_token.properties:IsOurTurn()) then
+            if args.type ~= "trigger" and (not DrawSteelActionBar._operate.ResourceToken().properties:IsOurTurn()) then
                 if newToken then
                     resultPanel:SetClassTreeImmediate("available", false)
                 else
@@ -3070,6 +3348,8 @@ local function ActionBarDrawer(args)
 
                 local isAvailable = true
                 if m_resourceid ~= nil then
+                    --m_resourceid is cleared at construction whenever m_resourceInfo is missing.
+                    ---@cast m_resourceInfo -nil
                     local usage = g_creature:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
                     local available = (g_resources[m_resourceid] or 0) - usage
                     isAvailable = count > 0 or available > 0
@@ -3129,7 +3409,8 @@ local function ActionBarDrawer(args)
             local hideAbilityIcon = true
 
             if m_resourceid ~= nil then
-                local usage = g_creature:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
+                ---@cast m_resourceInfo -nil
+                local usage = DrawSteelActionBar._operate.ResourceToken().properties:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
                 local available = (g_resources[m_resourceid] or 0) - usage
 
                 if newToken then
@@ -3210,7 +3491,9 @@ local function ActionBarDrawer(args)
                 press = function(element)
                     if g_creature == nil or g_token == nil then return end
                     if m_resourceid ~= nil then
-                        local usage = g_creature:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
+                        ---@cast m_resourceInfo -nil
+                        local tok = DrawSteelActionBar._operate.ResourceToken()
+                        local usage = tok.properties:GetResourceUsage(m_resourceid, m_resourceInfo.usageLimit)
                         local available = (g_resources[m_resourceid] or 0) - usage
 
                         local target = available - 1
@@ -3223,13 +3506,13 @@ local function ActionBarDrawer(args)
                             return
                         end
 
-                        g_token:ModifyProperties {
+                        tok:ModifyProperties {
                             description = "Manually Update Resource",
                             execute = function()
                                 if diff > 0 then
-                                    g_token.properties:RefreshResource(m_resourceid, m_resourceInfo.usageLimit, diff)
+                                    tok.properties:RefreshResource(m_resourceid, m_resourceInfo.usageLimit, diff)
                                 else
-                                    g_token.properties:ConsumeResource(m_resourceid, m_resourceInfo.usageLimit, -diff)
+                                    tok.properties:ConsumeResource(m_resourceid, m_resourceInfo.usageLimit, -diff)
                                 end
                             end,
                         }
@@ -3307,6 +3590,10 @@ local function CreateTriggerReactionPanel()
             element:FireEvent("think")
         end,
         think = function(element)
+            --thinkTime stays set after the countdown expires and clears m_state.
+            if m_state == nil then
+                return
+            end
             local time = dmhub.Time()
             local elapsed = time - m_stateBaseline
             local r = ((m_state.current + elapsed) - m_state.start)/(m_state.expire - m_state.start)
@@ -3400,6 +3687,7 @@ local function CreateActionBar()
     end
 
     local m_actionMenu = ActionMenu()
+    DrawSteelActionBar._operate.menuPanel = m_actionMenu
 
     g_abilityController = CreateAbilityController()
 
@@ -3511,8 +3799,19 @@ local function CreateActionBar()
         end,
 
         refresh = function(element)
+            --Operating ends when the operator is no longer the selection or can
+            --no longer operate (moved away, fell unconscious). Not mid-cast:
+            --the stop tile's poll ends it once the cast is over.
+            if DrawSteelActionBar._operate.operation ~= nil and #g_casterTokenStack == 0 and g_currentAbility == nil then
+                local selected = dmhub.selectedOrPrimaryTokens[1]
+                if selected == nil or selected.charid ~= DrawSteelActionBar._operate.operation.operator.charid
+                    or not ActivatedAbility.CanOperate(DrawSteelActionBar._operate.operation.operator, DrawSteelActionBar._operate.operation.object) then
+                    DrawSteelActionBar._operate.EndOperating(true)
+                end
+            end
+
             if #g_casterTokenStack == 0 then
-                g_token = dmhub.selectedOrPrimaryTokens[1]
+                g_token = DrawSteelActionBar._operate.BaseBarToken()
             end
 
             --Capture the whole selection for the director overview. Only
@@ -3557,8 +3856,9 @@ local function CreateActionBar()
             end
 
             --Hide the bar when the selected token is a fixture/object, EXCEPT
-            --while an invoked cast is driving us (g_casterTokenStack non-empty).
-            if g_creature:try_get("treatAsObject", false) and #g_casterTokenStack == 0 then
+            --while an invoked cast is driving us (g_casterTokenStack non-empty)
+            --or a creature is operating it.
+            if g_creature:try_get("treatAsObject", false) and #g_casterTokenStack == 0 and not DrawSteelActionBar._operate.IsOperatingBound() then
                 element:SetClass("hidden", true)
                 element:HaltEventPropagation()
                 element:FireEventTree("closemenu")
@@ -3584,12 +3884,25 @@ local function CreateActionBar()
             --left g_abilities holding the PREVIOUS token's list. Fall back to
             --empty lists so the bar always renders (movement and free-action
             --drawers stay usable) and never shows another creature's abilities.
+            --While operating, the resources are the operator's (they pay) and
+            --the abilities are only the object's adjacent-creature ones.
+            local operating = DrawSteelActionBar._operate.IsOperatingBound()
             local okResources, resources = pcall(function()
-                return g_token.properties:GetResources()
+                return DrawSteelActionBar._operate.ResourceToken().properties:GetResources()
             end)
             g_resources = (okResources and resources) or {}
 
             local okAbilities, abilitiesOrErr = pcall(function()
+                if operating then
+                    --The object's whole stat block: abilities it casts, plus
+                    --ones it grants the operator (cast by the operator).
+                    local operation = DrawSteelActionBar._operate.operation --[[@as {operator: CharacterToken, object: CharacterToken}]]
+                    local list = ActivatedAbility.GetOperatedAbilities(operation.object, operation.operator)
+                    for _, ability in ipairs(ActivatedAbility.GetGrantedAbilitiesFrom(operation.object, operation.operator)) do
+                        list[#list + 1] = ability
+                    end
+                    return list
+                end
                 return g_token.properties:GetActivatedAbilities { bindCaster = true, manualTriggers = true }
             end)
             g_abilities = (okAbilities and abilitiesOrErr) or {}
@@ -3674,6 +3987,20 @@ local function CreateActionBar()
         height = "auto",
         flow = "vertical",
         valign = "bottom",
+
+        --Operating an object: Escape stops (below an open menu or a cast in
+        --progress), and the operate state is kept up to date.
+        escapePriority = EscapePriority.CANCEL_TOKEN_MENU,
+        escape = function(element)
+            DrawSteelActionBar._operate.EndOperating()
+        end,
+        thinkTime = 0.1,
+        think = function(element)
+            DrawSteelActionBar._operate.Upkeep()
+            DrawSteelActionBar._aim.Update()
+            element.captureEscape = DrawSteelActionBar._operate.operation ~= nil and g_currentAbility == nil
+        end,
+
         g_triggerReactionPanel,
         resultPanel,
         --Outside resultPanel so it survives the bar hiding itself (no token selected).
@@ -3771,10 +4098,21 @@ local function AbilityHeading(args)
     --"setCasterToken" event below. A caster that has since died/despawned
     --(.valid == false) falls back to g_token so the chip never dereferences a
     --nil .properties.
-    local function CasterToken()
+    --An ability an object grants to the creature operating it is cast by that
+    --creature, not by the object the bar is bound to. The "ability" handlers
+    --pass the incoming ability, since they run before m_ability is updated.
+    local function CasterToken(ability)
         local caster = args.casterToken
         if caster ~= nil and caster.valid then
             return caster
+        end
+        ability = ability or m_ability
+        local granteeid = ability ~= nil and ability:try_get("grantedToTokenId") or nil
+        if granteeid ~= nil then
+            local grantee = dmhub.GetTokenById(granteeid)
+            if grantee ~= nil and grantee.valid then
+                return grantee
+            end
         end
         return g_token
     end
@@ -3800,7 +4138,8 @@ local function AbilityHeading(args)
         if q == nil or q.hidden then
             return false
         end
-        local caster = CasterToken()
+        --An operated object never has a turn; its operator's turn is what counts.
+        local caster = ability:GetOperatorToken() or CasterToken(ability)
         if caster == nil or not caster.valid or caster.properties == nil then
             return false
         end
@@ -3979,7 +4318,7 @@ local function AbilityHeading(args)
             local suppressMessage = ability:try_get("suppressExplanation")
             local suppressFilter = nil
             if suppressMessage == nil then
-                suppressMessage, suppressFilter = ability:AbilityFilterFailureMessage(CasterToken().properties)
+                suppressMessage, suppressFilter = ability:AbilityFilterFailureMessage(CasterToken(ability).properties)
             end
             m_suppressed = suppressMessage ~= nil
             m_sightlineFilter = m_suppressed and suppressFilter ~= nil and suppressFilter.sightlines == true
@@ -3994,6 +4333,8 @@ local function AbilityHeading(args)
         end,
 
         rightClick = function(element)
+            --A chip is only shown once its "ability" event has bound m_ability.
+            ---@cast m_ability -nil
             local entries = {}
             entries[#entries + 1] = {
                 text = 'Share to Chat',
@@ -4026,6 +4367,7 @@ local function AbilityHeading(args)
                 end
 
                 if innateAbility then
+                    ---@cast innateAbility -nil
                     entries[#entries + 1] = {
                         text = 'Edit Ability',
                         click = function()
@@ -4035,6 +4377,9 @@ local function AbilityHeading(args)
                                 close = function()
                                     --resolved at close time, as the original g_token read was.
                                     local tok = CasterToken()
+                                    if tok == nil then
+                                        return
+                                    end
                                     tok:ModifyProperties{
                                         description = "Edit Innate Ability",
                                         execute = function()
@@ -4161,6 +4506,16 @@ local function AbilityHeading(args)
             --ability, exactly as before.
             local function commit(casterToken, ability)
                 ability = ability or m_ability
+                --The caster was removed from the map (e.g. despawned by Monster
+                --Death while its death-trigger prompt was open): nothing can be
+                --cast for it, so drop the prompt instead of erroring below.
+                if casterToken ~= nil and (not casterToken.valid or casterToken.properties == nil) then
+                    print("MENU:: CASTER GONE")
+                    if g_currentAbility ~= nil then
+                        g_abilityController:FireEvent("cancelCasting")
+                    end
+                    return
+                end
                 if casterToken ~= nil and (g_token == nil or casterToken.charid ~= g_token.charid) then
                     if g_currentAbility ~= nil then
                         g_abilityController:FireEvent("cancelCasting")
@@ -4358,7 +4713,7 @@ local function AbilityHeading(args)
                 classes = { "abilityInfoLabel" },
                 text = "Ability Info",
                 ability = function(element, ability)
-                    local costInfo = ability:GetCost(CasterToken())
+                    local costInfo = ability:GetCost(CasterToken(ability))
 
                     --look for heroic resource or malice cost and see if we can afford it.
                     local cannotAfford = false
@@ -4533,6 +4888,9 @@ local function TriggerPreviewPanel()
                 text = 'Share to Chat',
                 click = function()
                     element.popup = nil
+                    if g_token == nil then
+                        return
+                    end
                     chat.ShareObjectInfo(nil, nil, { charid = g_token.charid, ability = m_trigger })
                 end,
             }
@@ -6808,6 +7166,8 @@ local function OverviewColumnFooter()
                 return
             end
 
+            --The prompt is dropped above whenever there is no column.
+            ---@cast m_column -nil
             local name = m_column.name or "creature"
             if prompt.ability ~= nil then
                 promptLabel.text = string.format("Choose which %s uses %s", name, prompt.ability.name)
@@ -8335,6 +8695,10 @@ ActionMenu = function()
                 }
                 m_commonSignatureWrapper.children = { m_abilitiesSubmenu, m_spacer, m_signatureSubmenu }
             end
+            --All three are created together with m_commonSignatureWrapper above.
+            ---@cast m_abilitiesSubmenu -nil
+            ---@cast m_signatureSubmenu -nil
+            ---@cast m_spacer -nil
             m_abilitiesSubmenu:FireEventTree("abilities", abilitiesByGrouping["Abilities"], "Abilities")
             m_signatureSubmenu:FireEventTree("abilities", abilitiesByGrouping["Signature Abilities"], "Signature Abilities")
             m_spacer:SetClass("collapsed", abilitiesByGrouping["Signature Abilities"] == nil)
@@ -8701,6 +9065,9 @@ local function AdoptLineOfSightMark()
     if m_markLineOfSight == nil then
         return
     end
+    --Both tokens are assigned together with m_markLineOfSight.
+    ---@cast m_markLineOfSightSourceToken -nil
+    ---@cast m_markLineOfSightToken -nil
     SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id),
         m_markLineOfSight)
     m_markLineOfSight = nil
@@ -8723,6 +9090,8 @@ local function ClearLineOfSightMark()
 end
 
 -- Casting Triggers.
+--Assigned together with a non-empty m_castingTriggers, the only state it is read in.
+--- @type table<string, boolean>
 local m_castingTriggersCache = nil
 local m_castingTriggers = nil
 local m_castingTriggersOwnerPanel = nil
@@ -8851,6 +9220,9 @@ local function CreateTargetInfo(spell)
         guid = dmhub.GenerateGuid(),
         action = spell,
         execute = function(targetToken, info) --info has {targetEffect = {list of effect panels}}
+            --Target reticules only exist while a cast is being targeted.
+            ---@cast g_token -nil
+            ---@cast g_currentAbility -nil
             -- Squad coordinated strike: clicking a squad minion arms a lock for
             -- that minion (click again to disarm); the next enemy click locks
             -- the pair, making that minion the creature's main attacker.
@@ -9075,6 +9447,8 @@ local AddRadiusMarker = function(locOverride, radius, color, filterFunction)
     if g_currentAbility ~= nil then
         tokenCasting = g_currentAbility:GetRangeSource(g_token)
     end
+    --Only called while targeting a cast, when g_token is the caster.
+    ---@cast tokenCasting -nil
 
 
     local locs = tokenCasting.locsOccupying
@@ -9170,6 +9544,8 @@ local function DistanceFromCasterInTiles(loc)
     if g_currentAbility ~= nil then
         tokenCasting = g_currentAbility:GetRangeSource(g_token)
     end
+    --Only called while targeting a cast, when g_token is the caster.
+    ---@cast tokenCasting -nil
 
     local best = nil
     for _, occLoc in ipairs(tokenCasting.locsOccupying) do
@@ -9312,6 +9688,8 @@ local m_altitudeController
 local m_shiftController
 
 local g_ammoChoicePanel = nil
+--Set in CreateAbilityController, before any cast can read it.
+--- @type Panel
 local g_synthesizedSpellsPanel = nil
 local g_castChargesInput = nil
 
@@ -10479,6 +10857,8 @@ CreateAbilityController = function()
                 element:SetClass("collapsed", true)
                 return
             end
+            --A cast is in progress, so g_token is its caster.
+            ---@cast g_token -nil
 
             local changeMode = false
             local children = {}
@@ -11076,6 +11456,19 @@ CreateAbilityController = function()
                 end
             end
 
+            --An ability an object grants to the creatures next to it (a Field
+            --Ballista's Move or Deactivate) can only target that object, so it
+            --starts with it targeted and goes ahead without a click on it. One
+            --that targets a square (throwing a Candelabra) picks its square as
+            --usual.
+            local grantingid = ability:try_get("grantingObjectTokenId")
+            if grantingid ~= nil and #g_targetsChosen == 0 and ability.targetType == "target" then
+                g_targetsChosen[1] = grantingid
+                ability = ability:MakeTemporaryClone()
+                ability.castImmediately = true
+                g_currentAbility = ability
+            end
+
             if g_targetsChosen ~= nil then
                 g_firstTarget = g_targetsChosen[1]
             end
@@ -11578,6 +11971,8 @@ CreateAbilityController = function()
 
             g_castMessage.data.promptText = promptText
             g_castMessage:FireEvent("refresh")
+            --This handler is part of the ability controller, so it exists.
+            ---@cast g_abilityController -nil
             g_abilityController:SetClass("collapsed", false)
             g_castButton:FireEvent("setVisible", false)
 
@@ -11695,7 +12090,7 @@ CreateAbilityController = function()
         end,
 
         highlightTargetToken = function(element, targetToken)
-            if g_token == nil or not g_token.valid then
+            if g_token == nil or not g_token.valid or g_currentAbility == nil then
                 return
             end
             element:FireEvent("unhighlightTargetToken")
@@ -12638,6 +13033,8 @@ CreateAbilityController = function()
                 if g_currentAbility ~= nil then
                     numTargets = g_currentAbility:GetNumTargets(g_token, g_currentSymbols)
                 end
+                --maphover returned at its top when no ability is being cast.
+                ---@cast g_currentAbility -nil
 
                 if numTargets > 1 or targetingType == "pathfind" or (g_pointTargeting.shapeConfirmedLoc ~= nil and g_pointTargeting.shapeConfirmedLoc.str == startingLoc.str) then
                     g_pointTargeting.shapeRequiresConfirm = false
@@ -12686,6 +13083,7 @@ CreateAbilityController = function()
                             tostring(g_token and g_token.floorIndex or "nil")))
                     end
                 end
+                ---@cast g_currentAbility -nil
 
                 --For cube targeting, anchor the cube's bottom at the altitude the
                 --altitude controller has resolved on the hovered loc (ground by default,
@@ -13429,6 +13827,8 @@ CreateAbilityController = function()
                 --so the attack cross-section goes with it.
                 CrossSection.ClearAttack()
                 if m_markLineOfSight ~= nil then
+                    ---@cast m_markLineOfSightSourceToken -nil
+                    ---@cast m_markLineOfSightToken -nil
                     SetTargetLineOfSightRayForKey(
                         string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id),
                         m_markLineOfSight)
@@ -13469,6 +13869,9 @@ CreateAbilityController = function()
                 --every ordinary cast). Same hook as the CalculateSpellTargeting
                 --commit below.
                 OverviewClaimBeforeCast(g_token)
+
+                --An object caster turned to face its target keeps that facing.
+                DrawSteelActionBar._aim.Commit(g_token, targets)
 
                 RecordPartnerBurstRetargets(targets)
 
@@ -13526,6 +13929,9 @@ local function CalculateSpellTargetFocusing(symbols)
 
     local potentialTargetTokens = {}
     if g_currentAbility == nil then return potentialTargetTokens end
+    --A cast is in progress, so g_token (and its g_creature) is the caster.
+    ---@cast g_token -nil
+    ---@cast g_creature -nil
     local spell = g_currentAbility
     --DIAG: slider position, hoisted for the trace at the end of the function.
     --A stuck "Objects" is what explains an armed=0 pass. nil = never resolved.
@@ -13922,6 +14328,9 @@ CalculateSpellTargeting = function(forceCast, initialSetup)
             --Director overview (slice (e)): implicit claim at target confirm,
             --only when legal; see g_overviewCastPending. No-op otherwise.
             OverviewClaimBeforeCast(g_token)
+
+            --An object caster turned to face its target keeps that facing.
+            DrawSteelActionBar._aim.Commit(g_token, targets)
 
             g_currentAbility:Cast(g_token, targets, {
                 attachedTriggers = attachedTriggers,

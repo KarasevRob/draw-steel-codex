@@ -185,6 +185,7 @@ local function CollectPortals(auraName)
         for _, obj in pairs(floor.objects) do
             if obj.valid then
                 local component = obj:GetComponent("Aura")
+                ---@type AuraComponent?
                 local props = nil
                 if component ~= nil then
                     props = component.properties
@@ -250,7 +251,7 @@ local function LocIsFreeFor(travelToken, loc, portalSquares)
         end
 
         for _, tok in ipairs(dmhub.GetTokensAtLoc(occLoc) or {}) do
-            if tok.id ~= travelToken.id then
+            if tok.charid ~= travelToken.charid then
                 return false
             end
         end
@@ -597,7 +598,7 @@ local function PerformTransit(travelToken, portals, candidates, symbols, chooser
     -- resetting the view because somebody else moved would be wrong.
     if originLoc:FloorDifference(teleportLoc) > 0 then
         local localToken = dmhub.currentToken
-        if localToken ~= nil and localToken.id == travelToken.id and dmhub.GetSettingValue("lookup") ~= 0 then
+        if localToken ~= nil and localToken.charid == travelToken.charid and dmhub.GetSettingValue("lookup") ~= 0 then
             dmhub.SetSettingValue("lookup", 0)
         end
     end
@@ -765,7 +766,7 @@ function DrawSteelPortalTransit.TryForcedTransit(movedToken, pusherToken, origin
         return
     end
 
-    if ownerToken.id == movedToken.id or ownerToken:IsFriend(movedToken) then
+    if ownerToken.charid == movedToken.charid or ownerToken:IsFriend(movedToken) then
         return
     end
 
@@ -838,7 +839,7 @@ local function LocIsFreeForToken(tok, loc)
             return false
         end
         for _, other in ipairs(dmhub.GetTokensAtLoc(occLoc) or {}) do
-            if other.id ~= tok.id then
+            if other.charid ~= tok.id then
                 return false
             end
         end
@@ -935,7 +936,7 @@ local function FitGrownFootprint(tok)
     --Who stands where, by square, from every token's footprint.
     local occupants = {}
     for _, other in ipairs(dmhub.allTokensIncludingObjects or {}) do
-        if other.valid and other.id ~= tok.id and other.loc ~= nil and other.loc.floor == tok.loc.floor then
+        if other.valid and other.charid ~= tok.charid and other.loc ~= nil and other.loc.floor == tok.loc.floor then
             for _, l in ipairs(other:LocsOccupyingWhenAt(other.loc) or {}) do
                 local k = Key(l)
                 occupants[k] = occupants[k] or {}
@@ -1143,8 +1144,8 @@ function ActivatedAbilityDisplaceOverlappingBehavior:Cast(ability, casterToken, 
     local overlapping = {}
     for _, loc in ipairs(footprint) do
         for _, tok in ipairs(dmhub.GetTokensAtLoc(loc) or {}) do
-            if tok.valid and tok.properties ~= nil and tok.id ~= casterToken.id and not seen[tok.id] then
-                seen[tok.id] = true
+            if tok.valid and tok.properties ~= nil and tok.charid ~= casterToken.id and not seen[tok.charid] then
+                seen[tok.charid] = true
                 overlapping[#overlapping+1] = tok
             end
         end

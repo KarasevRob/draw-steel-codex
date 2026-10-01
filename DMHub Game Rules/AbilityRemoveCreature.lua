@@ -77,6 +77,8 @@ function ActivatedAbilityRemoveCreatureBehavior:DropLoot(token, newObj)
 
 
 	local floor = game.GetFloor(token.floorid)
+	-- The token being removed is on the current map, so its floor exists.
+	---@cast floor -nil
 
     if newObj == nil then
         newObj = floor:CreateLocalObjectFromBlueprint{
@@ -198,11 +200,11 @@ function ActivatedAbilityRemoveCreatureBehavior:LeaveCorpse(token, newObj)
             if type(attacker) == "function" then
                 attacker = attacker("self")
             end
-            attacker = dmhub.LookupToken(attacker)
-            print("ATTACKER:: LOOKUP =", attacker ~= nil, attacker ~= nil and attacker.valid)
-            if attacker ~= nil and attacker.valid then
-                print("ATTACKER:: NAME =", attacker.name)
-                attackerName = attacker.name
+            local attackerToken = dmhub.LookupToken(attacker)
+            print("ATTACKER:: LOOKUP =", attackerToken ~= nil, attackerToken ~= nil and attackerToken.valid)
+            if attackerToken ~= nil and attackerToken.valid then
+                print("ATTACKER:: NAME =", attackerToken.name)
+                attackerName = attackerToken.name
             end
         end
 
@@ -250,6 +252,11 @@ function ActivatedAbilityRemoveCreatureBehavior:Cast(ability, casterToken, targe
             --so the remaining pushes are silently dropped. Same 120s backstop as
             --the general wait below so a stuck cast can't park the corpse forever.
             local minion = target.token.properties.minion
+            --- Only `activity` is used here: CountActiveCasts skips casts marked "reaping".
+            ---@class AbilityRemoveCreatureCastInfo
+            ---@field activity string|nil
+
+            ---@type AbilityRemoveCreatureCastInfo
             local castInfo = ActivatedAbility.CurrentCastInfo() or {}
             castInfo.activity = "reaping"
 
@@ -587,7 +594,7 @@ function CorpseComponent:Respawn(obj)
             if token.loc.x ~= x or token.loc.y ~= y then
                 print(string.format("[CORPSE_REVIVE] ChangeLocation -> %d,%d floor %d (was %s,%s,%s)",
                     x, y, obj.floorIndex,
-                    tostring(token.loc.x), tostring(token.loc.y), tostring(token.loc.floorIndex)))
+                    tostring(token.loc.x), tostring(token.loc.y), tostring(token.loc.floor)))
                 token:ChangeLocation(core.Loc{x = x, y = y, floorIndex = obj.floorIndex}:WithGroundLevelAltitude())
             else
                 print("[CORPSE_REVIVE] ChangeLocation skipped (same x,y)")

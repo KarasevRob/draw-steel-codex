@@ -83,6 +83,14 @@ function ActivatedAbility:TargetModeOptions()
         --is allowed to name a friend in the first place; an enemy-allegiance
         --ability already excludes them, so that position is dropped.
         ids = {"enemies"}
+        --An ability overridden to target allies has no enemies to pick,
+        --so leave out the "Enemies" option.
+        if self:try_get("_tmp_targetingOverride") == "ally" and self.targetAllegiance == "ally" then
+            if not canTargetObjects then
+                return nil
+            end
+            ids = {}
+        end
         if canTargetFriends then ids[#ids+1] = false end
         if canTargetObjects then
             ids[#ids+1] = true
@@ -988,11 +996,287 @@ function ActivatedAbility:AbilityTypeDescription()
     local actionResource = self:ActionResource()
     local resourceTable = dmhub.GetTable(CharacterResource.tableName)
     local resourceInfo = resourceTable[actionResource or ""]
+    local adjacent = self.operatedByAdjacentCreature or self.grantedToAdjacentCreatures
     if resourceInfo == nil then
+        if adjacent then
+            return "Adjacent creature"
+        end
         return "Ability"
     end
 
+    if adjacent then
+        return string.format("%s (Adjacent creature)", resourceInfo.name)
+    end
+
     return resourceInfo.name
+end
+
+----------------------------------------------------------------------
+-- Adjacent-creature abilities (dynamic terrain objects)
+----------------------------------------------------------------------
+--Dynamic terrain objects (Field Ballista, Arrow Launcher...) have abilities
+--that a creature ADJACENT to them uses. There are two kinds:
+--  * Operated ("Main action (Adjacent creature)", e.g. Release Bolt): the
+--    object is the caster -- range, power roll and usage limits are its own --
+--    and the adjacent creature (the operator) spends the action. Used through
+--    the action bar's operate mode (DrawSteelActionBar.BeginOperating).
+--  * Granted (e.g. Deactivate): the adjacent creature gets the ability as its
+--    own -- it is the caster and pays -- and can only use it on the object.
+--    Shows up in the creature's own drawers, and in the operate bar.
+ActivatedAbility.operatedByAdjacentCreature = false
+ActivatedAbility.grantedToAdjacentCreatures = false
+
+--When the caster is an object (a Field Ballista), it turns to face its target
+--while the ability is aimed and keeps that facing once cast. The turn speed and
+--which way the art points are set on the object's Targetable component.
+ActivatedAbility.aimCasterAtTarget = false
+
+--Same floor test AdjacentToTargetableObject uses (MCDMCreature.lua).
+local function OperateActualFloor(token)
+    if game.currentMap == nil or token.loc == nil then
+        return nil
+    end
+    local floor = game.currentMap:GetFloorFromLoc(token.loc)
+    if floor == nil or not floor.valid then
+        return nil
+    end
+    return floor.actualFloor
+end
+
+--Does the token have an ability with this flag authored on it? Only looks at
+--the token's own abilities (not ones granted by features), which keeps it
+--cheap enough to call for every token on the map.
+local function HasAbilityWithFlag(token, flag)
+    if token == nil or not token.valid or token.properties == nil then
+        return false
+    end
+    local found = false
+    pcall(function()
+        for _, ability in ipairs(token.properties.innateActivatedAbilities) do
+            if ability[flag] then
+                found = true
+                return
+            end
+        end
+    end)
+    return found
+end
+
+--Is creatureToken placed to use objectToken's adjacent-creature abilities:
+--within 1 square of it on the same floor, and neither of them down.
+local function IsAdjacentUser(creatureToken, objectToken)
+    if creatureToken == nil or objectToken == nil or not creatureToken.valid or not objectToken.valid then
+        return false
+    end
+    if creatureToken.charid == objectToken.charid or creatureToken.isObject or creatureToken.properties == nil then
+        return false
+    end
+
+    local down = false
+    pcall(function()
+        down = creatureToken.properties:IsDown() or objectToken.properties:IsDown()
+    end)
+    if down then
+        return false
+    end
+
+    local floor = OperateActualFloor(creatureToken)
+    if floor == nil or floor ~= OperateActualFloor(objectToken) then
+        return false
+    end
+
+    return creatureToken:Distance(objectToken) <= 1
+end
+
+--- Does this token have abilities an adjacent creature can operate?
+--- @param token nil|CharacterToken
+--- @return boolean
+function ActivatedAbility.HasOperatedAbilities(token)
+    return HasAbilityWithFlag(token, "operatedByAdjacentCreature")
+end
+
+--- Does this token have abilities it grants to adjacent creatures (a
+--- Candelabra's Throw)?
+--- @param token nil|CharacterToken
+--- @return boolean
+function ActivatedAbility.HasGrantedAbilities(token)
+    return HasAbilityWithFlag(token, "grantedToAdjacentCreatures")
+end
+
+--- Can operatorToken use objectToken's adjacent-creature abilities right now?
+--- Either kind counts, so clicking an object that only grants abilities still
+--- opens its operate bar.
+--- @param operatorToken nil|CharacterToken
+--- @param objectToken nil|CharacterToken
+--- @return boolean
+function ActivatedAbility.CanOperate(operatorToken, objectToken)
+    return (ActivatedAbility.HasOperatedAbilities(objectToken) or ActivatedAbility.HasGrantedAbilities(objectToken)) and IsAdjacentUser(operatorToken, objectToken)
+end
+
+--Map-object tokens report hasTokenOnThisMap = false even when they are on this
+--map; the flag only means something for creature tokens.
+local function OnThisMap(tok)
+    return tok.isObject or tok.hasTokenOnThisMap
+end
+
+--- Every token operatorToken could operate right now, nearest first.
+--- @param operatorToken nil|CharacterToken
+--- @return CharacterToken[]
+function ActivatedAbility.GetOperableTokens(operatorToken)
+    local result = {}
+    if operatorToken == nil or not operatorToken.valid then
+        return result
+    end
+    for _, tok in ipairs(dmhub.allTokensIncludingObjects or {}) do
+        if OnThisMap(tok) and ActivatedAbility.CanOperate(operatorToken, tok) then
+            result[#result+1] = tok
+        end
+    end
+    table.sort(result, function(a, b)
+        return operatorToken:Distance(a) < operatorToken:Distance(b)
+    end)
+    return result
+end
+
+--- objectToken's operated abilities as temporary clones stamped with the
+--- operator, so casting them charges the operator's action (see
+--- ActivatedAbility:GetOperatorToken).
+--- @param objectToken CharacterToken
+--- @param operatorToken nil|CharacterToken
+--- @return ActivatedAbility[]
+function ActivatedAbility.GetOperatedAbilities(objectToken, operatorToken)
+    local result = {}
+    if objectToken == nil or not objectToken.valid or objectToken.properties == nil then
+        return result
+    end
+
+    local abilities = objectToken.properties:GetActivatedAbilities{ bindCaster = true }
+    for _, ability in ipairs(abilities) do
+        if ability.operatedByAdjacentCreature then
+            local clone = ability:MakeTemporaryClone()
+            if operatorToken ~= nil then
+                clone.operatorTokenId = operatorToken.charid
+                --Melee-and-ranged abilities are cast as one of their variations.
+                if clone:try_get("meleeAndRanged") then
+                    clone.meleeVariation.operatorTokenId = operatorToken.charid
+                    clone.rangedVariation.operatorTokenId = operatorToken.charid
+                end
+            end
+            result[#result+1] = clone
+        end
+    end
+    return result
+end
+
+--- objectToken's granted abilities as creatureToken's own: temporary clones
+--- cast by the creature and able to target only the object (see
+--- grantingObjectTokenId in ActivatedAbility:TargetPassesFilter).
+--- @param objectToken CharacterToken
+--- @param creatureToken CharacterToken
+--- @return ActivatedAbility[]
+function ActivatedAbility.GetGrantedAbilitiesFrom(objectToken, creatureToken)
+    local result = {}
+    if objectToken == nil or not objectToken.valid or objectToken.properties == nil or creatureToken == nil or creatureToken.properties == nil then
+        return result
+    end
+
+    for _, ability in ipairs(objectToken.properties.innateActivatedAbilities) do
+        if ability.grantedToAdjacentCreatures then
+            local clone = ability:MakeTemporaryClone()
+            clone._tmp_boundCaster = creatureToken.properties
+            clone.grantingObjectTokenId = objectToken.charid
+            clone.grantedToTokenId = creatureToken.charid
+            result[#result+1] = clone
+        end
+    end
+    return result
+end
+
+--- The one ability creatureToken can use on objectToken, when the object has
+--- exactly one (a Candelabra's Throw); nil when it has none or several.
+--- Clicking such an object casts it straight away instead of opening the
+--- operate bar (TargetableObject:Operate).
+--- @param objectToken CharacterToken
+--- @param creatureToken CharacterToken
+--- @return nil|ActivatedAbility
+function ActivatedAbility.GetSingleAdjacentAbility(objectToken, creatureToken)
+    local list = ActivatedAbility.GetOperatedAbilities(objectToken, creatureToken)
+    for _, ability in ipairs(ActivatedAbility.GetGrantedAbilitiesFrom(objectToken, creatureToken)) do
+        list[#list+1] = ability
+    end
+    if #list == 1 then
+        return list[1]
+    end
+    return nil
+end
+
+--- Why a player may not use an adjacent-creature ability right now, or nil.
+--- Mirrors the action bar's greyed-chip rule: it only binds players under
+--- Strictly Enforce Action Economy and Resource Costs (strict:resources).
+--- @param ability ActivatedAbility from GetSingleAdjacentAbility
+--- @param creatureToken CharacterToken the creature using it (and paying)
+--- @param objectToken CharacterToken the object it comes from
+--- @return nil|string
+function ActivatedAbility.AdjacentAbilityBlockedReason(ability, creatureToken, objectToken)
+    if dmhub.isDM or not dmhub.GetSettingValue("strict:resources") then
+        return nil
+    end
+
+    --a granted ability is cast by the creature; an operated one by the object.
+    local caster = cond(ability.grantedToAdjacentCreatures, creatureToken, objectToken)
+
+    local filterMessage = ability:AbilityFilterFailureMessage(caster.properties)
+    if filterMessage ~= nil then
+        return filterMessage
+    end
+
+    local rid = ability:try_get("actionResourceId")
+    local turnBound = rid == CharacterResource.actionResourceId or rid == CharacterResource.maneuverResourceId or rid == CharacterResource.freeManeuverResourceId
+    local q = dmhub.initiativeQueue
+    if turnBound and q ~= nil and not q.hidden and not creatureToken.properties:IsOurTurn() then
+        return "Not your turn"
+    end
+
+    if not ability:GetCost(caster).canAfford then
+        return "Can't afford it"
+    end
+    return nil
+end
+
+--Tokens on the map with granted abilities, worked out once per frame:
+--GetActivatedAbilities runs many times a frame and would otherwise scan
+--every token on each call.
+local g_grantingTokensFrame = nil
+local g_grantingTokens = {}
+
+--- Every ability granted to creatureToken by the objects it is adjacent to.
+--- @param creatureToken nil|CharacterToken
+--- @return ActivatedAbility[]
+function ActivatedAbility.GetGrantedAbilities(creatureToken)
+    local result = {}
+    if creatureToken == nil or not creatureToken.valid or creatureToken.isObject or not creatureToken.hasTokenOnThisMap then
+        return result
+    end
+
+    local frame = dmhub.FrameCount()
+    if g_grantingTokensFrame ~= frame then
+        g_grantingTokensFrame = frame
+        g_grantingTokens = {}
+        for _, tok in ipairs(dmhub.allTokensIncludingObjects or {}) do
+            if OnThisMap(tok) and HasAbilityWithFlag(tok, "grantedToAdjacentCreatures") then
+                g_grantingTokens[#g_grantingTokens+1] = tok
+            end
+        end
+    end
+
+    for _, tok in ipairs(g_grantingTokens) do
+        if IsAdjacentUser(creatureToken, tok) then
+            for _, ability in ipairs(ActivatedAbility.GetGrantedAbilitiesFrom(tok, creatureToken)) do
+                result[#result+1] = ability
+            end
+        end
+    end
+    return result
 end
 
 function ActivatedAbility.TabBGImage()
@@ -1408,6 +1692,7 @@ function ActivatedAbility:Render(options, params)
         for _, behavior in ipairs(self.behaviors) do
             if behavior.typeName == "ActivatedAbilityModifyPowerRollBehavior"
                     and behavior:IsFiltered(self, params.token, params) == false then
+                ---@cast behavior ActivatedAbilityModifyPowerRollBehavior
                 local filterCond = trim(behavior.modifier:try_get("filterCondition", ""))
                 if filterCond == "" or dmhub.EvalGoblinScript(filterCond, creatureProperties:LookupSymbol(), "Filter condition for power roll display") then
                     tryApply(behavior.modifier, {mod = behavior.modifier})

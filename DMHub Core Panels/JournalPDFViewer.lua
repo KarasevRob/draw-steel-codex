@@ -420,6 +420,7 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
     local m_importer = false
     local m_importerPanel = SmartImporterPanel(doc)
 
+    ---@type Vector2?
     local m_dragAnchor = nil
 
     local CreateDragPanel
@@ -490,6 +491,8 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
                 height = 100,
             },
             update = function(element, parentElement)
+                --only fired after beginDrag has set m_dragAnchor.
+                ---@cast m_dragAnchor -nil
                 local mousePoint = parentElement.mousePoint
                 local imageWidth = parentElement.renderedWidth
                 local imageHeight = parentElement.renderedHeight
@@ -509,6 +512,8 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
                 element.selfStyle.height = (y2 - y1) * imageHeight
             end,
             finish = function(element, parentElement)
+                --the drag handler checks m_dragAnchor before firing this.
+                ---@cast m_dragAnchor -nil
                 local mousePoint = parentElement.mousePoint
                 local imageWidth = parentElement.renderedWidth
                 local imageHeight = parentElement.renderedHeight
@@ -4716,6 +4721,8 @@ end
 
 --- @class ImageDocument: GameType
 --- @field new fun(o?: table): ImageDocument
+--- @field width number Image width in pixels.
+--- @field height number Image height in pixels.
 ImageDocument = RegisterGameType("ImageDocument")
 
 ImageDocument.type = "image"
@@ -4810,6 +4817,7 @@ end
 --- @class PDFFragment: GameType
 --- @field new fun(o?: table): PDFFragment
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+--- @field description string Alias of name (PDFFragment.AddAlias).
 PDFFragment = RegisterGameType("PDFFragment")
 
 PDFFragment.tableName = "pdfReferences"

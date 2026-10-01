@@ -13,6 +13,7 @@ local mod = dmhub.GetModLoading()
 ---@field description string
 ---@field ownerid false|string
 ---@field textStorage false|TextStorage
+---@field name string Alias of description (CustomDocument.AddAlias).
 CustomDocument = RegisterGameType("CustomDocument")
 CustomDocument.readonly = false
 CustomDocument.updateid = ""
@@ -512,7 +513,7 @@ local g_journalTreeExpanded = {}
 --- Builds a popup tree view of the journal hierarchy
 --- @param currentDocId string The ID of the currently displayed document
 --- @param dialogPanel Panel The dialog panel with navigation handlers
---- @param opts nil|{onPick: fun(docId: string), onNewDocument: fun(typeInfo: table)}
+--- @param opts nil|{onPick: fun(docId: string), onNewDocument: fun(typeInfo: table), bare?: boolean}
 ---   onPick: picking a document calls this instead of navigating dialogPanel
 ---   (the tab bar's + uses it to open the pick in a new tab). onNewDocument:
 ---   when set, a "New Document" entry heads the popup; it expands to the
@@ -1027,6 +1028,7 @@ function CustomDocument:CreateInterface(args)
     --The edit panel is the most expensive part of opening a document and most
     --opens never edit, so it is built lazily on first entry into edit mode.
     --nil until then; every consumer treats nil as "not editing".
+    ---@type Panel?
     local writePanel = nil
     local m_bodyPanel --the writePanel/readPanel host; assigned below.
 
@@ -1424,6 +1426,7 @@ function CustomDocument:CreateInterface(args)
                     resultPanel.data.pendingUpload = nil
                 end
                 GetOrCreateWritePanel()
+                ---@cast writePanel -nil
                 writePanel:SetClass("collapsed", not writePanel:HasClass("collapsed"))
                 readPanel:SetClass("collapsed", not readPanel:HasClass("collapsed"))
                 element:SetClass("selected", not writePanel:HasClass("collapsed"))
@@ -1772,6 +1775,7 @@ function CustomDocument:CreateInterface(args)
         end
         --the display panel and the live editor both implement findInPage;
         --target whichever is currently visible.
+        ---@type Panel
         local target = readPanel
         if writePanel ~= nil and writePanel.valid and not writePanel:HasClass("collapsed") then
             target = writePanel
@@ -3844,6 +3848,7 @@ function CustomDocument.GetOrCreateTabbedViewer()
                 doc = doc,            -- in-memory fallback for transient docs not in the table
                 history = {},
                 forwardHistory = {},
+                ---@type Panel?
                 contentPanel = nil,   -- realized lazily on first switchToTab
                 tabArgs = tabArgs,    -- captured so realizeTab can build later
             }
@@ -5148,6 +5153,10 @@ end
 --
 --Returns the verb, the owner key, the owner's document, and the open
 --dialog (nil when there is none).
+---@return nil|"open"|"switch"|"close"|"raise" verb
+---@return string? ownerKey
+---@return PanelDocument? doc
+---@return Panel? dialog
 local function RailActivation(key)
     key = string.lower(key)
     local ownerKey = PanelDocument.WindowOwner(key)
@@ -13598,6 +13607,7 @@ local function ToolkitTogglePanel(panelKey, strip, toolkitid)
     if verb == "switch" or verb == "raise" then
         --a pinned window cannot be closed from its button, and a folder
         --window sitting on a sibling tab switches rather than closing.
+        ---@cast d -nil
         d:SetAsLastSibling()
         d:FireEventTree("focusPanelTab", key)
         RefreshRails()
@@ -14816,6 +14826,8 @@ RailScriptButtonDialog = function(toolkitid, idx)
         --(came from the community) and packid (shared BY the
         --user) both survive the rebuild.
         if sbuttonEditId ~= nil then
+            --the dialog returned early unless the edited button exists.
+            ---@cast existing -nil
             item.pack = existing.pack
             item.packid = existing.packid
             local defs = dmhub.GetSettingValue("iconrailscriptbuttons") or {}
@@ -18181,6 +18193,7 @@ local function CreateIconRail(side, entries)
             end
 
             if verb == "switch" or verb == "raise" then
+                ---@cast d -nil
                 d:SetAsLastSibling()
                 d:FireEventTree("focusPanelTab", memberKey)
                 --the strip stays up: the pointer is still on it, likely
@@ -19868,6 +19881,7 @@ local function CreateIconRail(side, entries)
                     --a PINNED window cannot be closed by its icon either;
                     --the icon just raises it (and re-arms a map-mode
                     --panel's tool -- you clicked it, you mean to use it).
+                    ---@cast d -nil
                     d:SetAsLastSibling()
                     d:FireEventTree("focusPanelTab", key)
                     CenterOnCharacter()

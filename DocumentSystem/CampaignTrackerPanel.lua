@@ -184,6 +184,7 @@ local function CreateNoteRow(noteid)
         local cur = GetNote(noteid)
         if cur == nil then return end
 
+        ---@type MarkdownDocument
         local doc = cur
         if liveText ~= nil then
             if previewDoc == nil then
@@ -1062,6 +1063,7 @@ local function CreateRunItemRow(item, isCurrent)
     --the accordion body. Content is built lazily on first expand: the
     --embedded page render is heavy, and most rows stay closed.
     local bodyPanel = nil
+    ---@type Panel?
     local arrow = nil
     if expandable then
         local bodyClasses = {}
@@ -1099,6 +1101,8 @@ local function CreateRunItemRow(item, isCurrent)
         local function Toggle()
             local nowExpanded = not (g_runRowExpanded[item.id] == true)
             g_runRowExpanded[item.id] = nowExpanded or nil
+            --Toggle is the arrow's own click handler, so the arrow exists.
+            ---@cast arrow -nil
             arrow:SetClass("expanded", nowExpanded)
             bodyPanel:SetClass("collapsed", not nowExpanded)
             if nowExpanded then

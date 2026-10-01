@@ -267,6 +267,7 @@ end
 function DataTables.tbl_Gear.GenerateEditor(document, options)
     options = options or {}
 
+    ---@type Panel
     local resultPanel = nil
     local description = options.description or 'Create Item'
 
@@ -416,6 +417,7 @@ function DataTables.tbl_Gear.GenerateEditor(document, options)
 
                     local equipmentCat = document:try_get("equipmentCategory")
                     if equipmentCat ~= nil then
+                        ---@type EquipmentCategory?
                         local catInfo = catTable[equipmentCat]
                         local count = 1
                         while catInfo ~= nil and count < 10 do

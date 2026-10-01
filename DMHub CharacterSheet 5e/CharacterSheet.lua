@@ -1189,6 +1189,8 @@ function CharSheet.CharacterSheetSkillsPanel()
 											text = option.text,
 											press = function(element)
 												if option.id == "custom" then
+													--only monsters get the "custom" option, and they always build customInput.
+													---@cast customInput -nil
 													customInput:SetClass("collapsed", false)
 													for _,p in ipairs(panels) do
 														p:SetClass("selected", p == element)
@@ -3555,6 +3557,7 @@ function CharSheet.CharacterSheetAvatarPanel()
 				local parentElement = element
 				local info = CharacterSheet.instance.data.info
 
+				---@type Panel
 				local popupPanel = nil
 
 				local index = 1
@@ -5369,9 +5372,12 @@ function CharSheet.CharacterFeaturesPanel()
 
 				local key = string.format("%d-%s-%s", i, featureInfo.feature.guid, levelStr)
 
+				---@type Panel
 				local featurePanel = featurePanels[key]
 
 				if featurePanel == nil then
+					--the closures below only run once featurePanel is assigned at the end of this branch.
+					---@cast featurePanel Panel
 
 					local tri = gui.ExpandoArrow{}
 
@@ -6206,6 +6212,7 @@ function CharSheet.MainSheet()
 				end
 
 				local rootPanel = CharacterSheet.instance
+				---@cast rootPanel Panel
 
 				local creature = CharacterSheet.instance.data.info.token.properties
 

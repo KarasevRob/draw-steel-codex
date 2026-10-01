@@ -963,6 +963,7 @@ local function CreateMonsterEntry(nodeid, startHidden)
     local matchesSearch = true
     local parentCollapsed = startHidden or false
 
+    ---@type Panel
     local resultPanel = nil
 
     --novel-content pip: lit while this monster is recorded as novel
@@ -1236,6 +1237,7 @@ local function CreateMonsterEntry(nodeid, startHidden)
                         text = 'Edit Monster',
                         click = function(element)
                             local monster = node.monster
+                            ---@cast monster -nil
 
                             local token = monster:GetLocalGameBestiaryToken()
                             if token == nil then
@@ -1275,6 +1277,7 @@ local function CreateMonsterEntry(nodeid, startHidden)
 
                     if devmode() then
                         local monster = node.monster
+                        ---@cast monster -nil
                         if monster.properties:has_key("import") then
                             menuItems[#menuItems + 1] = {
                                 text = cond(monster.properties.import.override, 'Revert Override', 'Override Import'),
@@ -1547,6 +1550,7 @@ local CreateBestiaryFolder = function(nodeid, startHidden)
 
     local node = assets:GetMonsterNode(nodeid)
 
+    ---@type Panel
     local folderPane = nil
 
     --novel-content pip on the folder row: lit while any monster anywhere
@@ -1580,6 +1584,7 @@ local CreateBestiaryFolder = function(nodeid, startHidden)
     --below it clears the search through it. The clear x is built into
     --gui.SearchInput now, so there is no separate clear button any more.
     local searchInput = nil
+    ---@type Label
     local searchLimitLabel = nil
     local rootPanel = nil
     if nodeid == '' then
@@ -1782,6 +1787,7 @@ local CreateBestiaryFolder = function(nodeid, startHidden)
         return n
     end
 
+    ---@type Panel
     local triangle = nil
     triangle = gui.ExpandoArrow({
         --Phosphor mask: the default triangle bitmap reads fuzzy at header
@@ -2343,6 +2349,8 @@ end
 --similar to a bestiary entry but is an entry for a live character.
 CharacterPanel.CreateCharacterEntry = function(charid, party)
     local token = dmhub.GetCharacterById(charid)
+    --callers pass the id of a live character; token is never reassigned below.
+    ---@cast token -nil
     local creature = token.properties
 
     if creature == nil then
@@ -3024,6 +3032,7 @@ CharacterPanel.CreatePartyCharacters = function(partyid)
 
     local folderPane
     local selectAllPanel = nil
+    ---@type Panel
     local triangle = nil
 
     --Toggle the folder open/closed. Shared by the caret AND a press
@@ -4291,6 +4300,8 @@ CharacterPanel.CreatePinnedCharacterPanel = function(charid, options)
                 element.children = { summaryPanel, detailsPanel }
                 createdDetailsPanel = true
             end
+            --built together with summaryPanel just above.
+            ---@cast detailsPanel -nil
 
             summaryPanel:SetClass("collapsed", false)
             detailsPanel:SetClass("collapsed", false)

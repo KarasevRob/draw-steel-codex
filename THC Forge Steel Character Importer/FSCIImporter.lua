@@ -1,7 +1,7 @@
 --- FSCIImporter handles importing a Forge Steel character into the Codex.
 --- @class FSCIImporter: GameType
---- @field new fun(o?: table): FSCIImporter
---- @field fsJson string The raw Forge Steel JSON string
+--- @field new fun(self: FSCIImporter, jsonText: string|table): FSCIImporter|nil
+--- @field fsJson string|table The raw Forge Steel JSON string, or the parsed table when new was given one
 --- @field fsData table The parsed Forge Steel data structure
 --- @field token table The Codex token representing the new character
 --- @field character table The Codex character object - alias for token.character
@@ -53,6 +53,10 @@ function FSCIImporter.ImportCharacter(executeOnNewCharacter)
             import:ClearState()
 
             local importer = FSCIImporter:new(obj)
+            if importer == nil then
+                --new has already logged why (e.g. JSON that is not a Forge Steel character).
+                return
+            end
             importer:Import()
 
             local imports = import:GetImports()

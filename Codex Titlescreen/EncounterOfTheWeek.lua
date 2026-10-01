@@ -989,10 +989,13 @@ CreateScreen = function(args)
     local m_knownHeroCards = nil
 
     --forward decls (assigned below; captured by earlier click handlers).
+    --OpenGameView is assigned during setup, before any handler can run.
+    ---@type fun(gameid: string)
     local OpenGameView = nil
     local CloseGameView = nil
     local BuildGameView = nil
     local ShowAddHeroDialog = nil
+    ---@type fun()
     local RefreshChat = nil
     local AttachMonitors = nil
 
@@ -2439,6 +2442,8 @@ CreateScreen = function(args)
             children[#children+1] = MakeResumeRow()
         end
         for _,gameid in ipairs(ids) do
+            --ids is empty unless games is non-nil.
+            ---@cast games -nil
             local record = games[gameid]
             --private games are never listed for anyone but their host.
             if record.public == true or record.hostUserid == dmhub.loginUserid then
@@ -2548,6 +2553,8 @@ CreateScreen = function(args)
 
         local children = {}
         for _,msgid in ipairs(ids) do
+            --ids is empty unless chat is non-nil.
+            ---@cast chat -nil
             local msg = chat[msgid]
             children[#children+1] = gui.Label{
                 text = string.format("<b>%s:</b> %s", msg.name or "?", msg.text or ""),
@@ -2617,6 +2624,8 @@ CreateScreen = function(args)
             return
         end
 
+        --assigned below, before any of its click handlers can fire.
+        ---@type Panel
         local dlg = nil
 
         --ids we have already claimed, so the lists offer each hero once.
@@ -2809,8 +2818,11 @@ CreateScreen = function(args)
 
         local m_public = true
         local m_busy = false
+        ---@type Input
         local nameInput = nil
         local dialogStatusLabel = nil
+        --assigned below, before any of its click handlers can fire.
+        ---@type Panel
         local dlg = nil
 
         --the encounter maps the week's module offers. With more than one the
@@ -2976,6 +2988,7 @@ CreateScreen = function(args)
                 characterLimit = 80,
                 placeholderText = "Name your game...",
                 create = function(element)
+                    ---@cast element Input
                     nameInput = element
                     element.text = defaultName
                 end,

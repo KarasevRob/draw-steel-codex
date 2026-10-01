@@ -2,6 +2,8 @@ local mod = dmhub.GetModLoading()
 
 --- @class InCharacterChatMessage: GameType
 --- @field new fun(o?: table): InCharacterChatMessage
+--- @field text string The spoken message text.
+--- @field channel string Chat channel ("chat").
 InCharacterChatMessage = RegisterGameType("InCharacterChatMessage")
 
 InCharacterChatMessage.charname = false

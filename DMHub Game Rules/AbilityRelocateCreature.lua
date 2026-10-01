@@ -90,14 +90,15 @@ function ActivatedAbilityRelocateCreatureBehavior:FindTargetsInMovementVicinity(
         local tokens = game.GetTokensAtLoc(loc)
 
         for i,token in ipairs(tokens or {}) do
+            local alreadyInResult = false
             for _,tok in ipairs(result) do
-                if tok.id == token.id then
-                    token = nil
+                if tok.id == token.charid then
+                    alreadyInResult = true
                     break
                 end
             end
 
-            if token ~= nil and token.id ~= casterToken.id and ability:TargetPassesFilter(casterToken, token, {}, self.vicinityFilter) then
+            if (not alreadyInResult) and token.charid ~= casterToken.charid and ability:TargetPassesFilter(casterToken, token, {}, self.vicinityFilter) then
                 result[#result+1] = token
             end
         end
@@ -360,6 +361,7 @@ function ActivatedAbilityRelocateCreatureBehavior:ExecuteGuaranteedCharge(caster
     end
 end
 
+--- @param targets {loc: Loc|nil, token: CharacterToken|nil}[]
 function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, targets, options)
     print("Relocate:: Cast relocate", #targets)
 
@@ -542,7 +544,7 @@ function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, tar
                                 local occupants = game.GetTokensAtLoc(candidate) or {}
                                 local blocked = false
                                 for _,occ in ipairs(occupants) do
-                                    if occ.id ~= grabbedTok.id then
+                                    if occ.charid ~= grabbedTok.id then
                                         blocked = true
                                         break
                                     end
@@ -628,6 +630,8 @@ function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, tar
 				if movementInfo ~= nil then
 
 					local loc = targets[1].loc
+					-- MarkMovementArrow throws on a nil loc, so a non-nil movementInfo means loc is set.
+					---@cast loc -nil
 
 					local path = movementInfo.path
                 print("RELOCATE:: to", loc.x, loc.y, loc.altitude, "->", path.destination.x, path.destination.y, path.destination.altitude)
@@ -770,8 +774,8 @@ function ActivatedAbilityRelocateCreatureBehavior:Cast(ability, casterToken, tar
 				for _,step in ipairs(path.steps) do
 					local tokensAtLoc = game.GetTokensAtLoc(step)
 					for _,tok in ipairs(tokensAtLoc or {}) do
-						if tok.id ~= casterToken.id and hitCreatures[tok.id] == nil then
-							hitCreatures[tok.id] = true
+						if tok.charid ~= casterToken.id and hitCreatures[tok.charid] == nil then
+							hitCreatures[tok.charid] = true
 							--see the note on suppressCollisionDamage below.
 							local suppressPassthroughDamage = TargetableObject.TokenSuppressesCollisionDamage(tok)
 							--each side of the collision gets a handle on the other:
@@ -1160,10 +1164,10 @@ function ActivatedAbilityRelocateCreatureBehavior:EditorItems(parentPanel)
         gui.Input{
             classes = "formInput",
             characterLimit = 3,
-            text = self.vicinity,
+            text = tostring(self.vicinity),
             change = function(element)
                 self.vicinity = tonumber(element.text) or self.vicinity
-                element.text = self.vicinity
+                element.text = tostring(self.vicinity)
             end,
         }
     }

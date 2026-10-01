@@ -3877,6 +3877,7 @@ function ActivatedAbility:ShowEditActivatedAbilityDialog(options)
 
 	local activatedAbility = self
 
+	---@type Panel
 	local resultPanel = nil
 
 	-- The sectioned ability editor is always active; theme the outer dialog
@@ -4229,6 +4230,9 @@ function ActivatedAbility:ShowEditCompendiumSourceDialog(parentElement)
 		}
 		return false
 	end
+	--ResolveAbilitySource only returns an ability when source and item are both found.
+	---@cast source -nil
+	---@cast item -nil
 
 	parentElement.root:AddChild(original:ShowEditActivatedAbilityDialog{
 		close = function()

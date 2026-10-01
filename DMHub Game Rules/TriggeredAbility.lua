@@ -10,6 +10,10 @@ local mod = dmhub.GetModLoading()
 --- @field mandatory boolean|string If true, fires automatically; if false, prompts the player; if a string, uses that setting id.
 --- @field trigger string The event id that triggers this ability.
 --- @field triggerFilter nil|string GoblinScript formula that must be truthy for the trigger to fire.
+--- @field characterConditionRequired? string Condition id the subject must have for the trigger to fire ("none"/nil for no requirement); read with try_get.
+--- @field whenActive? string "always" (default) or "combat": when the trigger can fire; read with try_get.
+--- @field allowDuplicateTriggers? boolean If true, repeated prompts from this trigger are not deduplicated; read with try_get.
+--- @field abilityType? string Legacy ability type id from ActivatedAbility.StandardArgs ("none").
 TriggeredAbility = RegisterGameType("TriggeredAbility", "ActivatedAbility")
 
 --How many triggered abilities have got past their gates and fired or prompted.
@@ -80,8 +84,8 @@ function TriggeredAbility:IsMandatory(token)
         return false
     end
 
-    --mandatory/automatic.
-    local mandatory = dmhub.GetSettingValue(self.mandatory)
+    --mandatory/automatic. Both booleans returned above, so this is a setting id.
+    local mandatory = dmhub.GetSettingValue(self.mandatory --[[@as string]])
     return mandatory
 end
 
@@ -686,6 +690,34 @@ TriggeredAbility.RegisterTrigger{
     }
 }
 
+--Fires once when a creature is added to the map from the bestiary (or an
+--encounter), on the placing client only, so map loads and copies never re-fire it.
+TriggeredAbility.RegisterTrigger{
+    id = "placedonmap",
+    text = "Placed on Map",
+}
+
+dmhub.RegisterEventHandler("spawnFromBestiary", function(charids)
+    --Spawned tokens can take a few frames to appear; retry briefly for each one.
+    local function dispatch(charid, attempts)
+        if mod.unloaded then
+            return
+        end
+        local token = dmhub.GetTokenById(charid)
+        if token == nil or token.properties == nil then
+            if attempts > 0 then
+                dmhub.Schedule(0.1, function() dispatch(charid, attempts - 1) end)
+            end
+            return
+        end
+        token.properties:DispatchEvent("placedonmap", {})
+    end
+
+    for _,charid in ipairs(charids or {}) do
+        dispatch(charid, 20)
+    end
+end)
+
 TriggeredAbility.RegisterTrigger{
     id = "dealdamage",
     text = "Damage an Enemy",
@@ -1015,13 +1047,22 @@ local function SubjectRangeDistance(triggerName, subjectToken, casterToken, symb
     return result
 end
 
+--- Options for TriggeredAbility:Trigger. Every field is optional (nil options = {}).
+--- @class TriggeredAbilityTriggerOptions
+--- @field complete nil|function
+--- @field debugLog nil|table Receives {name, success, reason} records when set.
+--- @field remoteExecution nil|{targets: table, dismiss: boolean, alreadyPaid: boolean, aiActivityId: string|false|nil, aiReactionId: string|false|nil} An accepted trigger shipped to this client to execute.
+--- @field aiActivityId nil|string
+--- @field aiReactionId nil|string
+--- @field alreadyPaid nil|boolean
+
 --auraControllerToken: token controlling an aura this is triggered from, or can be nil for a regular trigger attached to the creature it's triggering on.
 --- @param characterModifier CharacterModifier
 --- @param creature Creature
 --- @param symbols table
 --- @param auraControllerToken nil|CharacterToken
 --- @param modContext table
---- @param argOptions {complete: function, debugLog: table}
+--- @param argOptions TriggeredAbilityTriggerOptions
 --- @return nil
 function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraControllerToken, modContext, argOptions)
 
@@ -1049,6 +1090,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 	--that triggered Rise!), which would spuriously fail them.
 	if argOptions.remoteExecution ~= nil then
 		local remoteExecution = argOptions.remoteExecution
+		---@cast remoteExecution -nil
 
 		symbols = table.shallow_copy(symbols or {})
 		symbols.mode = symbols.mode or 1
@@ -1082,6 +1124,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 	end
 
     local subjectTarget = self:try_get("subject", "self")
+    ---@type creature|nil
     local subject = symbols and symbols.subject
 
     if subject == creature then
@@ -1236,7 +1279,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 		targets = {}
 		local range = self:GetRange(creature)
 		for i,tok in ipairs(dmhub.allTokens) do
-			if (tok.id ~= casterToken.id or self:try_get("selfTarget", false)) and self:TargetPassesFilter(casterToken, tok, symbols) and range >= tok:Distance(casterToken) then
+			if (tok.id ~= casterToken.charid or self:try_get("selfTarget", false)) and self:TargetPassesFilter(casterToken, tok, symbols) and range >= tok:Distance(casterToken) then
 				targets[#targets+1] = {
 					loc = tok.loc,
 					token = tok,
@@ -1281,7 +1324,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 
         local tokens = dmhub.allTokens
         for i,tok in ipairs(tokens) do
-            if tok.id ~= casterToken.id and aura.area:ContainsToken(tok) and self:TargetPassesFilter(casterToken, tok, symbols) then
+            if tok.id ~= casterToken.charid and aura.area:ContainsToken(tok) and self:TargetPassesFilter(casterToken, tok, symbols) then
                 targets = targets or {}
                 targets[#targets+1] = {
                     loc = tok.loc,
@@ -1591,7 +1634,10 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
                 auraControllerId = auraControllerToken.charid
             end
 
-			local trigger = ActiveTrigger.new{
+			--Re-read from the caster's available triggers each frame below; nil once it is gone.
+			---@type ActiveTrigger|nil
+			local trigger
+			trigger = ActiveTrigger.new{
 				id = guid,
                 activateText = activateText,
                 activateRules = activateRules,
@@ -1633,7 +1679,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 				end,
 			}
 
-            local tokid = casterToken.id
+            local tokid = casterToken.charid
 
             local triggers = casterToken.properties:GetAvailableTriggers() or {}
             trigger = triggers[guid]
@@ -1814,7 +1860,9 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 			if dismissed and not self:HasDismissBehaviors() then
 				dismissed = false
 			end
-			if accepted or dismissed then
+			--casterToken is nil when the caster went invalid in the same frame the
+			--answer was read and the re-fetch above found no token: nothing to cast.
+			if (accepted or dismissed) and casterToken ~= nil then
 				if aiActivityId ~= nil then
 					casterToken.properties:SetAIActivityReactionResolving(aiActivityId, guid)
 				end
@@ -2031,6 +2079,8 @@ end
 --Invoke(), mirroring AbilityInvocation in AbilityInvokeAbility.lua.
 --- @class TriggeredAbilityRemoteExecution: GameType
 --- @field new fun(o?: table): TriggeredAbilityRemoteExecution
+--- @field timestamp number|string When the invocation was shipped: the ServerTimestamp() sentinel until the server resolves it.
+--- @field auraControllerId? string Charid of the aura's controller when it is not the caster.
 TriggeredAbilityRemoteExecution = RegisterGameType("TriggeredAbilityRemoteExecution")
 
 --Ships an accepted trigger cast to the caster's controlling client. Symbols
@@ -2287,6 +2337,7 @@ function TriggeredAbility.ActivateOrphanedTrigger(casterToken, triggerid)
 	--pcall-protected (they cannot yield); the Trigger call is not, since this
 	--runtime forbids yielding across a pcall boundary.
 	dmhub.Coroutine(function()
+		---@type table<string, any>|nil
 		local symbols = nil
 		local targets = nil
 		local ok, err = pcall(function()
@@ -2324,6 +2375,9 @@ function TriggeredAbility.ActivateOrphanedTrigger(casterToken, triggerid)
 			CompleteAIReactionFromOptions(casterToken, aiReactionOptions)
 			return
 		end
+
+		--The pcall body always sets symbols (to at least {}) when it succeeds.
+		---@cast symbols -nil
 
 		--the first mode is just the 'activate' which shows up as true.
 		symbols.mode = record:ModeIndexForTriggered(record.triggered)

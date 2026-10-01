@@ -4,6 +4,11 @@
 --- @class CharacterTokenAnimationLua
 CharacterTokenAnimationLua = {}
 
+--- ResolveRotation
+--- @param args? any
+--- @return any
+function CharacterTokenAnimationLua.ResolveRotation(args) end
+
 --- Spawn a circle-light burst at the token (default) or at args.pos. Args: color (Color), radius (number), innerRadius (number), duration (number), fadein (number, optional), fadeout (number, optional), pos (Loc, optional), delay (number, optional).
 --- @param args table
 --- @return LightHandleLua
@@ -18,6 +23,11 @@ function CharacterTokenAnimationLua:Billboard(args) end
 --- @param args table
 --- @return EffectHandleLua
 function CharacterTokenAnimationLua:PlayEffect(args) end
+
+--- ConfigureSpawnedParticles
+--- @param inst? any
+--- @param args? any
+function CharacterTokenAnimationLua.ConfigureSpawnedParticles(inst, args) end
 
 --- Tween the token's visual transform (purely cosmetic -- the logical position is unaffected). Args: translate (Loc, optional destination), duration (number, seconds; 0 = snap), easing (string, optional: 'linear'|'easeIn'|'easeOut'|'easeInOut'). Fire-and-forget; use sleep(duration) to wait it out. Starting a new Tween supersedes any active one.
 --- @param args table

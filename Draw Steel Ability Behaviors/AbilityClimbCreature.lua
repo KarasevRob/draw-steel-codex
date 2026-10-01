@@ -88,7 +88,7 @@ local function IsLegalDismountLoc(riderToken, mountToken, loc)
 	end
 
 	for _,occupant in ipairs(game.GetTokensAtLoc(loc) or {}) do
-		if occupant.id ~= riderToken.id then
+		if occupant.charid ~= riderToken.charid then
 			return false
 		end
 	end
@@ -261,7 +261,7 @@ function ActivatedAbilityClimbCreatureBehavior:EditorItems(parentPanel)
 			},
 			change = function(element)
 				---@cast element Dropdown
-				self.operation = element.idChosen
+				self.operation = element.idChosen --[[@as string]] -- option ids are 'climb' / 'dismount'
 				dismountPanel:SetClass("collapsed", self.operation ~= "dismount")
 			end,
 		},

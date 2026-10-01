@@ -27,10 +27,14 @@ end
 
 --- @class InitiativeQueue: GameType
 --- @field new fun(o?: table): InitiativeQueue
+--- @field priorityids? table<string, boolean> Initiative ids that must act before anyone else this round; cleared each round.
+--- @field _tmp_prestartInitiativeId? string Initiative id whose prestartturn trigger is firing; set only for that window.
 InitiativeQueue = RegisterGameType("InitiativeQueue")
 
 --- @class InitiativeQueueEntry: GameType
 --- @field new fun(o?: table): InitiativeQueueEntry
+--- @field player? boolean True for a hero entry, false for a monster entry.
+--- @field startTurnTimestamp? number|string When this entry's turn began: the ServerTimestamp() sentinel until the server resolves it to a number.
 InitiativeQueueEntry = RegisterGameType("InitiativeQueueEntry")
 
 function InitiativeQueue:GameModeInfo()
@@ -575,10 +579,11 @@ end
 function InitiativeQueue:DescribeEntry(initiativeid)
 	local entry = self.entries[initiativeid]
 	if entry == nil or entry:has_key("description") == false then
-		if string.startswith(entry.initiativeid, 'MONSTER-') then
-			return string.sub(entry.initiativeid, 9)
+		--use the key, not entry.initiativeid: entry is nil on the first branch.
+		if string.startswith(initiativeid, 'MONSTER-') then
+			return string.sub(initiativeid, 9)
 		else
-			local token = dmhub.GetCharacterById(entry.initiativeid)
+			local token = dmhub.GetCharacterById(initiativeid)
 			if token ~= nil then
 				return token.description
 			end
@@ -712,6 +717,8 @@ function InitiativeQueue.ClaimTurn(initiativeid, options)
 	end
 
 	local q = dmhub.initiativeQueue
+	--CanClaimTurn above returned false for a nil queue.
+	---@cast q -nil
 	q:SelectTurn(initiativeid)
 	dmhub:UploadInitiativeQueue()
 

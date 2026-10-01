@@ -1563,6 +1563,7 @@ local function CreatePartyBar(encounter, party, refresh, rebuild, budgetDial)
                 data = { hasLeader = nil },
                 thinkTime = 0.5,
                 think = function(element)
+                    ---@cast element Dropdown
                     local hasLeader = Encounter.HasMonsterWithOrganization(encounter, "leader")
                     if hasLeader ~= element.data.hasLeader then
                         element.data.hasLeader = hasLeader
@@ -4072,7 +4073,8 @@ local function PlaceEncounterForReal(encounter, party, opts)
                 --map click away from spawning the encounter a second time.
                 Encounter.DisarmClickToPlace()
 
-                if queueActive then
+                --queueActive implies queue ~= nil; the extra test lets the checker see it.
+                if queueActive and queue ~= nil then
                     --mid-combat: the new arrivals join the running fight,
                     --same as a deployed wave; no combat-setup dialog.
                     for _, groupid in ipairs(spawnedGroupids) do

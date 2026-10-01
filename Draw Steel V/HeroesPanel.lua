@@ -2045,6 +2045,7 @@ function SafetyTools.ShowContentWarningDialog()
     if gamehud == nil or gamehud == false then
         return
     end
+    ---@cast gamehud GameHud
 
     local text = SafetyTools.ContentWarningText()
     if text == "" then

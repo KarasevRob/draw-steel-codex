@@ -28,6 +28,7 @@ local mod = dmhub.GetModLoading()
 --- @field forcedMovementCreatureCollisionIds table
 --- @field ability ActivatedAbility
 --- @field auraObject false|table
+--- @field _tmp_maliceBannerShown? boolean Set once the Malice ability banner has been shown for this cast; read with try_get.
 ActivatedAbilityCast = RegisterGameType("ActivatedAbilityCast")
 
 ActivatedAbilityCast.mode = 1
@@ -758,9 +759,6 @@ function ActivatedAbilityCast:RecordForcedMovementCreatureCollision(movedToken, 
     end
 end
 
---- @param tokenid string
---- @param retargetid string
---- @param retargetType 'all'|'forcemove'|'none'
 --- @param retarget {casterid: string, tokenid: string, retargetid: string, retargetType: 'all'|'forcemove'|'none'}
 function ActivatedAbilityCast:RecordRetarget(retarget)
     local retargets = self:get_or_add("retargets", {})

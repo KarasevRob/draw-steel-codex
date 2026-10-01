@@ -59,7 +59,10 @@ MCDMImporter = {
                 },
 
                 create = function(element)
+                    --both are built on the first entry: the log always starts with "-".
+                    ---@type Panel
                     local inputPanel = nil
+                    ---@type Panel
                     local diagnosticPanel = nil
                     local currentPanel = nil
                     local children = {}

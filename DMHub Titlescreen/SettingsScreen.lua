@@ -2588,7 +2588,9 @@ local function CreateCreatorOrganizationsSection()
 		return {}
 	end
 
+	---@type Panel?
 	local contentPanel = nil
+	---@type fun()
 	local BuildContent = nil
 
 	local function Refresh()
@@ -2628,6 +2630,7 @@ local function CreateCreatorOrganizationsSection()
 			return
 		end
 
+		---@type Panel
 		local overlay = nil
 
 		local buttons = {}
@@ -3567,6 +3570,7 @@ local function CreateCreatorOrganizationsSection()
 			logoPlaceholder:SetClass("hidden", image ~= nil)
 		end
 
+		---@type Panel
 		local removeLogoButton = nil
 
 		local function LoadLogoFile(path)
@@ -4313,6 +4317,7 @@ local function CreateCreatorOrganizationsSection()
 		local m_keys = nil
 
 		local card = nil
+		---@type Panel
 		local generateButton = nil
 
 		local statusLabel = gui.Label{
@@ -4352,6 +4357,7 @@ local function CreateCreatorOrganizationsSection()
 			text = "",
 		}
 
+		---@type Panel
 		local listingThumb = nil
 		local ChooseListingImage = nil
 
@@ -4958,6 +4964,7 @@ end
 --"emailConfirmation" C# interface (registered in ScriptEngine) and listens to
 --/users/{uid} for the confirmed state. No polling: it uses the cloud realtime listener.
 local CreateEmailConfirmationPanel = function()
+	---@type {email: nil|string, emailConfirmed: boolean, allowEmails: boolean}?
 	local m_state = nil        --latest {email, emailConfirmed, allowEmails} from the cloud.
 	local m_waiting = false     --true once we've sent a mail and are waiting on the user to click the link.
 	local m_pendingEmail = nil  --the address we last submitted.
@@ -5017,6 +5024,8 @@ local CreateEmailConfirmationPanel = function()
 		removeRow:SetClass("collapsed", removing == false)
 
 		if removing then
+			--removing requires HasStoredAddress(), so m_state is set.
+			---@cast m_state table
 			removeLabel.text = string.format("Remove %s? We'll delete the address from your account and stop sending you email. You can add one again at any time. Your sign-in account is not affected.", m_state.email)
 		end
 
@@ -5562,6 +5571,21 @@ function PatreonAccount.BeginLink(options)
 				data = {},
 				success = function(data)
 					if Expired() then
+						return
+					end
+					--linkConflict: the Patreon account is linked to another Codex
+					--account, and the browser is asking whether to move it here.
+					--Checked before linked, which may still describe an older link.
+					if type(data) == "table" and data.ok and data.linkConflict == "cancelled" then
+						Failed("Linking cancelled. Your Patreon account is still linked to your other Codex account.")
+						return
+					end
+					if type(data) == "table" and data.ok and data.linkConflict == "pending" then
+						Progress("This Patreon account is linked to another Codex account. Confirm or cancel in your browser.")
+						--The server holds the request for 15 minutes; give the user
+						--time to read the page rather than timing out under them.
+						deadline = math.max(deadline, dmhub.Time() + 60)
+						dmhub.Schedule(4, Tick)
 						return
 					end
 					if type(data) == "table" and data.ok and data.linked then
@@ -6196,6 +6220,7 @@ function CreateSettingsScreen(dialog, args)
 	--assign to the C# dialog container, but in-game it is hosted inside the
 	--game hud instead (see the end of this function), so tree-wide events
 	--must be fired on this rather than on dialog.sheet.
+	---@type Panel?
 	local m_screenRoot = nil
 
 	local SettingGroup = function(options)
@@ -6320,6 +6345,8 @@ function CreateSettingsScreen(dialog, args)
 				end
 
 				m_selectedTab = args.text
+				--assigned at the end of construction, before any input can arrive.
+				---@cast m_screenRoot -nil
 				m_screenRoot:FireEventTree("refreshTab")
 			end,
 		}
@@ -6960,6 +6987,9 @@ function CreateSettingsScreen(dialog, args)
 						end
 					end,
 					edit = function(element)
+						--assigned at the end of construction; create (which can fire
+						--edit) runs from Start(), a frame later.
+						---@cast m_screenRoot -nil
 						if element.text ~= "" then
 							m_screenRoot:FireEventTree("forceBuild")
 						end

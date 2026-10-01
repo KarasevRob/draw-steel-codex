@@ -291,6 +291,20 @@ local function generateDuplicateName(name)
     end
 end
 
+--Sort for a list of group headings and rows. Headings set data.group and
+--data.isHeading; rows set data.group and data.sortName. Sorts by group,
+--then the heading first, then rows by name. Rows with no group sort by name.
+local function SortGroupedList(a, b)
+    local da, db = a.data, b.data
+    if da.group ~= db.group then
+        return da.group < db.group
+    end
+    if da.isHeading ~= db.isHeading then
+        return da.isHeading == true
+    end
+    return (da.sortName or "") < (db.sortName or "")
+end
+
 local CreateListItem = function(options)
 
     local m_search = nil
@@ -557,6 +571,7 @@ local ShowPartyPanel = function(parentPanel)
 	local partyPanel = Party.CreateEditor()
 	local SetData = partyPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local partyItems = {}
@@ -617,6 +632,7 @@ local ShowCurrencyPanel = function(parentPanel)
 	local currencyPanel = Currency.CreateEditor()
 	local SetData = currencyPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local currencyItems = {}
@@ -677,6 +693,7 @@ local ShowConditionsPanel = function(parentPanel)
 	local conditionsPanel = CharacterCondition.CreateEditor()
 	local SetData = conditionsPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local conditionsItems = {}
@@ -738,6 +755,7 @@ local ShowDamageTypesPanel = function(parentPanel)
 	local damageTypesPanel = DamageType.CreateEditor()
 	local SetData = damageTypesPanel.data.SetData
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local damageTypeItems = {}
@@ -799,6 +817,7 @@ local ShowDamageFlagsPanel = function(parentPanel)
 	local damageFlagsPanel = DamageFlag.CreateEditor()
 	local SetDamageFlag = damageFlagsPanel.data.SetDamageFlag
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local damageFlagItems = {}
@@ -907,6 +926,7 @@ local ShowOngoingEffectsPanel = function(parentPanel, tableName)
 			local newOngoingEffectItems = {}
 
 			local keys = table.keys(ongoingEffectTable)
+			---@cast keys string[]
 
 			local conditionsTable = dmhub.GetTable(CharacterCondition.tableName) or {}
 			if groupByCondition then
@@ -1168,6 +1188,7 @@ local ShowCustomAttributesPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local attrItems = {}
@@ -1201,7 +1222,6 @@ local ShowCustomAttributesPanel = function(parentPanel)
 				--auto-selects (CreateListItem's select option) and would yank
 				--the editor open.
 				newAttrItems[k] = attrItems[k] or CreateListItem{
-                    ord = section .. "-" .. item.name,
 					select = element.aliveTime > 0.2,
 					tableName = CustomAttribute.tableName,
 					key = k,
@@ -1213,6 +1233,8 @@ local ShowCustomAttributesPanel = function(parentPanel)
 				}
 
 				newAttrItems[k].text = item.name
+				newAttrItems[k].data.group = section
+				newAttrItems[k].data.sortName = item.name
 
 				local matches = filter == "" or
 					string.find(string.lower(item.name or ""), filter, 1, true) ~= nil or
@@ -1224,7 +1246,8 @@ local ShowCustomAttributesPanel = function(parentPanel)
 					if newHeadings[section] == nil then
 						newHeadings[section] = sectionHeadings[section] or gui.Label{
 							data = {
-								ord = section,
+								group = section,
+								isHeading = true,
 							},
 							text = section,
 							fontSize = 20,
@@ -1241,7 +1264,7 @@ local ShowCustomAttributesPanel = function(parentPanel)
 				end
 			end
 
-			table.sort(children, function(a,b) return a.data.ord < b.data.ord end)
+			table.sort(children, SortGroupedList)
 
 			attrItems = newAttrItems
             sectionHeadings = newHeadings
@@ -1504,6 +1527,7 @@ local ShowSkillsPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local skillItems = {}
@@ -2095,6 +2119,7 @@ local ShowResourcesPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local resourceItems = {}
@@ -2163,6 +2188,7 @@ local ShowClassesPanel = function(parentPanel, tableName)
 
 	local classPanel = Class.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local classItems = {}
@@ -2180,7 +2206,7 @@ local ShowClassesPanel = function(parentPanel, tableName)
 			local headings = {}
 
 			for k,item in pairs(classesTable) do
-				local ord = item.name
+				local group = nil
 				if subclass then
 					local primaryClassesTable = dmhub.GetTable("classes") or {}
 					local primaryClass = primaryClassesTable[item.primaryClassId]
@@ -2188,12 +2214,13 @@ local ShowClassesPanel = function(parentPanel, tableName)
 					if primaryClass then
 						primaryClassName = primaryClass.name
 					end
-					ord = primaryClassName .. "-" .. ord
+					group = primaryClassName
 
 					if headings[primaryClassName] == nil then
 						headings[primaryClassName] = classItems[primaryClassName] or gui.Label{
 							data = {
-								ord = primaryClassName,
+								group = primaryClassName,
+								isHeading = true,
 							},
 							text = primaryClassName,
 							fontSize = 20,
@@ -2210,7 +2237,6 @@ local ShowClassesPanel = function(parentPanel, tableName)
 					select = element.aliveTime > 0.2,
 					tableName = tableName,
 					key = k,
-					ord = ord,
 					click = function(element)
 						classPanel.data.SetClass(tableName, k)
                         dmhub.Schedule(0.01, function()
@@ -2220,11 +2246,13 @@ local ShowClassesPanel = function(parentPanel, tableName)
 				}
 
 				newClassItems[k].text = item.name
+				newClassItems[k].data.group = group
+				newClassItems[k].data.sortName = item.name
 
 				children[#children+1] = newClassItems[k]
 			end
 
-			table.sort(children, function(a,b) return a.data.ord < b.data.ord end)
+			table.sort(children, SortGroupedList)
 
 			classItems = newClassItems
 			itemsListPanel.children = children
@@ -2259,6 +2287,7 @@ local ShowThemesPanel = function(parentPanel, themeType)
 
 	local themeEditorPanel = Theme.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local themeItems = {}
@@ -2325,6 +2354,7 @@ local ShowGlobalModsPanel = function(parentPanel)
 
 	local modPanel = GlobalRuleMod.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local modItems = {}
@@ -2398,6 +2428,7 @@ local ShowEncounterRulesPanel = function(parentPanel)
 	local editorPanel = GlobalRuleMod.CreateEditor()
 
 	--middle column: the rules belonging to the selected set.
+	---@type Panel
 	local rulesListPanel = nil
 	local ruleItems = {}
 	local addRuleButton = nil
@@ -2521,6 +2552,7 @@ local ShowEncounterRulesPanel = function(parentPanel)
 	end
 
 	--left column: the named encounter rule-sets.
+	---@type Panel
 	local setsListPanel = nil
 	local setItems = {}
 
@@ -2603,6 +2635,7 @@ end
 local ShowRolltablePanel = function(parentPanel, tableName, tableOptions, editOptions)
 	local editorPanel = RollTable.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 	
 	local dataItems = {}
@@ -2675,6 +2708,7 @@ local ShowRacesPanel = function(parentPanel, t)
 
 	local racePanel = Race.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local raceItems = {}
@@ -2743,6 +2777,7 @@ local ShowBackgroundsPanel = function(parentPanel)
 
 	local backgroundPanel = Background.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local backgroundItems = {}
@@ -2806,6 +2841,7 @@ local ShowCharacterTypesPanel = function(parentPanel)
 
 	local characterTypePanel = CharacterType.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local characterTypeItems = {}
@@ -3062,6 +3098,7 @@ end
 local ShowPropertyPanel = function(parentPanel, objectType)
 	local editorPanel = objectType.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local items = {}
@@ -3128,6 +3165,7 @@ local ShowFeaturePrefabsPanel = function(parentPanel)
 
 	local featurePrefabsPanel = CharacterFeaturePrefabs.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local featurePrefabsItems = {}
@@ -3216,7 +3254,8 @@ local ShowLanguagesPanel = function(parentPanel)
 				if newHeadings[group] == nil then
 					newHeadings[group] = sectionHeadings[group] or gui.Label{
 						data = {
-							ord = group,
+							group = group,
+							isHeading = true,
 						},
 						text = group,
 						fontSize = 20,
@@ -3239,14 +3278,13 @@ local ShowLanguagesPanel = function(parentPanel)
 					end,
 				}
 			
-			newDataItems[k].data.ord = group .. "-" .. language.name
+			newDataItems[k].data.group = group
+			newDataItems[k].data.sortName = language.name
 			newDataItems[k].text = language.name
 			children[#children+1] = newDataItems[k]
 		end
 
-		table.sort(children, function(a, b)
-			return a.data.ord < b.data.ord
-		end)
+		table.sort(children, SortGroupedList)
 
 		sectionHeadings = newHeadings
 		dataItems = newDataItems
@@ -3278,6 +3316,7 @@ local ShowTitlesPanel = function(parentPanel)
 
 	local titlePanel = Title.CreateEditor()
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local titleItems = {}
@@ -3352,6 +3391,7 @@ local ShowAttributeGeneratorPanel = function(parentPanel)
 		editorPanel,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local items = {}
@@ -3577,6 +3617,7 @@ local ShowEquipmentCategoriesPanel = function(parentPanel)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local dataItems = {}
@@ -3740,6 +3781,7 @@ local ShowImageFoldersPanel = function(parentPanel)
 		borderBox = true,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local SetId = function(id)
@@ -3960,6 +4002,7 @@ local ShowImageAtlasPanel = function(parentPanel)
 		borderBox = true,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local SetId = function(id)
@@ -4281,6 +4324,7 @@ local ShowImagesPanel = function(parentPanel, imageType)
 		borderBox = true,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local SetId = function(id)
@@ -5101,6 +5145,7 @@ local ShowEmojiPanel = function(parentPanel, emojiType)
 
 	end
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local dataItems = {}
@@ -5180,6 +5225,7 @@ local ShowEmojiPanel = function(parentPanel, emojiType)
 end
 
 local ShowCodeModsPanel = function(parentPanel)
+	---@type Panel
 	local itemsListPanel = nil
 
 	local m_search = nil
@@ -5300,6 +5346,7 @@ local ShowCodeModsPanel = function(parentPanel)
 end
 
 local ShowTranslationsPanel = function(parentPanel)
+	---@type Panel
 	local itemsListPanel = nil
 
 	local editorPanel = Translation.CreateEditor()
@@ -5430,6 +5477,13 @@ local LibraryPanel = function()
 	-- Context-search provider spec, registered while this panel is open (create)
 	-- and withdrawn in destroy. Held here so enumerate can keep its label in
 	-- sync with the focused category.
+	---@class CompendiumContextSearchSpec
+	---@field id string
+	---@field priority number
+	---@field label string
+	---@field enumerate fun(needle: string): table[]
+
+	---@type CompendiumContextSearchSpec
 	local m_contextSpec = nil
 	local searchSummary = nil
 	local allResultsItem = nil
@@ -6918,6 +6972,7 @@ Compendium.GenericEditor = function(parentPanel, entryType)
 		editorPanel,
 	}
 
+	---@type Panel
 	local itemsListPanel = nil
 
 	local items = {}
@@ -6985,6 +7040,7 @@ local ShowJournalStylesheetsPanel = function(parentPanel)
     local editorPanel = JournalStylesheet.CreateEditor()
     local SetData = editorPanel.data.SetData
 
+    ---@type Panel
     local itemsListPanel = nil
     local stylesheetsItems = {}
 
@@ -7385,6 +7441,7 @@ end
 --defines it (openable directly in the PDF viewer, like ability sources).
 --- @class GlossaryTerm: GameType
 --- @field new fun(o?: table): GlossaryTerm
+--- @field sourceReference? SourceReference Where the term comes from in the published rules.
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
 GlossaryTerm = RegisterGameType("GlossaryTerm")
 GlossaryTerm.tableName = "glossaryTerms"
@@ -7666,6 +7723,7 @@ local function ShowGlossaryPanel(contentPanel)
 end
 
 Compendium.CreateListItem = CreateListItem
+Compendium.SortGroupedList = SortGroupedList
 
 local g_registeredPanels = false
 

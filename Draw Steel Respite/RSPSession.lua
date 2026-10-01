@@ -741,7 +741,7 @@ function RSPSession.FollowersOf(charid, includeRetainers)
         local follower = dmhub.GetCharacterById(followerId)
         local followerType = nil
         pcall(function()
-            if follower.properties:IsFollower() then
+            if follower ~= nil and follower.properties:IsFollower() then
                 followerType = string.lower(follower.properties:try_get("followerType", ""))
             end
         end)

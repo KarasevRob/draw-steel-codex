@@ -137,6 +137,7 @@ function monster.OnCreateFromBestiary(self, token)
 
 		if not foundName then
 			--no name generator or couldn't find a unique name, choose a generic name.
+			---@type number
 			local highestNumber = 0
 
 			for _,tok in ipairs(tokens) do
@@ -144,6 +145,8 @@ function monster.OnCreateFromBestiary(self, token)
 					local matchedName, number = string.match(tok.name, "^(.-)%s+(%d+)$")
 					if matchedName == nameBasis then
 						local num = tonumber(number)
+						--number is a %d+ capture, so it always parses.
+						---@cast num -nil
 						if num > highestNumber then
 							highestNumber = num
 						end

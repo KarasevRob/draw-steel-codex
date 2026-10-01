@@ -391,7 +391,7 @@ function DTEventRollDialog.ShowDialog(args)
                 idChosen = selectedTableId,
                 change = function(element)
                     ---@cast element Dropdown
-                    selectedTableId = element.idChosen
+                    selectedTableId = element.idChosen --[[@as string]] -- tableOptions ids are table ids
                 end,
             },
         },
@@ -470,7 +470,7 @@ function DTEventRollDialog.ShowDialog(args)
         end,
     }
 
-    gui.ShowModal(dlg:Root())
+    gui.ShowModal(dlg:Root() --[[@as Panel]]) -- DialogShell.new always builds root
 end
 
 RollCheck.RegisterCustom{
@@ -520,16 +520,20 @@ RollCheck.RegisterCustom{
             end
         end
 
-        for _, mod in pairs(result) do
-            if not languageKnown and not languageRelated then
-                if mod.modifier.name == "Unknown Language" then
-                    mod.hint.result = true
-                    mod.hint.justification = {"<color=#FF0000>You do not know the language(s) of the project source.</color>"}
-                end
-            elseif not languageKnown and languageRelated then
-                if mod.modifier.name == "Related Language" then
-                    mod.hint.result = true
-                    mod.hint.justification = {"<color=#FF0000>You do not know the project source language(s), but you know a related language.</color>"}
+        local hasSourceLanguages = #(check.languages or {}) > 0
+
+        if hasSourceLanguages then
+            for _, mod in pairs(result) do
+                if not languageKnown and not languageRelated then
+                    if mod.modifier.name == "Unknown Language" then
+                        mod.hint.result = true
+                        mod.hint.justification = {"<color=#FF0000>You do not know the language(s) of the project source.</color>"}
+                    end
+                elseif not languageKnown and languageRelated then
+                    if mod.modifier.name == "Related Language" then
+                        mod.hint.result = true
+                        mod.hint.justification = {"<color=#FF0000>You do not know the project source language(s), but you know a related language.</color>"}
+                    end
                 end
             end
         end

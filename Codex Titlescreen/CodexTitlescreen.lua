@@ -5797,6 +5797,500 @@ local function MakeHeroPanel(heroIndex)
 end
 
 ----------------------------------------------------------------------------
+--"You have new items": announces Patreon promo grants -- store items a
+--creator gave to its patrons ("Patreon Promo Grants" in
+--cloud-functions/CLOUD_FUNCTIONS.md). The engine lists the grants this
+--account has not acknowledged yet; the dialog walks through their items one
+--at a time over each item's key art, and acknowledges all of them when the
+--user dismisses it, so each grant is announced once per account.
+--
+--Offered when the selection screen appears, and whenever the inventory
+--changes while the titlescreen is up -- a grant lands seconds after the user
+--links Patreon in Settings. It waits for the infernal contract rather than
+--stacking on top of it; the contract offers it again when it closes.
+----------------------------------------------------------------------------
+
+local g_promoDialog = nil
+
+--true while OfferInfernalContract is still deciding whether to open (it
+--waits on a cloud read), so the two dialogs never open on top of each other.
+local g_infernalContractDeciding = false
+
+local CreatePromoGrantDialog = function(titlescreen, entries)
+	local dialog = titlescreen.data.dialog
+
+	--palette and type from the adventure store page (AdventurePage.lua), so
+	--the gift reads as the same product the user would have bought. Gold is
+	--the shop's own accent.
+	local ACCENT = "srgb:#f6ddb6"
+	local TEXT_STRONG = "#f3ecdfff"
+	local TEXT_BODY = "#d9d2c5ff"
+	local TEXT_MUTED = "#9a958cff"
+	local CARD_BG = "#1c1c1eff"
+
+	local CARD_W = 1000
+	local CARD_H = 660
+	--the art sits inside the framedPanel border, 4px in on every side.
+	local ART_W = CARD_W - 8
+	local ART_H = 380
+	local BODY_PAD = 44
+
+	local m_acknowledged = false
+	local m_artItemId = nil
+
+	local promoDialog
+	local art
+	local kicker
+	local counter
+	local itemName
+	local tagline
+	local message
+	local nextButton
+
+	--acknowledges every instance this dialog announces, not just the ones
+	--paged to: dismissing the dialog is the user saying "seen it".
+	local function Acknowledge()
+		if m_acknowledged then
+			return
+		end
+		m_acknowledged = true
+		local ids = {}
+		for _, entry in ipairs(entries) do
+			ids[#ids + 1] = entry.instanceid
+		end
+		shop:AcknowledgeInventoryItems(ids)
+	end
+
+	local function ShowEntry(index)
+		local entry = entries[index]
+		local item = entry.item
+		local cfg = AdventurePage.Read(item)
+
+		kicker.text = string.upper(cond(entry.grant.title ~= "", entry.grant.title, "A gift for you"))
+		counter.text = string.format("%d of %d", index, #entries)
+		itemName.text = item.name or ""
+
+		local line = ""
+		if cfg ~= nil and type(cfg.tagline) == "string" then
+			line = cfg.tagline
+		end
+		tagline.text = line
+		tagline:SetClass("collapsed", line == "")
+
+		message.text = entry.grant.message
+		message:SetClass("collapsed", entry.grant.message == "")
+
+		nextButton:SetClass("collapsed", index >= #entries)
+		nextButton.data.index = index
+
+		art:FireEvent("showArt", item, cfg)
+	end
+
+	--the item's key art, cover-cropped to the strip exactly as the adventure
+	--page's hero does it. Transparent until the size is known, so a slow
+	--download shows the card background rather than a stretched image.
+	art = gui.Panel{
+		floating = true,
+		width = ART_W,
+		height = ART_H,
+		bgimage = "panels/square.png",
+		bgcolor = "#ffffff00",
+		interactable = false,
+
+		showArt = function(element, item, cfg)
+			element.selfStyle.bgcolor = "#ffffff00"
+			local itemid = item.id
+			m_artItemId = itemid
+			AdventurePage.PickHeroImage(item, cfg or {}, function(imageid)
+				--a later ShowEntry may have moved on before this resolved.
+				if mod.unloaded or not element.valid or imageid == nil or m_artItemId ~= itemid then
+					return
+				end
+				element.bgimage = imageid
+				AdventurePage.ImageDimensions(imageid, function(dims)
+					if mod.unloaded or not element.valid or element.bgimage ~= imageid then
+						return
+					end
+					if dims == nil or (dims.width or 0) <= 0 or (dims.height or 0) <= 0 then
+						return
+					end
+					element.selfStyle.imageRect = AdventurePage.CoverWindow(ART_W, ART_H, dims.width, dims.height, 1, 0.5, 0.25)
+					element.selfStyle.bgcolor = "#ffffffff"
+				end)
+			end)
+		end,
+	}
+
+	--dark from the left so the title always reads over bright art.
+	--bgcolor gives the hue, the gradient the alpha.
+	local sideScrim = gui.Panel{
+		floating = true,
+		width = ART_W,
+		height = ART_H,
+		interactable = false,
+		bgimage = "panels/square.png",
+		bgcolor = CARD_BG,
+		gradient = gui.Gradient{
+			point_a = {x = 0, y = 0.5},
+			point_b = {x = 1, y = 0.5},
+			stops = {
+				{position = 0, color = core.Color{r = 1, g = 1, b = 1, a = 0.9}},
+				{position = 0.35, color = core.Color{r = 1, g = 1, b = 1, a = 0.6}},
+				{position = 0.7, color = core.Color{r = 1, g = 1, b = 1, a = 0}},
+			},
+		},
+	}
+
+	--melts the art's bottom edge into the card. Gradient position 0 is the
+	--BOTTOM of the panel.
+	local bottomScrim = gui.Panel{
+		floating = true,
+		width = ART_W,
+		height = math.floor(ART_H * 0.5),
+		valign = "bottom",
+		interactable = false,
+		bgimage = "panels/square.png",
+		bgcolor = CARD_BG,
+		gradient = gui.Gradient{
+			point_a = {x = 0.5, y = 0},
+			point_b = {x = 0.5, y = 1},
+			stops = {
+				{position = 0, color = core.Color{r = 1, g = 1, b = 1, a = 1}},
+				{position = 1, color = core.Color{r = 1, g = 1, b = 1, a = 0}},
+			},
+		},
+	}
+
+	--small dark chip riding the art's top corners: the promo's title on the
+	--left (with the titlescreen's gold diamond), "2 of 3" on the right.
+	local Chip = function(halign, children)
+		return gui.Panel{
+			floating = true,
+			flow = "horizontal",
+			width = "auto",
+			height = "auto",
+			halign = halign,
+			valign = "top",
+			hmargin = 20,
+			vmargin = 20,
+			hpad = 14,
+			vpad = 7,
+			borderBox = true,
+			bgimage = "panels/square.png",
+			bgcolor = "#000000a6",
+			borderWidth = 1,
+			borderColor = "#ffffff26",
+			cornerRadius = 4,
+			interactable = false,
+			table.unpack(children),
+		}
+	end
+
+	kicker = gui.Label{
+		fontSize = 14,
+		fontWeight = "semibold",
+		color = ACCENT,
+		width = "auto",
+		height = "auto",
+		valign = "center",
+		lmargin = 10,
+		text = "",
+	}
+
+	counter = gui.Label{
+		fontSize = 14,
+		color = TEXT_BODY,
+		width = "auto",
+		height = "auto",
+		valign = "center",
+		text = "",
+	}
+
+	itemName = gui.Label{
+		--the MCDM display face, as on the adventure page's hero.
+		fontFace = "display",
+		fontSize = 50,
+		color = TEXT_STRONG,
+		width = 640,
+		height = "auto",
+		textAlignment = "left",
+		text = "",
+	}
+
+	tagline = gui.Label{
+		fontSize = 18,
+		fontWeight = "light",
+		color = TEXT_BODY,
+		width = 560,
+		height = "auto",
+		textAlignment = "left",
+		tmargin = 8,
+		text = "",
+	}
+
+	local hero = gui.Panel{
+		width = ART_W,
+		height = ART_H,
+		halign = "center",
+		valign = "top",
+		flow = "none",
+		clip = true,
+		bgimage = "panels/square.png",
+		bgcolor = CARD_BG,
+
+		art,
+		sideScrim,
+		bottomScrim,
+
+		Chip("left", {
+			gui.Panel{
+				bgimage = "panels/square.png",
+				rotate = 45,
+				width = 9,
+				height = 9,
+				bgcolor = ACCENT,
+				valign = "center",
+			},
+			kicker,
+		}),
+
+		(function()
+			local chip = Chip("right", {counter})
+			chip:SetClass("collapsed", #entries <= 1)
+			return chip
+		end)(),
+
+		gui.Panel{
+			floating = true,
+			flow = "vertical",
+			width = 660,
+			height = "auto",
+			halign = "left",
+			valign = "bottom",
+			x = BODY_PAD,
+			y = -18,
+
+			itemName,
+			AdventurePage.MakeTitleRule(),
+			tagline,
+		},
+	}
+
+	message = gui.Label{
+		color = TEXT_BODY,
+		fontSize = 17,
+		width = "100%",
+		height = "auto",
+		halign = "left",
+		tmargin = 8,
+		text = "",
+	}
+
+	local function Close()
+		Acknowledge()
+		promoDialog:DestroySelf()
+	end
+
+	nextButton = gui.Button{
+		text = "Show Next",
+		width = 180,
+		height = 38,
+		fontSize = 18,
+		halign = "right",
+		valign = "center",
+		lmargin = 12,
+		data = {index = 1},
+		click = function(element)
+			ShowEntry(element.data.index + 1)
+		end,
+	}
+
+	promoDialog = gui.Panel{
+		id = "promoGrantDialog",
+		floating = true,
+		halign = "center",
+		valign = "center",
+		width = dialog.width,
+		height = dialog.height,
+		bgimage = "panels/square.png",
+		--the same near-opaque frosted scrim as the infernal contract.
+		bgcolor = "#000000ee",
+		blurBackground = true,
+
+		styles = {
+			Styles.Default,
+			Styles.Panel,
+			--the legacy {label,button} style carries hmargin = 8; take it off so
+			--text and buttons share clean edges (see the infernal contract).
+			{
+				selectors = {"label", "button"},
+				hmargin = 0,
+			},
+			--the main action in the shop's gold. A class, not inline color:
+			--inline color beats the legacy hover rule, which inverts to a light
+			--fill and left the gold text invisible on it. Hover fills with the
+			--gold under dark text, like the shop's checkout button.
+			{
+				selectors = {"label", "button", "promoPrimary"},
+				color = ACCENT,
+				borderColor = ACCENT,
+			},
+			{
+				selectors = {"label", "button", "promoPrimary", "hover"},
+				color = "#222222",
+				bgcolor = ACCENT,
+			},
+		},
+
+		captureEscape = true,
+		escape = function(element)
+			Close()
+		end,
+
+		destroy = function(element)
+			if g_promoDialog == element then
+				g_promoDialog = nil
+			end
+		end,
+
+		gui.Panel{
+			classes = {"framedPanel"},
+			width = CARD_W,
+			height = CARD_H,
+			halign = "center",
+			valign = "center",
+
+			--a solid page inset 4px inside the frame: the frame keeps its border,
+			--and the art's scrims fade into a flat color with no seam (the
+			--frame's own background is a gradient).
+			gui.Panel{
+				width = CARD_W - 8,
+				height = CARD_H - 8,
+				halign = "center",
+				valign = "center",
+				flow = "vertical",
+				bgimage = "panels/square.png",
+				bgcolor = CARD_BG,
+
+				hero,
+
+				gui.Panel{
+					flow = "vertical",
+					width = "100%",
+					height = "auto",
+					hpad = BODY_PAD,
+					borderBox = true,
+					tmargin = 10,
+
+					gui.Label{
+						color = TEXT_STRONG,
+						fontFace = "book",
+						fontSize = 22,
+						width = "100%",
+						height = "auto",
+						halign = "left",
+						text = cond(#entries == 1, "YOU HAVE A NEW ITEM IN YOUR INVENTORY", string.format("YOU HAVE %d NEW ITEMS IN YOUR INVENTORY", #entries)),
+					},
+					message,
+				},
+
+				--Close on the left; paging and the way to the inventory on the
+				--right, with the inventory in the shop's gold as the main action.
+				gui.Panel{
+					flow = "horizontal",
+					width = "100%",
+					height = "auto",
+					valign = "bottom",
+					hpad = BODY_PAD,
+					borderBox = true,
+					bmargin = 28,
+
+					gui.Button{
+						text = "Close",
+						width = 140,
+						height = 38,
+						fontSize = 18,
+						halign = "left",
+						valign = "center",
+						click = function(element)
+							Close()
+						end,
+					},
+
+					gui.Panel{
+						flow = "horizontal",
+						width = "auto",
+						height = "auto",
+						halign = "right",
+						valign = "center",
+
+						nextButton,
+
+						gui.Button{
+							classes = {"promoPrimary"},
+							text = "View in Inventory",
+							width = 220,
+							height = 38,
+							fontSize = 18,
+							halign = "right",
+							valign = "center",
+							lmargin = 12,
+							click = function(element)
+								Close()
+								if titlescreen.valid then
+									titlescreen:AddChild(CreateShopScreen{ titlescreen = titlescreen, inventory = true })
+								end
+							end,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ShowEntry(1)
+
+	return promoDialog
+end
+
+--Shows the dialog if this account has unannounced promo grants and nothing
+--else is in the way. Safe to call as often as we like.
+local OfferPromoGrants = function(titlescreen)
+	if titlescreen == nil or (not titlescreen.valid) or titlescreen:HasClass("starting-screen") then
+		return
+	end
+
+	if g_promoDialog ~= nil and g_promoDialog.valid then
+		return
+	end
+
+	--one modal at a time: the contract calls us again when it closes.
+	if g_infernalContractDeciding or titlescreen:Get("infernalContract") ~= nil then
+		return
+	end
+
+	--an item whose store entry has not loaded yet cannot be shown; it stays
+	--unacknowledged and is picked up on a later offer. assets.shopItems, not
+	--instance.shopItem: the latter is the raw engine object and reads as nil.
+	local entries = {}
+	for _, grant in ipairs(shop:GetUnacknowledgedPromoGrants()) do
+		for _, granted in ipairs(grant.items) do
+			local item = assets.shopItems[granted.itemid]
+			if item ~= nil then
+				entries[#entries + 1] = {grant = grant, instanceid = granted.instanceid, item = item}
+			end
+		end
+	end
+
+	if #entries == 0 then
+		return
+	end
+
+	g_promoDialog = CreatePromoGrantDialog(titlescreen, entries)
+	titlescreen:AddChild(g_promoDialog)
+end
+
+----------------------------------------------------------------------------
 --"A little infernal contract for you to sign..." -- the first-run offer for
 --the two things we want from a new player: a linked Patreon account and a
 --confirmed email address. Shown once, the first time the selection screen
@@ -6067,14 +6561,13 @@ local CreateInfernalContractDialog = function(titlescreen, args)
 	}
 
 	patreonButton = gui.Button{
+		classes = {"patreonAccent"},
 		text = "Link Patreon Account",
 		width = 220,
 		height = 34,
 		fontSize = 16,
 		halign = "left",
 		vmargin = 6,
-		borderColor = PATREON_ACCENT,
-		color = PATREON_ACCENT,
 		click = function(element)
 			local patreon = PatreonAccountGlobal()
 			if patreon == nil or patreon.BeginLink == nil then
@@ -6310,6 +6803,19 @@ local CreateInfernalContractDialog = function(titlescreen, args)
 				selectors = {"label", "button"},
 				hmargin = 0,
 			},
+			--the Patreon orange as a class, not inline color: inline color
+			--beats the legacy hover rule, which inverts to a light fill and left
+			--the orange text unreadable on it. Hover fills with the orange.
+			{
+				selectors = {"label", "button", "patreonAccent"},
+				color = PATREON_ACCENT,
+				borderColor = PATREON_ACCENT,
+			},
+			{
+				selectors = {"label", "button", "patreonAccent", "hover"},
+				color = "#ffffff",
+				bgcolor = PATREON_ACCENT,
+			},
 		},
 
 		captureEscape = true,
@@ -6319,6 +6825,13 @@ local CreateInfernalContractDialog = function(titlescreen, args)
 
 		closeContract = function(element)
 			element:DestroySelf()
+
+			--anything the new-items dialog held back while we were up.
+			dmhub.Schedule(0.3, function()
+				if not mod.unloaded then
+					OfferPromoGrants(titlescreen)
+				end
+			end)
 		end,
 
 		--live status: the confirmation link is clicked in a browser, so the
@@ -6475,6 +6988,16 @@ local OfferInfernalContract = function(titlescreen)
 
 	g_infernalContractOffered = true
 
+	--hold the new-items dialog until we know whether we are opening. A
+	--safety release in case the cloud read never answers (offline).
+	g_infernalContractDeciding = true
+	dmhub.Schedule(15, function()
+		if g_infernalContractDeciding and not mod.unloaded then
+			g_infernalContractDeciding = false
+			OfferPromoGrants(titlescreen)
+		end
+	end)
+
 	--ONE listener does both jobs: it answers the opening question, and then --
 	--if a dialog opens -- stays alive to tell it when the confirmation link is
 	--clicked in the browser. The dialog must not open its own: two monitors on
@@ -6505,6 +7028,8 @@ local OfferInfernalContract = function(titlescreen)
 		--deferred a frame: MonitorStatus can call back synchronously, before
 		--probe.handle has been assigned, and we need the handle to stop it.
 		dmhub.Schedule(0, function()
+			g_infernalContractDeciding = false
+
 			if mod.unloaded or (not titlescreen.valid) then
 				Release()
 				return
@@ -6515,6 +7040,7 @@ local OfferInfernalContract = function(titlescreen)
 			--nothing left to ask for.
 			if patreonLinked and emailConfirmed then
 				Release()
+				OfferPromoGrants(titlescreen)
 				return
 			end
 
@@ -6558,6 +7084,10 @@ function CreateTitlescreen(dialog, options)
         --Patreon/email offer, if there is anything left to offer.
         if state == "selection-screen" then
             OfferInfernalContract(titlescreen)
+
+            --store items granted to this account (a Patreon promo) that it
+            --has not been told about yet. Holds back if the contract opens.
+            OfferPromoGrants(titlescreen)
 
             --A debug Encounter of the Week player window (launched with
             ----eotw-game) goes straight to the EotW screen, which then
@@ -6661,6 +7191,14 @@ function CreateTitlescreen(dialog, options)
                 versionEvents:Listen(element)
             end
             CheckAppVersion(element)
+
+            --a promo grant arrives as an inventory refresh, often seconds
+            --after the user links Patreon in Settings.
+            shop.events:Listen(element)
+        end,
+
+        refreshInventory = function(element)
+            OfferPromoGrants(element)
         end,
 
         appVersionStatus = function(element)

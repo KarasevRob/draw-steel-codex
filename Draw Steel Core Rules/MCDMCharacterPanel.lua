@@ -5832,7 +5832,8 @@ function TacPanel.AltitudeBox()
             local canFly = token.properties:CanFly()
             local canClimb = token.canCurrentlyClimb
             local canBurrow = token.properties:CanBurrow()
-            local visible = canFly or canClimb or canBurrow
+            --a ceiling clinger away from any wall can't "currently climb", but needs - to let go.
+            local visible = canFly or canClimb or canBurrow or token.properties:IsClingingToCeiling()
             element:SetClass("collapsed", not visible)
         end,
         refreshToken = function(element, token)
@@ -5852,7 +5853,7 @@ function TacPanel.AltitudeBox()
                 elseif moveType == "burrow" then
                     element.text = "Burrowing"
                 elseif moveType == "climb" then
-                    element.text = "Climbing"
+                    element.text = cond(token.properties:IsClingingToCeiling(), "Clinging", "Climbing")
                 else
                     element.text = "On Ground"
                 end
@@ -7372,7 +7373,7 @@ local function MonsterSheetTextCard(name, text, props, live, token)
         pcall(function() isHero = props:IsHero() end)
     end
     if isHero and token ~= nil and token.valid then
-        local capturedId = token.id
+        local capturedId = token.charid
         sheetLink = gui.Label{
             classes = {"ms-sheet-link", "editOnly"},
             text = "Open on sheet",
@@ -8773,7 +8774,7 @@ function TacPanel.MultiEdit()
             local squadTokens = {}
             for _,tok in ipairs(monsterTokens) do
                 if tok.properties.minion and tok.properties:MinionSquad() == m_selectedSquadId then
-                    squadTokens[#squadTokens+1] = tok.id
+                    squadTokens[#squadTokens+1] = tok.charid
                 end
             end
 
@@ -10179,7 +10180,7 @@ function TacPanel.AddConditionMenu(args)
                 }
                 local auraInstance = AuraInstance.new{
                     guid = dmhub.GenerateGuid(),
-                    casterid = primaryToken.id,
+                    casterid = primaryToken.charid,
                     name = "Custom Aura",
                     iconid = auraDef.iconid,
                     display = {hueshift = 0, saturation = 1, brightness = 1, bgcolor = defaultBgcolor},
@@ -13995,6 +13996,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 		if creature ~= nil then
 			local key = charid
 
+			--- @type Panel?
 			local folder = nil
 			local squadid = creature:MinionSquad()
 
@@ -14037,6 +14039,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 							clickHeader = function(element)
 								element:FireEventOnParents("ClearCharacterPanelSelection")
 								local setFocus = false
+								---@cast folder Panel
 								for _,p in ipairs(folder.data.children) do
 									if not setFocus then
 										gui.SetFocus(p)

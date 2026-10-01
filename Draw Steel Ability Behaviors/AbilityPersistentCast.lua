@@ -2,6 +2,7 @@ local mod = dmhub.GetModLoading()
 
 --- @class Persistence: GameType
 --- @field new fun(o?: table): Persistence
+--- @field guid string Unique id of this persistence entry.
 Persistence = RegisterGameType("Persistence")
 Persistence.name = ""
 
@@ -11,6 +12,9 @@ ActivatedAbilityPersistenceControlBehavior = RegisterGameType("ActivatedAbilityP
 
 --- @class ActivatedAbilityPersistenceCastBehavior:ActivatedAbilityBehavior
 --- @field new fun(o?: table): ActivatedAbilityPersistenceCastBehavior
+--- @field token CharacterToken The token that keeps the ability persisting.
+--- @field ability ActivatedAbility The persistent ability to recast.
+--- @field targets? {token: CharacterToken}[] Targets to recast on; nil when the ability has none.
 ActivatedAbilityPersistenceCastBehavior = RegisterGameType("ActivatedAbilityPersistenceCastBehavior", "ActivatedAbilityBehavior")
 
 RegisterGoblinScriptSymbol(creature, {

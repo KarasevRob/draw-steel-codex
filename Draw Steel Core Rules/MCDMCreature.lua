@@ -637,9 +637,9 @@ function character:Retainers()
     local retainers = {}
     local followers = self:GetFollowers()
 
-    for id, _ in ipairs(followers) do
+    for id, _ in pairs(followers) do
         local follower = dmhub.GetCharacterById(id)
-        if follower and follower:IsRetainer() then
+        if follower and follower.properties and follower.properties:IsRetainer() then
             retainers[#retainers + 1] = follower
         end
     end
@@ -3202,6 +3202,34 @@ function character:IsHero()
     return true
 end
 
+--Heroes can never have a characteristic above 5. Capping the final value means the
+--order level-up modifiers apply in can't push a score past it. A Director override still wins.
+creature.heroCharacteristicMax = 5
+
+local g_baseGetAttribute = creature.GetAttribute
+
+--- @param attrid string
+--- @return CharacterAttribute
+function creature:GetAttribute(attrid)
+    local result = g_baseGetAttribute(self, attrid)
+    if self:HeroCharacteristicIsCapped(attrid, result.baseValue) then
+        result.baseValue = creature.heroCharacteristicMax
+    end
+    return result
+end
+
+--- True if this hero's characteristic is over the cap and will be clamped to it.
+--- @param attrid string
+--- @param value number The value before capping
+--- @return boolean
+function creature:HeroCharacteristicIsCapped(attrid, value)
+    if value <= creature.heroCharacteristicMax or not self:IsHero() or creature.attributesInfo[attrid] == nil then
+        return false
+    end
+    local attrOverride = self:try_get("attributesOverride")
+    return attrOverride == nil or attrOverride[attrid] == nil
+end
+
 function creature:IsStrained()
     return self:CalculateNamedCustomAttribute("Strained") > 0
 end
@@ -3329,6 +3357,15 @@ function creature:GetActivatedAbilities(options)
         for _, obj in ipairs(objects) do
             for _, entry in ipairs(obj.attachedRulesObjects) do
                 entry:FillActivatedAbilities(self, result)
+            end
+        end
+
+        --Abilities granted by dynamic terrain objects we are adjacent to (a
+        --Field Ballista's Deactivate). Not on the character sheet, which lists
+        --the creature's own abilities.
+        if not options.characterSheet then
+            for _, ability in ipairs(ActivatedAbility.GetGrantedAbilities(dmhub.GetTokenById(charid))) do
+                result[#result + 1] = ability
             end
         end
     end
@@ -4267,6 +4304,19 @@ function creature:InflictCondition(conditionid, args)
     if not args.purge then
         if args.cast ~= nil then
             args.cast:RecordInflictedCondition(conditionid, dmhub.LookupTokenId(self))
+        end
+
+        --A creature clinging to the ceiling that is knocked prone lets go and falls. Deferred
+        --so this change has been committed before the engine re-runs its fall check.
+        if conditionid == "da6867b1-01e3-4570-8d1b-1b94ea1ea343" --[[Prone]] and self:try_get("ceilingCling") then
+            local clingToken = dmhub.LookupToken(self)
+            if clingToken ~= nil then
+                dmhub.Schedule(0.1, function()
+                    if clingToken.valid then
+                        clingToken:TryFall()
+                    end
+                end)
+            end
         end
 
         local attacker = nil
@@ -5952,6 +6002,28 @@ function creature:MinionDeath()
     g_baseMinionDeath(self)
 end
 
+--Running total of damage this creature has taken during the current combat turn
+--(anyone's turn), counting what temporary Stamina absorbed. Take Damage triggers
+--see it as Damage This Turn, e.g. the Elementalist's "5 x Reason in one turn" rule.
+creature.damageTakenThisTurn = 0
+creature.damageTakenThisTurnId = ""
+
+--Adds amount to the per-turn total and returns the new total. Outside combat
+--there is no turn to accumulate over, so it just returns amount.
+local function AccumulateDamageThisTurn(self, amount)
+    local q = dmhub.initiativeQueue
+    local turnid = q ~= nil and q:GetTurnId() or nil
+    if turnid == nil then
+        return amount
+    end
+    if self.damageTakenThisTurnId ~= turnid then
+        self.damageTakenThisTurnId = turnid
+        self.damageTakenThisTurn = 0
+    end
+    self.damageTakenThisTurn = self.damageTakenThisTurn + amount
+    return self.damageTakenThisTurn
+end
+
 function creature.TakeDamage(self, amount, note, info)
     info = info or {}
     if type(amount) == 'string' then
@@ -6107,7 +6179,12 @@ function creature.TakeDamage(self, amount, note, info)
             eventArg.attacker = nil
         end
         eventArg.damage = amount
-        eventArg.rawdamage = info.rawdamage
+        --the minion path never draws on temporary Stamina, so the two are equal.
+        eventArg.fulldamage = amount
+        eventArg.damagethisturn = AccumulateDamageThisTurn(self, math.max(0, amount))
+        --rawdamage is only set by InflictDamageInstance; a direct TakeDamage had no
+        --immunity applied, so its raw damage is just the amount.
+        eventArg.rawdamage = info.rawdamage or amount
         eventArg.damageimmunity = info.damageImmunity and info.damageImmunity.dr ~= nil
         eventArg.damagetype = eventArg.damagetype or "none"
         eventArg.damagedice = eventArg.damagedice or StringSet.new{}
@@ -6143,6 +6220,8 @@ function creature.TakeDamage(self, amount, note, info)
             local args = {
                 target = self,
                 damage = amount,
+                fulldamage = amount,
+                rawdamage = eventArg.rawdamage,
                 damagetype = eventArg.damagetype,
                 keywords = eventArg.keywords,
                 surges = eventArg.surges,
@@ -6283,7 +6362,13 @@ function creature.TakeDamage(self, amount, note, info)
         eventArg.attacker = nil
     end
     eventArg.damage = amount
-    eventArg.rawdamage = info.rawdamage
+    --damage is the Stamina actually lost; fulldamage also counts what temporary
+    --Stamina absorbed (the damage the creature took, by the rules).
+    eventArg.fulldamage = original_amount
+    eventArg.damagethisturn = AccumulateDamageThisTurn(self, math.max(0, original_amount))
+    --rawdamage is only set by InflictDamageInstance; a direct TakeDamage had no
+    --immunity applied, so its raw damage is just the amount.
+    eventArg.rawdamage = info.rawdamage or original_amount
     eventArg.damageimmunity = info.damageImmunity and info.damageImmunity.dr ~= nil
     eventArg.damagetype = eventArg.damagetype or "untyped"
     eventArg.damagedice = eventArg.damagedice or StringSet.new{}
@@ -6443,6 +6528,8 @@ function creature.TakeDamage(self, amount, note, info)
         local args = {
             target = self,
             damage = amount,
+            fulldamage = original_amount,
+            rawdamage = eventArg.rawdamage,
             damagetype = eventArg.damagetype,
             keywords = eventArg.keywords,
             surges = eventArg.surges,
@@ -7544,7 +7631,7 @@ creature.RegisterSymbol {
         local count = 0
         for _, charid in ipairs(charids) do
             local ch = dmhub.GetCharacterById(charid)
-            if ch ~= nil and ch.followerType == nil then
+            if ch ~= nil and not (ch.properties ~= nil and ch.properties:IsFollower()) then
                 count = count + 1
             end
         end

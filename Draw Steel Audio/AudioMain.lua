@@ -213,7 +213,6 @@ audio.SoundEvent{
     mixgroup = "ui",
     sounds = {"Notify_TempStam_Gain_v1_01.wav"},
     volume = 0.3,
-    ignoreDuplicates = 0.2,
     ignoreDuplicates = 0.2,--ignore duplicates for 0.2 seconds
 }
 
@@ -1950,6 +1949,21 @@ local function LeaveFootprints(args, surfaceInfo, leaveTracks)
     end
 end
 
+--- The engine's TokenMovingOnPath args: one table reused for the whole move, so
+--- this file keeps its own per-move scratch fields on it between frames.
+---@class TokenMovingOnPathArgs
+---@field token CharacterToken
+---@field path LuaPath
+---@field position Vector3
+---@field delta Vector3
+---@field distanceMoved number
+---@field stepIndex number
+---@field lastPlayed? number Distance moved when the last footstep sound played.
+---@field footprintStyle? table|false Cached style for this move; false = no prints.
+---@field nextFootprint? number Distance moved at which the next print is laid.
+---@field footprintLeft? boolean True when the next print is a left foot.
+
+---@param args TokenMovingOnPathArgs
 dmhub.TokenMovingOnPath = function(args)
     local surface = args.path:GetStepSurfaceType(args.stepIndex) or 0
     local surfaceInfo = AudioSurfaceTypes.surfaces[surface]

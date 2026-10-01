@@ -1676,6 +1676,8 @@ local WriteAreaTemplateDoc = function(component, mutate)
 	if doc == nil then
 		return
 	end
+	--ReadAreaTemplateDoc only returns a doc when it found the instance.
+	---@cast inst -nil
 
 	StripEmptyTables(doc)
 	mutate(doc)

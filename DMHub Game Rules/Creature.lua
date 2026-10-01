@@ -164,6 +164,7 @@ end
 --- @field temporary_hitpoints nil|number Current temporary hitpoints.
 --- @field damage_taken nil|number Total damage taken so far.
 --- @field currentMoveType string The creature's active movement mode (e.g. "walk", "fly", "swim").
+--- @field ceilingCling boolean True while clinging upside down to the ceiling (only meaningful while currentMoveType is "climb").
 --- @field creatureSize nil|string The creature's size override, or nil to use default.
 --- @field selectedLoadout integer The currently active loadout index.
 --- @field numLoadouts integer Total number of available loadouts.
@@ -191,14 +192,80 @@ end
 --- @field attributeIds string[] Ordered list of registered attribute ids.
 --- @field attributeDropdownOptions {id: string, text: string}[] Attribute options for use in dropdowns.
 --- @field attributeDropdownOptionsWithNone {id: string, text: string}[] Attribute options including a leading "None" entry.
---- @field savingThrowInfo table<string, {id: string, description: string, order: number}> Registered saving throw metadata keyed by id.
+--- @field savingThrowInfo table<string, {id: string, attrid?: string, description: string, order: number}> Registered saving throw metadata keyed by id.
 --- @field savingThrowIds string[] Ordered list of registered saving throw ids.
 --- @field savingThrowDropdownOptions {id: string, text: string, order: number}[] Saving throw options for use in dropdowns.
+--- @field SavingThrowMod fun(self: creature, saveid: string): number Total saving throw modifier. Implemented by character and monster (not TargetableObject).
+--- @field SavingThrowProficiency fun(self: creature, saveid: string): string Proficiency key for a saving throw. Implemented by character and monster.
+--- @field HasSavingThrowProficiency fun(self: creature, saveid: string): boolean Implemented by character and monster.
+--- @field SkillMod fun(self: creature, skillInfo: nil|{id: string, attribute: string}): number Total skill modifier. Implemented by character and monster.
+--- @field HasSkillProficiency fun(self: creature, skillInfo: {id: string}): boolean|string|nil Truthy when proficient. Implemented by character and monster.
+--- @field resourceid string Id of this creature's heroic (character) or malice (monster) resource; a class default on both.
+--- @field monster_type? string Monsters: the specific monster type, e.g. "Goblin Sniper".
+--- @field monster_subtype? string Monsters: optional free-text subtype.
+--- @field playerName? string Monsters: a player-given name that overrides monster_type as the naming basis.
+--- @field keywords? table<string, boolean> Monsters: keyword set (e.g. Humanoid=true).
+--- @field role? string Monsters: role, e.g. "Elite Controller"; "follower" for followers.
+--- @field groupid? string Monsters: MonsterGroup (band) id, or "none".
+--- @field followerType? string Followers: "artisan", "sage" or "retainer".
+--- @field availableRolls? integer Followers: downtime rolls available.
+--- @field creatureTemplates? string[] Monsters: ids of creatureTemplates rows applied to this creature.
+--- @field skillRatings? table<string, boolean|number> Monsters: skill id -> true (proficient) or a fixed rating.
+--- @field savingThrowRatings? table<string, number> Monsters: saving throw id -> rating.
+--- @field negotiation? MCDMNegotiation Negotiation stats, added on demand to NPCs.
+--- @field minionSquad? string Name of the minion squad this monster (minion or captain) belongs to.
+--- @field squadpos? {x: number, y: number} Minions: locked squad-formation offset.
+--- @field damage_taken_seq? integer Minions: sequence stamp of the last squad damage write.
+--- @field damage_taken_minion_count? integer Minions: squad size when damage_taken_seq was stamped.
+--- @field minHeroes? integer Encounter monsters: only appears with at least this many heroes.
+--- @field encounterPlacementId? string Encounter builder: placement id of the staged group this token was spawned for.
+--- @field encounterSpawnSlot? integer Encounter builder/waves: flat spawn slot within the group.
+--- @field encounterSpawnMonster? string Encounter builder: bestiary id spawned into this slot.
+--- @field encounterStaged? boolean Encounter builder: true while the token is a staged (not yet started) placement.
+--- @field encounterStagedBy? string Encounter builder: userid of the Director who staged it.
+--- @field encounterWaveId? string Encounter waves: id of the wave that spawned this token.
+--- @field encounterGroupIndex? integer Encounter waves: index of the group within the authored encounter.
+--- @field isDuplicate? boolean Set on tokens created by the Duplicate summon behavior.
+--- @field duplicateSourceId? string Duplicates: charid of the token that was duplicated.
+--- @field hiddenInvisibilityApplied? boolean True when invisibleToPlayers was applied by the Hidden condition sync.
+--- @field eotwAllyOf? string Encounter of the Week: charid of the hero this ally belongs to.
+--- @field followers? table Characters: follower entries (legacy shape, migrated by validation).
+--- @field levelOverride? integer Characters: minimum character level (slow start / level picker).
+--- @field extraLevelInfo? table Characters: additional level data; read via ExtraLevelInfo().
+--- @field mtime? number|string Characters: ServerTimestamp when the character was created (the placeholder string until the server resolves it).
+--- @field originalid? string Characters: the charid the character was created with.
+--- @field characterFeatures? CharacterFeature[] Custom features added directly to this creature.
+--- @field availableTriggers? table<string, ActiveTrigger> Triggered abilities currently offered to this creature, keyed by id.
+--- @field inventory? table<string, {quantity: number, slots: nil|{slot: number, quantity: nil|number}[], price: nil|number}> Map of item id to quantity info.
+--- @field equipment? table<string, string> Map of equipment slot id to item id.
+--- @field resources? table<string, CharacterResource> Resource usage keyed by resource id.
+--- @field persistentAbilities? Persistence[] Persistent abilities this creature is maintaining.
+--- @field damageEntries? table<string, {id: string, damage: number, heal: nil|number, attackerid: nil|string, damage_type: nil|string, sound: nil|string, timestamp: number|string, seq: nil|integer}> Recent damage records keyed by id.
+--- @field concentrationList? Concentration[] Active concentration entries.
+--- @field temporary_hitpoints_effect? string Ongoing effect id that granted the current temporary hitpoints.
+--- @field tempHitpointsEndEffect? boolean End temporary_hitpoints_effect when the temporary hitpoints run out.
+--- @field temporary_hitpoints_source? string Tokenid of whoever granted the current temporary stamina.
+--- @field innateConditionImmunities? table<string, boolean> Condition ids this creature is innately immune to.
+--- @field customAlignment? string Free-text alignment (5e sheet / importer).
+--- @field customInnateLanguage? string Free-text extra innate language (5e sheet).
+--- @field monsterSpellcasting? CharacterModifier Monster spellcasting modifier (5e sheet / importer).
+--- @field actionbar? table<string, table<string, integer>> Action bar ordering: tab -> ability id -> slot index.
+--- @field languageSpeaking? string Language id the creature is currently speaking in chat.
+--- @field _tmp_freeMovement? boolean Transient: movement in progress is not charged against speed.
+--- @field _tmp_suppressTeleportEvent? boolean Transient: suppress the teleport event for the next teleport.
+--- @field _tmp_portalForcedMoveDest? string Transient: loc string a forced move is taking this creature to through a portal.
+--- @field _tmp_forcedMovementCast? ActivatedAbilityCast Transient: the cast forcing this creature's current movement.
+--- @field _tmp_squadParticipants? table<string, boolean> Transient: charids of squad members joining the current squad invoke.
+--- @field _tmp_squadParticipantsTurn? string Transient: turn key _tmp_squadParticipants was stamped on.
+--- @field _tmp_aiReactionOutbox? table<string, string> Transient: AI reaction requests awaiting delivery, id -> JSON.
+--- @field _tmp_runawayStacks? integer Transient: Runaway Expansion growth stacks.
+--- @field _tmp_runawayGrewRound? integer Transient: round the Runaway Expansion last grew.
 creature = RegisterGameType("creature")
 
 --- @class monster:creature
 --- @field new fun(o?: table): monster
 --- @field description string Display name for the monster type (e.g. "Monster").
+--- @field savingThrowRatings table<string, number> Saving throw id -> rating (set by monster.CreateNew).
 monster = RegisterGameType("monster", "creature")
 
 --- @alias Creature creature
@@ -318,6 +385,9 @@ end
 
 creature.currentMoveType = "walk"
 
+--Set by the engine when a climber at the ceiling tries to climb higher; see IsClingingToCeiling.
+creature.ceilingCling = false
+
 creature.innateActivatedAbilities = {}
 creature.innateLegendaryActions = {}
 
@@ -397,6 +467,11 @@ end
 --- @param movetype string
 function creature:SetCurrentMoveType(movetype)
 	self.currentMoveType = movetype
+
+	--clinging is a kind of climbing, so any other move type lets go of the ceiling.
+	if movetype ~= "climb" and self:try_get("ceilingCling") then
+		self.ceilingCling = nil
+	end
 end
 
 --- Set the creature's current movement type and uploads it to the cloud..
@@ -889,7 +964,7 @@ end
 
 --- Register a GoblinScript symbol. It will be a member of targetType, which might be something like 'creature', 'ActivatedAbility', etc.
 --- @param targetType table
---- @param info {name: string, type: string, desc: string, seealso: string[], examples: string[], calculate: function}
+--- @param info {name: string, type: string, desc: string, deprecated?: boolean, seealso: string[], examples: string[], calculate: function}
 function RegisterGoblinScriptSymbol(targetType, info)
 	local id = string.lower(string.gsub(info.name, "%s+", ""))
 	targetType.lookupSymbols[id] = info.calculate
@@ -1007,7 +1082,7 @@ creature.savingThrowIds = {}
 creature.savingThrowDropdownOptions = {}
 
 --- Register a saving throw.
---- @param info {id: string, description: string, order: number}
+--- @param info {id: string, attrid?: string, description: string, order: number}
 function creature.RegisterSavingThrow(info)
 	local index = #creature.savingThrowIds+1
 	for i,existing in ipairs(creature.savingThrowIds) do
@@ -2112,7 +2187,7 @@ end
 --just make sure that damage entries from the same machine can be ordered.
 local g_damageEntrySeq = 1
 
---- @param options {id: nil|string, damage: number, attackerid: string|nil, damage_type: string|nil, heal: number, sound: nil|string}
+--- @param options {id: nil|string, damage: number, attackerid: string|nil, damage_type: string|nil, heal: number, sound: nil|string, timestamp?: string|number, seq?: integer}
 function creature:RecordDamageEntry(options)
     options.id = options.id or dmhub.GenerateGuid()
     options.timestamp = ServerTimestamp()
@@ -2877,6 +2952,10 @@ end
 --- @field lowerIsBetter boolean If true, lower roll values are treated as better outcomes.
 --- @field changeOutcomeOnCriticalRoll number Outcome index adjustment applied on a natural critical.
 --- @field changeOutcomeOnFumbleRoll number Outcome index adjustment applied on a natural fumble.
+--- @field tableRef? RollTableReference The table whose rows are the outcomes, for a roll on a table.
+--- @field multitargets? table[] Per-target state of a roll against several targets ({tokenid, boons, banes, surges, modifiersUsed, ...}); set by the roll dialog.
+--- @field castid? string Id of the ability cast this roll belongs to; set by the roll dialog.
+--- @field overrideMessage? string Why the result was overridden (e.g. "X overrode the result"); shown on the chat card.
 --- Properties attached to a dice roll result to control outcome display and resolution.
 RollProperties = RegisterGameType("RollProperties")
 
@@ -4809,6 +4888,49 @@ creature._tmp_movementcarrier = false
 local g_grabbedid = "70504ebe-3899-41d3-9f60-74b52ce35e39"
 local g_proneid = "da6867b1-01e3-4570-8d1b-1b94ea1ea343"
 
+--- Whether this creature may cling upside down to a ceiling: natural climbers (the Climb
+--- movement keyword, climb speed >= walk speed) that can climb right now and aren't prone.
+--- Prone is read from inflictedConditions directly rather than _tmp_prone, which only
+--- updates on the next token refresh.
+--- @return boolean
+function creature:CanClingToCeiling()
+    if not self:CanClimb() or not self:IsClimber() then
+        return false
+    end
+
+    local inflicted = self:try_get("inflictedConditions")
+    return inflicted == nil or inflicted[g_proneid] == nil
+end
+
+--- True while the creature is clinging upside down to the ceiling. The engine reads this
+--- every token refresh: it keeps the creature at ceiling height, restricts its movement to
+--- tiles with ceiling overhead, and draws the token upside down.
+--- @return boolean
+function creature:IsClingingToCeiling()
+    return self:try_get("ceilingCling") == true and self.currentMoveType == "climb" and self:CanClingToCeiling()
+end
+
+--- Set (true) or clear (false) the ceiling cling and upload it. Called by the engine.
+--- @param cling boolean
+function creature:SetAndUploadCeilingCling(cling)
+    local tok = dmhub.LookupToken(self)
+    if tok ~= nil then
+        tok:ModifyProperties{
+            description = cond(cling, "Cling to Ceiling", "Let Go of Ceiling"),
+            undoable = false,
+            combine = true,
+            execute = function()
+                --nil rather than false so a creature that never clung carries no field.
+                if cling then
+                    tok.properties.ceilingCling = true
+                else
+                    tok.properties.ceilingCling = nil
+                end
+            end,
+        }
+    end
+end
+
 function creature:Invalidate()
 	self._tmp_modifiers = nil
 	self._tmp_modifiersRefresh = nil
@@ -5036,6 +5158,7 @@ function creature:PumpRemoteInvokes()
 		--AbilityInvokeAbility) back to live objects, e.g. the tokens in
 		--symbols.cast.targets.
 		local invoke = DeserializeEventValue(DeepCopy(remoteInvokes[1]))
+		---@cast invoke -nil
 
 		token:ModifyProperties{
 			description = "Clear Invoke",
@@ -10601,6 +10724,7 @@ function creature:DispatchEvent(eventName, info)
 	end
 
 	local token = dmhub.LookupToken(self)
+	---@cast token -nil
 	local activecontroller = token.activeControllerId
 
 	--we are the best choice to handle this event.
@@ -10719,7 +10843,7 @@ end
 --- @field rules string
 --- @field activateText string The name of mode 1 of a multi-mode trigger.
 --- @field activateRules string The rules text of mode 1 of a multi-mode trigger.
---- @field modes {text: string, rules: string, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil}[] modeIndex is the entry's position in the ability's modeList (see ModeIndexForTriggered). unavailable/conditionReason mark a mode whose condition is not met but which is offered anyway, greyed out, with that reason shown.
+--- @field modes {text: string, rules: string, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil, injectedBy: string|nil}[] modeIndex is the entry's position in the ability's modeList (see ModeIndexForTriggered). unavailable/conditionReason mark a mode whose condition is not met but which is offered anyway, greyed out, with that reason shown. injectedBy is the TriggerModeMarker of a trigger modifier that added the mode (MCDMModifyTriggers).
 --- @field casterid false|string The id of the caster of the ability that caused the trigger.
 --- @field originalAbilityRange number the range of the original ability that caused the trigger.
 --- @field abilityGuid false|string The guid of the TriggeredAbility that created this prompt.
@@ -10729,6 +10853,9 @@ end
 --- @field execSymbols false|table SerializeEventValue-encoded event symbols for orphan recovery.
 --- @field execTargets false|table SerializeEventValue-encoded targets for orphan recovery.
 --- @field aiActivityId false|string The Monster AI activity (move or cast) waiting for this prompt.
+--- @field _tmp_tokenid? string Roll dialog copy only: charid of the token the trigger belongs to.
+--- @field _tmp_refreshTime? number Roll dialog copy only: dmhub.Time() of the last send (0 forces a re-send).
+--- @field _tmp_triggerIndexes? {targetIndex: number, triggerIndex: number, targetid: string|nil}[] Roll dialog copy only: the power roll rows this prompt covers; read with try_get.
 ActiveTrigger = RegisterGameType("ActiveTrigger")
 ActiveTrigger.id = ""
 ActiveTrigger.charid = ""

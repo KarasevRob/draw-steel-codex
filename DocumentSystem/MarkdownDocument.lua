@@ -2,6 +2,7 @@ local mod = dmhub.GetModLoading()
 
 ---@class MarkdownDocument:CustomDocument
 --- @field new fun(o?: table): MarkdownDocument
+--- @field _tmp_styleDirty? boolean Editor only: the stylesheet changed since the last save; read with try_get.
 MarkdownDocument = RegisterGameType("MarkdownDocument", "CustomDocument")
 MarkdownDocument.vscroll = false
 -- Id of the JournalStylesheet that re-skins this document. `false` = built-in
@@ -1409,6 +1410,8 @@ MarkdownDocument.__ApplyInlineClasses = ApplyInlineClasses
 ---@class RichTag: GameType
 --- @field new fun(o?: table): RichTag
 ---@field pattern false|string
+--- @field tag string The tag's keyword (e.g. "encounter"); each registered subtype sets it as its default.
+--- @field identifier? string|false The suffix after the tag keyword in the document text, or false when there is none; set when the annotation is created.
 RichTag = RegisterGameType("RichTag")
 RichTag.pattern = false
 RichTag.hasEdit = true
@@ -2880,6 +2883,13 @@ local function RiderRows(getDocument)
     }
 end
 
+--A "power_roll" token from the tokenizer (fields read by the display).
+---@class MarkdownPowerRollToken
+---@field name string
+---@field attr string
+---@field tiers string[]
+---@field preset? string
+
 --getDocument() must RESOLVE the document, not be handed it. This panel is pooled
 --(ctx.pools.powerTables) and the pool lives on the render context, which persists
 --across renders, while a cloud update REPLACES the document's table row -- so
@@ -2890,6 +2900,7 @@ local function PowerRollDisplay(getDocument)
     local resultPanel
 
     local m_token = nil
+    ---@type MarkdownPowerRollToken
     local m_info = nil
     local riderRows = RiderRows(getDocument)
 
@@ -8901,6 +8912,26 @@ function MarkdownDocument.SerializeTableIsland(model)
     return s
 end
 
+--Shapes of the model ParseTableIslandSource returns (see its comment).
+---@class MarkdownTableIslandRow
+---@field cells string[]
+---@field trailingPipe boolean
+
+---@class MarkdownTableIslandModel
+---@field rollable? {name: string, dice: string, raw: string}
+---@field rows MarkdownTableIslandRow[]
+---@field separator? {raw: string, alignments: (string|false)[]}
+---@field cols integer
+---@field trailingNewline boolean
+
+--islandMeta entry for a power-roll island (built in the island compiler).
+---@class MarkdownPowerRollIslandMeta
+---@field kind string
+---@field from integer
+---@field to integer
+---@field sourceText string
+---@field token MarkdownPowerRollToken
+
 --Build a separator row line from a dense alignments list.
 function MarkdownDocument.TableIslandSeparatorRaw(alignments, cols)
     local parts = {}
@@ -8948,11 +8979,13 @@ end
 --    island opens as raw source (the escape hatch).
 local function CreateTableIslandWidget(opts)
     local m_meta = nil
+    ---@type MarkdownTableIslandModel?
     local m_model = nil
     local m_editing = nil        --{row, col} while a cell input has focus
     local m_pendingRefresh = nil --meta that arrived while a cell was edited
     local m_cellPanels = {}      --[row][col] = cell panel
     local m_headerSkin = nil     --skin blocks.table.header when the model has a separator
+    ---@type number[]?
     local m_colWidths = nil      --px per column in compact mode; nil = stretch (separator)
     local resultPanel
     local Rebuild
@@ -8977,6 +9010,8 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function RecomputeCols()
+        --callers (the Op* functions) have already checked m_model.
+        ---@cast m_model -nil
         local cols = 1
         for _, row in ipairs(m_model.rows) do
             if #row.cells > cols then
@@ -8995,6 +9030,9 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function SetCellValue(r, c, value)
+        --only called by EndCellEdit during a cell edit: BeginCellEdit checked
+        --m_model, and refreshTable defers model swaps while a cell is edited.
+        ---@cast m_model -nil
         local row = m_model.rows[r]
         if row == nil then
             return false
@@ -9031,6 +9069,8 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function RegenerateSeparator()
+        --callers (the Op* functions) have already checked m_model.
+        ---@cast m_model -nil
         for ci = 1, ColCount() do
             if m_model.separator.alignments[ci] == nil then
                 m_model.separator.alignments[ci] = false
@@ -9040,6 +9080,7 @@ local function CreateTableIslandWidget(opts)
     end
 
     --structural operations: mutate the model, commit once, rebuild the grid.
+    --Each bails when there is no model (a context menu outliving a rebuild).
     local function BlankRow()
         local cells = {}
         for ci = 1, ColCount() do
@@ -9049,13 +9090,16 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function OpInsertRow(at)
+        if m_model == nil then
+            return
+        end
         table.insert(m_model.rows, at, BlankRow())
         Commit()
         Rebuild()
     end
 
     local function OpDeleteRow(at)
-        if #m_model.rows <= 1 then
+        if m_model == nil or #m_model.rows <= 1 then
             return
         end
         table.remove(m_model.rows, at)
@@ -9066,7 +9110,7 @@ local function CreateTableIslandWidget(opts)
 
     local function OpMoveRow(at, delta)
         local target = at + delta
-        if target < 1 or target > #m_model.rows then
+        if m_model == nil or target < 1 or target > #m_model.rows then
             return
         end
         local row = table.remove(m_model.rows, at)
@@ -9076,6 +9120,9 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function OpInsertColumn(at)
+        if m_model == nil then
+            return
+        end
         for _, row in ipairs(m_model.rows) do
             for ci = #row.cells + 1, at - 1 do
                 row.cells[ci] = ""
@@ -9092,7 +9139,7 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function OpDeleteColumn(at)
-        if ColCount() <= 1 then
+        if m_model == nil or ColCount() <= 1 then
             return
         end
         for _, row in ipairs(m_model.rows) do
@@ -9113,7 +9160,7 @@ local function CreateTableIslandWidget(opts)
 
     local function OpMoveColumn(at, delta)
         local target = at + delta
-        if target < 1 or target > ColCount() then
+        if m_model == nil or target < 1 or target > ColCount() then
             return
         end
         for _, row in ipairs(m_model.rows) do
@@ -9132,6 +9179,9 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function OpSetAlignment(at, align)
+        if m_model == nil then
+            return
+        end
         if m_model.separator == nil then
             m_model.separator = { raw = "", alignments = {} }
         end
@@ -9160,6 +9210,8 @@ local function CreateTableIslandWidget(opts)
     --compact tables. Stretch mode (separator declared): nil -> percent
     --slots, matching the display's fixed-width aligned tables.
     local function ComputeColumnWidths()
+        --only called by Rebuild, after its m_model nil check.
+        ---@cast m_model -nil
         if m_model.separator ~= nil then
             return nil
         end
@@ -9203,6 +9255,8 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function TotalCellsWidth()
+        --only called by BuildAddRowStrip when m_colWidths ~= nil.
+        ---@cast m_colWidths -nil
         local total = 0
         for c = 1, ColCount() do
             total = total + (m_colWidths[c] or 80)
@@ -9292,6 +9346,11 @@ local function CreateTableIslandWidget(opts)
             if nc > ColCount() then
                 nr = r + 1
                 nc = 1
+            end
+            --EndCellEdit may have applied a deferred refresh whose table
+            --text no longer parses, leaving no model and an empty grid.
+            if m_model == nil then
+                return
             end
             if nr > #m_model.rows then
                 --tab off the last cell appends a fresh row (the
@@ -9534,6 +9593,9 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function BuildAddRowStrip()
+        --only called by Rebuild, after its m_model nil check; m_model only
+        --changes right before a Rebuild, which replaces this strip.
+        ---@cast m_model -nil
         local stripWidth
         if m_colWidths ~= nil then
             stripWidth = TotalCellsWidth()
@@ -9559,6 +9621,9 @@ local function CreateTableIslandWidget(opts)
     end
 
     local function BuildRollableBar()
+        --only called by Rebuild, after its m_model nil check; m_model only
+        --changes right before a Rebuild, which replaces this bar.
+        ---@cast m_model -nil
         if m_model.rollable == nil then
             return nil
         end
@@ -9730,6 +9795,7 @@ end
 --  GetBlockSkin() -> the resolved stylesheet's blocks.powerRoll config, or
 --    nil for the default dark look.
 local function CreatePowerRollIslandWidget(opts)
+    ---@type MarkdownPowerRollIslandMeta?
     local m_meta = nil
     local resultPanel
 
@@ -9760,6 +9826,8 @@ local function CreatePowerRollIslandWidget(opts)
     --the island's source lines (the island contract includes the trailing
     --newline, which splits into a final empty entry; drop it).
     local function SourceLines()
+        --only called from MapClickToSource, after its m_meta nil check.
+        ---@cast m_meta -nil
         local lines = string.split_allow_duplicates(m_meta.sourceText or "", "\n")
         if #lines > 0 and lines[#lines] == "" then
             lines[#lines] = nil
@@ -10440,6 +10508,8 @@ function MarkdownDocument:SeamlessEditPanel(args)
                 end
                 if richTag ~= nil or inner ~= nil then
                     if inner == nil then
+                        --inner == nil here means richTag ~= nil (outer test).
+                        ---@cast richTag -nil
                         pcall(function()
                             inner = richTag:CreateDisplay()
                         end)

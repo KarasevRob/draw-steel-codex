@@ -1012,7 +1012,7 @@ DrawSteelMinion.SetSquadCaptain = function(tokens, squadid, isMakeCaptain)
     local captainid = nil
     for _,tok in ipairs(tokens) do
         if (not tok.properties.minion) then
-            captainid = tok.id
+            captainid = tok.charid
             tok:ModifyProperties{
                 groupid = groupid,
                 description = "Set Squad",
@@ -1039,7 +1039,7 @@ DrawSteelMinion.SetSquadCaptain = function(tokens, squadid, isMakeCaptain)
     if captainid ~= nil then
         local monsterTokens = dmhub.GetTokens{}
         for _,tok in ipairs(monsterTokens) do
-            if tok.id ~= captainid and (not tok.properties.minion) and tok.properties:MinionSquad() == squadid then
+            if tok.charid ~= captainid and (not tok.properties.minion) and tok.properties:MinionSquad() == squadid then
                 tok:ModifyProperties{
                     description = "Set Squad",
                     execute = function()
@@ -1311,7 +1311,9 @@ DrawSteelMinion.SquadHud = function(floorid, squad)
 
         local m_BarWidth = 100
 
+        ---@type {x: number, y: number}?
         local m_pos = nil
+        ---@type {x: number, y: number}?
         local m_targetPos = nil
 
         local m_currentPos = nil
@@ -1365,6 +1367,7 @@ DrawSteelMinion.SquadHud = function(floorid, squad)
                 --to create a new squad that is split off.
                 if dmhub.isDM and squad.damage_taken < squad.health_single then
                     local selectedTokens = dmhub.selectedOrPrimaryTokens
+                    ---@type false|CharacterToken
                     local foundNonMinion = false
                     local matchingMinions = 0
                     local monster_type = nil
@@ -1807,6 +1810,11 @@ DrawSteelMinion.SquadHud = function(floorid, squad)
                         end
 
                         m_lock:SetClass("hidden", squad.pos == nil)
+
+                        --calculate leaves these unset while the squad has no valid tokens.
+                        if m_pos == nil or m_targetPos == nil then
+                            return
+                        end
 
                         m_pos.x = m_pos.x + (m_targetPos.x - m_pos.x) * 0.1
                         m_pos.y = m_pos.y + (m_targetPos.y - m_pos.y) * 0.1
