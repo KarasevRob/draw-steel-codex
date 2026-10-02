@@ -436,6 +436,34 @@ function ActivatedAbilityPowerRollBehavior:AccumulateDamageTypes(ability, result
     end
 end
 
+local g_tierDamagePattern = "^(?<prefix>.*?)(?<damage>\\d+)\\s+((?<type>[a-zA-Z]+)\\s+)?damage(?<suffix>.*)$"
+
+--Rewrite a tier's first damage clause to the given type ("5 damage" -> "5 fire damage").
+--- @param tierText string
+--- @param damageType string
+--- @return string
+function ActivatedAbilityPowerRollBehavior.RetypeTierDamage(tierText, damageType)
+    local m = regex.MatchGroups(tierText, g_tierDamagePattern)
+    if m == nil then
+        return tierText
+    end
+    return m.prefix .. m.damage .. " " .. damageType .. " damage" .. m.suffix
+end
+
+--Modify Ability's "Damage Type: Add" offers extra types as modes; the chosen mode's type
+--retypes every tier for this cast.
+--- @param ability ActivatedAbility
+--- @param options nil|table
+--- @return string|nil
+local function ModeDamageType(ability, options)
+    local mode = options ~= nil and options.symbols ~= nil and options.symbols.mode or nil
+    if mode == nil or not ability.multipleModes then
+        return nil
+    end
+    local modeInfo = ability:try_get("modeList", {})[mode]
+    return modeInfo ~= nil and modeInfo.damageType or nil
+end
+
 --if we have targets, the actual tier should be equal to one of the tiers found among the targets.
 --- @param tier number
 --- @param multitargets nil|({token: CharacterToken, tier: number}[])
@@ -1566,6 +1594,12 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
     local m_canceled = false
 
     local tiers = DeepCopy(self.tiers)
+    local modeDamageType = ModeDamageType(ability, options)
+    if modeDamageType ~= nil then
+        for i=1,#tiers do
+            tiers[i] = ActivatedAbilityPowerRollBehavior.RetypeTierDamage(tiers[i], modeDamageType)
+        end
+    end
     --Below Silver, a rule-parseable description (the ability's "Effect:" line) is
     --auto-appended to every tier so it executes as part of the roll -- the
     --auto-parse IS the implementation at that level. At Silver and above the
