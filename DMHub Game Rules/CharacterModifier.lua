@@ -576,10 +576,16 @@ CharacterModifier.TypeInfo.attribute = {
 
 	fillStatusIcons = function(self, creature, result)
 		if self:try_get("displayIcon", false) and self:has_key("statusIcon") then
+			--Show the rules text under a bold name so the icon explains itself.
+			local hoverText = self.name
+			local description = self:try_get("description", "")
+			if description ~= "" then
+				hoverText = string.format("<b>%s</b> - %s", self.name, description)
+			end
 			result[#result+1] = {
 				id = self.name,
 				icon = self.statusIcon,
-				hoverText = self.name,
+				hoverText = hoverText,
 				style = {
 					bgcolor = self:try_get("iconColor", "#ffffffff"),
 				},
