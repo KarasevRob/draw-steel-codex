@@ -6672,6 +6672,29 @@ function creature.TakeDamage(self, amount, note, info)
     }
 end
 
+--Aura bonuses to Recovery Value (e.g. Blessing of Life) are folded into the heal silently,
+--so post a record-only log card for each one, showing the aura's caster.
+function creature:LogRecoveryBonuses()
+    local token = dmhub.LookupToken(self)
+    if token == nil then
+        return
+    end
+    local mods = self:DescribeModifications("recoveryvalue", math.floor(self:MaxHitpoints() / 3))
+    for _, entry in ipairs(mods) do
+        local bonus = (entry.current or 0) - (entry.previous or 0)
+        if bonus > 0 and entry.modifier.source == "Aura" then
+            local sourceToken = token
+            for _, info in ipairs(token.properties:GetAurasAffecting(token) or {}) do
+                if info.auraInstance.aura.name == entry.modifier.name and info.auraInstance.casterid then
+                    sourceToken = dmhub.GetTokenById(info.auraInstance.casterid) or token
+                    break
+                end
+            end
+            ActionLogNoteChatMessage.Post(sourceToken, entry.modifier.name, string.format("+%d Stamina Recovered", bonus))
+        end
+    end
+end
+
 function creature.Heal(self, amount, note)
     local canHeal = (self:CalculateNamedCustomAttribute("Cannot Regain Stamina") == 0)
     if not canHeal then
@@ -6693,6 +6716,9 @@ function creature.Heal(self, amount, note)
 
     if self.minion then
         self:SetCurrentHitpoints(math.min(self:MaxHitpoints(), self:CurrentHitpoints() + amount), note)
+        if note == "Use Recovery" then
+            self:LogRecoveryBonuses()
+        end
         return
     end
 
@@ -6717,6 +6743,10 @@ function creature.Heal(self, amount, note)
 
 
     self:DispatchEvent("regainhitpoints", {healed = amount})
+
+    if note == "Use Recovery" then
+        self:LogRecoveryBonuses()
+    end
 end
 
 function creature.SetStaminaDirect(self, amount, note)

@@ -193,6 +193,67 @@ function HealChatMessage.Render(selfInput, message)
     }
 end
 
+--- Record-only action-log card: a title and a detail line, shown with a token image.
+--- Use it to tell players about a bonus that is already folded into another roll or heal.
+--- @class ActionLogNoteChatMessage: GameType
+--- @field new fun(o?: table): ActionLogNoteChatMessage
+--- @field tokenid string
+--- @field title string
+--- @field detail string
+ActionLogNoteChatMessage = RegisterGameType("ActionLogNoteChatMessage")
+
+ActionLogNoteChatMessage.tokenid = ""
+ActionLogNoteChatMessage.title = ""
+ActionLogNoteChatMessage.detail = ""
+
+--- Posts a note card to the action log. Does nothing for a missing token.
+--- @param token nil|CharacterToken the token whose image is shown (usually the source of the bonus)
+--- @param title string
+--- @param detail string
+function ActionLogNoteChatMessage.Post(token, title, detail)
+    if token == nil or (not token.valid) then
+        return
+    end
+    chat.SendCustom(ActionLogNoteChatMessage.new{
+        tokenid = token.charid,
+        title = title,
+        detail = detail,
+    })
+end
+
+function ActionLogNoteChatMessage.Render(selfInput, message)
+    local token = dmhub.GetCharacterById(selfInput.tokenid)
+    if token == nil or (not token.valid) then
+        return gui.Panel{
+            width = 0, height = 0,
+        }
+    end
+
+    local card = CreateActionLogCard{
+        token = token,
+        content = {
+            gui.Label{
+                classes = {"action-log-detail", "sizeXs", "fg"},
+                text = selfInput.title,
+            },
+            gui.Label{
+                classes = {"action-log-subtext", "sizeXxs", "fgMuted"},
+                text = selfInput.detail,
+            },
+        },
+    }
+
+    return gui.Panel{
+        classes = {"chat-message-panel"},
+        flow = "vertical",
+        width = "100%",
+        height = "auto",
+        refreshMessage = function(element, message)
+        end,
+        card,
+    }
+end
+
 ActivatedAbilityReplenishBehavior.summary = 'Replenish Resources'
 ActivatedAbilityReplenishBehavior.mode = 'replenish'
 ActivatedAbilityReplenishBehavior.quantity = '1'
