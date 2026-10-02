@@ -3749,6 +3749,24 @@ function CharacterModifier:ConsumeResourceInternal(creature, modContext)
 	return true
 end
 
+--- The modifier's resource cost as a number. resourceCostAmount is GoblinScript (it is
+--- edited with a GoblinScriptInput), so a formula is evaluated the way ConsumeResource and
+--- HasResourcesAvailable evaluate it; a plain number is returned as-is, unevaluated.
+--- @param creature creature|nil Whose symbols the formula sees. nil: a formula counts as 0.
+--- @param symbols? table Defaults to the modifier's _tmp_symbols, as ConsumeResource uses.
+--- @return number
+function CharacterModifier:ResolveResourceCostAmount(creature, symbols)
+	local raw = self:try_get("resourceCostAmount", "1")
+	local n = tonumber(raw)
+	if n ~= nil then
+		return n
+	end
+	if creature == nil or type(raw) ~= "string" or trim(raw) == "" then
+		return 0
+	end
+	return ExecuteGoblinScript(raw, creature:LookupSymbol(symbols or self:try_get("_tmp_symbols", {})), 0)
+end
+
 function CharacterModifier:HasResourcesAvailable(creature)
 
     local costType = self:try_get("resourceCostType", "none")

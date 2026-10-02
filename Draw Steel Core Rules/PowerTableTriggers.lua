@@ -272,11 +272,10 @@ CharacterModifier.TypeInfo.powertabletrigger = {
             dismissOnTrigger = true,
         }
 
-        --`or 0`: a nil write would read back as the ActiveTrigger class default, 0, anyway.
         if selfClone.powerRollModifier:try_get("resourceCostType") == "cost" then
-            entry.heroicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1)) or 0
+            entry.heroicResourceCost = selfClone.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols)
         elseif selfClone.powerRollModifier:try_get("resourceCostType") == "epic" then
-            entry.epicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1)) or 0
+            entry.epicResourceCost = selfClone.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols)
         end
 
         if self:try_get("abilityTargets", "") ~= "" then
@@ -324,11 +323,11 @@ CharacterModifier.TypeInfo.powertabletrigger = {
         end
 
         if self.powerRollModifier:try_get("resourceCostType") == "cost" then
-            if (tonumber(token.properties:GetHeroicOrMaliceResourcesAvailableToSpend()) or 0) < (tonumber(self.powerRollModifier:try_get("resourceCostAmount", 1)) or 0) then
+            if (tonumber(token.properties:GetHeroicOrMaliceResourcesAvailableToSpend()) or 0) < self.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols) then
                 return false
             end
         elseif self.powerRollModifier:try_get("resourceCostType") == "epic" then
-            if (tonumber(token.properties:GetEpicResources()) or 0) < (tonumber(self.powerRollModifier:try_get("resourceCostAmount", 1)) or 0) then
+            if (tonumber(token.properties:GetEpicResources()) or 0) < self.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols) then
                 return false
             end
         end

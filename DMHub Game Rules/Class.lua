@@ -800,6 +800,15 @@ function CharacterFeatureChoice:Choices(numOption, existingChoices, creature)
 			end
 
 			local text = feature.name
+			local description
+			if feature.typeName == "CharacterSingleFeat" then
+				--a single feat has no name or description of its own (reading
+				--`description` raises); show the feat it grants.
+				text = feature:Describe()
+				description = feature:GetDescription()
+			else
+				description = feature.description
+			end
 			-- if usePoints then
 			-- 	local cost = feature:try_get("pointsCost", 1)
 			-- 	text = string.format("%s (%d %s)", text, cost, self.pointsName)
@@ -807,7 +816,7 @@ function CharacterFeatureChoice:Choices(numOption, existingChoices, creature)
 			result[#result+1] = {
 				id = feature.guid,
 				text = text,
-				description = feature.description,
+				description = description,
 				classes = classes,
 				pointsCost = rawget(feature, "pointsCost") or 1,
 				modifiers = rawget(feature, "modifiers"),

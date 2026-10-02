@@ -1373,10 +1373,13 @@ function GameHud.CreateRollDialog(self)
                             free = trigger.modifier:try_get("type") == "free",
                         }
 
+                        --the trigger's owner pays; a formula cost is evaluated against them.
+                        local ownerToken = dmhub.GetTokenById(trigger.charid)
+                        local costPayer = ownerToken ~= nil and ownerToken.properties or nil
                         if trigger.modifier.powerRollModifier:try_get("resourceCostType") == "cost" then
-                            activeTrigger.heroicResourceCost = tonumber(trigger.modifier.powerRollModifier:try_get("resourceCostAmount", 1))
+                            activeTrigger.heroicResourceCost = trigger.modifier.powerRollModifier:ResolveResourceCostAmount(costPayer)
                         elseif trigger.modifier.powerRollModifier:try_get("resourceCostType") == "epic" then
-                            activeTrigger.epicResourceCost = tonumber(trigger.modifier.powerRollModifier:try_get("resourceCostAmount", 1))
+                            activeTrigger.epicResourceCost = trigger.modifier.powerRollModifier:ResolveResourceCostAmount(costPayer)
                         end
 
                         activeTrigger._tmp_tokenid = trigger.charid

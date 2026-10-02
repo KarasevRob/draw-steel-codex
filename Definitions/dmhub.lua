@@ -213,6 +213,7 @@
 --- @field isAdminGame boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field modMergeInfo nil|{numFiles: number, conflicts: nil|string[]} (Undocumented: engine-internal, not part of the modding API.)
 --- @field debugPixelValue number (Undocumented: engine-internal, not part of the modding API.)
+--- @field currentUserStatusMessage nil|string (Undocumented: engine-internal, not part of the modding API.)
 --- @field termsOfServiceUpToDate boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field canSafelyYield boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field availableGameSystems table[] (Undocumented: engine-internal, not part of the modding API.)

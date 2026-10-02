@@ -1280,6 +1280,9 @@ CreateHeroesPanel = function()
 
     local m_currentRichStatus = nil
     local m_richStatusId = nil
+    --what the engine actually stored for our status: it truncates long ones, so this
+    --can differ from m_currentRichStatus.
+    local m_pushedRichStatus = nil
 
     --online games show the invite code inline at the bottom; local
     --(offline) games keep the button that runs the promote-to-online
@@ -1315,9 +1318,11 @@ CreateHeroesPanel = function()
             
             if richStatus ~= m_currentRichStatus then
                 local existing = dmhub.currentUserStatusMessage
-                if existing == nil or existing == m_currentRichStatus then
+                --only replace our own status: leave one another panel pushed on top alone.
+                if existing == nil or existing == m_pushedRichStatus then
                     m_richStatusId = dmhub.PushUserRichStatus(richStatus, m_richStatusId)
                     m_currentRichStatus = richStatus
+                    m_pushedRichStatus = dmhub.currentUserStatusMessage
                 end
             end
         end,

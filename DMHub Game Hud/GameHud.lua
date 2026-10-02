@@ -498,9 +498,14 @@ end
 function GameHud.TooltipPlacementOutsideBox(minx, miny, maxx, maxy)
 	--Keep the hovered tile inside the box too: during ability targeting it can be well
 	--outside the path -- a jump that lands short at a wall while the user aims past it --
-	--and a tooltip just off the path box would then sit on the cursor. mouseLoc is nil
-	--when the pointer is over UI rather than the map.
-	local mouseLoc = dmhub.mouseLoc
+	--and a tooltip just off the path box would then sit on the cursor. Only a pointer
+	--inside the usable map area (between the HUD docks) counts; over a dock it is not on
+	--the map. (This used dmhub.mouseLoc, which does not exist, so it never ran.)
+	local mouseLoc = dmhub.GetMouseWorldPoint()
+	local usable = dmhub.cameraUsableBounds
+	if usable ~= nil and (mouseLoc.x < usable.x1 or mouseLoc.x > usable.x2 or mouseLoc.y < usable.y1 or mouseLoc.y > usable.y2) then
+		mouseLoc = nil
+	end
 	if mouseLoc ~= nil then
 		local cursorPad = 1.2
 		if mouseLoc.x - cursorPad < minx then minx = mouseLoc.x - cursorPad end

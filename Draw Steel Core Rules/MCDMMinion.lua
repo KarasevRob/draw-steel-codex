@@ -960,7 +960,10 @@ DrawSteelMinion.EvaluateCaptainSelection = function(tokens)
         nminions = nminions,
     }
 
-    if nminions == #tokens-1 and potentialCaptain ~= nil and potentialCaptain.ownerId == minionParty then
+    --The minions must already share one squad (squadid is false when they span several,
+    --nil when there are none): a captain joins a squad, so with mixed squads the action
+    --would store minionSquad = false. Form the squad first, then make the captain.
+    if nminions == #tokens-1 and potentialCaptain ~= nil and potentialCaptain.ownerId == minionParty and type(squadid) == "string" then
         result.show = true
         if squadid ~= false and squadid ~= nil and potentialCaptain.properties:MinionSquad() == squadid then
             result.nminions = nminions + 1
