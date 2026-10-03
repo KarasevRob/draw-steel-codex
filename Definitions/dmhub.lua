@@ -61,10 +61,14 @@
 --- @field DataTransmitted fun(method: string, path: string, payload: string): nil
 --- @field DistanceDisplayFunction fun(distance: number): string Given a distance in the world, converts to a string ready to be displayed to the player.
 --- @field RankPrimaryToken fun(creature: Creature): number|nil Given a creature, this function should return a score to reflect how likely this creature is to be a player character. It is used so if a player has control of multiple tokens, to determine which one, by default, is considered their primary character.
+--- @field EditObjectDialog fun(objids: string[]): any (Undocumented: engine-internal, not part of the modding API.)
 --- @field GetActiveWhiteboardTool fun(): { tool: string, color: Color, width: Number } A function that returns the currently active whiteboard drawing tool and its settings.
 --- @field CancelEditing fun(sheet: Sheet): boolean A function that attempts to cancel editing a sheet, returning true if editing was successfully cancelled.
 --- @field GetSymbolTypesDocumentation fun(typename: string): nil|{name: string, type: string, desc: string}[] A function that returns documentation for symbol types of the given type name, or nil if not found.
+--- @field AddCustomTranslationString fun(label: Label, text: string): nil (Undocumented: engine-internal, not part of the modding API.)
 --- @field IsDialogOpen fun(): boolean Function that can be used to communicate to the engine whether a modal dialog is currently open.
+--- @field OpenDocument fun(url: string) (Undocumented: engine-internal, not part of the modding API.)
+--- @field DescribeDocument fun(url: string): string (Undocumented: engine-internal, not part of the modding API.)
 --- @field SetTokenSize fun(token: CharacterToken, sizeid: string): nil A function that sets the size of a token to the given size id.
 --- @field ShowGameContextMenu fun(entries: {text: string, tooltip: string, icon: string, click: fun(): nil}[]): nil A function that displays a context menu with the given entries when right-clicking in the game.
 --- @field CreateKeyFrameComponent fun(): table A function that creates a keyframe animation component table for attaching to an object.
@@ -74,6 +78,7 @@
 --- @field CreateDataOutputComponent fun(): table A function that creates a data output component table for attaching to an object.
 --- @field TokensAreFriendly fun(a: CharacterToken, b: CharacterToken): boolean|nil A function that determines whether two tokens are considered friendly to each other. Returning nil (anything but a boolean) makes the engine fall back to its own default friendliness test.
 --- @field DescribeToken fun(token: CharacterToken): string A function that returns a human-readable description of the given token.
+--- @field HoldAmendableRollOpen fun(): boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field DataError fun(message: string): nil Function which is called by the engine when a networking error occurs allowing display of a message to the user.
 --- @field GetHeightEditingInfo fun(): nil|{opacity: number, blend: number, height: number, directional: boolean} Editor callback function: Used to determine what height editing options the user has selected in the UI. Returning nil means height editing is off.
 --- @field SelectHeight fun(height: number): nil Editor callback function: Used when the user uses the eyedropper tool to select a height to notify the interface what height they selected.
@@ -112,8 +117,11 @@
 --- @field uploadQuotaRemaining number The remaining data this user can upload this month, in bytes.
 --- @field singleFileUploadQuota number The maximum size file the user can upload, in bytes.
 --- @field singleFilePatreonUpgradeMessage string The message displayed to the user explaining how to upgrade their Patreon tier to get larger single-file uploads.
+--- @field tokensAvailable number (Undocumented: engine-internal, not part of the modding API.)
 --- @field currentTerrainFill string|nil The terrain background the map currently has set. Nil means no background.
 --- @field MapExport MapExportCameraLua The MapExport interface which allows export of a map to an image or video.
+--- @field LayerCamera LayerCameraLua (Undocumented: engine-internal, not part of the modding API.)
+--- @field Selection LuaSelectionController (Undocumented: engine-internal, not part of the modding API.)
 --- @field tablesUpdateId number A number which increases by 1 every time the compendium assets are updated. Can save this value and then compare to it later to see if the compendium has changed at all since we last checked.
 --- @field ngameupdate integer (read-only) A sequential integer that is unique to the game being updated from the cloud. Anytime this value changes we have new data from the cloud and the game is in a different state.
 --- @field gameupdateid string (read-only) A guid that is unique to the game being updated from the cloud. Anytime this value changes we have new data from the cloud and the game is in a different state.
@@ -136,6 +144,7 @@
 --- @field playerHostModeSuppressed boolean Debug/recovery escape hatch: while true, THIS client acts as the Director in a directorless game instead of as a player host. Client-only and session-scoped -- it does not touch the game record, so no other player is affected. Changing it flips dmhub.isDM, which forces the same full view-as-player refresh the Director's 'view as player' command uses, so expect the game to reload; it is a debugging action, not a normal-play one. Setting it has no effect (and causes no refresh) in a game that is not directorless. Starts true when the app was launched with the `--director` command-line flag (a debug Director window into a directorless game, e.g. New Director Window on a player host), so such a client is the Director from its first frame with no refresh.
 --- @field inGame boolean (read-only) true if we are currently in-game
 --- @field isLobbyGame boolean (read-only) true if in lobby
+--- @field currentUserStatusMessage nil|string (Undocumented: engine-internal, not part of the modding API.)
 --- @field gameid string (Read-only) The gameid of the current game.
 --- @field screenSpaceCursorSurface nil|string Switches shared mouse cursors between world space and screen space. nil (the default) is normal map sharing: everyone's cursor is shared as a position on the current map. Set it to a surface id (any string, e.g. "eotwstage") while a full-screen UI surface is up and this client's cursor is shared as a position on the screen instead, and only other players' cursors on the same surface id are shown, drawn above the UI. Set it back to nil when the surface goes away. Honours the same settings as map cursors (Player/Director Mouse Cursors Shared, Hide Other Player's Cursors). Clients on an engine without this mode do not show screen-space cursors.
 --- @field editorMode boolean (Read-only) returns true if the user is doing some kind of map/game editing, rather than in normal play mode.
@@ -154,6 +163,7 @@
 --- @field patreonPledgeTier number The raw Patreon tier recorded for this account (0-4), ignoring the MCDM white-label override that makes patronTier always report 3. DMHub campaign only: this is the DMHub Patreon's patron ladder and says nothing about whether the user is a patron of any creator organization in the app -- for that, use patreonOrgEntitlements / IsEntitledToOrg. A user can be tier 4 here with no MCDM membership at all, and vice versa. Use for reporting the user's actual DMHub pledge; use patronTier to gate features.
 --- @field subscriptionTier number The subscription tier level of the current user. 0 means no subscription.
 --- @field isAdminAccount boolean True if the current user has admin privileges on their account.
+--- @field isAdminGame boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field hasStoreAccess boolean (Read-only) controls whether there is a store in this version of the app.
 --- @field networkLogLevel number The log level we use for networking messages. 0 = all, 1 = information, 2 = warning, 3 = error, 4 = exception, 5 = none
 --- @field activeObjectsPath string The game path pattern pointing to active objects. Can be used with monitorGame on a panel to monitor for object changes.
@@ -168,6 +178,7 @@
 --- @field selectedOrPrimaryTokens CharacterToken[] (Read-only) a list consisting of the tokens selected, or the 'primary' token of the player if there is one. This can be used to get the token the player is presumably acting as if they perform an action. May return an empty list but does not return nil.
 --- @field primaryCharacter CharacterToken|nil (Read-only) the primary character for the current player. This can be an off-map token.
 --- @field tokenHovered nil|CharacterToken (Read-only) Gets the currently hovered token, or nil if there is none.
+--- @field modMergeInfo nil|{numFiles: number, conflicts: nil|string[]} (Undocumented: engine-internal, not part of the modding API.)
 --- @field modKeys {ctrl: nil|boolean, alt: nil|boolean, shift: nil|boolean} Returns which mod keys are currently depressed.
 --- @field mouseWheel number Returns a positive or negative number if the mousewheel has been moved this frame, based on the direction. Returns 0 if the mousewheel has not been moved this frame.
 --- @field harnessMode nil|string (Read-only) The test-harness name passed via --harness on the command line, or nil when not launched in harness mode. Dev builds only. See TEST_HARNESS_PLAN.md.
@@ -182,6 +193,7 @@
 --- @field uiVerticalScale number (Read-only) The vertical scale factor of the UI compared to a reference 1920x1080 resolution.
 --- @field uiVerticalScaleBelowTitleBar number (Read-only) The vertical scale factor of the UI below the title bar compared to a reference 1920x1080 resolution.
 --- @field uiscale number (Read-only) the amount the ui is being scaled by horizontally.
+--- @field debugPixelValue number (Undocumented: engine-internal, not part of the modding API.)
 --- @field serverTime number (Read-only) The server time in seconds. Server time is designed to be the same (or at least as close as possible) across all computers connected to the game.
 --- @field serverTimeMilliseconds number (Read-only) The server time in milliseconds. Server time is designed to be the same (or at least as close as possible) across all computers connected to the game.
 --- @field infoBubbles table<string, InfoBubbleHudLua> (Read-only) The info bubbles available on the current map.
@@ -191,6 +203,8 @@
 --- @field useParallax boolean (Read-only) if true the app is using parallax features.
 --- @field parallaxRatio number The current parallax ratio the game is using.
 --- @field settingsChangesRequireRestart boolean If true, some important settings have been changed so the user should be urgently prompted to restart the app.
+--- @field termsOfServiceUpToDate boolean (Undocumented: engine-internal, not part of the modding API.)
+--- @field canSafelyYield boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field inCoroutine boolean Returns true if we are currently running in a coroutine.
 --- @field PlaceholderNil any A stand-in for nil when we want to put it in a table.
 --- @field debugPropertyOutput string Engine debugging and performance information.
@@ -200,24 +214,10 @@
 --- @field windowMaximized boolean True while the application window is maximized. Use to choose between the maximize and restore glyphs.
 --- @field supportsWorldDistortions boolean (read-only) True on engine builds that support dmhub.CreateWorldDistortion and WorldDistortionHandleLua.
 --- @field supportsParticleSystems boolean (read-only) True on engine builds that support dmhub.CreateParticleSystem and ParticleSystemHandleLua.
---- @field rulerToolActive boolean Whether the ruler measurement tool is currently active.
---- @field forceRefreshLogin boolean When set to true, forces a refresh of the login state on the next frame.
---- @field EditObjectDialog fun(objids: string[]): any (Undocumented: engine-internal, not part of the modding API.)
---- @field AddCustomTranslationString fun(label: Label, text: string): nil (Undocumented: engine-internal, not part of the modding API.)
---- @field OpenDocument fun(url: string) (Undocumented: engine-internal, not part of the modding API.)
---- @field DescribeDocument fun(url: string): string (Undocumented: engine-internal, not part of the modding API.)
---- @field HoldAmendableRollOpen fun(): boolean (Undocumented: engine-internal, not part of the modding API.)
---- @field tokensAvailable number (Undocumented: engine-internal, not part of the modding API.)
---- @field LayerCamera LayerCameraLua (Undocumented: engine-internal, not part of the modding API.)
---- @field Selection LuaSelectionController (Undocumented: engine-internal, not part of the modding API.)
---- @field isAdminGame boolean (Undocumented: engine-internal, not part of the modding API.)
---- @field modMergeInfo nil|{numFiles: number, conflicts: nil|string[]} (Undocumented: engine-internal, not part of the modding API.)
---- @field debugPixelValue number (Undocumented: engine-internal, not part of the modding API.)
---- @field currentUserStatusMessage nil|string (Undocumented: engine-internal, not part of the modding API.)
---- @field termsOfServiceUpToDate boolean (Undocumented: engine-internal, not part of the modding API.)
---- @field canSafelyYield boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field availableGameSystems table[] (Undocumented: engine-internal, not part of the modding API.)
+--- @field rulerToolActive boolean Whether the ruler measurement tool is currently active.
 --- @field rules table (Undocumented: engine-internal, not part of the modding API.)
+--- @field forceRefreshLogin boolean When set to true, forces a refresh of the login state on the next frame.
 dmhub = {}
 
 --- TestFunction
@@ -1499,6 +1499,11 @@ function dmhub.ExportCharacter(token) end
 --- @param options {record: string, assets: nil|string, charid: nil|string, name: nil|string}
 --- @return nil|string
 function dmhub.ImportCharacter(options) end
+
+--- Builds a detached, display-only character token from ExportCharacter data (also accepts the record as a City returns it) without writing anything to the current game. Options: 'record' (JSON text, required), 'assets' (JSON text, optional -- its image records are registered for this session only, so the portrait and frame render here without being uploaded). The token belongs to no game, like the characters module.DownloadModuleSnapshot returns: read its name, portrait and properties, but do not edit or place it. Returns nil if the record could not be read.
+--- @param options {record: string, assets: nil|string}
+--- @return nil|CharacterToken
+function dmhub.CreateDetachedCharacter(options) end
 
 --- Reset the given setting to its default value.
 --- @param settingid? string
