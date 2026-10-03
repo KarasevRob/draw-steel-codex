@@ -19,6 +19,7 @@ local mod = dmhub.GetModLoading()
 --- @field iconid string Icon shown in the UI. Class-level default applies when absent.
 --- @field display table Icon display settings (bgcolor/hueshift/saturation/brightness).
 --- @field difficultTerrain boolean If true, an area marked with this keyword counts as difficult terrain. Uses the same terrain rule flag name as tiles (asset.rules.difficultTerrain).
+--- @field terrainKeywords table<string, boolean>|nil Ability keywords (keyword -> true, e.g. {Magic = true}) attached to the difficult terrain of areas marked with this keyword. Folded onto the aura's difficultTerrainKeywords by ApplyToAura; a creature whose Ignore Difficult Terrain modifier names any of them ignores that difficult terrain. No class default: absent = none.
 --- @field water boolean If true, an area marked with this keyword counts as water. Uses the same terrain rule flag name as tiles (asset.rules.water).
 --- @field concealment boolean If true, an area marked with this keyword grants concealment. Uses the same terrain rule flag name as tiles (asset.rules.concealment).
 --- @field climbable boolean If true, an area marked with this keyword can be climbed, like a climbable wall: creatures in it may climb up to the ceiling of the floor.
@@ -141,6 +142,8 @@ function EnvironmentalKeyword.ApplyToAura(auraDef, keywordid)
 		if keyword:try_get("difficultTerrain", false) == true then
 			auraDef.difficult_terrain = true
 		end
+		--keywords on the terrain (e.g. Magic), matched by Ignore Difficult Terrain modifiers.
+		Aura.AddDifficultTerrainKeywords(auraDef, keyword:try_get("terrainKeywords"))
 		if keyword:try_get("water", false) == true then
 			auraDef.water = true
 		end
@@ -1970,6 +1973,25 @@ local SetData = function(tableName, keywordPanel, keyid)
 		}
 	}
 
+	--keywords on this keyword's difficult terrain (e.g. Magic), which Ignore Difficult
+	--Terrain modifiers can match. Only shown while the keyword is difficult terrain.
+	local terrainKeywordsRow = gui.Panel{
+		classes = {"formStackedRow", cond(keyword:try_get("difficultTerrain", false), nil, "collapsed")},
+		gui.Label{
+			classes = {"formStacked"},
+			text = "Difficult Terrain Keywords:",
+		},
+		CharacterModifier.CreateKeywordSetEditor{
+			get = function()
+				return keyword:try_get("terrainKeywords")
+			end,
+			set = function(keywords)
+				keyword.terrainKeywords = keywords
+				UploadKeyword()
+			end,
+		},
+	}
+
 	--an area marked with this keyword is difficult terrain.
 	children[#children+1] = gui.Panel{
 		classes = {"formStackedRow"},
@@ -1978,10 +2000,13 @@ local SetData = function(tableName, keywordPanel, keyid)
 			text = "Difficult Terrain",
 			change = function(element)
 				keyword.difficultTerrain = element.value
+				terrainKeywordsRow:SetClass("collapsed", not element.value)
 				UploadKeyword()
 			end,
 		},
 	}
+
+	children[#children+1] = terrainKeywordsRow
 
 	--an area marked with this keyword is water.
 	children[#children+1] = gui.Panel{

@@ -4024,10 +4024,11 @@ creature.RegisterSymbol {
             return false
         end
 
-        -- Check all occupied tiles for difficult terrain (tile rules + auras).
+        -- Check all occupied tiles for difficult terrain (tile rules + auras). Passing
+        -- the token skips terrain it ignores by keyword (e.g. Can't Take Hold vs Magic).
         local locs = token.locsOccupying
         for _, loc in ipairs(locs) do
-            if dmhub.IsLocDifficultTerrain(loc) then
+            if dmhub.IsLocDifficultTerrain(loc, token) then
                 return true
             end
         end
@@ -6873,7 +6874,14 @@ function creature:CanMoveThroughWalls()
     return result
 end
 
+--True if this creature ignores ALL difficult terrain: the Ignore Difficult Terrain
+--attribute, or an Ignore Difficult Terrain modifier with no keywords. Keyword-limited
+--ignores (creature:DifficultTerrainIgnoreKeywords) are applied per area by the engine.
 function creature:IgnoreDifficultTerrain()
+    if self:HasBlanketDifficultTerrainIgnore() then
+        return true
+    end
+
     local customAttr = CustomAttribute.attributeInfoByLookupSymbol["ignoredifficultterrain"]
     if customAttr == nil then
         return false

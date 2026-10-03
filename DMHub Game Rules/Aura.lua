@@ -26,6 +26,7 @@ local mod = dmhub.GetModLoading()
 --- @field includeAdjacent boolean If true, the engine extends the aura's area one tile outward (8-way) and marks the extension tiles as adjacent-only. Creatures on those tiles count as touching the aura for enter/start-of-turn trigger contact (the simple power roll fires for them at the start of their turn, with a bane), but the tiles do not take the aura's terrain rules, move damage, or modifiers.
 --- @field damaging boolean Explicitly marks the aura as damaging terrain for movement advisories (the red "moving into damaging terrain" line on the drag tooltip). Only needed for auras whose damage comes from custom triggers: an entry power roll or per-tile move damage already implies it (see Aura:IsDamaging).
 --- @field environmentalKeywordId string|nil Id in the environmentalKeywords table of the Environmental Keyword this aura is marked with. Set on map-markup zone auras (see MapMarkup BuildZoneAuraInstance) and settable on any hand-authored aura definition. When an aura is created, EnvironmentalKeyword.ApplyToAura folds the keyword's effects (terrain flags, modifiers, move damage, entry power roll) into the definition; the id is also read by the creature and Loc "Environment" GoblinScript symbols and by creature:HasConcealmentIgnoringDarkness.
+--- @field difficultTerrainKeywords? table<string, boolean> Keywords describing where this aura's difficult terrain came from (keyword -> true), e.g. {Magic = true}. Stamped from the creating ability's keywords in ActivatedAbilityAuraBehavior:CastOnArea and from the Environmental Keyword's terrainKeywords. A creature with an Ignore Difficult Terrain modifier naming any of them ignores this aura's difficult terrain (engine: AuraInstance:GetDifficultTerrainKeywords). Read with try_get.
 --- @field water? boolean Tiles in the area count as water (engine tile rule via AuraInstance:GetWater); read with try_get.
 --- @field climbable? boolean Tiles in the area can be climbed like a climbable wall (AuraInstance:GetClimbable); read with try_get.
 --- @field climbersOnly? boolean With climbable, restricts climbing to natural climbers; read with try_get.
@@ -1656,6 +1657,36 @@ function AuraInstance:GetDifficultTerrain()
     return self.aura:try_get("difficult_terrain", false)
 end
 
+--Keywords describing where this aura's difficult terrain came from, as a set of
+--keyword -> true, or nil. Read once by the engine when it builds the C# Aura
+--(Aura.cs); a creature whose Ignore Difficult Terrain keywords match any of them
+--ignores this aura's difficult terrain (CharacterToken.IgnoresDifficultTerrainFrom).
+--- @return table<string, boolean>|nil
+function AuraInstance:GetDifficultTerrainKeywords()
+    return self.aura:try_get("difficultTerrainKeywords")
+end
+
+--- Adds keywords to an aura definition's difficult-terrain keywords. Builds a
+--- fresh table so a definition never writes into a table it shares with another.
+--- @param auraDef Aura
+--- @param keywords table<string, boolean>|nil Set of keyword -> true; nil is a no-op.
+function Aura.AddDifficultTerrainKeywords(auraDef, keywords)
+    if auraDef == nil or keywords == nil or next(keywords) == nil then
+        return
+    end
+
+    local result = {}
+    for k, v in pairs(auraDef:try_get("difficultTerrainKeywords", {})) do
+        result[k] = v
+    end
+    for k, v in pairs(keywords) do
+        if v == true then
+            result[k] = true
+        end
+    end
+    auraDef.difficultTerrainKeywords = result
+end
+
 function AuraInstance:GetConcealment()
     return self.aura:try_get("concealment", false)
 end
@@ -2209,6 +2240,14 @@ function ActivatedAbilityAuraBehavior:CastOnArea(ability, casterToken, targets, 
         local environmentalKeywordType = rawget(_G, "EnvironmentalKeyword")
         if environmentalKeywordType ~= nil then
             environmentalKeywordType.ApplyToAuraTree(auraDef)
+        end
+
+        --Carry the ability's keywords (Magic, Psionic, ...) on any difficult terrain
+        --it creates, so e.g. a Human's Can't Take Hold can ignore magic terrain only.
+        local abilityKeywords = ability:try_get("keywords")
+        Aura.AddDifficultTerrainKeywords(auraDef, abilityKeywords)
+        for _,childDef in ipairs(auraDef:try_get("subauras", {})) do
+            Aura.AddDifficultTerrainKeywords(childDef, abilityKeywords)
         end
 
         local auraInstance = AuraInstance.new {

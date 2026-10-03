@@ -459,10 +459,11 @@ function dmhub.DebugStairways(loc) end
 --- @return nil|TileGameRules
 function dmhub.GetTileRulesAtLoc(loc) end
 
---- Returns true if the given location is difficult terrain. Checks both tile rules and auras.
+--- Returns true if the given location is difficult terrain. Checks both tile rules and auras. Pass a token to ask whether it is difficult terrain for that creature.
 --- @param loc Loc The location to query.
+--- @param token? CharacterToken The creature asking. When given, difficult terrain that creature ignores by keyword (e.g. Magic terrain for a Human's Can't Take Hold) and auras whose creature filter it fails do not count.
 --- @return boolean
-function dmhub.IsLocDifficultTerrain(loc) end
+function dmhub.IsLocDifficultTerrain(loc, token) end
 
 --- Returns true if the given location is currently inside the local viewer's vision. Always true for DM vision (including the DM not impersonating a player). Tests the same vision meshes that fog of war renders.
 --- @param loc Loc The location to query.
