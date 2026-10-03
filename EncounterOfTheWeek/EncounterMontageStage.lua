@@ -1169,6 +1169,128 @@ local function MaliceIcon(size)
     }
 end
 
+--- outcome icons -------------------------------------------------------------------
+--
+--A row of small icons on each entry card and each option button saying what
+--it MAY lead to. Worked out from the parsed effects
+--(EncounterScript.EntryOutcomes / OptionOutcomes), never authored. Each icon
+--explains itself on hover.
+
+local OUTCOME_INFO = {
+    intelligence = {
+        bgimage = "phosphor/brain.png",
+        color = "#ffffff",
+        text = "May earn Intelligence: awareness of what you are up against, spent before the fight to learn about the encounter.",
+    },
+    herotoken = {
+        bgimage = "drawsteel/hero-token.png",
+        color = "#ffffff",
+        text = "May earn Hero Tokens for the party.",
+    },
+    treasure = {
+        bgimage = "phosphor/treasure-chest.png",
+        color = "#ffd66b",
+        text = "May find treasure.",
+    },
+    temphp = {
+        bgimage = "phosphor/shield.png",
+        color = "#9fd3ff",
+        text = "May grant Temporary Stamina.",
+    },
+    malice = {
+        text = "May give the monsters Malice, which they spend on their most powerful abilities in the fight.",
+    },
+    harm = {
+        bgimage = "phosphor/sword.png",
+        color = "#ff8a7a",
+        text = "May cost Stamina or Recoveries.",
+    },
+    --white on an opportunity, red on a threat (where only the consequence
+    --counts -- EncounterScript.EntryOutcomes).
+    other = {
+        bgimage = "phosphor/question.png",
+        color = "#ffffff",
+        consequenceColor = "#ff6b5e",
+        text = "May lead to a mysterious reward.",
+        consequenceText = "Beware, this threat has an unknown consequence.",
+    },
+}
+
+--The parse the stage's script came from (resolves "Delve:" options).
+local function CurrentParse()
+    local script = EncounterMontage.FindMapScript()
+    return script ~= nil and script.parse or nil
+end
+
+local function OutcomeTooltip(outcome)
+    local info = OUTCOME_INFO[outcome.kind]
+    if outcome.fromConsequence and info.consequenceText ~= nil then
+        return info.consequenceText
+    end
+    local text = info.text
+    if outcome.fromConsequence and not outcome.fromOptions then
+        text = text .. " Only if this threat is never dealt with."
+    elseif outcome.fromConsequence then
+        text = text .. " Leaving this threat unresolved may also do this."
+    end
+    return text
+end
+
+--One icon in a square slot. The slot is the hover target (a transparent
+--bgimage so it is hit-tested); a press on it still reaches the card or
+--button underneath, since presses pass up to the parent.
+local function OutcomeIcon(outcome, size)
+    local info = OUTCOME_INFO[outcome.kind]
+    local icon
+    if outcome.kind == "malice" then
+        --the diamond fills less of its box than the line icons do.
+        icon = MaliceIcon(size * 1.3)
+    else
+        icon = gui.Panel{
+            width = size,
+            height = size,
+            halign = "center",
+            valign = "center",
+            interactable = false,
+            bgimage = info.bgimage,
+            bgcolor = cond(outcome.fromConsequence and info.consequenceColor ~= nil, info.consequenceColor, info.color),
+        }
+    end
+    return gui.Panel{
+        width = size + 4,
+        height = size + 4,
+        valign = "center",
+        bgimage = "panels/square.png",
+        bgcolor = "#00000000",
+        icon,
+        linger = function(element)
+            gui.Tooltip(OutcomeTooltip(outcome))(element)
+        end,
+    }
+end
+
+--The row for a list of outcomes, or nil when there are none.
+local function OutcomeIconRow(outcomes, size, args)
+    if outcomes == nil or #outcomes == 0 then
+        return nil
+    end
+    local children = {}
+    for _, outcome in ipairs(outcomes) do
+        children[#children + 1] = OutcomeIcon(outcome, size)
+    end
+    local row = {
+        width = "auto",
+        height = "auto",
+        flow = "horizontal",
+        valign = "center",
+        children = children,
+    }
+    for k, v in pairs(args or {}) do
+        row[k] = v
+    end
+    return gui.Panel(row)
+end
+
 --- typewriter --------------------------------------------------------------------
 --
 --Text types out a character at a time, but it is laid out in full from the
@@ -1524,23 +1646,22 @@ local function CreateEntryCard(entry, appearIn)
     --The name is a DIRECT child of the card: while a hero is dragged the
     --engine marks valid drops "drag-target", the theme turns them light,
     --and its "parent:drag-target" rule darkens only the card's direct
-    --children's text. A threat's malice diamond floats in the corner so it
-    --does not need a row around the name.
+    --children's text. The outcome icons float in the corner so they do not
+    --need a row around the name.
+    local outcomes = EncounterScript.EntryOutcomes(entry, CurrentParse())
+    local outcomeRow = OutcomeIconRow(outcomes, 18, {
+        floating = true,
+        halign = "right",
+        valign = "top",
+    })
     ---@type Panel[]
     local cardChildren = {
-        gui.Label{ classes = {"eotwEntryName"}, text = entry.name, interactable = false, halign = "left", width = cond(entry.kind == "threat", "100%-30", "100%") },
+        gui.Label{ classes = {"eotwEntryName"}, text = entry.name, interactable = false, halign = "left",
+            width = cond(#outcomes > 0, string.format("100%%-%d", #outcomes * 22 + 8), "100%") },
         gui.Label{ classes = {"eotwEntryDesc"}, text = entry.description, interactable = false },
     }
-    if entry.kind == "threat" then
-        cardChildren[#cardChildren + 1] = gui.Panel{
-            floating = true,
-            width = "auto",
-            height = "auto",
-            halign = "right",
-            valign = "top",
-            interactable = false,
-            MaliceIcon(22),
-        }
+    if outcomeRow ~= nil then
+        cardChildren[#cardChildren + 1] = outcomeRow
     end
     --a deadline the party cannot see is not a deadline, so a "(Temporary)"
     --entry wears its own line. (The other two heading tags are bookkeeping
@@ -2362,6 +2483,7 @@ local function CreateSceneStage()
     local function OptionButtons(m, entry)
         local t = m.turn
         local mine = IsMyTurn(m)
+        local parse = CurrentParse()
         local buttons = {}
         for i, option in ipairs(entry.options) do
             local verdict = EncounterMontage.RiderVerdict(t.heroid, option)
@@ -2372,12 +2494,16 @@ local function CreateSceneStage()
                 width = "auto",
                 height = "auto",
                 halign = "left",
+                flow = "horizontal",
                 hpad = 14,
                 vpad = 5,
                 borderBox = true,
                 vmargin = 2,
                 bgimage = "panels/square.png",
-                gui.Label{ classes = Classes("eotwSceneOptionName", locked and "locked"), text = option.name, interactable = false },
+                children = Classes(
+                    gui.Label{ classes = Classes("eotwSceneOptionName", locked and "locked"), text = option.name, interactable = false, valign = "center" },
+                    OutcomeIconRow(EncounterScript.OptionOutcomes(option, parse, entry), 16, { lmargin = 10 })
+                ),
                 hover = function(element)
                     ShowDetail({ OptionCard(entry, option, i, m) })
                 end,
@@ -5450,6 +5576,146 @@ local function CreateScriptStage(args)
 end
 
 EncounterMontageStage.CreateScriptStage = CreateScriptStage
+
+--- the story screen --------------------------------------------------------
+
+--The encounter's ending, read by each player on their own between the
+--victory (or defeat) screen and the trip home: the script's "# Conclusion"
+--or "# Defeat" text over that section's [[scene]] (else the last backdrop
+--the script hung), and one button that takes the player home. Local to this
+--client -- nobody waits for anybody. args:
+--  outcome    = "victory" | "defeat"
+--  title      = the encounter's name, shown under the outcome
+--  section    = the parsed story section ({text, sceneTag, sceneLine})
+--  script     = the map script the section came from (for its scene art)
+--  onContinue = called once, when the player presses on (or the screen is
+--               closed some other way)
+function EncounterMontageStage.ShowStoryScreen(args)
+    local section = args.section
+    local defeat = args.outcome == "defeat"
+    local m_continued = false
+
+    local scene = nil
+    if args.script ~= nil then
+        scene = EncounterMontage.SceneImage(args.script, section)
+        local beats = args.script.parse ~= nil and args.script.parse.beats or {}
+        for i = #beats, 1, -1 do
+            if scene ~= nil then
+                break
+            end
+            if beats[i].sceneTag ~= nil then
+                scene = EncounterMontage.SceneImage(args.script, beats[i])
+            end
+        end
+    end
+
+    local backdrop = CreateBackdrop()
+    local dim = CreateDim()
+
+    local button
+    local function Continue()
+        if m_continued then
+            return
+        end
+        m_continued = true
+        if button ~= nil and button.valid then
+            button.text = "Returning..."
+            button:SetClass("disabled", true)
+        end
+        if args.onContinue ~= nil then
+            args.onContinue()
+        end
+    end
+
+    button = gui.Button{
+        text = "Return to Blackbottom",
+        halign = "center",
+        tmargin = 18,
+        width = 280,
+        height = 48,
+        fontSize = 22,
+        click = function(element)
+            audio.FireSoundEvent("Mouse.Click")
+            Continue()
+        end,
+    }
+
+    local body = gui.Panel{
+        width = "100%",
+        height = "100%",
+        flow = "vertical",
+        halign = "center",
+        valign = "center",
+        gui.Label{
+            classes = {"eotwStageRound"},
+            text = cond(defeat, "Defeat", "Victory"),
+            halign = "center",
+            color = cond(defeat, "#e04545", "#ffd66b"),
+            uppercase = true,
+        },
+        gui.Label{
+            classes = {"eotwStageTitle", cond(args.title == nil or args.title == "", "collapsed", nil)},
+            text = args.title or "",
+            halign = "center",
+            bmargin = 14,
+        },
+        gui.Panel{
+            classes = {"eotwTurnPanel"},
+            width = 900,
+            maxWidth = "80%",
+            height = "auto",
+            maxHeight = "60%",
+            flow = "vertical",
+            halign = "center",
+            bgimage = "panels/square.png",
+            pad = 24,
+            borderBox = true,
+            vscroll = true,
+            gui.Label{
+                classes = {"eotwNarrativeText"},
+                text = EncounterScript.VisibleText(section.text or ""),
+                halign = "center",
+                bmargin = 0,
+            },
+        },
+        button,
+    }
+
+    local screen
+    screen = gui.Panel{
+        styles = ThemeEngine.MergeStyles(StageRules()),
+        width = "100%",
+        height = "100%",
+        halign = "center",
+        valign = "center",
+        flow = "vertical",
+        bgimage = "panels/square.png",
+        bgcolor = "#05070a",
+        swallowPress = true,
+        children = Classes(backdrop, dim, body),
+
+        captureEscape = true,
+        escape = function(element)
+            Continue()
+        end,
+
+        create = function(element)
+            if scene ~= nil then
+                backdrop.bgimage = scene
+                backdrop:SetClass("hidden", false)
+                backdrop:ScheduleEvent("imageLoaded", 0.2)
+            end
+        end,
+
+        --closed by anything else (a HUD rebuild): the player still goes home.
+        destroy = function(element)
+            Continue()
+        end,
+    }
+
+    gui.ShowModal(screen)
+    return screen
+end
 
 pcall(function()
     GameHud.RegisterPresentableDialog{

@@ -925,6 +925,10 @@ local function LobbyHeroes()
     local entries = {}
     for _, c in ipairs(table.values(dmhub.GetAllCharacters())) do
         local props = c.properties
+        --Encounter of the Week town heroes (Codex Titlescreen/EotwRoster.lua)
+        --are working copies of heroes stored in the Blackbottom city; they
+        --live in the lobby game too but are never titlescreen heroes.
+        local townHero = props ~= nil and rawget(props, "eotwHero") == true
         local ctime = props ~= nil and rawget(props, "ctime") or nil
         if type(ctime) ~= "number" then
             --Absent on module content; a non-number errors the comparator mid-sort.
@@ -940,7 +944,9 @@ local function LobbyHeroes()
             rank = 1
         end
 
-        entries[#entries+1] = { char = c, rank = rank, ctime = ctime }
+        if not townHero then
+            entries[#entries+1] = { char = c, rank = rank, ctime = ctime }
+        end
     end
 
     table.sort(entries, function(a, b)
@@ -1066,7 +1072,9 @@ local function ImportForgeSteel(element)
     end)
 end
 
-local function CreateHero(element)
+--onCreated (optional) runs once the builder closes on a hero that was kept
+--(not discarded as unstarted), with the character.
+local function CreateHero(element, onCreated)
     local heroType = nil
     local characterTypes = dmhub.GetTable(CharacterType.tableName)
     for k, v in pairs(characterTypes) do
@@ -1094,6 +1102,9 @@ local function CreateHero(element)
                         }
                         EditHero(element, c, function(character)
                             if HeroIsUnstarted(character) == false then
+                                if onCreated ~= nil then
+                                    onCreated(character)
+                                end
                                 return false
                             end
 
@@ -9588,3 +9599,22 @@ if rawget(_G, "TitlescreenVersion") ~= 2 then
     end
 
 end
+
+--Hero creation for other titlescreen screens (the Encounter of the Week town,
+--Codex Titlescreen/EncounterOfTheWeek.lua): the same builder round trip the
+--titlescreen's own "+" uses. Create(onCreated) builds a new lobby hero and
+--calls onCreated(character) if it was kept; Edit(character, onClosed) opens an
+--existing one, calling onClosed(character) when the sheet closes.
+TitlescreenHeroes = {
+    Create = function(onCreated)
+        CreateHero(g_titlescreen, onCreated)
+    end,
+    Edit = function(character, onClosed)
+        EditHero(g_titlescreen, character, function(c)
+            if onClosed ~= nil then
+                onClosed(c)
+            end
+            return false
+        end)
+    end,
+}

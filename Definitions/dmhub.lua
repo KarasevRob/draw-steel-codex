@@ -1489,6 +1489,16 @@ function dmhub.CopyTokensToClipboard(tokens) end
 --- @return string[]
 function dmhub.PasteTokensFromClipboard(loc) end
 
+--- Serializes a character for storage outside any game (e.g. a City's hero roster). Returns a table: 'record' = the character as JSON text, exactly as games store it; 'assets' = JSON text {images = {...}, audio = {...}} of the asset records its appearances reference, so another machine can render it. Both are text on purpose: send them on unchanged. Pair with ImportCharacter.
+--- @param token CharacterToken The character to export.
+--- @return nil|{record: string, assets: string}
+function dmhub.ExportCharacter(token) end
+
+--- Creates or replaces a character in the current game from ExportCharacter data (also accepts the record as a City returns it). Options: 'record' (JSON text, required), 'assets' (JSON text, optional -- asset records the game lacks are uploaded into it), 'charid' (optional -- replace this character; default a new id), 'name' (optional -- rename it). Returns the charid, or nil if the record could not be read or the game's assets have not loaded yet. The character resolves by id once the write echoes back, like a paste.
+--- @param options {record: string, assets: nil|string, charid: nil|string, name: nil|string}
+--- @return nil|string
+function dmhub.ImportCharacter(options) end
+
 --- Reset the given setting to its default value.
 --- @param settingid? string
 --- @return boolean

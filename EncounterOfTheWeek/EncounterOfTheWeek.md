@@ -38,7 +38,7 @@ write-ups, superseded designs, old module versions) was removed on
 
 ---
 
-# Where things stand (2026-10-01)
+# Where things stand (2026-10-02)
 
 **Everything in the flow above is built**, from the lobby server to the
 victory screen, and most of it has been played in real EotW games at some
@@ -68,11 +68,12 @@ handovers on a non-host screen.
   (`game-server-staging`). The titlescreen connects with `staging = true` and
   creates games on `durableobjects-staging`. Deploying it to release is a
   launch task.
-- **Module.** The latest known `mcdm-encounteroftheweek` is version 27
-  (dataid `6f829874`, 2026-09-24), published with `--force` over the
+- **Module.** The latest known `mcdm-encounteroftheweek` is version 29
+  (dataid `d240b941`, 2026-10-03: the Goblin Ambush story sections and the
+  Town Gate text on the module record), published with `--force` over the
   standing warnings below.
 
-## Uncommitted work (as of 2026-10-01)
+## Uncommitted work (as of 2026-10-02)
 
 | Change | Files | State |
 |---|---|---|
@@ -80,6 +81,8 @@ handovers on a non-host screen.
 | **Party size 4-6** (was 3-7) | `Codex Titlescreen/EncounterOfTheWeek.lua` (`MIN_HEROES`/`MAX_HEROES`), `EncounterOfTheWeek.lua` (comment only); server `cloudflare-game-server/src/lobby-core.ts` + tests (280/280) | Worker DEPLOYED to staging 2026-10-02 (it rode along with the City deploy; `lobby-smoke.ts` passes there); Lua NOT deployed, untested live |
 | **No cancelling a montage roll once thrown**: a failed test could be retried via the roll card's X / ESC | `EncounterMontage.lua` (`noCancelOnceThrown = true`); core `DMHub Utils/Utils.lua` (`RollDialogCancelOffered`), `Draw Steel UI/DSRollDialog.lua`, `Timeline/EmbeddedRollDialog.lua` | Untested |
 | **City DO** for the Blackbottom town (committed; listed for its deploy state) (2026-10-02; see "The City DO") | `cloudflare-game-server`: new `src/city.ts`, `src/city-core.ts`, `test/city-core.test.ts`, `test/city-smoke.ts`; hooks in `src/lobby.ts`; `"roster"` hero kind in `src/lobby-core.ts`; routes in `src/index.ts`; binding + migration `v4` in `wrangler.toml` and `wrangler.dmhub.toml`; `CLAUDE.md` | **DEPLOYED to staging 2026-10-02** (version `a867550f`); `city-smoke.ts` all 34 checks passed against staging; committed dmhub `4a0a9e3af` |
+| **Town front end** (2026-10-02; see "The town client") | Engine: `Assets/Scripts/LobbyConnection.cs`, `LobbiesLua.cs` (route option, empty-args fix), `GameController.cs` + `LuaInterface.cs` (`ExportCharacter`/`ImportCharacter`); stubs `Definitions/dmhub.lua`, `Definitions/lobbies.lua`. Codex: NEW `Codex Titlescreen/EotwHeroCard.lua` and `EotwRoster.lua` (registered in the Codex Titlescreen codemod, Firebase confirmed), `EncounterOfTheWeek.lua` (the town screen), `CodexTitlescreen.lua` (`TitlescreenHeroes`, `LobbyHeroes` skip), `EncounterOfTheWeek/EncounterOfTheWeekHud.lua` (card aliases), `EncounterOfTheWeek/EncounterOfTheWeek.lua` (city id). Server: `city.ts`/`city-core.ts` `asJson` + tests | C# BUILT (dev build); server DEPLOYED to staging (`22189dfe`); Lua typing clean; single-client verified live (see that section); NOT deployed to the cloud codemods (new core files need an app restart wherever they land) |
+| **Encounter stories + Victories** (2026-10-02; see "Encounter stories and the Victory award") | Server: `city-core.ts` / `city.ts` (`city_completions`, `record-outcome {completed}`, `completed` on `list-heroes` and party heroes), `lobby-core.ts` (`completed` survives sanitizing), `test/city-core.test.ts` (307/307). Core: `Draw Steel UI/DSVictoryScreen.lua` (`AwardVictories` + exemptions). Codex: `EncounterScript.lua` (story sections) + `tests/encounter_script_test.lua` (474), `EncounterOfTheWeek.lua` (game side), `EncounterMontageStage.lua` (`ShowStoryScreen`), `Codex Titlescreen/EncounterOfTheWeek.lua`, `Codex Titlescreen/EotwRoster.lua`. Publisher: `tools/eotw_publish/documents.py` (`story_section`), `publish_eotw.py`. Content: `C:\dev\eotw\objectTables\documents\encounter.yaml` (Goblin Ambush: Town Gate, Conclusion, Defeat) | Unit tests + luac + typing pass; **module v29 PUBLISHED 2026-10-03** (dataid `d240b941`, carries the Town Gate text); Form a Party backstory verified live; server NOT deployed (the user deploys: `npm run deploy` in `cloudflare-game-server`); the rest unverified |
 | This document | | |
 
 The codex working copy also holds plenty of unrelated uncommitted work, so
@@ -160,11 +163,29 @@ In a real EotW game with **at least two clients** and the current week:
 6. Before opening EotW beyond the dev machine: verify a non-owner account can
    fetch the unlisted module and create a game from it; deploy the lobby to
    release and switch `LOBBY_OPTIONS`/`GAME_BACKEND` off staging.
-7. **Blackbottom, the town lobby** (designed 2026-10-01, nothing built):
-   build the client half against the staging City DO, settle the remaining decisions in
-   "Blackbottom: the town", run its spikes, then build Phase 10. Progression
-   is Phase 11, after its own design pass. It replaces the lobby screen, so it
-   can proceed alongside steps 1-5.
+7. **Blackbottom, the town** (server + basic client built 2026-10-02; see
+   "The town client" for exactly what is verified). Next, in order:
+   - finish the single-client checks: form a party with a roster hero
+     (abandon the old staging EotW game first), Begin and play, Create
+     through the builder, dismiss;
+   - pre-select the active heroes in the add-hero picker;
+   - verify the encounter stories + Victory award live (see that section's
+     "Not yet verified"): deploy the City to staging (`npm run deploy`; the
+     module is already republished as v29), then play Goblin Ambush to a
+     victory and back;
+   - step 62, coming home: the Victory half is BUILT (see "Encounter stories
+     and the Victory award"); still open are burying the dead
+     (`record-outcome {died}`), landing in town, and "Away" in the guild;
+   - other players' heroes in town (`town-heroes`) and a second machine;
+   - the real map export.
+
+8. **The hero builder and hero sheet** (designed 2026-10-03, not started;
+   see that section). First answer its open questions, then start with build
+   step 1 (the headless step engine).
+
+   Progression is Phase 11, after its own design pass. **Note:** the EotW
+   screen now IS the town, and its games live in the City's roster instead
+   of the old `eotw` lobby, so steps 1-2 above run through the town.
 
 ---
 
@@ -174,6 +195,10 @@ In a real EotW game with **at least two clients** and the current week:
 |---|---|
 | Titlescreen screen, lobby client UI, create/join/launch, hero picker | `Codex Titlescreen/EncounterOfTheWeek.lua` (core codex, Codex Titlescreen codemod, before `CodexTitlescreen.lua`) |
 | Titlescreen link | `Codex Titlescreen/CodexTitlescreen.lua` (`eotwTitlescreenLink`) |
+| Town roster sync, Hero's Guild, Graveyard | `Codex Titlescreen/EotwRoster.lua` (global `EotwRoster`) |
+| Hero card (town strip + montage HUD) | `Codex Titlescreen/EotwHeroCard.lua` (global `EotwHeroCard`) |
+| City DO (the town's server) | `cloudflare-game-server/src/city-core.ts` (pure logic), `src/city.ts` (`CityObject`), tests `test/city-core.test.ts`, `test/city-smoke.ts` |
+| Character export/import | `dmhub.ExportCharacter` / `dmhub.ImportCharacter` in `Assets/Scripts/LuaInterface.cs` -> `GameController.ExportCharacter` / `ImportCharacter` |
 | Game-side mod (codemod `cdc19d98-...`, `EncounterOfTheWeek_1428`, ships in the module) | `EncounterOfTheWeek/`: `EncounterOfTheWeek.lua` (setup, map script, beat machine, combat glue), `EncounterScript.lua` (pure parser), `EncounterZones.lua` (traps/zones), `EncounterScriptValidator.lua` (dev panel), `EncounterMontage.lua` (montage runtime + shared effect application), `EncounterNarrative.lua`, `EncounterOfTheWeekHud.lua` (custom interface), `EncounterPrep.lua` (Tactical Preparation), `EncounterMontageStage.lua` (all stage UI) -- that is the codemod's file order |
 | Parser unit tests | `tests/encounter_script_test.lua` (run with `../dependencies/lua/bin/lua.exe` from the codex root) |
 | Test riders (core, also used by the journal) | `DMHub Game Rules/TestRiders.lua` |
@@ -369,7 +394,7 @@ All in `Codex Titlescreen/EncounterOfTheWeek.lua`, mounted on
 
 ---
 
-# Blackbottom: the town (DESIGN 2026-10-01; nothing built)
+# Blackbottom: the town (DESIGN 2026-10-01; server + basic client BUILT 2026-10-02)
 
 User direction (2026-10-01): replace the plain lobby screen (the title,
 games list and chat column in `CreateScreen`) with a **persistent town,
@@ -428,7 +453,7 @@ already has natural homes (fractions of the 6160x4480 canvas):
 |---|---|---|
 | **Town Gate** | the walled city gate, top centre (~0.53, 0.13) | labeled "City Gate" on the source map |
 | **Graveyard** | the green churchyard beside the Cathedral (~0.31, 0.85) | |
-| **Hero's Guild** | **to choose**. Suggestions: the small walled green island with a lone building in the canal (~0.44, 0.42), or the Safe House block (~0.54, 0.60) | |
+| **Hero's Guild** | the small walled green island with a lone building in the canal (0.44, 0.42) | chosen when building (2026-10-02); the Safe House block (~0.54, 0.60) was the alternative |
 | later | the Drunken Fool tavern (chat?), the Docks, Bora's Wagon Yard, the Cathedral | |
 
 ## Decisions taken (2026-10-01, with the user)
@@ -653,12 +678,12 @@ configs; city id for the town: `blackbottom`):
 
   | Action | Who | What |
   |---|---|---|
-  | `list-heroes {userid?, includeFallen?}` | anyone | an account's roster as summaries + `rosterRev` (no records) |
+  | `list-heroes {userid?, includeFallen?}` | anyone | an account's roster as summaries + `rosterRev` (no records); each hero carries `completed`, the encounters (map names) it has won |
   | `get-hero {userid?, heroid}` | anyone | one hero: summary, status, full record, assets |
   | `put-hero {heroid, baseRev, summary, record, assets?}` | owner | `baseRev` 0 creates (12 living max); otherwise must equal the stored `rev` (conflict -> reload and retry). A fallen hero cannot be changed |
   | `delete-hero {heroid}` | owner | dismiss; refused while the hero is in a party |
   | `set-active {heroids}` | owner | replace the active set (max 4, living, own) |
-  | `record-outcome {heroid, gameid, outcome, died?}` | owner | append to the hero's adventure log, idempotent per (hero, game). `died` sets the hero fallen and inactive and digs a grave whose epitaph comes from the summary + `outcome.encounter` + owner name |
+  | `record-outcome {heroid, gameid, outcome, died?}` | owner | append to the hero's adventure log, idempotent per (hero, game). `died` sets the hero fallen and inactive and digs a grave whose epitaph comes from the summary + `outcome.encounter` + owner name. `outcome.completed` (with `outcome.encounter`, not dying) records that the hero won that encounter (`city_completions`) |
   | `list-outcomes {userid?, heroid}` | anyone | the hero's adventure log |
   | `list-graveyard {before?, limit?}` | anyone | graves newest first, paged (50 default, 100 max), `more` flag |
   | `town-heroes {}` | anyone | the active heroes of everyone currently present |
@@ -666,7 +691,8 @@ configs; city id for the town: `blackbottom`):
   accept only the caller's own living heroes as `{kind: "roster", id:
   heroid}`, none already claimed by another party. "Away" is derived from
   the game records, never stored. The party's display copies are rewritten
-  from the stored summary, so a client cannot misrepresent a hero.
+  from the stored summary, so a client cannot misrepresent a hero; a hero
+  that already won the game record's `encounter` gets `completed: true`.
 - **Change signals in the subscribed document:** each presence entry carries
   `rosterRev` (a roster change re-broadcasts that one entry), and
   `/city/graveyardRev` is pushed on each new grave. Clients re-query on a
@@ -696,12 +722,30 @@ configs; city id for the town: `blackbottom`):
   NOT deployed. The `wrangler.dmhub.toml` white-label config has the same
   binding and migration but was not deployed.
 
-**Still to build on the client.**
-- `lobbies:Connect` only reaches `/lobby/{id}`, so the city needs a route
-  option (a small C# change in `LobbyConnection.cs` and `LobbiesLua.cs`).
-- The two character data APIs (`token:ExportCharacter()`,
-  `game.ImportCharacter`) produce and consume the `record` + `assets`
-  payload.
+- **`get-hero {asJson: true}`** (added 2026-10-02, deployed to staging as
+  version `22189dfe`) returns `record` and `assets` as JSON **text**, and
+  `put-hero` accepts them as text. The client passes the text straight
+  between `dmhub.ExportCharacter`/`ImportCharacter` and the server, so a
+  character never round-trips through Lua tables (which would turn empty
+  objects into lists and lose key types). Unit test + a `city-smoke.ts`
+  section cover it.
+
+**The client half (BUILT 2026-10-02).**
+- **Route option:** `lobbies:Connect(id, {staging=true, route="city"})`
+  reaches `/city/{id}`. `LobbyConnection.cs` keys connections by route +
+  id + staging; `LobbiesLua.cs` accepts `"lobby"` (default) or `"city"`. An
+  empty `args = {}` is sent as `{}` (an empty Lua table serializes as `[]`,
+  which the server rejects).
+- **Character data APIs** (`LuaInterface.cs`, `GameController.cs`):
+  - `dmhub.ExportCharacter(token)` -> `{record, assets}`, both JSON text.
+    `assets` is `{images, audio}`: the records the character's appearances
+    reference (`CollectCharacterAssets`, shared with `CopyCharacters`).
+  - `dmhub.ImportCharacter{record, assets, charid?, name?}` -> charid. It
+    normalizes the stored shape (strips the store's meta keys), PUTs
+    `/characters/{charid}` in the current game, and uploads the asset
+    records the game lacks. It returns nil (and logs) if the record cannot
+    be read or the game's assets have not loaded yet. The character resolves
+    by id once the write echoes back, like a paste.
 - **Other players' heroes** reach the town by `town-heroes` and
   `list-heroes`. Inspecting a sheet is one `get-hero`, imported as a
   read-only working copy (or shown through a detached sheet, engine support
@@ -718,6 +762,130 @@ configs; city id for the town: `blackbottom`):
 - a per-account DO-backed "hero game" that the titlescreen would enter to
   edit heroes;
 - moving the lobby game back to a DO.
+
+## The town client (BUILT 2026-10-02; single-client verified)
+
+The EotW screen **is** the town now: `CreateScreen` in
+`Codex Titlescreen/EncounterOfTheWeek.lua` builds it, and it connects to the
+City (`LOBBY_ID = EotwRoster.CITY_ID = "blackbottom"`,
+`LOBBY_OPTIONS = {staging=true, route="city"}`) instead of the old `eotw`
+lobby. The game side (`EncounterOfTheWeek/EncounterOfTheWeek.lua`) sends its
+lobby requests to the same city.
+
+**Files (all core codex, Codex Titlescreen codemod, registered in this
+order before `EncounterOfTheWeek.lua`):**
+- `EotwHeroCard.lua` (NEW): the hero card, moved verbatim out of
+  `EncounterOfTheWeekHud.lua` so the titlescreen can use it. Global
+  `EotwHeroCard` = `CreateHeroCard`, `CreateStaminaBar`, `CreateCardFlash`,
+  `CollectHeroes`, `RosterSignature`, `HeroDisplayName`, `rules`,
+  `CARD_WIDTH`, `CARD_HEIGHT`. New option `subtitle = function(tok)` for the
+  line under the name. The HUD now aliases these.
+- `EotwRoster.lua` (NEW): roster sync + the Guild and Graveyard UI. Global
+  `EotwRoster`.
+- `EncounterOfTheWeek.lua`: the town screen (map, nodes, hero strip, gate,
+  chat drawer, plaque).
+- `CodexTitlescreen.lua`: global `TitlescreenHeroes = {Create(onCreated),
+  Edit(character, onClosed)}` exposes the titlescreen's own builder flow;
+  `LobbyHeroes()` skips characters with `properties.eotwHero`, so town
+  heroes never show among the titlescreen's campaign heroes.
+
+**The map.** `CITY_MAP_IMAGE = "39beb163-c5b5-408d-be3c-191825776239"`, a
+**placeholder**: a psd-tools render of the PSD with `Grid` + `Labels`
+hidden, 4096x2980, uploaded as a core image asset. Swap in a Photoshop export
+later by uploading it and changing the constant. The map covers the screen
+and pans by dragging (`draggable`, `dragMove = false`, `dragDelta`); the
+nodes ride on a separate layer moved in step. Two traps found building it:
+- a `clip = true` panel whose own `bgcolor` is `"clear"` draws **none** of
+  its children (they still hit-test), so the viewport is black;
+- a panel whose cloud image id was not yet in the loaded asset records
+  (built at startup, or during a codemod reload) fell back to a white square
+  for good. Fixed in the engine 2026-10-02: `ImageDownloader` now leaves a
+  pending downloader that re-resolves the id once its record arrives (NEEDS
+  BUILD). A `GetImageDimensionsCallback` re-assign does NOT work around it:
+  the dimensions come from the record, so the callback can fire too early.
+
+Near-opaque fills like `#14110df8` also render visibly translucent over the
+map, so every panel over it is fully opaque (`ff`).
+
+**Locations** (`CITY_LOCATIONS`, fractions of the map image):
+- **Hero's Guild** (0.44, 0.42), the walled canal island; `phosphor/shield-star-fill.png`.
+- **Town Gate** (0.53, 0.135); `sword-fill`. Locked until the roster has
+  been listed and holds at least one living hero.
+- **Graveyard** (0.31, 0.86); `cross-fill`.
+
+**Working copies.** A town hero is a character in the per-player **lobby
+game** whose charid **is** its city heroid, tagged `properties.eotwHero`.
+The character builder only edits characters in the current game, which is
+why heroes are copied there. The machine-local preference `eotw:heroRevs`
+(`{userid: {heroid: rev}}`, JSON) records which city revision each copy
+holds.
+- `Refresh` (on connect, on `/`, and when our presence entry changes, since
+  it carries `rosterRev`) does `list-heroes`, then `SyncWorkingCopies`. That
+  waits for the lobby game to finish loading (`gameLoadingProgress == 1`,
+  else the importer fails), then:
+  - imports any listed hero that is missing or at another revision
+    (`get-hero asJson` -> `ImportCharacter{charid = heroid}`);
+  - deletes copies of heroes the city no longer lists;
+  - pushes copies that never reached the city.
+- `PushHero` = `ExportCharacter` -> `put-hero` with `baseRev` from the
+  revision map. A stale revision re-lists and reloads the city's copy.
+- `JoinRoster` (Create and Recruit) stamps `eotwHero`, puts the copy in the
+  lobby's player party, and pushes. If the city refuses the push (the roster
+  is full), the local copy is deleted.
+- **Recruit**: export the pregen token -> `ImportCharacter{name}` ->
+  `JoinRoster`. **Create**: `TitlescreenHeroes.Create`, then `JoinRoster`
+  if the builder kept the hero. **Edit**: `TitlescreenHeroes.Edit`, then
+  push on close.
+
+**The screen.**
+- **Plaque** (top left): "Blackbottom", the adventurer count from presence,
+  and the connection status.
+- **Hero strip** (bottom): one `EotwHeroCard` per active hero, with its
+  subtitle "Level N Ancestry Class". It shows characteristics, stamina and
+  recoveries (`showStats`), but no skills line or heroic resource row
+  (`showSkills = false`, `showResources = false`; user direction
+  2026-10-02). Clicking a card opens
+  the sheet. With no active hero it shows a hint plaque instead.
+- **Guild**: a stacked list, up to 12 rows. Each row has a portrait,
+  details, a star (active, max 4), a pencil (edit) and a trash can (dismiss,
+  with a confirm). Below it: Create a Hero, Recruit a Hero (a grid of the
+  week's pregens, then a name prompt prefilled with the pregen's name), and
+  Leave the Guild.
+- **Gate**: the old games list, retitled. It groups "Parties Forming" and
+  "Encounters Underway"; Form a Party opens the old create dialog,
+  renamed. The add-hero picker lists your living roster heroes that are
+  neither claimed nor away, active ones first, as `{kind = "roster"}`.
+- **Graveyard**: everyone's graves, paged, with your own highlighted.
+- **Town Chat**: a drawer toggled from the bottom-right button.
+- Escape closes the gate, then the chat, then the screen.
+
+**Verified live, one client, 2026-10-02:**
+- the map, panning, nodes and the plaque;
+- the Gate locked with no heroes;
+- Guild: Recruit end to end (Dwarf Fury -> "Thorga Ironhand" on the
+  server, rev 1), the star (active) toggling, the strip card appearing, and
+  the Gate unlocking;
+- the edit round trip: the sheet opens on the imported copy, and the push
+  after it reached rev 2, once the revision-map bug was fixed;
+- the Gate panel and the Form a Party dialog open;
+- the Graveyard opens on its empty state.
+
+**Not yet verified:**
+- Create driven through the builder to a kept hero;
+- forming a party and the roster add-hero picker. Forming would have deleted
+  the account's existing staging EotW game ("Denivarius's Game"), so it was
+  not done;
+- Begin -> encounter with roster heroes;
+- dismiss;
+- a second machine importing the roster;
+- the sync moving an existing copy into the lobby's player party. The last
+  edit added it, and it has not run since a restart. The mechanism
+  (`partyId` + `UploadToken`) was checked by hand, and Thorga now shows
+  "Players".
+
+Verified after the final engine build: the town opened right at boot waits
+for the lobby game (no import errors), then the hero card appears. The Guild
+panel is opaque.
 
 ## Progression (OPEN -- needs its own design pass)
 
@@ -748,10 +916,11 @@ progression rules can be applied after the fact. Run the design with the
 5. **Active heroes and the gate.** *Recommended:* the party pick at the gate
    pre-selects the active heroes but offers the whole living roster. Picking
    a hero for a party does not change the active set.
-6. **The town's social layer.** *Recommended:* keep the lobby connection open
-   in town -- "N adventurers in Blackbottom" with their active heroes, and
-   the lobby chat as a collapsible drawer (or behind the Drunken Fool later).
-7. **Hero's Guild location** on the map (see the table above).
+6. **The town's social layer.** Built as recommended, minus the other
+   players' heroes: the plaque says "N adventurers in town", and the lobby
+   chat is a drawer. Showing who is present with their active heroes
+   (`town-heroes`) is still to do.
+7. ~~Hero's Guild location~~ taken as the canal island (see the table above).
 8. **Smaller defaults**, taken unless overruled:
    - Dismissing a hero deletes it (from the city and the working copy) after
      a two-click confirm.
@@ -764,18 +933,315 @@ progression rules can be applied after the fact. Run the design with the
 
 ## Spikes before building
 
-1. **Character data round trip** (engine): build `ExportCharacter` /
-   `ImportCharacter`. Export a lobby hero with a custom portrait, import it
-   into another game and on a second machine, and measure the payload.
-2. **Builder round-trip from a new screen:** export `CreateHero`, open it from
-   a test panel, confirm the town is hidden and comes back, and that the
-   callback gets the charid.
+1. **Character data round trip** (engine): BUILT and used by Recruit (a
+   pregen export is ~13 KB record + ~1.3 KB assets). Still owed: a hero with
+   a custom (uploaded) portrait imported on a second machine.
+2. **Builder round-trip from a new screen:** BUILT as `TitlescreenHeroes`
+   (see "The town client"). Opening and closing works; a builder session
+   that produces a kept hero has not been driven to the end.
 3. **Final-state read:** in an EotW game, kill a hero, end the fight, and read
    each placed copy's final state (dead, victories, inventory) from the owning
    client before it leaves. Confirm the placed-hero mapping resolves the
    roster id.
 4. ~~City DO skeleton~~ DONE 2026-10-02 (deployed to staging, smoke-tested
    there).
+
+---
+
+# The hero builder and hero sheet (DESIGN 2026-10-03; not started)
+
+User direction (2026-10-03): EotW gets **its own guided character builder
+and its own simplified hero sheet**, written as new code. The existing
+builder and sheet are inspiration and keep their look (same styles, same
+theme tokens), but EotW stops opening them.
+
+## What the user asked for
+
+- **A guided builder** that walks the player through the steps in turn and
+  steers them to a complete hero: **Ancestry -> Culture -> Career -> Class
+  -> Complication -> Appearance**. There is no "Character" step and no
+  "Title" step.
+- **At most one complication**, and only complications whose automation is
+  **gold tier** are offered.
+- **Clear progress**: the player can always see what is filled in and what is
+  not.
+- **"Fill in the rest"**: one button that fills the remaining choices on the
+  current page with good defaults where there are any, random valid picks
+  otherwise.
+- **Level 1 only.** No level control. Level-up comes later and opens the
+  builder only when a level-up has actually happened.
+- **A simple hero sheet** that the player cannot change. The build decides
+  it, and so do the rules of the game. It uses the same styling as today.
+
+## Feasibility (checked 2026-10-03)
+
+**Feasible, with no engine work.** The rules layer already does all the hard
+parts, and none of it is tied to the old builder's UI. What is new is the
+step engine, the pages and the sheet.
+
+**Reusable as-is (rules and data):**
+- Where each choice is stored on the character:
+  - `raceid`;
+  - `culture.aspects` / `culture.aggregate`, plus the culture language
+    `levelChoices.cultureLanguageChoice`;
+  - `backgroundid`;
+  - `classes = {{classid, level}}`, with the subclass as an ordinary
+    `levelChoices` entry;
+  - `attributeBuild` (characteristics);
+  - `kitid` / `kitid2`;
+  - `complications = {[id] = true}`;
+  - the inciting incident, which is a `notes[]` entry, not a `levelChoices`
+    entry;
+  - `characterDescription` (`DSCharacterDescription.lua`), `token.name` and
+    `token.portrait`.
+- `character:GetClassFeaturesAndChoicesWithDetails()`
+  (`MCDMCustomRules.lua:131`) lists every feature and choice from ancestry,
+  culture, career, class/subclass, kit and complications. The prerequisites
+  are already applied, and nested choices are revealed through
+  `FillFeaturesRecursive`.
+- The old builder's **data model**, which has no UI in it:
+  - `CBFeatureCache`, `CBFeatureWrapper`, `CBOptionWrapper`
+    (`Draw Steel Character Builder/FeatureCache.lua`). Between them they
+    cover `GetChoices` (already-taken options are excluded), `IsComplete`
+    (points-aware), and `SaveSelection` / `RemoveSelection` (one write path
+    for every choice type);
+  - the synthetic choices the rules API does not return:
+    - `CharacterAspectChoice` / `CharacterCultureAggregateChoice`
+    - `CharacterCharacteristicChoice` (store the array *index*, because its
+      option guids are regenerated on every build)
+    - `CharacterKitChoice`
+    - `CharacterIncidentChoice`
+    - `CharacterComplicationChoice`
+  - These are loaded in the running app as globals. **Still to check: that
+    they load at the titlescreen.** They should: today's titlescreen Create
+    opens the sheet with that module's Builder tab.
+- `CharacterBuilder.STRINGS` holds the intro text for each step.
+- Race name generators: `token.properties:GetNameGeneratorTable()`, from
+  `race.nameGenerator`. They give a default name.
+- `/buildchar ... random` (`Codex Macros/Macros.lua:2165`,
+  `BuildChar_RandomFillUnchosen`) is a working precedent for random filling.
+  It loops until nothing changes, then fills the kit. It is not points-aware
+  and skips culture, career, incident and complication, so treat it as a
+  reference, not a dependency.
+
+**Why not reuse the old builder's UI:**
+- Its panels hang off one global controller and `CharacterSheet.instance`.
+- It can only run as a tab inside the sheet harness, which:
+  - is one instance per app;
+  - has a tab list that is global and fixed when the sheet is built;
+  - saves every edit automatically.
+- The user wants new code anyway.
+
+**Why not keep the full sheet:**
+- There is no read-only mode anywhere on it, and the engine harness saves
+  any change.
+- A player can edit stamina, recoveries, features and abilities there.
+- `GameHud.RegisterCustomInterface` has no hook to replace the sheet, and
+  `CharSheet.DeregisterTab` (the Crows approach) replaces it for every game,
+  not just EotW.
+- Today the town opens it **fully editable**: both the Guild pencil and the
+  strip card call `EotwRoster.EditHero` -> `ShowSheet()`. That contradicts the
+  "opened read-only" line above.
+
+## Complications: what "gold tier" means
+
+A complication has no automation tier of its own. The tier
+(`implementation`: 0 Narrative, 1 Not Automated, 2 Partly, 3 Mostly, 4 Fully
+/ Gold; `gui.ImplementationStatus`) sits on each feature in
+`complication:GetClassLevel().features`. The complication's tier is
+therefore computed, the same way `monster:CalculateImplementationStatus`
+works out a monster's: **the minimum over its features, skipping Narrative
+(0)**. An unset value counts as 1.
+
+Live counts (2026-10-03, 110 complications):
+- **28** have every feature at Gold.
+- **44** are Gold once their purely narrative parts are skipped. This is
+  the monster rule, and the recommended one.
+- An offline YAML pass suggests 3 of the 44 have a nested ability or
+  modifier below Gold (Corrupted Mentor, War Dog Collar, Curse of Stone).
+  A stricter rule that also looks inside the features would leave about 41.
+
+**Decision needed:** which rule. *Recommended:* the 44, computed live, so the
+list grows as the data team raises tiers. Apply each complication's
+prerequisite GoblinScript as well, as the old adapter does. A complication
+that has its own choices goes through the same choice rows as everything
+else.
+
+## Architecture
+
+**Where the code lives.** Core codex, in the **Codex Titlescreen** codemod.
+Separate codemods do not load at the titlescreen, and the builder runs there
+over the lobby game's working copy. New files (registered through MCP; each
+one needs an app restart):
+- `Codex Titlescreen/EotwBuild.lua` -- the step engine. Headless, no UI.
+  Global `EotwBuild`.
+- `Codex Titlescreen/EotwBuilder.lua` -- the builder screen.
+- `Codex Titlescreen/EotwHeroSheet.lua` -- the read-only sheet.
+
+Core code also loads in-game, so the sheet works there too.
+
+**The builder is a standalone full-screen panel, not a sheet tab.** It opens
+over the town the way the Guild does, and it owns its own lifecycle. Every
+write is `token:ModifyProperties{...}` on the lobby-game working copy; the
+`CB*` wrappers' `SaveSelection` runs inside the `execute`. After each write
+the step engine re-reads the character. `TitlescreenHeroes` and the full
+sheet drop out of the EotW path.
+
+**The step engine (`EotwBuild`)** is plain data plus functions, so it can be
+driven and tested over MCP before any UI exists:
+- `EotwBuild.STEPS` is an ordered list of `{id, title, intro, Pending(hero),
+  Choices(hero), Fill(hero), Clear(hero)}`:
+
+  | Step | Choices it gathers |
+  |---|---|
+  | `ancestry` | the ancestry, then the choices that come from the race (traits, Revenant former life, ...) |
+  | `culture` | a typical culture (aggregate) or three aspects; the culture language; the aspect skills |
+  | `career` | the career; its skills, languages and perk; the inciting incident |
+  | `class` | the class; subclass; characteristic array and arrangement; kit (when the class uses kits); every level-1 class choice (abilities, skills, perks, deity/domain) |
+  | `complication` | "none", or one gold complication, then its own choices |
+  | `appearance` | name and portrait (required); the description fields (optional) |
+
+- `EotwBuild.Status(hero)` returns, for each step,
+  `{complete, filled, total, pending = {choice...}}`. It is computed fresh
+  from the character every time, never cached, so it cannot drift. A step
+  is complete when its base pick is made and every visible choice, nested
+  ones included, is complete.
+- **Changing an earlier pick invalidates later ones.** A new ancestry drops
+  its old trait picks. A new culture can make a career skill a duplicate.
+  So `Status` also reports **stale** picks (an option that is no longer
+  offered, or a duplicate), and the step shows them as needing attention.
+  Changing a base pick that has dependent picks asks for confirmation first,
+  then clears them.
+- `EotwBuild.Fill(hero, stepid)` fills **only the unfilled choices** of one
+  step and never overwrites a choice the player made. It runs to a fixpoint
+  so that nested choices revealed by a fill are filled too. It is
+  points-aware, and it picks from `GetChoices`, so it does not create
+  duplicates. For each choice it takes, in order:
+  1. a **recommendation** from `EotwBuild.DEFAULTS`, a Lua table keyed by
+     class/ancestry/career id (characteristic arrangement, kit, signature
+     ability, ...). It starts small and grows; an entry whose option is not
+     currently offered is ignored;
+  2. a **heuristic** where one exists. Characteristics: put the array's
+     highest value into the class's primary characteristic. Name: the
+     ancestry's name generator. Portrait: the class art the `/buildchar`
+     macro uses;
+  3. **random** from the valid options.
+- **Possible later source of defaults:** copy the picks of the week's pregen
+  for the same class or ancestry, wherever they are valid. Every pregen is
+  then a hand-made default. Not in the first cut.
+- **Level.** The class step writes `classes = {{classid, level = 1}}` and
+  only lists choices for level <= the hero's level. There is no level
+  control. Level-up later reuses the engine with a "Level N" step that lists
+  only that level's new choices.
+
+## The builder screen
+
+- **Stepper across the top**: six pills, Ancestry ... Appearance. Each pill
+  shows a tick (complete), the current step (highlighted), or "n left"
+  (incomplete). Stale picks show as a warning dot.
+- **Strictly guided.** A pill is clickable if it is complete or is the first
+  incomplete step. Later steps are locked until the earlier ones are done.
+  *Recommended;* see the open questions.
+- **Each page**:
+  - **Left**: the step's intro and its options as cards in the familiar
+    builder look (`CBStyles` classes and theme tokens). For a complication,
+    the card shows the benefit and drawback (`CharacterComplication:Render`).
+  - **Right**: the step's **choice checklist**, one row per choice, each
+    filled or empty, with the next empty row highlighted. A step with
+    nothing chosen yet says what to do first.
+- **Footer**:
+  - Back;
+  - **Fill in the rest** (fills this page only; disabled when the page is
+    complete);
+  - Next (enabled when the page is complete; on Appearance it becomes
+    **Finish**).
+- **A summary rail** shows the hero so far: portrait, name, "Level 1
+  Ancestry Class", the characteristics, and stamina. The player sees the
+  result take shape as they go.
+- **Finish** stamps `eotwHero` and goes through `EotwRoster.JoinRoster`, the
+  same path as today. The hero only reaches the city once complete.
+- **Cancel** asks first, then deletes the unfinished working copy. *Or* the
+  draft is kept for later; see the open questions.
+
+## The hero sheet
+
+`EotwHeroSheet.Show(token)` is a read-only full-screen panel. It is built
+from the character every time it opens, and it has no edit controls at all.
+It shows:
+- **Header**: portrait, name, "Level 1 <Ancestry> <Class> (<subclass>)",
+  culture, career, complication;
+- **Stats**: characteristics, Stamina / Recoveries / Recovery Value, Speed,
+  Size, Stability, Disengage, Potencies, and the heroic resource name;
+- **Skills and languages**: a flat list;
+- **Kit**: its name and bonuses;
+- **Abilities**: `ActivatedAbility:Render` cards, grouped by action type;
+- **Features**: name and text, grouped by source. Complication benefit and
+  drawback come from `CharacterComplication:Render`;
+- **Inventory**: list only.
+
+It opens from:
+- the Guild row (replacing the pencil);
+- the town strip card;
+- later, the in-game hero card (which opens the read-only character panel
+  today) and another player's hero (which needs a way to render a hero that
+  is not a lobby character: a temporary import, or a detached creature).
+
+The only actions on the sheet are Close and, when the rules allow it, **Edit
+in Builder** (see the open questions).
+
+**Hardening (later).** In an EotW game, the token radial menu, the "sheet"
+keybind and the character-panel context menu can still reach the full
+sheet. Point them at `EotwHeroSheet` for `eotwHero` characters.
+
+## Build order
+
+1. **Step engine, headless.**
+   - Check that the `CB*` globals load at the titlescreen.
+   - Then `EotwBuild` with `Status` and `Fill` for all six steps.
+   - Prove it over MCP: create a lobby character, run Fill on each step in
+     turn, and check that Status reports everything complete, the hero has
+     level-1 stamina, abilities and skills, and there are no duplicates.
+   - Then build 20 random heroes across every class and ancestry and look
+     for errors.
+2. **Builder shell**: stepper, page frame, checklist, footer, summary rail.
+   Build the Ancestry and Career pages first (the simplest), and check them
+   in the UI harness (`ui-harness` skill) over a fixture hero.
+3. **The remaining pages**: Culture, Class (the largest: subclass,
+   characteristic arrangement, kit, ability picks), Complication,
+   Appearance.
+4. **Guild wiring**: Create opens the new builder, and Finish -> JoinRoster.
+   Run a live end-to-end with a kept hero; this also closes "Create through
+   the builder" in "The town client".
+5. **Hero sheet**: switch the Guild and the strip to it.
+6. **Later**: the in-game card, other players' heroes, the hardening above,
+   the pregen-derived defaults, and level-up (with Phase 11).
+
+Rough size: engine ~800 lines, builder ~2,500, sheet ~1,200.
+
+## Open questions (recommended answer first)
+
+1. **Gold rule**: the 44 (every non-narrative feature Gold), the stricter
+   ~41 (nested abilities included), or the 28 (every feature Gold)?
+2. **Complication default**: does "Fill in the rest" on the Complication
+   page choose *no complication*, or a random gold one? *Recommended:* none,
+   because a complication has a drawback.
+3. **Unfinished heroes**: discard on Cancel, or keep one resumable draft per
+   player that the Guild offers as "Continue your hero"? *Recommended:* keep
+   the draft, local only, and do not count it against the 12.
+4. **Editing after creation**: *Recommended:* a hero can be re-opened in the
+   builder until its first encounter. After that the build is locked, and
+   only level-up changes it.
+5. **Strict step order**: lock later steps until earlier ones are complete?
+   *Recommended:* yes, because it is the guided experience.
+6. **Appearance**: what is required (*recommended:* name + portrait), and
+   where portraits come from (upload via `gui.IconEditor`, the existing
+   avatar library, or the class art as the default)?
+7. **Culture**: lead with the typical (aggregate) cultures and keep "build
+   your own from three aspects" as a secondary option? *Recommended:* yes.
+8. **Reusing the old builder's data model** (`CB*` wrappers and synthetic
+   choices) under new UI, rather than re-implementing those rules.
+   *Recommended:* reuse. Re-implementing the choice rules is where bugs
+   would come from.
 
 ---
 
@@ -1080,13 +1546,109 @@ the module's `Start` environmental keyword, resolved by name.
   on. Each client's screen is **held** until that client presses -- one
   player's Proceed never closes another's screen.
 - **Auto-exit**: after the local Proceed, once the queue is gone, the client
-  leaves (`dmhub.LeaveGame`, deferred ~4s so the host's writes flush).
+  leaves (`dmhub.LeaveGame`, deferred ~4s so the host's writes flush). When
+  the script has a `# Conclusion` (victory) or `# Defeat` section, the
+  story screen comes first and its button is what leaves (never sooner
+  than those ~4s). See "Encounter stories and the Victory award".
+- **The Victory is awarded automatically** by the host, 3s after the
+  victory screen goes up (or at once if someone presses Proceed first).
 - **Cleanup**: before leaving, each client stamps the machine-local
   `eotw:concludedgame` preference and sends lobby `leave-game`. The
   titlescreen (`RefreshResumeState`) then destroys or leaves that game and
   clears the slot, so no stale lobby row and no resume row remain.
 - Every combatant who started the fight gets a victory-screen card, despawned
   dead heroes included (`GetBattleHeroTokens` merges onset heroes).
+
+## Encounter stories and the Victory award (BUILT 2026-10-02, not verified live)
+
+User direction (2026-10-02): each encounter tells its story at both ends,
+and winning one is worth a Victory that the hero keeps -- once per
+encounter.
+
+**The story sections** are three more `#` headings in the encounter's
+script, parsed into `parse.story.towngate` / `.conclusion` / `.defeat`
+(`{text, title, line, sceneTag, sceneLine}`). They are not beats and can sit
+anywhere in the document (or a sub-document). `##` headings and `[[tags]]`
+inside them are not text, except that a `[[scene]]` is the section's
+backdrop.
+- `# Town Gate`: the backstory, shown in the town while a party forms: under
+  the encounter choice in the Form a Party dialog, and under the host line
+  in the party view. The town cannot read the module's documents, so the
+  **publisher** copies each encounter map's Town Gate text into the module
+  record (`publishingProperties.eotwEncounters[<map name>].townGate`,
+  `documents.story_section`), and the town reads it with the encounter
+  list from `module.DownloadModuleInfo`
+  (`EncounterOfTheWeek.GetTownGateText`). **A script edit reaches the town
+  only on the next publish.**
+- `# Conclusion` (after a victory) / `# Defeat` (after a defeat): the story
+  screen (`EncounterMontageStage.ShowStoryScreen`), shown on each client
+  alone after its own Proceed and the victory screen's fade: "Victory" or
+  "Defeat", the encounter's title, the text over the section's `[[scene]]`
+  (else the script's last backdrop), and **Return to Blackbottom**, which
+  leaves the game. Escape does the same. No section, no screen.
+
+The Goblin Ambush script (`encounter.yaml`, the master document) carries
+all three, appended at the end (text-storage keys `zA`..`zF`). The user's
+Town Gate text said "sort"; it was written as "sought".
+
+**The Victory award.**
+- One Victory per won encounter (`ENCOUNTER_VICTORIES`), awarded by the host
+  through the core `DSVictoryScreen.AwardVictories(live, amount,
+  exemptions)` -- the same code the Director's Award button now runs --
+  elevated, so it can write every player's heroes. Every client plays the
+  usual icon drop.
+- **Exemptions** (`live.victoryExemptions = {[charid] = note}`): a hero who
+  died gets nothing and no note (user decision: no Victory for the dead);
+  a hero who already won this encounter gets "Already Completed" in grey
+  italics where the "Victories: old -> new" line would be.
+- **Who already won it** comes from the City: `checkHeroClaim` marks a party
+  hero `completed: true` when `city_completions` has (owner, hero, the
+  game record's `encounter`). The party view shows "Already Completed"
+  (grey italics) on that hero's card, and the add-hero picker does too
+  (from `list-heroes`' per-hero `completed` list,
+  `EotwRoster.HasCompleted`). The flag rides the arrival args, and each
+  owner stamps its placed copies into `eotwstate.alreadyCompleted[charid]`
+  (`RecordCompletedHeroes`), which the host's award reads.
+- Encounters are identified by **map name** ("Encounter: Goblin Ambush"),
+  the same string the party record carries. A week that reuses a map name
+  counts as the same encounter. The Form a Party dialog now records the
+  encounter even when the week has only one (no dropdown), so every party
+  has a name to match.
+
+**Carrying it home** (the Victory half of step 62).
+- When a client sees the award land (or, failing that, as it leaves), it
+  writes `eotw:pendingOutcomes` (machine-local preference, JSON
+  `{userid: {"<gameid>|<heroid>": {gameid, heroid, stage, outcome}}}`) for
+  each of its own town heroes **alive at the end**:
+  `outcome = {encounter, result = "victory", victories = 1 or 0, completed
+  = true}`. Dead heroes and defeats record nothing yet, because
+  `record-outcome` is idempotent per (hero, game) and the burial
+  write-back must still be able to send `died` for that game.
+- The town applies it after every roster sync
+  (`EotwRoster.ApplyPendingOutcomes`), once the hero's working copy is in
+  step with the city: add the Victories to the working copy and stamp
+  `properties.eotwOutcomes[gameid] = true` (the stamp travels with the
+  record, so no machine adds them twice), push it (`put-hero`), mark the
+  entry `pushed`, then `record-outcome`, which inserts the completion. A
+  hero no longer in the roster drops its entry; each entry gets 3 tries per
+  session.
+- City side: `city_completions(userid, heroid, encounter, gameid, at)`,
+  primary key (userid, heroid, encounter), written by `record-outcome` when
+  `outcome.completed == true` and `outcome.encounter` is set (not for a
+  death). Unit-tested; **not deployed**.
+
+**Verified live 2026-10-03:** module v29 (`d240b941`) carries
+`eotwEncounters`; the town reads it, and the Form a Party dialog shows the
+Goblin Ambush backstory under the dropdown and hides it for Angry Dwarves
+(no section).
+
+**Not yet verified** (needs the City deployed to staging first): the
+backstory in the party view; a hero who won before shows "Already
+Completed" in the party view and the picker; the victory screen awards
+automatically, with the note on that hero and nothing on a dead one; the
+Conclusion screen, and the Defeat screen on a defeat; back in town the
+roster hero's Victories went up by one, and a second win of the same
+encounter adds none.
 
 ## Dead heroes leave the battlefield
 
@@ -1178,7 +1740,9 @@ runtime later; only the hero row and HUD wiring are EotW-specific.
   signature of every candidate and included document's id, name and length.
 - **Beats** are `#` headings: `# Narrative`, `# Montage`, `# Encounter`
   (case-insensitive). Anything else warns and is ignored. `# Delve: <Name>`
-  sections are not beats (see Delves).
+  sections are not beats (see Delves), and neither are the story sections
+  `# Town Gate`, `# Conclusion` and `# Defeat` (see "Encounter stories and
+  the Victory award").
 - Parse text comes from `doc:GetTextContent()`. The journal stores a
   shift+enter soft break as a **vertical tab**, so the parser splits on it.
 
@@ -1739,6 +2303,10 @@ The facts worth knowing:
   after any engine change to the publish pipeline.
 - The publisher scans floor contents (the engine's walk never sees placed
   objects) and seeds non-core global rules.
+- It copies each encounter map's `# Town Gate` text into the module record
+  (`publishingProperties.eotwEncounters`), and logs what it found ("town
+  gate text:"). A map name holding `. $ # [ ] /` cannot be a Firebase key
+  and is skipped with a log line.
 
 ## Playtesting against local asset directories
 
@@ -1850,39 +2418,50 @@ publisher validation.
 [x] Tactical Preparation (verified live up to the spawn), [ ] used by the live
 week.
 
-**Phase 10 -- Blackbottom, the town (designed 2026-10-01; not started).**
-Design in "Blackbottom: the town". Ordered so each step is visible on its own.
-[~] 53 **decide**: storage infrastructure DECIDED 2026-10-02 (one City DO); the remaining
-open decisions; run spikes 1-4.
-[ ] 54 **art**: export the map with `Grid` + `Labels` hidden, resize to
-4096x2980, upload as a core image asset, and record its GUID as a constant.
-[ ] 55 **engine**: `token:ExportCharacter()` / `game.ImportCharacter(data,
-opts)` and the city route for the lobby client, with stubs and a build.
+**Phase 10 -- Blackbottom, the town (designed 2026-10-01; server + basic client built 2026-10-02).**
+Design in "Blackbottom: the town"; what was built is in "The town client".
+[~] 53 **decide**: storage infrastructure DECIDED 2026-10-02 (one City DO);
+spikes 1, 2 and 4 done (see "Spikes"); spike 3 (final-state read) open; the
+open decisions 5 and 8 were taken at their recommended defaults where built.
+[x] 54 **art**: placeholder uploaded 2026-10-02 (`39beb163-...`, a psd-tools
+render, Grid + Labels hidden, 4096x2980). Swap in a Photoshop export later.
+[x] 55 **engine**: `dmhub.ExportCharacter` / `dmhub.ImportCharacter` and the
+`route = "city"` lobby option, stubs hand-added, BUILT (dev build
+2026-10-02). Uncommitted.
 [~] 56 **City DO** (`cloudflare-game-server`): BUILT 2026-10-02 -- `CityObject`
 (extends the lobby), binding `CITY`, migration `v4`, the roster / outcome /
 graveyard actions, roster-checked party claims, admin export; unit tests +
 `city-smoke.ts` pass; DEPLOYED to staging 2026-10-02 and smoke-tested there.
-Committed dmhub `4a0a9e3af`. Remaining: release deploy when the town ships.
-[ ] 57 **town screen shell** (`Codex Titlescreen`): the map panel (cover +
-drag-pan) replaces `CreateScreen`'s content column and becomes `resultPanel`;
-the locations table and node widgets; the veil waits for the map image; the
-lobby connection, presence (with active heroes) and the chat drawer stay.
-[ ] 58 **city sync**: lobby working copies tagged `eotwCity`, `list-heroes`
-(+ `get-hero` for changed revs) on town open, `put-hero` after edits, conflict handling, and `LobbyHeroes()`
-skipping town heroes.
-[ ] 59 **Hero's Guild**: the stacked roster (12 living), Create (builder round
-trip), Recruit (pregen + name prompt), active toggles (max 4), view, dismiss.
-[ ] 60 **active-hero strip** along the bottom: a shared card builder working
-from a character record, used here and on the montage stage.
-[ ] 61 **Town Gate**: the unlock rule, the forming / underway lists, form
-(the existing create dialog), join, and the hero picker from the living
-roster with the active heroes pre-selected; remove the pregen claim path.
-[ ] 62 **coming home**: land in town; the conclusion-time outcome read (game
-side) -> local pending outcome -> applied in town -> `record-outcome` +
-`put-hero`; "Away" status while in a party.
-[ ] 63 **graveyard**: the town DO `record-fallen` + paged `get`, and the
-Graveyard location (everyone's fallen, own marked, a fallen hero's sheet
-from the city).
+Committed dmhub `4a0a9e3af`. `get-hero asJson` added and deployed to staging
+the same day (uncommitted). Remaining: release deploy when the town ships.
+[x] 57 **town screen shell**: built and verified live (map, drag-pan, nodes,
+plaque, chat drawer). Not done: a veil that waits for the map image (the map
+draws once its image arrives), and other players' active heroes in town.
+[x] 58 **city sync**: built (`EotwRoster.lua`; tag `properties.eotwHero`,
+revision map `eotw:heroRevs`). Recruit and edit pushes verified live;
+conflict reload and a second machine untested.
+[~] 59 **Hero's Guild**: built; Recruit, the active toggle and edit verified.
+Create through a full builder session and dismiss untested.
+[x] 60 **active-hero strip**: `EotwHeroCard.lua` shared with the montage HUD;
+verified live.
+[~] 61 **Town Gate**: unlock rule, lists and Form a Party verified to open;
+the add-hero picker lists roster heroes only (the pregen claim path is gone)
+with the active ones first, but does not pre-select them. Forming a party,
+joining and Begin with roster heroes untested.
+[~] 62 **coming home**: the Victory half BUILT 2026-10-02, unverified
+(conclusion-time outcome read -> `eotw:pendingOutcomes` -> applied in town
+-> `put-hero` + `record-outcome {completed}`; see "Encounter stories and the
+Victory award"). Open: burying the dead (`died`), landing in town, "Away"
+status in the guild.
+[~] 62b **encounter stories + once-per-encounter Victory**: `# Town Gate`
+(town, via the publisher), `# Conclusion` / `# Defeat` story screens, the
+automatic award with "Already Completed" exemptions, `city_completions`.
+BUILT 2026-10-02; server undeployed, module unpublished, unverified.
+[~] 63 **graveyard**: the server half is the City's `record-outcome {died}` +
+paged `list-graveyard`; the Graveyard location (everyone's fallen, own
+marked) is built and its empty state verified. Not built: opening a fallen
+hero's sheet from the city. Nothing yet calls `record-outcome` (that is
+step 62).
 [ ] 64 two-client playthrough of the whole loop on two machines: town ->
 gate -> encounter -> town, a death in both players' graveyards, and the roster
 present on a second machine.
@@ -1890,6 +2469,14 @@ present on a second machine.
 **Phase 11 -- hero progression (OPEN; needs a design pass first).** [ ] 65
 design what carries home (levels and bands vs treasure and renown; see
 "Progression"), then plan it. The outcome log from step 62 is its input.
+
+**Phase 12 -- hero builder and hero sheet (designed 2026-10-03; not
+started).** Design in "The hero builder and hero sheet". [ ] 66 open
+questions answered, [ ] 67 `EotwBuild` step engine (headless, MCP-verified),
+[ ] 68 builder shell + Ancestry/Career pages, [ ] 69 Culture/Class/
+Complication/Appearance pages, [ ] 70 Guild Create -> builder -> JoinRoster,
+[ ] 71 `EotwHeroSheet` from the Guild and the strip, [ ] 72 in-game card,
+other players' heroes, sheet hardening, level-up.
 
 **Launch readiness (not started).** [ ] lobby on the release worker and games on
 release DOs, [ ] non-owner module access verified, [ ] disconnected-player

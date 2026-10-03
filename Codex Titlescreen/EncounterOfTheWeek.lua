@@ -11,10 +11,15 @@ local mod = dmhub.GetModLoading()
 --titlescreen runs in the local lobby game, which loads only the core codex.
 --It must be registered before CodexTitlescreen.lua, which reads the global.
 --
---The screen connects to the "eotw" Lobby -- a server-arbitrated
---chat/presence/roster space that is NOT a game -- through the engine's
---lobbies bridge (lobbies.Connect). All lobby state is written server-side;
---this UI only renders the document and sends typed requests.
+--The screen is the town of Blackbottom: the town map with clickable
+--locations (the Hero's Guild, the Town Gate, the Graveyard) and the player's
+--active heroes along the bottom. It connects to the Blackbottom City -- a
+--server-arbitrated lobby (chat, presence, the parties roster) that also
+--stores every account's heroes -- through the engine's lobbies bridge
+--(lobbies:Connect, route "city"). All city state is written server-side;
+--this UI renders the document and sends typed requests. The roster, the
+--Guild and the Graveyard live in EotwRoster.lua; the hero cards in
+--EotwHeroCard.lua.
 
 EncounterOfTheWeek = {}
 
@@ -65,10 +70,55 @@ setting{
     storage = "preference",
 }
 
---The well-known lobby id, and staging until EotW nears release (the whole
---mode is dev-gated, and the staging worker is where the lobby DO is tested).
-local LOBBY_ID = "eotw"
-local LOBBY_OPTIONS = { staging = true }
+--The town's city (see EotwRoster.lua), on staging until EotW nears release.
+local LOBBY_ID = EotwRoster.CITY_ID
+local LOBBY_OPTIONS = EotwRoster.CITY_OPTIONS
+
+--The town map: Miska Fredman's Blackbottom map with its grid and labels
+--removed, as a core image asset. PLACEHOLDER: a psd-tools render, slightly
+--washed out next to Photoshop's -- replace with a Photoshop export at the
+--same 4096x2980 (see the design doc) and update this id.
+local CITY_MAP_IMAGE = "39beb163-c5b5-408d-be3c-191825776239"
+local CITY_MAP_ASPECT = 4096 / 2980
+
+--The town's locations, as fractions of the map image (so they survive a
+--re-export at another size). open(ctx) runs on click; locked(ctx) returns
+--the reason the location is closed, or nil.
+local CITY_LOCATIONS = {
+    {
+        id = "guild",
+        label = "Hero's Guild",
+        icon = "phosphor/shield-star-fill.png",
+        x = 0.44,
+        y = 0.42,
+        open = function(ctx) ctx.OpenGuild() end,
+    },
+    {
+        id = "gate",
+        label = "Town Gate",
+        icon = "phosphor/sword-fill.png",
+        x = 0.53,
+        y = 0.135,
+        locked = function(ctx)
+            if EotwRoster.GetHeroes() == nil then
+                return "The guild is still checking your roster..."
+            end
+            if EotwRoster.LivingCount() == 0 then
+                return "You need a hero before you can venture out. Visit the Hero's Guild."
+            end
+            return nil
+        end,
+        open = function(ctx) ctx.OpenGate() end,
+    },
+    {
+        id = "graveyard",
+        label = "Graveyard",
+        icon = "phosphor/cross-fill.png",
+        x = 0.31,
+        y = 0.86,
+        open = function(ctx) ctx.OpenGraveyard() end,
+    },
+}
 
 --Style pack for gui.Check in the create dialog. The titlescreen's legacy
 --cascade has no checkbox rules (they live in the themed default styles), so
@@ -137,6 +187,13 @@ local LOADING_SCREEN_ART = "panels/backgrounds/delian-tomb-bg.png"
 --(tools/eotw_publish, is_encounter_map_name) and the game-side resolver in
 --EncounterOfTheWeek/EncounterOfTheWeek.lua -- keep the three in step.
 local ENCOUNTER_MAP_NAME = "Encounter"
+
+--The party size an EotW game allows: Begin needs MIN_HEROES filled slots and
+--a game holds at most MAX_HEROES. The lobby server enforces both
+--(MIN_HEROES_TO_LAUNCH / SLOTS_TOTAL in cloudflare-game-server/src/lobby-core.ts);
+--these only drive the UI, so keep them in step with it.
+local MIN_HEROES = 4
+local MAX_HEROES = 6
 
 --How long to let the loading screen dissolve in before this screen ducks
 --out from under it. The titlescreen's loading screen fades in over 0.3s
@@ -212,6 +269,11 @@ local VEIL_WAIT_MAX_SECONDS = 4
 --alternatives alphabetically. {} when the module lists no encounter maps.
 local m_encounters = nil
 local m_encountersFetching = false
+--map name -> { townGate = text } from the same record: the publisher copies
+--each encounter script's "# Town Gate" section into the module record's
+--publishingProperties.eotwEncounters, so the town can show an encounter's
+--backstory without downloading the module.
+local m_encounterInfo = {}
 
 --The naming rule: exactly ENCOUNTER_MAP_NAME, or "ENCOUNTER_MAP_NAME: <title>".
 function EncounterOfTheWeek.IsEncounterMapName(name)
@@ -261,6 +323,16 @@ function EncounterOfTheWeek.CacheEncounters()
                 end
                 return a < b
             end)
+            local encounterInfo = {}
+            pcall(function()
+                local published = info.publishingProperties.eotwEncounters
+                for name, entry in pairs(published or {}) do
+                    if type(name) == "string" and type(entry) == "table" and type(entry.townGate) == "string" then
+                        encounterInfo[name] = { townGate = entry.townGate }
+                    end
+                end
+            end)
+            m_encounterInfo = encounterInfo
             m_encounters = names
             printf("EotW: the module offers %d encounter map(s)", #names)
         end,
@@ -276,6 +348,19 @@ end
 function EncounterOfTheWeek.GetEncounters()
     EncounterOfTheWeek.CacheEncounters()
     return m_encounters
+end
+
+--An encounter's backstory (its script's "# Town Gate" text), or nil. name
+--is a map name as the party record carries it; "" or nil is the default map.
+function EncounterOfTheWeek.GetTownGateText(name)
+    if name == nil or name == "" then
+        name = ENCOUNTER_MAP_NAME
+    end
+    local entry = m_encounterInfo[name]
+    if entry == nil or entry.townGate == "" then
+        return nil
+    end
+    return entry.townGate
 end
 
 --── pregen hero cache ────────────────────────────────────────────────
@@ -952,14 +1037,17 @@ CreateScreen = function(args)
     local m_conn = nil
     if lobbiesApi ~= nil then
         m_conn = lobbiesApi:Connect(LOBBY_ID, LOBBY_OPTIONS)
+        EotwRoster.Attach(m_conn)
     end
 
     local areaStyles = {
         {
             selectors = { "eotw-area" },
-            bgcolor = "#000000aa",
+            --opaque, matching the guild dialogs: these float over the town map.
+            bgcolor = "#14110dff",
             borderWidth = 2,
-            borderColor = Styles.textColor,
+            borderColor = "#8c7a55",
+            cornerRadius = 10,
         },
     }
 
@@ -1075,6 +1163,9 @@ CreateScreen = function(args)
                     className = h.className,
                     ancestry = h.ancestry,
                     level = h.level,
+                    --the city marks a hero who already won this party's
+                    --encounter; the game side skips their Victory.
+                    completed = h.completed,
                 }
             end
         end
@@ -1249,7 +1340,9 @@ CreateScreen = function(args)
         local clipboardIds = {}
         local lobbyTokens = {}
         for _,h in ipairs(myHeroes) do
-            if h.kind == "lobby" then
+            --town roster heroes travel exactly like lobby heroes: the id is
+            --the lobby working copy's charid (see EotwRoster.lua).
+            if h.kind == "lobby" or h.kind == "roster" then
                 local tok = dmhub.GetCharacterById(h.id)
                 if tok ~= nil then
                     lobbyTokens[#lobbyTokens+1] = tok
@@ -1387,7 +1480,7 @@ CreateScreen = function(args)
         local isHost = record.hostUserid == myUserid
         local isMember = isHost or (record.players ~= nil and record.players[myUserid] ~= nil)
         local slotsFilled = record.slotsFilled or 0
-        local slotsTotal = record.slotsTotal or 7
+        local slotsTotal = math.min(record.slotsTotal or MAX_HEROES, MAX_HEROES)
         local isOpen = record.status == "open"
 
         local buttons = {}
@@ -1474,6 +1567,7 @@ CreateScreen = function(args)
         if heroEntry.kind == "pregen" then
             return EncounterOfTheWeek.GetPregenToken(heroEntry.id)
         end
+        --a roster hero's id IS its lobby working copy's charid (EotwRoster).
         if mine then
             return dmhub.GetCharacterById(heroEntry.id)
         end
@@ -1646,6 +1740,23 @@ CreateScreen = function(args)
                 vmargin = 1,
             }
         end
+        if params.noteText ~= nil then
+            --e.g. "Already Completed": this hero won the encounter before,
+            --so it earns no Victory this time.
+            plateLines[#plateLines+1] = gui.Label{
+                interactable = false,
+                text = params.noteText,
+                fontSize = 12,
+                italics = true,
+                color = "#9a9a9a",
+                width = "100%",
+                height = "auto",
+                minFontSize = 8,
+                textWrap = false,
+                textAlignment = "center",
+                vmargin = 1,
+            }
+        end
         if params.ownerText ~= nil then
             plateLines[#plateLines+1] = gui.Label{
                 interactable = false,
@@ -1733,6 +1844,23 @@ CreateScreen = function(args)
             end,
 
             children = children,
+        }
+    end
+
+    --An encounter's backstory: the read-aloud paragraph from its script's
+    --"# Town Gate" section, shown wherever a party is formed.
+    local BackstoryLabel = function(text, width)
+        return gui.Label{
+            text = text,
+            fontSize = 18,
+            italics = true,
+            color = "#efe4cc",
+            width = width,
+            height = "auto",
+            halign = "center",
+            textAlignment = "center",
+            textWrap = true,
+            vmargin = 8,
         }
     end
 
@@ -1839,6 +1967,7 @@ CreateScreen = function(args)
             tok = tok,
             name = heroEntry.name,
             details = FormatHeroDetails(level, ancestry, className),
+            noteText = cond(heroEntry.completed == true, "Already Completed", nil),
             ownerText = ownerText,
             chipText = chipText,
             born = params.born,
@@ -1847,7 +1976,7 @@ CreateScreen = function(args)
     end
 
     --The "+" card at the end of the lineup. Hidden entirely once the game
-    --is full (7 heroes); shown dimmed when only OUR per-player cap (4) is
+    --is full (MAX_HEROES); shown dimmed when only OUR per-player cap (4) is
     --the blocker, so the affordance stays discoverable.
     local MakeAddHeroCard = function(gameid, enabled)
         return gui.Panel{
@@ -1923,7 +2052,7 @@ CreateScreen = function(args)
         local isHost = record.hostUserid == myUserid
         local isMember = isHost or (record.players ~= nil and record.players[myUserid] ~= nil)
         local isOpen = record.status == "open"
-        local slotsTotal = record.slotsTotal or 7
+        local slotsTotal = math.min(record.slotsTotal or MAX_HEROES, MAX_HEROES)
         local slotsFilled = record.slotsFilled or 0
         local myHeroes = MyHeroesCopy(record)
 
@@ -1965,9 +2094,15 @@ CreateScreen = function(args)
             halign = "center",
         }
 
+        --what the heroes are setting out to do (the script's "# Town Gate").
+        local backstory = EncounterOfTheWeek.GetTownGateText(record.encounter)
+        if backstory ~= nil then
+            children[#children+1] = BackstoryLabel(backstory, "86%")
+        end
+
         --slot list: every claimed hero (host's first), then open slots.
         children[#children+1] = gui.Label{
-            text = string.format("Hero Slots (%d/%d filled; 3 needed to begin)", slotsFilled, slotsTotal),
+            text = string.format("Hero Slots (%d/%d filled; %d needed to begin)", slotsFilled, slotsTotal, MIN_HEROES),
             fontSize = 22,
             bold = true,
             color = Styles.textColor,
@@ -2137,14 +2272,14 @@ CreateScreen = function(args)
                 end,
             }
         end
-        --Begin: host-only. Enabled at 3-7 filled slots (the server caps
-        --at slotsTotal, so >= 3 is the live gate; the server re-checks).
+        --Begin: host-only. Enabled at MIN_HEROES..slotsTotal filled slots
+        --(the server re-checks both bounds).
         --A granted launch flips the roster record to "launched": the HOST
         --enters via CheckLaunchedGames and runs setup in-game; members
         --wait for the game-side "ready-game" signal to flip the record to
         --"ready" before entering (see CheckLaunchedGames).
         if isHost and isOpen then
-            local canBegin = slotsFilled >= 3 and slotsFilled <= slotsTotal
+            local canBegin = slotsFilled >= MIN_HEROES and slotsFilled <= slotsTotal
             buttons[#buttons+1] = gui.Button{
                 text = "Begin",
                 fontSize = 20,
@@ -2154,7 +2289,11 @@ CreateScreen = function(args)
                 opacity = cond(canBegin, 1, 0.45),
                 click = function()
                     if not canBegin then
-                        ShowGamesError(string.format("Need at least 3 heroes to begin (%d/%d filled).", slotsFilled, slotsTotal))
+                        if slotsFilled > slotsTotal then
+                            ShowGamesError(string.format("At most %d heroes can begin (%d filled).", slotsTotal, slotsFilled))
+                        else
+                            ShowGamesError(string.format("Need at least %d heroes to begin (%d/%d filled).", MIN_HEROES, slotsFilled, slotsTotal))
+                        end
                         return
                     end
                     if m_conn == nil then
@@ -2404,27 +2543,25 @@ CreateScreen = function(args)
             else
                 gamesListPanel.children = BuildGameView(m_viewGameid, record)
                 if gamesTitleLabel ~= nil and gamesTitleLabel.valid then
-                    gamesTitleLabel.text = "Game Lobby"
+                    gamesTitleLabel.text = "Your Party"
                 end
                 --no back button here: leaving the game (Abandon/Leave) is
                 --the only way back to the games list. The collapsed button
-                --frees its space to the list so a full 7-slot roster plus
+                --frees its space to the list so a full 6-slot roster plus
                 --the control row fits without a scrollbar.
                 if createGameButton ~= nil and createGameButton.valid then
                     createGameButton:SetClass("collapsed", true)
                 end
-                gamesListPanel.selfStyle.height = "100%-100"
                 return
             end
         end
 
         if gamesTitleLabel ~= nil and gamesTitleLabel.valid then
-            gamesTitleLabel.text = "Games"
+            gamesTitleLabel.text = "The Town Gate"
         end
         if createGameButton ~= nil and createGameButton.valid then
             createGameButton:SetClass("collapsed", false)
         end
-        gamesListPanel.selfStyle.height = "100%-160"
 
         local games = m_conn:GetPath("/state/games")
         local ids = {}
@@ -2441,18 +2578,36 @@ CreateScreen = function(args)
         if m_resumeGameid ~= nil and (games == nil or games[m_resumeGameid] == nil) then
             children[#children+1] = MakeResumeRow()
         end
+        --parties still forming up (joinable) first, then the encounters
+        --already underway (shown for information).
+        local forming = {}
+        local underway = {}
         for _,gameid in ipairs(ids) do
             --ids is empty unless games is non-nil.
             ---@cast games -nil
             local record = games[gameid]
             --private games are never listed for anyone but their host.
             if record.public == true or record.hostUserid == dmhub.loginUserid then
-                children[#children+1] = MakeGameRow(gameid, record)
+                if record.status == "open" then
+                    forming[#forming+1] = MakeGameRow(gameid, record)
+                else
+                    underway[#underway+1] = MakeGameRow(gameid, record)
+                end
             end
         end
 
-        if #children == 0 then
-            children[1] = EmptyNote("No games are waiting right now. Create one below!")
+        children[#children+1] = AreaTitle("Parties Forming")
+        if #forming == 0 then
+            children[#children+1] = EmptyNote("No parties are forming right now. Form one and others can join you!")
+        end
+        for _,row in ipairs(forming) do
+            children[#children+1] = row
+        end
+        if #underway > 0 then
+            children[#children+1] = AreaTitle("Encounters Underway")
+            for _,row in ipairs(underway) do
+                children[#children+1] = row
+            end
         end
         gamesListPanel.children = children
     end
@@ -2666,7 +2821,7 @@ CreateScreen = function(args)
         --One selectable hero card in the grid: the shared card body with a
         --click that claims the hero. spec carries the display copies that
         --ride to the server in set-heroes; tok drives the portrait art.
-        local PickerCard = function(spec, tok)
+        local PickerCard = function(spec, tok, noteText)
             local chipText = nil
             if spec.kind == "pregen" then
                 chipText = "Pregen"
@@ -2675,6 +2830,7 @@ CreateScreen = function(args)
                 tok = tok,
                 name = spec.name,
                 details = FormatHeroDetails(spec.level, spec.ancestry, spec.className),
+                noteText = noteText,
                 chipText = chipText,
                 click = function()
                     audio.FireSoundEvent("Mouse.Click")
@@ -2697,51 +2853,56 @@ CreateScreen = function(args)
 
         local rows = {}
 
-        --our local titlescreen heroes.
+        --the heroes of our town roster (EotwRoster): every living hero not
+        --already in this party or away with another one. The city checks
+        --the same rules when the party changes.
         rows[#rows+1] = SectionTitle("Your Heroes")
-        local myCards = {}
-        for _,token in ipairs(table.values(dmhub.GetAllCharacters())) do
-            local charid = token.charid
-            if charid ~= nil and not claimed[charid] then
-                myCards[#myCards+1] = PickerCard({
-                    kind = "lobby",
-                    id = charid,
-                    name = token.name or "Unnamed Hero",
-                    className = GetHeroClassName(token),
-                    ancestry = GetHeroAncestry(token),
-                    level = GetHeroLevel(token),
-                }, token)
+        local away = EotwRoster.AwayHeroes()
+        local active = {}
+        for _,hero in ipairs(EotwRoster.ActiveHeroes()) do
+            active[hero.heroid] = true
+        end
+        local heroes = {}
+        for _,hero in ipairs(EotwRoster.GetHeroes() or {}) do
+            if not claimed[hero.heroid] and away[hero.heroid] == nil then
+                heroes[#heroes+1] = hero
             end
+        end
+        --active heroes first: they are the ones adventuring in town.
+        table.sort(heroes, function(x, y)
+            if (active[x.heroid] == true) ~= (active[y.heroid] == true) then
+                return active[x.heroid] == true
+            end
+            return (x.summary.name or "") < (y.summary.name or "")
+        end)
+        local myCards = {}
+        for _,hero in ipairs(heroes) do
+            local summary = hero.summary or {}
+            local tok = dmhub.GetCharacterById(hero.heroid)
+            local spec = {
+                kind = "roster",
+                id = hero.heroid,
+                name = summary.name or "Hero",
+                className = summary.className or "",
+                ancestry = summary.ancestry,
+                level = summary.level,
+            }
+            if tok ~= nil then
+                local className, ancestry, level = EotwRoster.HeroDetails(tok)
+                spec.className = className
+                spec.ancestry = ancestry
+                spec.level = level
+            end
+            local noteText = nil
+            if EotwRoster.HasCompleted(hero, record.encounter ~= "" and record.encounter or ENCOUNTER_MAP_NAME) then
+                noteText = "Already Completed"
+            end
+            myCards[#myCards+1] = PickerCard(spec, tok, noteText)
         end
         if #myCards == 0 then
-            rows[#rows+1] = EmptyNote("No available heroes. Create one on the titlescreen first.")
+            rows[#rows+1] = EmptyNote("No heroes are free to join. Visit the Hero's Guild to create or recruit one.")
         else
             rows[#rows+1] = CardGrid(myCards)
-        end
-
-        --pregens from the weekly module (may still be loading, or the
-        --module may not be published yet).
-        rows[#rows+1] = SectionTitle("Pregenerated Heroes")
-        local pregens = EncounterOfTheWeek.GetPregens()
-        if pregens == nil then
-            rows[#rows+1] = EmptyNote("Pregenerated heroes are not available right now.")
-        elseif #pregens == 0 then
-            rows[#rows+1] = EmptyNote("This week's module has no pregenerated heroes.")
-        else
-            local pregenCards = {}
-            for _,pregen in ipairs(pregens) do
-                if not claimed[pregen.id] then
-                    pregenCards[#pregenCards+1] = PickerCard({
-                        kind = "pregen",
-                        id = pregen.id,
-                        name = pregen.name,
-                        className = pregen.className,
-                        ancestry = pregen.ancestry,
-                        level = pregen.level,
-                    }, EncounterOfTheWeek.GetPregenToken(pregen.id))
-                end
-            end
-            rows[#rows+1] = CardGrid(pregenCards)
         end
 
         dlg = gui.Panel{
@@ -2751,7 +2912,7 @@ CreateScreen = function(args)
             halign = "center",
             valign = "center",
             bgimage = "panels/square.png",
-            bgcolor = "#111111f8",
+            bgcolor = "#111111ff",
             borderWidth = 2,
             borderColor = Styles.textColor,
             flow = "vertical",
@@ -2827,12 +2988,14 @@ CreateScreen = function(args)
 
         --the encounter maps the week's module offers. With more than one the
         --dialog shows a dropdown, defaulting to the bare "Encounter" map when
-        --it exists (else the first). With one or none (or the list not
-        --loaded yet) there is nothing to choose: no dropdown, and the game
-        --plays the module's default map.
+        --it exists (else the first). With just one there is nothing to
+        --choose, but the party still records it by name (the town keys who
+        --has already won an encounter by that name). With none (or the list
+        --not loaded yet) the game plays the module's default map.
         local encounters = EncounterOfTheWeek.GetEncounters() or {}
         local m_encounter = nil
-        if #encounters > 1 then
+        local showEncounterChoice = #encounters > 1
+        if #encounters > 0 then
             m_encounter = encounters[1]
             for _,name in ipairs(encounters) do
                 if name == ENCOUNTER_MAP_NAME then
@@ -2841,12 +3004,21 @@ CreateScreen = function(args)
             end
         end
 
+        --the chosen encounter's backstory, under the choice.
+        local backstoryLabel = BackstoryLabel("", 480)
+        local ShowBackstory = function()
+            local text = EncounterOfTheWeek.GetTownGateText(m_encounter)
+            backstoryLabel.text = text or ""
+            backstoryLabel:SetClass("collapsed", text == nil)
+        end
+        ShowBackstory()
+
         --default the game name to the creator's name ("David's Game"),
         --prefilled so it can be edited or cleared.
         local defaultName = "Encounter of the Week"
         local myName = dmhub.GetDisplayName(dmhub.loginUserid)
         if myName ~= nil and myName ~= "" then
-            defaultName = myName .. "'s Game"
+            defaultName = myName .. "'s Party"
         end
 
         local SetDialogStatus = function(message, isError)
@@ -2953,11 +3125,11 @@ CreateScreen = function(args)
         dlg = gui.Panel{
             floating = true,
             width = 560,
-            height = cond(m_encounter ~= nil, 400, 340),
+            height = "auto",
             halign = "center",
             valign = "center",
             bgimage = "panels/square.png",
-            bgcolor = "#111111f8",
+            bgcolor = "#111111ff",
             borderWidth = 2,
             borderColor = Styles.textColor,
             flow = "vertical",
@@ -2969,7 +3141,7 @@ CreateScreen = function(args)
             end,
 
             gui.Label{
-                text = "Create a Game",
+                text = "Form a Party",
                 fontSize = 32,
                 bold = true,
                 color = Styles.textColor,
@@ -2986,7 +3158,7 @@ CreateScreen = function(args)
                 vmargin = 8,
                 fontSize = 20,
                 characterLimit = 80,
-                placeholderText = "Name your game...",
+                placeholderText = "Name your party...",
                 create = function(element)
                     ---@cast element Input
                     nameInput = element
@@ -2996,7 +3168,7 @@ CreateScreen = function(args)
 
             --which of the week's encounters to play; only when there is a choice.
             gui.Panel{
-                classes = { cond(m_encounter == nil, "collapsed", nil) },
+                classes = { cond(not showEncounterChoice, "collapsed", nil) },
                 width = 460,
                 height = "auto",
                 halign = "center",
@@ -3031,12 +3203,15 @@ CreateScreen = function(args)
                     change = function(element)
                         ---@cast element Dropdown
                         m_encounter = element.idChosen
+                        ShowBackstory()
                     end,
                 },
             },
 
+            backstoryLabel,
+
             gui.Check{
-                text = "Public game (anyone can join)",
+                text = "Public party (anyone can join)",
                 value = true,
                 fontSize = 20,
                 styles = g_CheckboxStyles,
@@ -3103,7 +3278,453 @@ CreateScreen = function(args)
         resultPanel:AddChild(dlg)
     end
 
-    --── the screen ──────────────────────────────────────────────────────
+    --── the town ──────────────────────────────────────────────────────────
+
+    --The map covers the screen (it is wider than tall but not as wide as
+    --16:9) and pans by dragging. Everything on it -- the location nodes --
+    --is a child of the map panel, so it moves with it.
+    local mapW = math.max(panelWidth, panelHeight * CITY_MAP_ASPECT)
+    local mapH = mapW / CITY_MAP_ASPECT
+    --start with the town gate and the guild in view.
+    local m_panX = (mapW - panelWidth) / 2
+    local m_panY = 0
+    local m_dragStartX = 0
+    local m_dragStartY = 0
+    local mapPanel = nil
+    local nodeLayer = nil
+    --- @type Panel
+    local gatePanel = nil
+    --- @type Panel
+    local chatPanel = nil
+
+    local ApplyPan = function()
+        m_panX = math.max(0, math.min(mapW - panelWidth, m_panX))
+        m_panY = math.max(0, math.min(mapH - panelHeight, m_panY))
+        for _,layer in ipairs({ mapPanel, nodeLayer }) do
+            if layer ~= nil and layer.valid then
+                layer.selfStyle.x = -m_panX
+                layer.selfStyle.y = -m_panY
+            end
+        end
+    end
+
+    local townContext = {
+        OpenGuild = function()
+            EotwRoster.ShowGuild(resultPanel)
+        end,
+        OpenGate = function()
+            if gatePanel ~= nil and gatePanel.valid then
+                gatePanel:SetClass("collapsed", false)
+                RefreshGames()
+            end
+        end,
+        OpenGraveyard = function()
+            EotwRoster.ShowGraveyard(resultPanel)
+        end,
+    }
+
+    --One location on the map: a round icon over a name plaque. A locked
+    --location dims and says why instead of opening.
+    local LocationNode = function(loc)
+        local NODE_WIDTH = 200
+        return gui.Panel{
+            classes = { "eotwTownNode" },
+            floating = true,
+            halign = "left",
+            valign = "top",
+            x = loc.x * mapW - NODE_WIDTH / 2,
+            y = loc.y * mapH - 40,
+            width = NODE_WIDTH,
+            height = "auto",
+            flow = "vertical",
+            --a panel with no bgimage is not hit-tested.
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+            swallowPress = true,
+            hoverCursor = "pressbutton",
+            data = { lockedReason = nil },
+            thinkTime = 0.5,
+            think = function(element)
+                local reason = nil
+                if loc.locked ~= nil then
+                    reason = loc.locked(townContext)
+                end
+                element.data.lockedReason = reason
+                element:SetClass("locked", reason ~= nil)
+            end,
+            create = function(element)
+                element:FireEvent("think")
+            end,
+            hover = function(element)
+                audio.FireSoundEvent("Mouse.Hover")
+            end,
+            linger = function(element)
+                if element.data.lockedReason ~= nil then
+                    gui.Tooltip(element.data.lockedReason)(element)
+                end
+            end,
+            press = function(element)
+                if element.data.lockedReason ~= nil then
+                    audio.FireSoundEvent("Mouse.Click")
+                    return
+                end
+                audio.FireSoundEvent("Mouse.Click")
+                loc.open(townContext)
+            end,
+
+            gui.Panel{
+                classes = { "eotwTownNodeIcon" },
+                interactable = false,
+                halign = "center",
+                gui.Panel{
+                    classes = { "eotwTownNodeGlyph" },
+                    interactable = false,
+                    bgimage = loc.icon,
+                },
+            },
+            gui.Label{
+                classes = { "eotwTownNodeLabel" },
+                interactable = false,
+                text = loc.label,
+            },
+        }
+    end
+
+    local nodes = {}
+    for _,loc in ipairs(CITY_LOCATIONS) do
+        nodes[#nodes+1] = LocationNode(loc)
+    end
+
+    local townStyles = {
+        {
+            selectors = { "eotwTownNodeIcon" },
+            width = 64,
+            height = 64,
+            cornerRadius = 32,
+            bgimage = "panels/square.png",
+            bgcolor = "#1b140cee",
+            borderWidth = 3,
+            borderColor = "#d9b56a",
+            transitionTime = 0.15,
+        },
+        {
+            selectors = { "eotwTownNodeIcon", "parent:hover" },
+            scale = 1.12,
+            borderColor = "#ffe9b0",
+            brightness = 1.2,
+        },
+        {
+            selectors = { "eotwTownNodeGlyph" },
+            width = 34,
+            height = 34,
+            halign = "center",
+            valign = "center",
+            bgcolor = "#f3dfae",
+        },
+        {
+            selectors = { "eotwTownNodeLabel" },
+            fontSize = 20,
+            bold = true,
+            color = "#f6ead0",
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            tmargin = 4,
+            hpad = 10,
+            vpad = 3,
+            bgimage = "panels/square.png",
+            bgcolor = "#120d08dd",
+            cornerRadius = 6,
+            borderBox = true,
+        },
+        {
+            selectors = { "eotwTownNode", "locked" },
+            saturation = 0.15,
+            brightness = 0.7,
+        },
+        {
+            selectors = { "eotwPlaque" },
+            bgimage = "panels/square.png",
+            bgcolor = "#120d08e0",
+            cornerRadius = 10,
+            borderWidth = 2,
+            borderColor = "#8c7a55",
+            pad = 14,
+            borderBox = true,
+        },
+    }
+
+    --The active heroes along the bottom: the hero cards the montage uses
+    --(EotwHeroCard), one per active roster hero whose working copy has
+    --loaded. Clicking a card opens that hero's sheet.
+    local m_stripSignature = nil
+    local m_stripRefreshAt = 0
+    local heroStrip = gui.Panel{
+        floating = true,
+        halign = "center",
+        valign = "bottom",
+        bmargin = 14,
+        width = "auto",
+        height = "auto",
+        flow = "horizontal",
+        styles = ThemeEngine.MergeTokens(EotwHeroCard.rules),
+        thinkTime = 0.25,
+        think = function(element)
+            local active = EotwRoster.ActiveHeroes()
+            --the listed state and living count pick the placeholder text.
+            local parts = { tostring(EotwRoster.GetHeroes() ~= nil), tostring(EotwRoster.LivingCount()) }
+            for _,hero in ipairs(active) do
+                parts[#parts+1] = string.format("%s:%s", hero.heroid, tostring(dmhub.GetCharacterById(hero.heroid) ~= nil))
+            end
+            local signature = table.concat(parts, "|")
+            if signature ~= m_stripSignature then
+                m_stripSignature = signature
+                local cards = {}
+                for _,hero in ipairs(active) do
+                    local heroid = hero.heroid
+                    if dmhub.GetCharacterById(heroid) ~= nil then
+                        cards[#cards+1] = gui.Panel{
+                            width = "auto",
+                            height = "auto",
+                            hmargin = 10,
+                            valign = "bottom",
+                            EotwHeroCard.CreateHeroCard({
+                                charid = heroid,
+                                mine = true,
+                                name = (hero.summary or {}).name or "Hero",
+                            }, {
+                                halign = "center",
+                                showStats = true,
+                                --in town: characteristics, stamina and
+                                --recoveries, but no skills or heroic resource.
+                                showSkills = false,
+                                showResources = false,
+                                subtitle = function(tok)
+                                    local className, ancestry, level = EotwRoster.HeroDetails(tok)
+                                    return EotwRoster.FormatDetails(level, ancestry, className)
+                                end,
+                                click = function()
+                                    EotwRoster.EditHero(heroid)
+                                end,
+                            }),
+                        }
+                    end
+                end
+                if #cards == 0 and EotwRoster.GetHeroes() ~= nil then
+                    cards[1] = gui.Label{
+                        classes = { "eotwPlaque" },
+                        text = cond(EotwRoster.LivingCount() == 0,
+                            "You have no heroes yet. Visit the Hero's Guild to create or recruit one.",
+                            "None of your heroes are active. Visit the Hero's Guild to choose up to four."),
+                        fontSize = 20,
+                        color = "#f6ead0",
+                        width = "auto",
+                        height = "auto",
+                        maxWidth = 900,
+                        styles = townStyles,
+                    }
+                end
+                element.children = cards
+                m_stripRefreshAt = 0
+            end
+            --the cards repaint from their characters on refreshCard.
+            local now = dmhub.Time()
+            if now >= m_stripRefreshAt then
+                m_stripRefreshAt = now + 1
+                element:FireEventTree("refreshCard")
+            end
+        end,
+    }
+
+    --The Town Gate: parties forming up and encounters underway (the
+    --roster records of the city's games list), forming a party, and a
+    --party's own view while you are in it.
+    gatePanel = gui.Panel{
+        classes = { "eotw-area", "collapsed" },
+        floating = true,
+        bgimage = "panels/square.png",
+        width = 1180,
+        height = 900,
+        halign = "center",
+        valign = "center",
+        flow = "vertical",
+        styles = areaStyles,
+        cornerRadius = 10,
+
+        AreaTitle("The Town Gate", function(element)
+            gamesTitleLabel = element
+        end),
+
+        gui.Panel{
+            width = "100%",
+            height = "100%-200",
+            flow = "vertical",
+            vscroll = true,
+            rpad = 12,
+            borderBox = true,
+            create = function(element)
+                gamesListPanel = element
+                RefreshGames()
+                RefreshResumeState()
+            end,
+        },
+
+        --error line for rejected roster requests (join on a full game, a
+        --hero already in another party, etc).
+        gui.Label{
+            fontSize = 16,
+            color = "#ff8888",
+            width = "94%",
+            height = 22,
+            halign = "center",
+            text = "",
+            create = function(element)
+                gamesErrorLabel = element
+            end,
+            clearError = function(element)
+                element.text = ""
+            end,
+            showError = function(element, message)
+                element.text = tostring(message)
+                element:ScheduleEvent("clearError", 5)
+            end,
+        },
+
+        gui.Panel{
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            valign = "bottom",
+            vmargin = 10,
+            flow = "horizontal",
+
+            --hidden while a party view is open (RefreshGames collapses it);
+            --leaving the party is the way back to the list.
+            gui.Button{
+                text = "Form a Party",
+                fontSize = 22,
+                width = 220,
+                height = 48,
+                hmargin = 8,
+                create = function(element)
+                    createGameButton = element
+                end,
+                click = function(element)
+                    ShowCreateDialog()
+                end,
+            },
+            gui.Button{
+                text = "Back to Town",
+                fontSize = 22,
+                width = 220,
+                height = 48,
+                hmargin = 8,
+                click = function(element)
+                    gatePanel:SetClass("collapsed", true)
+                end,
+            },
+        },
+    }
+
+    --Town chat + who is in town, in a drawer over the bottom-right corner.
+    chatPanel = gui.Panel{
+        classes = { "eotw-area", "collapsed" },
+        floating = true,
+        bgimage = "panels/square.png",
+        width = 520,
+        height = 560,
+        halign = "right",
+        valign = "bottom",
+        hmargin = 20,
+        bmargin = 80,
+        flow = "vertical",
+        styles = areaStyles,
+        cornerRadius = 10,
+
+        AreaTitle("Town Chat", function(element)
+            chatTitleLabel = element
+        end),
+
+        gui.Label{
+            fontSize = 16,
+            color = Styles.textColor,
+            opacity = 0.7,
+            width = "94%",
+            height = "auto",
+            halign = "center",
+            text = "",
+            create = function(element)
+                presenceLabel = element
+                RefreshPresence()
+            end,
+        },
+
+        gui.Panel{
+            width = "94%",
+            height = "100%-190",
+            halign = "center",
+            flow = "vertical",
+            vscroll = true,
+            rpad = 12,
+            borderBox = true,
+            vmargin = 8,
+            create = function(element)
+                chatMessagesPanel = element
+                RefreshChat()
+            end,
+        },
+
+        --error line for rejected sends (rate limit etc).
+        gui.Label{
+            fontSize = 15,
+            color = "#ff8888",
+            width = "94%",
+            height = 20,
+            halign = "center",
+            text = "",
+            create = function(element)
+                chatErrorLabel = element
+            end,
+            clearError = function(element)
+                element.text = ""
+            end,
+            showError = function(element, message)
+                element.text = message
+                element:ScheduleEvent("clearError", 5)
+            end,
+        },
+
+        gui.Input{
+            width = "94%",
+            height = 34,
+            halign = "center",
+            vmargin = 6,
+            fontSize = 18,
+            placeholderText = "Say something...",
+            characterLimit = 400,
+            change = function(element)
+                local text = (element.text or ""):match("^%s*(.-)%s*$")
+                if text == "" or m_conn == nil then
+                    return
+                end
+                element.text = ""
+                --inside a party view the send targets that party's channel.
+                local args = { text = text }
+                if m_viewGameid ~= nil then
+                    args.gameid = m_viewGameid
+                end
+                m_conn:Request{
+                    action = "chat",
+                    args = args,
+                    error = function(message)
+                        if chatErrorLabel ~= nil and chatErrorLabel.valid then
+                            chatErrorLabel:FireEvent("showError", message)
+                        end
+                    end,
+                }
+            end,
+        },
+    }
 
     resultPanel = gui.Panel{
         id = "encounterOfTheWeekScreen",
@@ -3114,6 +3735,9 @@ CreateScreen = function(args)
         uiscale = uiscale,
         halign = "center",
         valign = "center",
+        flow = "none",
+        bgimage = "panels/square.png",
+        bgcolor = "#0b0907",
         styles = {
             Styles.Default,
             Styles.Panel,
@@ -3131,6 +3755,15 @@ CreateScreen = function(args)
 
         captureEscape = true,
         escape = function(element)
+            --close the topmost town panel first; the town itself last.
+            if gatePanel ~= nil and gatePanel.valid and not gatePanel:HasClass("collapsed") then
+                gatePanel:SetClass("collapsed", true)
+                return
+            end
+            if chatPanel ~= nil and chatPanel.valid and not chatPanel:HasClass("collapsed") then
+                chatPanel:SetClass("collapsed", true)
+                return
+            end
             element:FireEvent("closeEncounterOfTheWeek")
         end,
 
@@ -3175,7 +3808,7 @@ CreateScreen = function(args)
             element:SetClass("hidden", false)
         end,
 
-        --Keep our roster records alive: the lobby expires a game 5 minutes
+        --Keep our roster records alive: the city expires a game 5 minutes
         --after its last heartbeat, so while this screen is open we beat
         --every game we host or occupy (well inside the 60s cadence the
         --server expects).
@@ -3187,6 +3820,7 @@ CreateScreen = function(args)
             --their own and never reach the "closed" status.)
             if m_conn ~= nil and lobbiesApi ~= nil and m_conn.status == "closed" then
                 m_conn = lobbiesApi:Connect(LOBBY_ID, LOBBY_OPTIONS)
+                EotwRoster.Attach(m_conn)
                 m_initialGameStatus = nil
                 if AttachMonitors ~= nil then
                     AttachMonitors()
@@ -3215,10 +3849,158 @@ CreateScreen = function(args)
         --side drops its handler refs and closes the shared connection.
         destroy = function(element)
             if m_conn ~= nil then
+                EotwRoster.Detach(m_conn)
                 m_conn:Disconnect()
                 m_conn = nil
             end
         end,
+
+        --the map, pannable by dragging anywhere that is not a location.
+        gui.Panel{
+            floating = true,
+            width = "100%",
+            height = "100%",
+            halign = "center",
+            valign = "center",
+            flow = "none",
+            clip = true,
+            bgimage = "panels/square.png",
+            --must be opaque: a clip panel whose own background is fully
+            --transparent hides all of its children.
+            bgcolor = "black",
+            draggable = true,
+            dragMove = false,
+            dragThreshold = 4,
+            styles = townStyles,
+            events = {
+                press = function(element)
+                    m_dragStartX = m_panX
+                    m_dragStartY = m_panY
+                end,
+                dragging = function(element)
+                    local dd = element.dragDelta
+                    m_panX = m_dragStartX - dd.x
+                    m_panY = m_dragStartY - dd.y
+                    ApplyPan()
+                end,
+            },
+
+            gui.Panel{
+                floating = true,
+                halign = "left",
+                valign = "top",
+                width = mapW,
+                height = mapH,
+                flow = "none",
+                bgimage = CITY_MAP_IMAGE,
+                bgcolor = "white",
+                interactable = false,
+                create = function(element)
+                    mapPanel = element
+                    ApplyPan()
+                end,
+            },
+            --the nodes ride on their own layer over the map, moved with it
+            --(the map image panel is not interactable, so its children
+            --would not be either).
+            gui.Panel{
+                floating = true,
+                halign = "left",
+                valign = "top",
+                width = mapW,
+                height = mapH,
+                flow = "none",
+                create = function(element)
+                    nodeLayer = element
+                    ApplyPan()
+                end,
+                children = nodes,
+            },
+        },
+
+        --the town's name plaque, who is here, and the connection state.
+        gui.Panel{
+            classes = { "eotwPlaque" },
+            floating = true,
+            halign = "left",
+            valign = "top",
+            hmargin = 20,
+            vmargin = 20,
+            width = 440,
+            height = "auto",
+            flow = "vertical",
+            styles = townStyles,
+            gui.Label{
+                text = "Blackbottom",
+                fontSize = 40,
+                bold = true,
+                color = "#f6ead0",
+                width = "auto",
+                height = "auto",
+            },
+            gui.Label{
+                text = "Encounter of the Week",
+                fontSize = 18,
+                italics = true,
+                color = "#c9bfa9",
+                width = "auto",
+                height = "auto",
+            },
+            gui.Label{
+                fontSize = 16,
+                color = "#c9bfa9",
+                width = "100%",
+                height = "auto",
+                tmargin = 6,
+                text = "",
+                data = { seen = nil },
+                thinkTime = 1,
+                think = function(element)
+                    if m_conn == nil then
+                        return
+                    end
+                    local presence = m_conn:GetPath("/presence")
+                    local n = 0
+                    for _,_ in pairs(presence or {}) do
+                        n = n + 1
+                    end
+                    element.text = string.format("%d adventurer%s in town", n, cond(n == 1, "", "s"))
+                end,
+            },
+            --connection status line (blank while healthy).
+            gui.Label{
+                fontSize = 16,
+                color = "#ffcc66",
+                width = "100%",
+                height = "auto",
+                create = function(element)
+                    statusLabel = element
+                    RefreshStatus()
+                end,
+            },
+        },
+
+        heroStrip,
+
+        --chat drawer toggle, bottom-right.
+        gui.Button{
+            text = "Town Chat",
+            fontSize = 18,
+            floating = true,
+            halign = "right",
+            valign = "bottom",
+            hmargin = 20,
+            bmargin = 20,
+            width = 160,
+            height = 44,
+            click = function(element)
+                chatPanel:SetClass("collapsed", not chatPanel:HasClass("collapsed"))
+                RefreshChat()
+            end,
+        },
+
+        chatPanel,
+        gatePanel,
 
         gui.CloseButton{
             floating = true,
@@ -3229,225 +4011,6 @@ CreateScreen = function(args)
             click = function(element)
                 element:FireEventOnParents("closeEncounterOfTheWeek")
             end,
-        },
-
-        --content column, authored inside the 1920-wide logical space.
-        gui.Panel{
-            width = 1600,
-            height = "94%",
-            halign = "center",
-            valign = "center",
-            flow = "vertical",
-
-            gui.Label{
-                text = "Encounter of the Week",
-                fontSize = 48,
-                bold = true,
-                color = Styles.textColor,
-                width = "auto",
-                height = "auto",
-                halign = "center",
-                vmargin = 12,
-            },
-
-            gui.Label{
-                text = "Each week a new encounter awaits. Gather a party of 3-7 heroes -- your own or pregenerated ones -- and take on a battle where the Codex's Monster AI runs the opposition. Join a public game below, or create your own and invite others.",
-                fontSize = 22,
-                color = Styles.textColor,
-                width = 1100,
-                height = "auto",
-                halign = "center",
-                textAlignment = "center",
-                vmargin = 8,
-            },
-
-            --connection status line (blank while healthy).
-            gui.Label{
-                fontSize = 18,
-                color = "#ffcc66",
-                width = "auto",
-                height = 24,
-                halign = "center",
-                create = function(element)
-                    statusLabel = element
-                    RefreshStatus()
-                end,
-            },
-
-            --lobby row: games list left, chat + presence right.
-            gui.Panel{
-                width = "100%",
-                height = 800,
-                flow = "horizontal",
-                halign = "center",
-                vmargin = 12,
-
-                --games roster, rendered from /state/games.
-                gui.Panel{
-                    classes = { "eotw-area" },
-                    bgimage = "panels/square.png",
-                    width = 1080,
-                    height = "100%",
-                    halign = "left",
-                    flow = "vertical",
-                    styles = areaStyles,
-
-                    AreaTitle("Games", function(element)
-                        gamesTitleLabel = element
-                    end),
-
-                    gui.Panel{
-                        width = "100%",
-                        height = "100%-160",
-                        flow = "vertical",
-                        vscroll = true,
-                        rpad = 12,
-                        borderBox = true,
-                        create = function(element)
-                            gamesListPanel = element
-                            RefreshGames()
-                            RefreshResumeState()
-                        end,
-                    },
-
-                    --error line for rejected roster requests (join on a full
-                    --game, second hosted game, etc).
-                    gui.Label{
-                        fontSize = 16,
-                        color = "#ff8888",
-                        width = "94%",
-                        height = 22,
-                        halign = "center",
-                        text = "",
-                        create = function(element)
-                            gamesErrorLabel = element
-                        end,
-                        clearError = function(element)
-                            element.text = ""
-                        end,
-                        showError = function(element, message)
-                            element.text = tostring(message)
-                            element:ScheduleEvent("clearError", 5)
-                        end,
-                    },
-
-                    --hidden while a game lobby view is open (RefreshGames
-                    --collapses it); leaving the game is the way back.
-                    gui.Button{
-                        text = "Create Game",
-                        fontSize = 24,
-                        width = 240,
-                        height = 50,
-                        halign = "center",
-                        vmargin = 10,
-                        create = function(element)
-                            createGameButton = element
-                        end,
-                        click = function(element)
-                            ShowCreateDialog()
-                        end,
-                    },
-                },
-
-                gui.Panel{ width = 20, height = 1 },
-
-                --chat + presence, rendered from /chat and /presence.
-                gui.Panel{
-                    classes = { "eotw-area" },
-                    bgimage = "panels/square.png",
-                    width = 500,
-                    height = "100%",
-                    halign = "right",
-                    flow = "vertical",
-                    styles = areaStyles,
-
-                    AreaTitle("Lobby Chat", function(element)
-                        chatTitleLabel = element
-                    end),
-
-                    gui.Label{
-                        fontSize = 16,
-                        color = Styles.textColor,
-                        opacity = 0.7,
-                        width = "94%",
-                        height = "auto",
-                        halign = "center",
-                        text = "",
-                        create = function(element)
-                            presenceLabel = element
-                            RefreshPresence()
-                        end,
-                    },
-
-                    gui.Panel{
-                        width = "94%",
-                        height = "100%-160",
-                        halign = "center",
-                        flow = "vertical",
-                        vscroll = true,
-                        rpad = 12,
-                        borderBox = true,
-                        vmargin = 8,
-                        create = function(element)
-                            chatMessagesPanel = element
-                            RefreshChat()
-                        end,
-                    },
-
-                    --error line for rejected sends (rate limit etc); clears
-                    --itself a few seconds after appearing.
-                    gui.Label{
-                        fontSize = 15,
-                        color = "#ff8888",
-                        width = "94%",
-                        height = 20,
-                        halign = "center",
-                        text = "",
-                        create = function(element)
-                            chatErrorLabel = element
-                        end,
-                        clearError = function(element)
-                            element.text = ""
-                        end,
-                        showError = function(element, message)
-                            element.text = message
-                            element:ScheduleEvent("clearError", 5)
-                        end,
-                    },
-
-                    gui.Input{
-                        width = "94%",
-                        height = 34,
-                        halign = "center",
-                        vmargin = 6,
-                        fontSize = 18,
-                        placeholderText = "Say something...",
-                        characterLimit = 400,
-                        change = function(element)
-                            local text = (element.text or ""):match("^%s*(.-)%s*$")
-                            if text == "" or m_conn == nil then
-                                return
-                            end
-                            element.text = ""
-                            --inside a game lobby view the send targets that
-                            --game's private channel.
-                            local args = { text = text }
-                            if m_viewGameid ~= nil then
-                                args.gameid = m_viewGameid
-                            end
-                            m_conn:Request{
-                                action = "chat",
-                                args = args,
-                                error = function(message)
-                                    if chatErrorLabel ~= nil and chatErrorLabel.valid then
-                                        chatErrorLabel:FireEvent("showError", message)
-                                    end
-                                end,
-                            }
-                        end,
-                    },
-                },
-            },
         },
     }
 
@@ -3466,6 +4029,12 @@ CreateScreen = function(args)
             end
             if path == "/" then
                 RefreshAll()
+                EotwRoster.Refresh()
+            elseif path == "/presence/" .. dmhub.loginUserid then
+                --our presence entry carries our roster revision: a change
+                --made on this or another machine re-lists the roster.
+                RefreshPresence()
+                EotwRoster.Refresh()
             elseif string.starts_with(path, "/chat") then
                 RefreshChat()
             elseif string.starts_with(path, "/gamechat") then
@@ -3485,6 +4054,7 @@ CreateScreen = function(args)
             RefreshStatus()
             if status == "connected" then
                 RefreshAll()
+                EotwRoster.Refresh()
             end
         end)
     end
