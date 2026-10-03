@@ -17,6 +17,8 @@ local g_numHeroesSetting = setting {
     description = "Number of Heroes",
     help = "This setting will guide balance of encounters you create.",
     section = "game",
+    --game-wide, so every client resets hero tokens to the same party size.
+    storage = "game",
     editor = "dropdown",
     default = 4,
     enum = {

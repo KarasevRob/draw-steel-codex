@@ -3256,14 +3256,21 @@ function TacPanel.Portrait()
     }
 end
 
---- Count heroes from the three sources the hero-token refresh button consults:
---- (a) the encounter builder's numheroes setting, (b) hero tokens deployed on
---- the current map, and (c) hero tokens in the default player party.
+--- The party size the hero-token refresh button resets to: the game-wide
+--- numheroes setting, so every client resets to the same number.
+--- @return integer
+local function HeroTokenRefreshCount()
+    return tonumber(dmhub.GetSettingValue("numheroes")) or 4
+end
+
+--- Count heroes from the three sources the Director's refresh button consults:
+--- (a) the game-wide numheroes setting, (b) hero tokens deployed on the
+--- current map, and (c) heroes in the default player party, on any map.
 --- @return integer encounterCount
 --- @return integer mapCount
 --- @return integer partyCount
 local function HeroTokenRefreshCounts()
-    local encounterCount = dmhub.GetSettingValue("numheroes")
+    local encounterCount = HeroTokenRefreshCount()
 
     local mapCount = 0
     for _, tok in ipairs(dmhub.allTokens) do
@@ -3276,7 +3283,7 @@ local function HeroTokenRefreshCounts()
     local partyCount = 0
     local partyMembers = dmhub.GetCharacterIdsInParty(GetDefaultPartyID()) or {}
     for _, charid in ipairs(partyMembers) do
-        local tok = dmhub.GetTokenById(charid)
+        local tok = dmhub.GetCharacterById(charid)
         if tok ~= nil and tok.properties ~= nil and tok.properties:IsHero() then
             partyCount = partyCount + 1
         end
@@ -3430,16 +3437,23 @@ function TacPanel.HeroTokenBox()
                 local token = element.parent.data.token
                 if token == nil then return end
 
+                -- Players always reset to the game-wide setting, so every
+                -- player resets to the same number.
+                if not IsDMOrPlayerHost() then
+                    RefreshHeroTokensTo(token, HeroTokenRefreshCount())
+                    return
+                end
+
                 local encounterCount, mapCount, partyCount = HeroTokenRefreshCounts()
 
-                -- All three sources agree: refresh directly, as before.
+                -- All three sources agree: refresh directly.
                 if encounterCount == mapCount and mapCount == partyCount then
                     RefreshHeroTokensTo(token, encounterCount)
                     return
                 end
 
-                -- Sources disagree: let the user pick which count to refresh to,
-                -- one entry per unique value.
+                -- Sources disagree: let the Director pick which count to
+                -- refresh to, one entry per unique value.
                 local seen = {}
                 local entries = {}
                 for _, n in ipairs({encounterCount, mapCount, partyCount}) do
@@ -3460,6 +3474,10 @@ function TacPanel.HeroTokenBox()
                 }
             end,
             linger = function(element)
+                if not IsDMOrPlayerHost() then
+                    gui.Tooltip(string.format("Reset Hero Tokens For Session (%d heroes)", HeroTokenRefreshCount()))(element)
+                    return
+                end
                 local encounterCount, mapCount, partyCount = HeroTokenRefreshCounts()
                 if encounterCount == mapCount and mapCount == partyCount then
                     gui.Tooltip(string.format("Reset Hero Tokens For Session (%d heroes)", encounterCount))(element)
