@@ -35,7 +35,8 @@ function ActivatedAbilityRecoverySelectionBehavior:Cast(ability, casterToken, ta
 
     for _, tok in pairs(targetTokenids) do
         local token = dmhub.GetTokenById(tok)
-        if token.valid then
+        --nil when the target left the map (deleted/despawned) after it was targeted.
+        if token ~= nil and token.valid then
             effectTargets[token.charid] = {}
             recoveryTargets[token.charid] = 1
         end
@@ -271,7 +272,7 @@ function ActivatedAbilityRecoverySelectionBehavior:Cast(ability, casterToken, ta
     local tokenPanels = {}
     for _, tok in pairs(targetTokenids) do
         local token = dmhub.GetTokenById(tok)
-        if token.valid then
+        if token ~= nil and token.valid then
             tokenPanels[#tokenPanels+1] = CreateTokenPanel(token)
         end
     end
@@ -604,8 +605,9 @@ function ActivatedAbilityRecoverySelectionBehavior:Cast(ability, casterToken, ta
 
     for _, tok in pairs(targetTokenids) do
         local token = dmhub.GetTokenById(tok)
-        local targetCreature = token:GetCreature()
-        if token.valid then
+        --the modal above waits on the user, so a target can leave the map meanwhile.
+        if token ~= nil and token.valid then
+            local targetCreature = token:GetCreature()
             local numRecoveries = recoveryTargets[token.charid] or 0
             if numRecoveries > 0 then
                 local maySpendRecovery = DeepCopy(MCDMUtils.GetStandardAbility("Prompt Spend Recovery"))

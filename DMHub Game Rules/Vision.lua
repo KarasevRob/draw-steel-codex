@@ -141,6 +141,7 @@ function VisionType.CreateEditor()
             classes = {"formStackedRow"},
             gui.Check{
                 text = "Penetrates Solid",
+                value = false,
 
                 vision = function(element)
                     element.value = m_vision.penetrateWalls
@@ -156,6 +157,7 @@ function VisionType.CreateEditor()
             classes = {"formStackedRow"},
             gui.Check{
                 text = "Respect Field of View",
+                value = false,
 
                 vision = function(element)
                     element.value = m_vision.fieldOfView
@@ -171,6 +173,7 @@ function VisionType.CreateEditor()
             classes = {"formStackedRow"},
             gui.Check{
                 text = "Always Show on Character Sheet",
+                value = false,
 
                 vision = function(element)
                     element.value = m_vision.alwaysShowOnCharacterSheet

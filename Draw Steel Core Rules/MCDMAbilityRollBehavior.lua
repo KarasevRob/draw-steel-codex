@@ -63,6 +63,7 @@ ActivatedAbilityModifyCastBehavior.RegisterParam{
 --- @field new fun(o?: table): ActivatedAbilityPowerRollBehavior
 --- @field tiers string[] The three power table tier texts (tier 1, 2, 3), set when the behavior is created.
 --- @field callback? fun(token: CharacterToken, tier: number) Transient per-target result hook set by ActivatedAbilityPowerRollBehavior.CustomRoll.
+--- @field ExecuteCommand fun(self: ActivatedAbilityPowerRollBehavior, ability: ActivatedAbility, casterToken: CharacterToken|nil, targetToken: CharacterToken|nil, options: table, rule: string) Borrowed from ActivatedAbilityDrawSteelCommandBehavior (assigned below).
 ActivatedAbilityPowerRollBehavior = RegisterGameType("ActivatedAbilityPowerRollBehavior", "ActivatedAbilityBehavior")
 
 ActivatedAbilityPowerRollBehavior.summary = 'Roll on Power Table'
@@ -434,6 +435,34 @@ function ActivatedAbilityPowerRollBehavior:AccumulateDamageTypes(ability, result
             end
         end
     end
+end
+
+local g_tierDamagePattern = "^(?<prefix>.*?)(?<damage>\\d+)\\s+((?<type>[a-zA-Z]+)\\s+)?damage(?<suffix>.*)$"
+
+--Rewrite a tier's first damage clause to the given type ("5 damage" -> "5 fire damage").
+--- @param tierText string
+--- @param damageType string
+--- @return string
+function ActivatedAbilityPowerRollBehavior.RetypeTierDamage(tierText, damageType)
+    local m = regex.MatchGroups(tierText, g_tierDamagePattern)
+    if m == nil then
+        return tierText
+    end
+    return m.prefix .. m.damage .. " " .. damageType .. " damage" .. m.suffix
+end
+
+--Modify Ability's "Damage Type: Add" offers extra types as modes; the chosen mode's type
+--retypes every tier for this cast.
+--- @param ability ActivatedAbility
+--- @param options nil|table
+--- @return string|nil
+local function ModeDamageType(ability, options)
+    local mode = options ~= nil and options.symbols ~= nil and options.symbols.mode or nil
+    if mode == nil or not ability.multipleModes then
+        return nil
+    end
+    local modeInfo = ability:try_get("modeList", {})[mode]
+    return modeInfo ~= nil and modeInfo.damageType or nil
 end
 
 --if we have targets, the actual tier should be equal to one of the tiers found among the targets.
@@ -1220,10 +1249,11 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
 
     for _,behavior in ipairs(ability.behaviors) do
         if behavior.typeName == "ActivatedAbilityModifyPowerRollBehavior" and behavior:IsFiltered(ability, casterToken, options) == false then
-            local filterCondition = trim(behavior.modifier:try_get("filterCondition", ""))
+            local modBehavior = behavior --[[@as ActivatedAbilityModifyPowerRollBehavior]]
+            local filterCondition = trim(modBehavior.modifier:try_get("filterCondition", ""))
             if filterCondition == "" or dmhub.EvalGoblinScript(filterCondition, caster:LookupSymbol(options.symbols), "Filter condition for power roll modifier") then
                 modifiersOnCaster[#modifiersOnCaster+1] = {
-                    mod = behavior.modifier,
+                    mod = modBehavior.modifier,
                 }
             end
         end
@@ -1546,7 +1576,8 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         local skillid = self:try_get("skillid", "none")
         local skill = dmhub.GetTable(Skill.tableName)[skillid]
         if skill ~= nil and caster:ProficientInSkill(skill) then
-            for _,mod in ipairs(modifiersApplied) do
+            --nil when no target produced a row; the later readers guard the same way.
+            for _,mod in ipairs(modifiersApplied or {}) do
                 if mod.modifier.name == "Skilled" then
                     mod.hint.result = true
                 end
@@ -1566,6 +1597,12 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
     local m_canceled = false
 
     local tiers = DeepCopy(self.tiers)
+    local modeDamageType = ModeDamageType(ability, options)
+    if modeDamageType ~= nil then
+        for i=1,#tiers do
+            tiers[i] = ActivatedAbilityPowerRollBehavior.RetypeTierDamage(tiers[i], modeDamageType)
+        end
+    end
     --Below Silver, a rule-parseable description (the ability's "Effect:" line) is
     --auto-appended to every tier so it executes as part of the roll -- the
     --auto-parse IS the implementation at that level. At Silver and above the
@@ -3404,6 +3441,8 @@ function RollPropertiesPowerTable:CustomPanel(message)
 
             local liveResult = { total = total, naturalRoll = total - m_mod, boons = m_boons, banes = m_banes, tiers = m_tiers, autofailure = m_autofailure, autosuccess = m_autosuccess, nottierone = m_nottierone, nottierthree = m_nottierthree }
             local index = self:PromoteTierOnCrit(DiceResultToTier(liveResult), liveResult)
+            --diceface only arrives from dice events the refresh handler listens to after it builds m_rows.
+            ---@cast m_rows -nil
             for i,row in ipairs(m_rows) do
                 if row ~=nil and row.valid then
                     row:SetClassImmediate("highlighted", i == index)

@@ -159,7 +159,7 @@ local function FocusBubble(bubble)
         dmhub.CenterOnLoc{ x = p.x, y = p.y, floorid = bubble.floorid, smooth = true }
     end)
     local hud = GameHud.instance
-    if hud ~= nil then
+    if hud then
         hud:DisplayDocument(bubble)
     end
 end

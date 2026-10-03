@@ -98,7 +98,8 @@ GameSystem.CalculateAttributeModifier = function(attributeInfo, attributeValue)
 		n = n-1
 	end
 
-	return math.tointeger((n/2) - 5)
+	--attribute scores are integers and n is now even, so n/2 is integral and tointeger never fails.
+	return math.tointeger((n/2) - 5) --[[@as integer]]
 end
 
 GameSystem.CalculateInitiativeModifier = function(creature)

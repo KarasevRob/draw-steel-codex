@@ -82,6 +82,9 @@ local ShowObjectTooltip = function(element)
 	assert(dock ~= nil)
 	
 	local node = assets:GetObjectNode(element.data.nodeid)
+	--Only an object entry's linger calls this: deleted nodes stay in the tree (hidden), and
+	--an entry whose node vanished is removed by its folder's refreshAssets.
+	---@cast node -nil
 
 	local duplicatedText = {}
 
@@ -554,6 +557,9 @@ local function CreateObjectEntry(nodeid, parentElement, options)
 					--swapping the objects that are subject of the drag.
 					local sourceNode = assets:GetObjectNode(element.data.nodeid)
 					local targetNode = assets:GetObjectNode(target.data.nodeid)
+					--Both are live object entries; same invariant as CreateObjectEntry's node.
+					---@cast sourceNode -nil
+					---@cast targetNode -nil
 
 					local sourceOrd = sourceNode.ord
 					local targetOrd = targetNode.ord
@@ -2242,7 +2248,7 @@ mod.shared.CreateObjectEditor = function(options)
             	dockablePanel:SetClass("highlightPanel", false)
 			end
 
-			if focusInfo.oldFocus ~= element and focusInfo.newFocus == nil and (not dmhub.KeyPressed("escape")) then
+			if focusInfo.oldFocus ~= element and focusInfo.newFocus == nil and (not dmhub.KeyPressed("Escape")) then
 				focusInfo.newFocus = element
 			end
         end,

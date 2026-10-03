@@ -273,9 +273,9 @@ CharacterModifier.TypeInfo.powertabletrigger = {
         }
 
         if selfClone.powerRollModifier:try_get("resourceCostType") == "cost" then
-            entry.heroicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1))
+            entry.heroicResourceCost = selfClone.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols)
         elseif selfClone.powerRollModifier:try_get("resourceCostType") == "epic" then
-            entry.epicResourceCost = tonumber(selfClone.powerRollModifier:try_get("resourceCostAmount", 1))
+            entry.epicResourceCost = selfClone.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols)
         end
 
         if self:try_get("abilityTargets", "") ~= "" then
@@ -323,11 +323,11 @@ CharacterModifier.TypeInfo.powertabletrigger = {
         end
 
         if self.powerRollModifier:try_get("resourceCostType") == "cost" then
-            if (tonumber(token.properties:GetHeroicOrMaliceResourcesAvailableToSpend()) or 0) < (tonumber(self.powerRollModifier:try_get("resourceCostAmount", 1)) or 0) then
+            if (tonumber(token.properties:GetHeroicOrMaliceResourcesAvailableToSpend()) or 0) < self.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols) then
                 return false
             end
         elseif self.powerRollModifier:try_get("resourceCostType") == "epic" then
-            if (tonumber(token.properties:GetEpicResources()) or 0) < (tonumber(self.powerRollModifier:try_get("resourceCostAmount", 1)) or 0) then
+            if (tonumber(token.properties:GetEpicResources()) or 0) < self.powerRollModifier:ResolveResourceCostAmount(token.properties, symbols) then
                 return false
             end
         end

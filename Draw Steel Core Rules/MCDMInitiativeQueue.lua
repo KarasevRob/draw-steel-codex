@@ -606,7 +606,7 @@ function InitiativeQueue.SetInitiative(self, initiativeid, value, dexterity)
 			dexterity = dexterity or 0,
 		}
 
-		if GameHud.instance ~= nil and GameHud.instance:has_key("initiativeInterface") then
+		if GameHud.instance and GameHud.instance:has_key("initiativeInterface") then
 			local tokens = self.GetTokensForInitiativeId(initiativeid)
 			if tokens ~= nil and #tokens > 0 then
 				entry.description = tokens[1].description

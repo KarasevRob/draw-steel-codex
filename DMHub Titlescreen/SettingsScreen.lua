@@ -176,6 +176,8 @@ CreateLanguageEditor = function()
 
 	for _,id in ipairs(i18n.translations) do
 		local t = i18n.GetTranslation(id)
+		--id was just read from i18n.translations, the same dictionary GetTranslation looks up.
+		---@cast t -nil
 		options[#options+1] = {
 			id = t.identifier,
 			text = t.name,
@@ -6276,11 +6278,18 @@ function CreateSettingsScreen(dialog, args)
 	local Setting = function(settingid)
 		local createfn = function()
 			local result = CreateSettingsEditor(settingid)
+			--nil for an unregistered setting id (logged by CreateSettingsEditor) or one with no editor.
+			if result == nil then
+				return nil
+			end
 			result.data.settingid = settingid
 			return result
 		end
 
 		local editor = createfn()
+		if editor == nil then
+			return nil
+		end
 
 		editor.events.search = function(element, text, results)
 			results[#results+1] = {

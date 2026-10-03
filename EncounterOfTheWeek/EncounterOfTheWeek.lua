@@ -28,6 +28,10 @@ EncounterOfTheWeekGame = {}
 --  data.proceedRequested = serverTime  (a player pressed Proceed on the
 --                       victory screen; the host tick runs the teardown and
 --                       clears it)
+--  data.alreadyCompleted = { [charid] = true }  (heroes whose owners'
+--                       town says they already won this encounter; each
+--                       owner stamps its own at arrival. The automatic
+--                       Victory award skips them.)
 --  data.abilityBusy   = { [userid] = serverTime }  (that client has an
 --                       ability cast/prompt in flight; refreshed while busy,
 --                       cleared when idle. The host defers the
@@ -80,6 +84,19 @@ end
 --offered for resume.
 setting{
     id = "eotw:concludedgame",
+    default = "",
+    storage = "preference",
+}
+
+--Handoff to the town: what a won encounter means for each of this
+--machine's town heroes, written before leaving the game and applied by the
+--town once the player is back (EotwRoster.ApplyPendingOutcomes: the
+--Victory onto the roster hero, then the city's record-outcome). JSON text:
+--{ [userid] = { ["<gameid>|<heroid>"] = {gameid, heroid, outcome, stage} } }.
+--Machine-local so it survives the game switch and a crash on the way home.
+--The titlescreen re-declares it.
+setting{
+    id = "eotw:pendingOutcomes",
     default = "",
     storage = "preference",
 }
@@ -494,11 +511,11 @@ end
 
 --- lobby requests -----------------------------------------------------
 
---Must match the titlescreen's lobby connection (Codex Titlescreen/
---EncounterOfTheWeek.lua): the EotW lobby id, on the staging server while
---EotW is dev-gated.
-local LOBBY_ID = "eotw"
-local LOBBY_STAGING = true
+--Must match the titlescreen's connection (Codex Titlescreen/EotwRoster.lua):
+--the Blackbottom city, which holds the parties roster, on the staging server
+--while EotW is dev-gated.
+local LOBBY_ID = "blackbottom"
+local LOBBY_OPTIONS = { staging = true, route = "city" }
 
 --Send one request to the EotW lobby over a transient connection of our own
 --(the titlescreen's connection closed when its screen was destroyed during
@@ -512,7 +529,7 @@ local function SendLobbyRequest(action, args, onDone)
         return
     end
 
-    local conn = lobbies:Connect(LOBBY_ID, { staging = LOBBY_STAGING })
+    local conn = lobbies:Connect(LOBBY_ID, LOBBY_OPTIONS)
     if conn == nil then
         return
     end
@@ -669,10 +686,181 @@ local function UpdateStartZoneConfinement()
     }
 end
 
+--- coming home ---------------------------------------------------------
+
+--The Victories a won encounter is worth, to each hero who has not won it
+--before (DSVictoryScreen.AwardVictories on the host; the town write-back).
+local ENCOUNTER_VICTORIES = 1
+
+--"victory" or "defeat": the outcome this client saw on the victory screen.
+local m_outcomeKind = nil
+local m_outcomesRecorded = false
+
+--{charid = true}: heroes who had already won this encounter on arrival.
+local function AlreadyCompletedHeroes()
+    local result = {}
+    pcall(function()
+        local stamped = mod:GetDocumentSnapshot(STATE_DOC_ID).data.alreadyCompleted
+        if type(stamped) == "table" then
+            result = stamped
+        end
+    end)
+    return result
+end
+
+--After hero placement: stamp which of MY heroes the town says already won
+--this encounter (the city marks them `completed` in the party roster), so
+--the host's Victory award skips them and their victory card says why.
+local function RecordCompletedHeroes(heroes)
+    local placed = GetPlacedHeroes(dmhub.loginUserid)
+    local completed = {}
+    local any = false
+    for _, h in ipairs(heroes or {}) do
+        local charid = placed["lobby:" .. tostring(h.id)]
+        if h.completed == true and charid ~= nil then
+            completed[charid] = true
+            any = true
+        end
+    end
+    if not any then
+        return
+    end
+    local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
+    doc:BeginChange()
+    doc.data.alreadyCompleted = doc.data.alreadyCompleted or {}
+    for charid in pairs(completed) do
+        doc.data.alreadyCompleted[charid] = true
+    end
+    doc:CompleteChange("Encounter of the Week: heroes who already won", {undoable = false})
+end
+
+--Host, while the victory screen is up: award the encounter's Victory the
+--way the Director's Award button would, once the cards have had time to
+--fade in (or at once, `now`, when someone is already pressing Proceed).
+--Dead heroes get nothing; heroes who won this encounter before get
+--"Already Completed" on their card instead.
+local VICTORY_AWARD_DELAY = 3
+local m_victorySeenAt = nil
+local function AutoAwardVictories(live, now)
+    if live:try_get("victoriesAwarded", false) then
+        return
+    end
+    if m_victorySeenAt == nil then
+        m_victorySeenAt = dmhub.serverTime
+    end
+    if not now and math.abs(dmhub.serverTime - m_victorySeenAt) < VICTORY_AWARD_DELAY then
+        return
+    end
+    local completed = AlreadyCompletedHeroes()
+    local exemptions = {}
+    for _, token in ipairs(live:GetBattleHeroTokens()) do
+        local props = token.properties
+        if props == nil or props:IsDead() then
+            exemptions[token.charid] = ""
+        elseif completed[token.charid] then
+            exemptions[token.charid] = "Already Completed"
+        end
+    end
+    printf("EotW: awarding %d Victory to the heroes", ENCOUNTER_VICTORIES)
+    --elevated: the award writes every player's heroes, and the host is a
+    --player in an EotW game.
+    ElevateToHostPermissions()
+    local ok, err = pcall(DSVictoryScreen.AwardVictories, live, ENCOUNTER_VICTORIES, exemptions)
+    DropHostPermissions()
+    if not ok then
+        printf("EotW: the Victory award failed: %s", tostring(err))
+    end
+end
+
+--Note what this won encounter means for each of MY town heroes, for the
+--town to apply once the player is home (see eotw:pendingOutcomes). Only
+--heroes alive at the end count: the dead are left for the burial
+--write-back (not built yet), and a defeat records nothing for the same
+--reason. A hero who had already won it records the outcome with 0
+--Victories.
+local function RecordPendingOutcomes()
+    if m_outcomesRecorded then
+        return
+    end
+    m_outcomesRecorded = true
+
+    local encounter = nil
+    pcall(function() encounter = mod:GetDocumentSnapshot(STATE_DOC_ID).data.encounterMap end)
+    if type(encounter) ~= "string" or encounter == "" then
+        printf("EotW: no encounter name recorded; the town will not hear of this victory")
+        return
+    end
+
+    local completed = AlreadyCompletedHeroes()
+    local entries = {}
+    for key, charid in pairs(GetPlacedHeroes(dmhub.loginUserid)) do
+        --town heroes travel as "lobby:<heroid>" (see PlaceMyHeroes).
+        local heroid = string.match(key, "^lobby:(.+)$")
+        local tok = heroid ~= nil and dmhub.GetCharacterById(charid) or nil
+        local alive = false
+        pcall(function() alive = tok ~= nil and tok.properties ~= nil and not tok.properties:IsDead() end)
+        if alive then
+            entries[#entries + 1] = {
+                gameid = dmhub.gameid,
+                heroid = heroid,
+                stage = "new",
+                outcome = {
+                    encounter = encounter,
+                    result = "victory",
+                    victories = cond(completed[charid], 0, ENCOUNTER_VICTORIES),
+                    completed = true,
+                },
+            }
+        end
+    end
+    if #entries == 0 then
+        return
+    end
+
+    local all = {}
+    local text = dmhub.GetSettingValue("eotw:pendingOutcomes")
+    if type(text) == "string" and text ~= "" then
+        --FromJson answers {success, result}, not the decoded value.
+        local parsed = dmhub.FromJson(text)
+        if type(parsed) == "table" and parsed.success and type(parsed.result) == "table" then
+            all = parsed.result
+        end
+    end
+    local mine = all[dmhub.loginUserid]
+    if type(mine) ~= "table" then
+        mine = {}
+        all[dmhub.loginUserid] = mine
+    end
+    for _, entry in ipairs(entries) do
+        mine[entry.gameid .. "|" .. entry.heroid] = entry
+    end
+    dmhub.SetSettingValue("eotw:pendingOutcomes", dmhub.ToJson(all))
+    printf("EotW: %d hero outcome(s) saved for the town", #entries)
+end
+
+--The script's story section for an outcome ("# Conclusion" after a victory,
+--"# Defeat" after a defeat), or nil.
+local function OutcomeStory(outcome)
+    local section, script = nil, nil
+    pcall(function()
+        local montage = rawget(_G, "EncounterMontage")
+        if montage ~= nil then
+            script = montage.FindMapScript()
+            local story = script.parse.story or {}
+            section = story[cond(outcome == "defeat", "defeat", "conclusion")]
+        end
+    end)
+    if section == nil or section.text == nil or section.text == "" then
+        return nil
+    end
+    return section, script
+end
+
 --Watch the encounter conclude: once this client has seen the victory/defeat
 --screen (an awarded outcome on the live queue), the local user has pressed
 --Proceed, and the queue has hidden (combat torn down), leave for the
---titlescreen. Another client's Proceed tears combat down but leaves this
+--titlescreen -- by way of the script's Conclusion / Defeat story screen
+--when it has one. Another client's Proceed tears combat down but leaves this
 --client's screen held until its own press. Clients that never saw an awarded
 --outcome (mid-join, or a combat ended through the Director escape hatch)
 --never auto-exit.
@@ -683,17 +871,22 @@ local function UpdateEncounterConclusion()
 
     local queue = dmhub.initiativeQueue
     if queue ~= nil and not queue.hidden then
-        if not m_outcomeSeen then
-            local outcome = nil
-            pcall(function()
-                local live = queue:try_get("liveEncounter")
-                if type(live) == "table" then
-                    outcome = live:GetAwardedOutcome()
-                end
-            end)
-            if outcome ~= nil then
-                m_outcomeSeen = true
+        local outcome, awarded = nil, false
+        pcall(function()
+            local live = queue:try_get("liveEncounter")
+            if type(live) == "table" then
+                outcome = live:GetAwardedOutcome()
+                awarded = live:try_get("victoriesAwarded", false) == true
             end
+        end)
+        if outcome ~= nil and not m_outcomeSeen then
+            m_outcomeSeen = true
+            m_outcomeKind = outcome
+        end
+        --the Victory has landed: note it for the town now, not only on the
+        --way out, so a crash on the victory screen does not lose it.
+        if outcome == "victory" and awarded then
+            RecordPendingOutcomes()
         end
         return
     end
@@ -701,6 +894,12 @@ local function UpdateEncounterConclusion()
     if m_outcomeSeen and m_localProceeded then
         m_exitScheduled = true
         printf("EotW: encounter concluded; returning to the titlescreen")
+
+        --a victory whose award this client never saw (the host tore combat
+        --down in the same moment) is still a victory for the town.
+        if m_outcomeKind == "victory" then
+            RecordPendingOutcomes()
+        end
 
         --hand the finished game to the titlescreen: it destroys the game /
         --clears the account slot on its next refresh, so a decided
@@ -719,12 +918,49 @@ local function UpdateEncounterConclusion()
         end)
 
         --deferred: LeaveGame synchronously unloads this codemod, so let the
-        --frame (and the victory screen's fade) finish first.
-        dmhub.Schedule(EXIT_DELAY, function()
+        --frame (and the victory screen's fade) finish first. With a story
+        --screen the player leaves when they press on, but never before
+        --EXIT_DELAY, so the host's end-of-combat writes still flush.
+        local leaveAt = dmhub.Time() + EXIT_DELAY
+        local function Leave()
+            dmhub.Schedule(math.max(0.2, leaveAt - dmhub.Time()), function()
+                if mod.unloaded then
+                    return
+                end
+                dmhub.LeaveGame()
+            end)
+        end
+
+        local section, script = OutcomeStory(m_outcomeKind)
+        local stage = rawget(_G, "EncounterMontageStage")
+        if section == nil or stage == nil or stage.ShowStoryScreen == nil then
+            Leave()
+            return
+        end
+
+        --after the victory screen's fade, the story screen; pressing on
+        --from it is what takes the player home.
+        dmhub.Schedule(0.8, function()
             if mod.unloaded then
                 return
             end
-            dmhub.LeaveGame()
+            --"Encounter: Goblin Ambush" reads as "Goblin Ambush".
+            local title = nil
+            pcall(function()
+                local name = mod:GetDocumentSnapshot(STATE_DOC_ID).data.encounterMap
+                title = string.match(name or "", "^[^:]+:%s*(.+)$")
+            end)
+            local ok, err = pcall(stage.ShowStoryScreen, {
+                outcome = m_outcomeKind,
+                title = title,
+                section = section,
+                script = script,
+                onContinue = Leave,
+            })
+            if not ok then
+                printf("EotW: could not show the %s story: %s", tostring(m_outcomeKind), tostring(err))
+                Leave()
+            end
         end)
     end
 end
@@ -970,8 +1206,15 @@ pcall(function()
             end
             --the HOST (a player host: real hosting status, presented as a
             --player) falls through to the default teardown -- battle log,
-            --role history and analytics must run on the host machine.
+            --role history and analytics must run on the host machine. A
+            --Proceed pressed before the automatic Victory award awards first.
             if IsDMOrPlayerHost() then
+                pcall(function()
+                    local live = dmhub.initiativeQueue:try_get("liveEncounter")
+                    if type(live) == "table" and live:GetAwardedOutcome() == "victory" then
+                        AutoAwardVictories(live, true)
+                    end
+                end)
                 return false
             end
             local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
@@ -1903,8 +2146,12 @@ local function CheckEncounterOutcome(queue)
     if outcome ~= nil then
         --the victory/defeat screen is up everywhere. A player pressing
         --Proceed stamps proceedRequested (see the proceed override); run the
-        --full Director teardown on their behalf.
+        --full Director teardown on their behalf -- after the Victory award,
+        --which must never be skipped by a quick Proceed.
         local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
+        if outcome == "victory" then
+            AutoAwardVictories(live, doc.data.proceedRequested ~= nil)
+        end
         if doc.data.proceedRequested ~= nil then
             printf("EotW: a player pressed Proceed; ending the encounter")
             pcall(function() DSVictoryScreen.ProceedEndCombat() end)
@@ -2459,6 +2706,7 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
         end
 
         PlaceMyHeroes(args.heroes, args.clipboardIds)
+        RecordCompletedHeroes(args.heroes)
 
         --the heroes are in: let the loading screen go, unless a montage
         --stage is what this player should be looking at -- then its create
@@ -2482,7 +2730,7 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
                 --than clobbering it with a fresh clamp.
                 numHeroes = tonumber(dmhub.GetSettingValue("numheroes")) or 5
             else
-                --the numheroes setting only accepts 3..7 (the EotW party range).
+                --the numheroes setting only accepts 3..7 (the lobby sends 4..6).
                 if numHeroes < 3 then numHeroes = 3 end
                 if numHeroes > 7 then numHeroes = 7 end
                 dmhub.SetSettingValue("numheroes", numHeroes)

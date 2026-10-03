@@ -245,8 +245,9 @@ function ActivatedAbilityPurgeEffectsBehavior:Cast(ability, casterToken, targets
             options.symbols = {}
         end
         local conferObj = EvalCreatureField(self.conferTo, "Determine confer recipient")
-        if conferObj ~= nil then
-            conferToken = dmhub.GetCharacterById(dmhub.LookupTokenId(conferObj))
+        local conferId = conferObj ~= nil and dmhub.LookupTokenId(conferObj) or nil
+        if conferId ~= nil then
+            conferToken = dmhub.GetCharacterById(conferId)
         end
     end
 

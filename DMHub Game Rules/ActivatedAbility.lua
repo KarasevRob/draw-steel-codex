@@ -15,7 +15,7 @@ end
 --file, since they override some behavior). Attacks are also a type of activated ability.
 --Activated abilities have different behaviors and you can use the examples in here to define your own.
 
---- @alias AbilityTarget {loc: Loc, token = nil|CharacterToken}
+--- @alias AbilityTarget {loc: Loc, token: nil|CharacterToken}
 --- @alias Symbols table|function
 
 --- @class ActivatedAbility: GameType
@@ -91,7 +91,26 @@ end
 --- @field _tmp_restrictLocs? Loc[] Transient: explicit whitelist of target squares for a pick prompt.
 --- @field _tmp_hurlCandidates? table Transient: the grabbed-creature candidates of a hurl's creature pick.
 --- @field _tmp_fromKit? boolean Transient: set by Kit:SignatureAbilities on a kit's signature ability.
+--- @field keywords table<string, boolean> Keyword set (e.g. Strike=true). The class default is one shared empty table, so copy it before writing (AddKeyword does).
+--- @field targetAllegiance? false|string Restricts targets: "ally", "enemy", "none" (objects only) or "dead"; false/nil means any creature.
+--- @field TargetTypes AbilityTargetTypeOption[] Class-level list of the targeting options offered by the editor (TriggeredAbility replaces it).
+--- @field Types ActivatedAbilityTypeEntry[] Class-level registry of behavior types, filled by RegisterType; entry 1 is the "none" placeholder.
+--- @field TypesById table<string, ActivatedAbilityTypeEntry> The registered behavior types keyed by id.
 ActivatedAbility = RegisterGameType("ActivatedAbility")
+
+--- One targeting option of ActivatedAbility.TargetTypes.
+--- @class AbilityTargetTypeOption: DropdownOption
+--- @field condition? fun(ability: ActivatedAbility): boolean If present, the option is offered only when this returns true.
+
+--- One registered behavior type (ActivatedAbility.RegisterType).
+--- @class ActivatedAbilityTypeEntry
+--- @field id string
+--- @field text string Display name.
+--- @field createBehavior? fun(): ActivatedAbilityBehavior Makes a new behavior of this type; absent on the "none" placeholder.
+--- @field index? integer Position in ActivatedAbility.Types; set by RegisterType.
+--- @field hidden? boolean Set by SuppressType to hide the type from the UI.
+--- @field mono? boolean If true, an ability can hold only one behavior of this type.
+--- @field canHaveDC? boolean Whether the behavior type supports a save DC.
 
 --- @class ActivatedAbilityBehavior: GameType
 --- @field new fun(o?: table): ActivatedAbilityBehavior
@@ -410,7 +429,6 @@ function ActivatedAbility:OverrideTargeting(mode)
 	end
 end
 
---- @field ActivatedAbility.keywords table<string,boolean>
 ActivatedAbility.keywords = {}
 
 --[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:244
@@ -546,7 +564,6 @@ function ActivatedAbility:GetIconGradient()
     return nil
 end
 
---- @field ActivatedAbility.TargetTypes DropdownOption[]
 ActivatedAbility.TargetTypes = {
 	{
 		id = 'self',
@@ -629,10 +646,8 @@ ActivatedAbility.TargetTypesById = GetDropdownEnumById(ActivatedAbility.TargetTy
 ActivatedAbility.targetType = 'self'
 ActivatedAbility.objectTarget = false
 
---- @field ActivatedAbility.targetAllegiance false|'ally'|'enemy'
 ActivatedAbility.targetAllegiance = false
 
---- @field ActivatedAbility.Types DropdownOption[]
 ActivatedAbility.Types = {
 	{
 		id = 'none',
@@ -647,7 +662,7 @@ ActivatedAbility.TypesById = {}
 ActivatedAbility.OnTypeRegistered = function() end
 
 --- Registers a new ability behavior type. Adds it to ActivatedAbility.Types and ActivatedAbility.TypesById.
---- @param args {id: string, text: string, createBehavior: fun(): ActivatedAbilityBehavior}
+--- @param args ActivatedAbilityTypeEntry
 function ActivatedAbility.RegisterType(args)
     args.index = #ActivatedAbility.Types+1
     local doc = ActivatedAbility.TypesById[args.id]
@@ -671,8 +686,8 @@ function ActivatedAbility.SuppressType(nameOrId)
 	end
 end
 
---- @return boolean
 --[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:515
+--- @return boolean
 function ActivatedAbility:HasAttack()
 	for _,behavior in ipairs(self.behaviors) do
 		if behavior.typeName == "ActivatedAbilityAttackBehavior" then
@@ -684,7 +699,7 @@ function ActivatedAbility:HasAttack()
 end
 --]==]
 
---- @return boolean
+--- @return true|nil
 function ActivatedAbility:HasSavingThrow()
 	for _,behavior in ipairs(self.behaviors) do
 		if behavior:HasSavingThrow() then
@@ -956,9 +971,9 @@ function ActivatedAbility:PrimaryConditionID()
 	return nil
 end
 
+--[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:2687
 --- @param caster creature
 --- @return boolean
---[==[ DEAD_CODE - overridden by Draw Steel Core Rules\MCDMActivatedAbility.lua:2687
 function ActivatedAbility:AffectedByCover(caster)
 	local behaviors = self:try_get("behaviors", {})
 	for _,behavior in ipairs(behaviors) do
@@ -975,7 +990,8 @@ end
 function ActivatedAbility:GetAttackBehavior()
 	for _,behavior in ipairs(self.behaviors) do
 		if behavior.summary == "Attack" then
-			return behavior
+			--summary "Attack" is the attack behavior's class default.
+			return behavior --[[@as ActivatedAbilityAttackBehavior]]
 		end
 	end
 
@@ -998,7 +1014,8 @@ end
 --- @param casterCreature nil|creature
 --- @return string
 function ActivatedAbility:DescribeAOE(casterCreature)
-	if type(self.range) == "string" and string.lower(self.range) == "touch" then
+	local rangeSetting = self.range
+	if type(rangeSetting) == "string" and string.lower(rangeSetting) == "touch" then
 		return "Touch"
 	end
 	
@@ -1084,8 +1101,9 @@ end
 --- @return number
 function ActivatedAbility:GetRadius(casterCreature, castingSymbols)
     local radius = self:try_get("radius")
-    if tonumber(radius) ~= nil then
-        return tonumber(radius)
+    local numericRadius = tonumber(radius)
+    if numericRadius ~= nil then
+        return numericRadius
     end
 
     if radius == nil then
@@ -1103,9 +1121,10 @@ function ActivatedAbility:GetRadius(casterCreature, castingSymbols)
 	local caster = casterCreature or self:try_get("_tmp_boundCaster")
     if caster == nil then
         if type(radius) == "string" then
-            local m = regex.MatchGroups(radius, "^(?<range>%d+)")
-            if m ~= nil then
-                return tonumber(m.range)
+            local m = regex.MatchGroups(radius, "^(?<range>\\d+)")
+            local leadingNumber = m ~= nil and tonumber(m.range) or nil
+            if leadingNumber ~= nil then
+                return leadingNumber
             end
         end
 
@@ -1193,13 +1212,15 @@ function ActivatedAbility:GetNumTargets(casterToken, symbols)
 	end
 
     if casterToken == nil then
-        if tonumber(self.numTargets) ~= nil then
-            return tonumber(self.numTargets)
+        local numericTargets = tonumber(self.numTargets)
+        if numericTargets ~= nil then
+            return numericTargets
         end
 
-        local m = regex.MatchGroups(self.numTargets, "^(?<num>%d+)")
-        if m ~= nil then
-            return tonumber(m.num)
+        local m = regex.MatchGroups(self.numTargets, "^(?<num>\\d+)")
+        local leadingNumber = m ~= nil and tonumber(m.num) or nil
+        if leadingNumber ~= nil then
+            return leadingNumber
         end
 
         return 1
@@ -1588,7 +1609,8 @@ end
 --- @param symbols table
 --- @return string
 function ActivatedAbility.FormatFilterReason(reasonedFilter, symbols)
-	local reason = StringInterpolateGoblinScript(reasonedFilter.reason or "", symbols)
+	--never nil: StringInterpolateGoblinScript returns nil only for a nil string.
+	local reason = StringInterpolateGoblinScript(reasonedFilter.reason or "", symbols) --[[@as string]]
 
 	local sourceName = reasonedFilter.sourceName
 	if sourceName == nil or sourceName == "" or reason == "" then
@@ -2021,16 +2043,18 @@ end
 --- @param symbols nil|table
 --- @return number
 function ActivatedAbility:GetNumberOfActionsCost(caster, symbols)
-	if type(self.actionNumber) == "number" then
-		return self.actionNumber
+	local actionNumber = self.actionNumber
+	if type(actionNumber) == "number" then
+		return actionNumber
 	end
 
 	if caster ~= nil then
 		local result = ExecuteGoblinScript(self.actionNumber, caster:LookupSymbol(symbols or {mode = 1}), 1)
 		return result
 	else
-		if tonumber(self.actionNumber) ~= nil then
-			return tonumber(self.actionNumber)
+		local numericActions = tonumber(actionNumber)
+		if numericActions ~= nil then
+			return numericActions
 		end
 	end
 
@@ -2211,7 +2235,8 @@ function ActivatedAbility:GetCost(casterToken, options)
 	options.charges = options.charges or self:DefaultCharges()
 
 	if self.usesSpellSlots then
-		return Spell.GetCost(self, casterToken, options)
+		--Spell.GetCost infers its self as Spell but reads only ActivatedAbility members.
+		return Spell.GetCost(self --[[@as Spell]], casterToken, options)
 	end
 
 	local creature = casterToken:GetCreature()
@@ -2957,6 +2982,7 @@ function CastActivatedAbilityChatMessage.Render(self, message)
     --nil hole in the array makes CreateActionLogCard's ipairs stop early, leaving
     --statusLabel (and targetsPanel) created but never attached to a parent -- the
     --engine leak sweep then destroys them and reports the leak.
+    ---@type Panel[]
     local cardContent = {abilityLabel}
     if typeLabel ~= nil then
         cardContent[#cardContent+1] = typeLabel
@@ -3011,7 +3037,7 @@ function CastActivatedAbilityChatMessage:GetAbility()
     return self.ability
 end
 
---- @return CharacterToken
+--- @return CharacterToken|nil
 function CastActivatedAbilityChatMessage:GetCasterToken()
     return dmhub.GetCharacterById(self.casterid)
 end
@@ -3044,7 +3070,7 @@ end
 --casterToken: a token representing the caster.
 --targets: a list of { loc = (loc object), token = (optional)token }
 --- @param casterToken CharacterToken
---- @param targets { loc = Loc, token = CharacterToken }[]
+--- @param targets AbilityTarget[]
 --- @param options table
 function ActivatedAbility:Cast(casterToken, targets, options)
 	--While the Director has the game frozen, players cannot act. Refuse here,
@@ -3563,7 +3589,10 @@ function ActivatedAbility:GetTargetingTierRadii(token, symbols)
     return nil
 end
 
---- @return {ability: ActivatedAbility, casterToken: CharacterToken, targets: {token: CharacterToken}[], options: table}|nil
+--- The record ActivatedAbility.coroutineStorage keeps for the running cast coroutine. startTime and
+--- lastProgress are dmhub.Time() stamps; activity names what the cast is waiting on (e.g. "reaping"),
+--- which CountActiveCasts can exclude. Kept an inline type so callers' structural casts still match.
+--- @return {ability: ActivatedAbility, casterToken: CharacterToken, targets: {token: CharacterToken}[], options: table, startTime?: number, lastProgress?: number, activity?: string}|nil
 function ActivatedAbility.CurrentCastInfo()
     local co = coroutine.running()
     if co ~= nil then
@@ -3928,11 +3957,12 @@ function ActivatedAbilityAttackBehavior:GenerateDescription(ability, creature)
 		return nil
 	end
 
-	local hit = tonumber(attack.hit) or 0
-	if hit >= 0 then
-		hit = string.format("+%d", tonumber(hit))
+	local hitBonus = tonumber(attack.hit) or 0
+	local hit
+	if hitBonus >= 0 then
+		hit = string.format("+%d", hitBonus)
 	else
-		hit = string.format("%d", tonumber(hit))
+		hit = string.format("%d", hitBonus)
 	end
 
 	local ranged = attack:IsRanged()
@@ -4626,11 +4656,13 @@ end
 function ActivatedAbilityBehavior:DescribeRoll(casterCreature, ability, options)
 	if casterCreature == nil then
 		--it is entirely acceptable to call this with no creature provided.
-		if type(self.roll) == "table" then
+		--the class default is a string; a table roll is a GoblinScriptTable from the formula editor.
+		local roll = self.roll --[[@as string|number|GoblinScriptTable]]
+		if type(roll) == "table" then
 			--break down tables into text.
-			return self.roll:ToText()
+			return roll:ToText()
 		end
-		return self.roll
+		return roll
 	end
 
 	return dmhub.EvalGoblinScript(self.roll, casterCreature:LookupSymbol((options or {}).symbols), "Ability or spell roll")
@@ -4794,8 +4826,8 @@ function ActivatedAbilitySetStaminaBehavior:Cast(ability, casterToken, targets, 
 			local symbols = DeepCopy(options.symbols or {})
 			symbols.target = targetCreature:LookupSymbol()
 
-			local newStamina = dmhub.EvalGoblinScript(self.roll, casterToken.properties:LookupSymbol(symbols), string.format("Set Stamina for %s", ability.name))
-			newStamina = math.floor(tonumber(newStamina) or 0)
+			local staminaText = dmhub.EvalGoblinScript(self.roll, casterToken.properties:LookupSymbol(symbols), string.format("Set Stamina for %s", ability.name))
+			local newStamina = math.floor(tonumber(staminaText) or 0)
 
 			ability.RecordTokenMessage(target.token, options, string.format("Set Stamina to %d", newStamina))
 
@@ -5231,7 +5263,7 @@ function ActivatedAbilityApplyOngoingEffectBehavior:Cast(ability, casterToken, t
 
 	local hasPurgePair = false
 	for i,b in ipairs(ability.behaviors) do
-		if (myIndex == nil or i > myIndex) and b.typeName == "ActivatedAbilityPurgeEffectsBehavior" and b.mode == "effect" and b.ongoingEffect == self.ongoingEffect then
+		if (myIndex == nil or i > myIndex) and b.typeName == "ActivatedAbilityPurgeEffectsBehavior" and (b --[[@as ActivatedAbilityPurgeEffectsBehavior]]).mode == "effect" and b.ongoingEffect == self.ongoingEffect then
 			local purgeModes = b:try_get("modesSelected", {})
 			local modeExclusive = false
 			if ability.multipleModes and #myModes > 0 and #purgeModes > 0 then
@@ -5943,9 +5975,12 @@ function ActivatedAbilityForcedMovementBehavior:Cast(ability, casterToken, targe
 			local promptText = self:try_get("promptText", "")
 			if trim(promptText) ~= "" then
 				description = string.gsub(promptText, "<<range>>", string.format("%d", range))
-				description = StringInterpolateGoblinScript(description, casterToken.properties:LookupSymbol{})
+				--never nil: StringInterpolateGoblinScript returns nil only for a nil string.
+				description = StringInterpolateGoblinScript(description, casterToken.properties:LookupSymbol{}) --[[@as string]]
 			end
 
+			--copied field by field onto the ability clone below.
+			---@type table<string, any>
 			local abilityAttr = {
 				name = string.gsub(self.moveType, "^%l", string.upper) .. "!",
 				range = range,

@@ -385,6 +385,34 @@ function ActivatedAbilityDamageBehavior:Cast(ability, casterToken, targets, opti
         --send the chat message to the chat.
         chat.SendCustom(logMessage)
     end
+
+    self:PostBonusNote(casterToken, options)
+end
+
+--Optional record-only log note for a bonus already folded into the roll (no extra damage instance).
+--logNoteTitle names the source, logNoteDetail the bonus, logNoteAmount is a GoblinScript for its size.
+ActivatedAbilityDamageBehavior.logNoteTitle = ""
+ActivatedAbilityDamageBehavior.logNoteDetail = ""
+ActivatedAbilityDamageBehavior.logNoteAmount = ""
+
+function ActivatedAbilityDamageBehavior:PostBonusNote(casterToken, options)
+    if self.logNoteTitle == "" or self.logNoteAmount == "" then
+        return
+    end
+
+    local amount = tonumber(dmhub.EvalGoblinScript(self.logNoteAmount, casterToken.properties:LookupSymbol(options.symbols or {}), "Damage log note amount")) or 0
+    if amount <= 0 then
+        return
+    end
+
+    --show the pusher (the source of the bonus) when there is one.
+    local sourceToken = casterToken
+    local pusher = options.symbols ~= nil and options.symbols.pusher or nil
+    if pusher ~= nil and type(pusher) ~= "number" then
+        sourceToken = dmhub.LookupToken(pusher) or casterToken
+    end
+
+    ActionLogNoteChatMessage.Post(sourceToken, self.logNoteTitle, string.format("%s +%d", self.logNoteDetail, amount))
 end
 
 

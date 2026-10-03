@@ -52,6 +52,8 @@ UnitTest(function()
     local result = regex.MatchGroups(input, pattern)
 
     UnitTestNe(result, nil)
+    --UnitTestNe raises when result is nil.
+    ---@cast result -nil
 
     UnitTestEq(result["year"], "2024")
     UnitTestEq(result["month"], "02")
@@ -176,6 +178,8 @@ end
 
 --abilities require any matches to happen at the start of the text.
 ActivatedAbility.patternMatchPrefix = "^\\s*"
+--- Borrowed from CharacterFeature: returns the ability (or a filled-in clone of it) and the match groups, or nil.
+--- @type fun(self: ActivatedAbility, bestiaryEntry: table|nil, name: string, description: string): ActivatedAbility|nil, table|nil
 ActivatedAbility.MatchMCDMEffect = CharacterFeature.MatchMCDMMonsterTrait
 
 --- A monster-trait row in one of the importer tables: a CharacterFeature plus
@@ -270,7 +274,7 @@ local function CreateEditPanel(tableName)
                     change = function(element)
                         ---@cast element Dropdown
                         if m_item ~= nil then
-                            m_item.importMatchType = element.idChosen
+                            m_item.importMatchType = element.idChosen --[[@as string]]
                             editPanel:FireEvent("change")
                             editPanel:FireEventTree("testCasesChanged")
                         end
@@ -777,7 +781,7 @@ local function CreateEditAbilityEffectsPanel(tableName)
                     change = function(element)
                         ---@cast element Dropdown
                         if m_item ~= nil then
-                            m_item.importMatchType = element.idChosen
+                            m_item.importMatchType = element.idChosen --[[@as string]]
                             editPanel:FireEvent("change")
                         end
                     end,

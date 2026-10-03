@@ -27,7 +27,7 @@ Class = RegisterGameType("Class")
 
 --- @class ClassLevel: GameType
 --- @field new fun(o?: table): ClassLevel
---- @field features (CharacterFeature|CharacterChoice)[] Features and choices granted at this level.
+--- @field features (CharacterFeature|CharacterFeatureList|CharacterChoice|CharacterSingleFeat)[] Features and choices granted at this level.
 ClassLevel = RegisterGameType("ClassLevel") --type which represents the benefits a character gets at a specific level.
 
 --- @class CharacterChoice: GameType
@@ -49,7 +49,7 @@ CharacterSubclassChoice = RegisterGameType("CharacterSubclassChoice", "Character
 
 --- @class CharacterFeatureList: GameType
 --- @field new fun(o?: table): CharacterFeatureList
---- @field features (CharacterChoice|CharacterFeature)[] The grouped features, set by CreateNew.
+--- @field features (CharacterFeature|CharacterFeatureList|CharacterChoice|CharacterSingleFeat)[] The grouped features, set by CreateNew.
 CharacterFeatureList = RegisterGameType("CharacterFeatureList")
 
 --- @param options nil|table
@@ -800,6 +800,15 @@ function CharacterFeatureChoice:Choices(numOption, existingChoices, creature)
 			end
 
 			local text = feature.name
+			local description
+			if feature.typeName == "CharacterSingleFeat" then
+				--a single feat has no name or description of its own (reading
+				--`description` raises); show the feat it grants.
+				text = feature:Describe()
+				description = feature:GetDescription()
+			else
+				description = feature.description
+			end
 			-- if usePoints then
 			-- 	local cost = feature:try_get("pointsCost", 1)
 			-- 	text = string.format("%s (%d %s)", text, cost, self.pointsName)
@@ -807,7 +816,7 @@ function CharacterFeatureChoice:Choices(numOption, existingChoices, creature)
 			result[#result+1] = {
 				id = feature.guid,
 				text = text,
-				description = feature.description,
+				description = description,
 				classes = classes,
 				pointsCost = rawget(feature, "pointsCost") or 1,
 				modifiers = rawget(feature, "modifiers"),

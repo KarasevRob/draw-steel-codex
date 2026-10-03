@@ -606,6 +606,16 @@ function CharacterSingleFeat:GetDescription()
 	return feat.description
 end
 
+--A single feat can be an option of a feature choice (the class editor's "Single Feat"),
+--whose dropdown asks every option for these.
+function CharacterSingleFeat:HasCustomDropdownPanel()
+	return false
+end
+
+function CharacterSingleFeat:CreateDropdownPanel()
+	return nil
+end
+
 function CharacterSingleFeat:SetDomain(domainid)
 end
 

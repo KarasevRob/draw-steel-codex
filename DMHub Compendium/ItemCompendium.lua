@@ -124,6 +124,9 @@ mod.shared.InventoryCompendiumEditor = function(categories)
 							local itemList = target.data.itemList
 							if not itemList.items[k] then
 								itemList.items[k] = true
+								--Unreachable: no panel carries the "itemListPanel" class canDragOnto needs,
+								--and the ItemList type no longer exists anywhere.
+								---@diagnostic disable-next-line: undefined-global
 								dmhub.SetAndUploadTableItem(ItemList.tableName, itemList)
 								resultPanel:FireEventTree("refreshItemLists")
 							end

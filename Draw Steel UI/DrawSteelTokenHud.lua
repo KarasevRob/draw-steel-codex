@@ -783,6 +783,7 @@ TokenHud.RegisterPanel{
 							    textColor = token.playerColor
                             end
 
+                            --nil for an unnamed token; the labels then show blank.
                             local text = token:GetNameMaxLength(30)
 
                             if text ~= nil then
@@ -793,11 +794,11 @@ TokenHud.RegisterPanel{
 
 							element.selfStyle.italics = token.namePrivate
 							element.selfStyle.brightness = cond(token.namePrivate, 0.8, 1)
-							element.text = text
+							element.text = text or ""
 
 							bglabel.selfStyle.italics = token.namePrivate
 							bglabel.selfStyle.brightness = cond(token.namePrivate, 0.8, 1)
-							bglabel.text = text
+							bglabel.text = text or ""
 
                             local lightbg = TokenHud.UseLightBackgroundColor(core.Color(textColor))
                             if lightbg then

@@ -340,13 +340,14 @@ function CharacterBuilder._functionOrValue(item)
 end
 
 --- Returns the character sheet instance if we're operating inside it
+--- (CharacterSheet.instance is false, not nil, when there is no sheet).
 --- @return Panel|nil
 function CharacterBuilder._getCharacterSheet()
-    return CharacterSheet.instance
+    return CharacterSheet.instance or nil
 end
 
---- Returns the builder controller
---- @return Panel
+--- Returns the builder controller, or nil before CreatePanel has built it
+--- @return Panel|nil
 function CharacterBuilder._getController()
     return CharacterBuilder:try_get("builderPanel")
 end
@@ -356,7 +357,8 @@ end
 function CharacterBuilder._getHero()
     local token = CharacterBuilder._getToken()
     if token and token.properties and token.properties:IsHero() then
-        return token.properties
+        --IsHero() is true only for character properties.
+        return token.properties --[[@as character]]
     end
     return nil
 end
@@ -374,7 +376,7 @@ function CharacterBuilder._getCreature()
 end
 
 --- Returns the builder state
---- @return @CharacterBuilderState|nil
+--- @return CharacterBuilderState|nil
 function CharacterBuilder._getState()
     local controller = CharacterBuilder._getController()
     if controller then return controller.data.state end
@@ -382,7 +384,7 @@ function CharacterBuilder._getState()
 end
 
 --- Returns the character token we are working with or nil if we can't get to it
---- @return LuaCharacterToken|nil
+--- @return CharacterToken|nil
 function CharacterBuilder._getToken()
     local cs = CharacterBuilder._getCharacterSheet()
     if cs then
@@ -405,8 +407,8 @@ function CharacterBuilder._hasFn(object, fnName)
 end
 
 --- @return boolean
-function CharacterBuilder._inCharSheet(element)
-    return CharacterBuilder._getCharacterSheet(element) ~= nil
+function CharacterBuilder._inCharSheet()
+    return CharacterBuilder._getCharacterSheet() ~= nil
 end
 
 --- Filters a string against filter text with special operators

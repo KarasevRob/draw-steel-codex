@@ -576,10 +576,16 @@ CharacterModifier.TypeInfo.attribute = {
 
 	fillStatusIcons = function(self, creature, result)
 		if self:try_get("displayIcon", false) and self:has_key("statusIcon") then
+			--Show the rules text under a bold name so the icon explains itself.
+			local hoverText = self.name
+			local description = self:try_get("description", "")
+			if description ~= "" then
+				hoverText = string.format("<b>%s</b> - %s", self.name, description)
+			end
 			result[#result+1] = {
 				id = self.name,
 				icon = self.statusIcon,
-				hoverText = self.name,
+				hoverText = hoverText,
 				style = {
 					bgcolor = self:try_get("iconColor", "#ffffffff"),
 				},
@@ -794,7 +800,8 @@ CharacterModifier.TypeInfo.attribute = {
 								if element.idChosen ~= "none" then
 									modifier.attribute = element.idChosen
 									local newAttributeType = CustomAttribute.GetAttributeType(modifier.attribute)
-									if newAttributeType ~= attributeType then
+									--nil when a custom attribute names a type no loaded code registers.
+									if newAttributeType ~= nil and newAttributeType ~= attributeType then
 										modifier.value = newAttributeType:DefaultModifierValue()
 									end
 								end
@@ -3746,6 +3753,24 @@ function CharacterModifier:ConsumeResourceInternal(creature, modContext)
 
 	creature:ConsumeResource(self:GetResourceRefreshId(), refreshType)
 	return true
+end
+
+--- The modifier's resource cost as a number. resourceCostAmount is GoblinScript (it is
+--- edited with a GoblinScriptInput), so a formula is evaluated the way ConsumeResource and
+--- HasResourcesAvailable evaluate it; a plain number is returned as-is, unevaluated.
+--- @param creature creature|nil Whose symbols the formula sees. nil: a formula counts as 0.
+--- @param symbols? table Defaults to the modifier's _tmp_symbols, as ConsumeResource uses.
+--- @return number
+function CharacterModifier:ResolveResourceCostAmount(creature, symbols)
+	local raw = self:try_get("resourceCostAmount", "1")
+	local n = tonumber(raw)
+	if n ~= nil then
+		return n
+	end
+	if creature == nil or type(raw) ~= "string" or trim(raw) == "" then
+		return 0
+	end
+	return ExecuteGoblinScript(raw, creature:LookupSymbol(symbols or self:try_get("_tmp_symbols", {})), 0)
 end
 
 function CharacterModifier:HasResourcesAvailable(creature)

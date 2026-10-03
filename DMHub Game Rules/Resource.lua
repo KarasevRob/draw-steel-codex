@@ -7,6 +7,7 @@ local mod = dmhub.GetModLoading()
 --- @field new fun(o?: table): CharacterResource
 --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
 --- @field history false|StatHistory Change history of a global resource entry; false until first set.
+--- @field refreshid string|nil Usage-entry stamp from GetResourceRefreshId; a nil write (hidden combat) reads back as the '' default.
 CharacterResource = RegisterGameType("CharacterResource")
 
 local g_sharedGlobalResourceDoc = "globalResourcesv2"

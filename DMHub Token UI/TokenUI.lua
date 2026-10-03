@@ -1123,10 +1123,14 @@ TokenHud.RegisterPanel{
 
 						element.data.hoverText = icon.hoverText
 
-                        if icon.casterid ~= nil then
+                        --a caster set (casterTracking "set") lists every caster, so it wins over
+                        --casterid, which is only the most recent one.
+                        if icon.casterSet ~= nil then
+                            iconPanel.data.casteridSet = icon.casterSet
+                        elseif icon.casterid ~= nil then
 						    iconPanel.data.casteridSet = {[icon.casterid] = true}
                         else
-                            iconPanel.data.casteridSet = icon.casterSet
+                            iconPanel.data.casteridSet = nil
                         end
 
                         iconPanel.data.bondid = icon.bondid

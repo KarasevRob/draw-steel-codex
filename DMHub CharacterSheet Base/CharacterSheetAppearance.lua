@@ -637,7 +637,8 @@ function CharSheet.FramePreviewPanel()
                                     local sw = dmhub.Stopwatch()
 
                                     if g_previewToken.properties == nil then
-                                        g_previewToken.properties = {}
+                                        --a blank table (not yet a creature) for the Patch below to fill in.
+                                        g_previewToken.properties = {} --[[@as any]]
                                     end
 
                                     local diffs = 0
@@ -1087,6 +1088,7 @@ function CharSheet.FramePreviewPanel()
         gui.Check {
             id = "castShadowCheck",
             text = "Cast Shadow",
+            value = false,
             halign = "center",
             vmargin = 8,
             refreshAppearance = function(element, info)

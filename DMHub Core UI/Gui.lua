@@ -417,6 +417,25 @@ gui.iconButtonClasses = {
 	customiseAbilityButton = {},
 }
 
+--- Options for gui.Button: the Label args plus the keys gui.Button consumes
+--- itself before it builds the label or panel.
+--- @class ButtonArgs:LabelArgs
+--- @field icon? string Icon image. With no `text` the button renders icon-only.
+--- @field requireConfirm? boolean With a kind class whose gui.iconButtonClasses config has `confirm`, wraps click/press in a confirmation modal.
+--- @field classes? string[] Must be a list: the class names are copied with ipairs, so a bare string would be dropped.
+--- @field tooltip? string|LabelArgs Text (or label args) for a hover tooltip, built with gui.Tooltip.
+
+--- Options for the panel-based button helpers (gui.AddButton, gui.CloseButton,
+--- gui.DeleteItemButton, gui.IconButton, ...): the Panel args plus the keys
+--- those helpers consume themselves. Each helper reads only the keys it documents.
+--- @class PanelButtonArgs:PanelArgs
+--- @field icon? string Icon image (gui.DiamondButton, gui.HudIconButton, gui.IconButton, gui.SettingsButton).
+--- @field flipicon? boolean Mirror the icon horizontally (gui.IconButton).
+--- @field requireConfirm? boolean Wrap click/press in a confirmation modal (gui.DeleteItemButton).
+--- @field press? fun(element: Panel, ...: any): any
+--- @field classes? string[] Must be a list: the class names are copied with ipairs, so a bare string would be dropped.
+--- @field tooltip? string|LabelArgs Text (or label args) for a hover tooltip, built with gui.Tooltip.
+
 --- Create a button. Three render shapes:
 ---  - text only, or text + icon -> a {label, button} (existing chrome).
 ---  - icon-only via `icon = "path"` (no text) -> a panel themed by `iconButton`.
@@ -426,7 +445,7 @@ gui.iconButtonClasses = {
 ---    (escape activation, press sound) applied from `gui.iconButtonClasses`.
 --- The icon-only paths bypass the {label, button} cascade entirely so the
 --- icon's bgimage/bgcolor don't fight chrome rules.
---- @param options LabelArgs
+--- @param options ButtonArgs
 --- @return Label|Panel
 function gui.Button(options)
 	-- Detect class-based icon-only mode: any class in options.classes that is
@@ -452,6 +471,8 @@ function gui.Button(options)
 		local requireConfirm = options.requireConfirm
 		options.requireConfirm = nil
 
+		--a bag of panel args and handlers, keyed by any option name.
+		---@type table<any, any>
 		local args = {
 			classes = {"iconButton"},
 		}
@@ -596,7 +617,7 @@ function gui.Button(options)
 end
 
 --- Create a diamond shaped button.
---- @param options PanelArgs
+--- @param options PanelButtonArgs
 --- @return Panel
 function gui.DiamondButton(options)
 
@@ -669,7 +690,7 @@ end
 
 local throttleAddDeprecated = 0
 --- A little "plus" button for adding new items.
---- @param options PanelArgs
+--- @param options PanelButtonArgs
 --- @return Panel
 function gui.AddButton(options)
 	if false and devmode() and dmhub.Time() - throttleAddDeprecated >= 60 then
@@ -710,7 +731,7 @@ function gui.AddButton(options)
 end
 
 --- A generic button in the same style as the "close button"
---- @param options PanelArgs
+--- @param options PanelButtonArgs
 --- @return Panel
 function gui.SimpleIconButton(options)
 	local args = {
@@ -736,7 +757,7 @@ end
 
 local throttleCloseDeprecated = 0
 --- An "x" button for closing out dialogs.
---- @param options PanelArgs
+--- @param options PanelButtonArgs
 --- @return Panel
 function gui.CloseButton(options)
 	if false and devmode() and dmhub.Time() - throttleCloseDeprecated >= 60 then
@@ -802,12 +823,14 @@ local g_deleteButtonStyles = {
 }
 
 --- A "trash can" button for deleting elements.
---- @param options PanelArgs
+--- @param options PanelButtonArgs
 --- @return Panel
 function gui.DeleteItemButton(options)
     local requireConfirm = options.requireConfirm or false
     options.requireConfirm = nil
 
+	--a bag of panel args and handlers, keyed by any option name.
+	---@type table<any, any>
 	local args = {
 		classes = {'delete-item-button', "deleteItemButton"},
 		bgimage = 'icons/icon_tool/icon_tool_44.png',
@@ -898,7 +921,7 @@ end
 
 local throttleSettingsDeprecated = 0
 --- A "gear" settings button.
---- @param options PanelArgs
+--- @param options PanelButtonArgs
 --- @return Panel
 function gui.SettingsButton(options)
 	if false and devmode() and dmhub.Time() - throttleSettingsDeprecated >= 60 then
@@ -937,7 +960,7 @@ end
 
 local throttleHudIconDeprecated = 0
 --- A little icon button to show in the hud.
---- @param options PanelArgs
+--- @param options PanelButtonArgs
 --- @return Panel
 function gui.HudIconButton(options)
 	if false and devmode() and dmhub.Time() - throttleHudIconDeprecated >= 60 then
@@ -1039,7 +1062,7 @@ local iconButtonIconStyleFlipped = gui.Style{
 
 local throttleIconButtonDeprecated = 0
 --- A small button with an icon on it.
---- @param args PanelArgs
+--- @param args PanelButtonArgs
 --- @return Panel
 function gui.IconButton(args)
 	if false and devmode() and dmhub.Time() - throttleIconButtonDeprecated >= 60 then
@@ -1272,10 +1295,13 @@ local PrettyButtonBackgroundStyles = {
 
 }
 
---- A pretty looking button
---- @param options PanelArgs
---- @return Panel
+--- @class PrettyButtonArgs:ButtonArgs
+--- @field classes? string|string[] A single class name is accepted too.
+
 local throttlePBDeprecated = 0
+--- A pretty looking button
+--- @param args PrettyButtonArgs
+--- @return Label|Panel
 function gui.PrettyButton(args)
 	if false and devmode() and dmhub.Time() - throttlePBDeprecated >= 60 then
 		throttlePBDeprecated = dmhub.Time()
@@ -1297,8 +1323,12 @@ end
 
 -- diamond
 
+--- @class DiamondArgs:PanelArgs
+--- @field editable? boolean Defaults to true. False stops clicks from toggling the diamond.
+--- @field fillColor? ColorArg|NamedColor Color of the inner fill when the diamond is on.
+
 --- A diamond shaped panel
---- @param options PanelArgs
+--- @param options DiamondArgs
 --- @return Panel
 function gui.Diamond(options)
 
@@ -1393,7 +1423,8 @@ end
 --- @field text string
 --- @field customPanel nil|Panel
 --- @field placement nil|"left"|"right"
---- @field value boolean Whether the checkbox is checked or not.
+--- @field value? boolean Whether the checkbox is checked or not. Defaults to false.
+--- @field tooltip? string|LabelArgs Text (or label args) shown when the pointer lingers, built with gui.Tooltip.
 
 --- A check box.
 --- @param args CheckBoxArgs
@@ -1425,7 +1456,7 @@ function gui.Check(args)
         floating = true,
 	}
 
-	options.GetValue = function(element, val)
+	options.GetValue = function(element)
 		return checked
 	end
 
@@ -1465,12 +1496,13 @@ function gui.Check(args)
 
 	local resultPanel
 
-	options.classes = options.classes or {}
-	if type(options.classes) == "string" then
+	local classes = options.classes or {}
+	if type(classes) == "string" then
 		--allow options.classes to be passed in as a string.
-		options.classes = {options.classes}
+		classes = {classes}
 	end
-	options.classes[#options.classes+1] = 'checkbox'
+	classes[#classes+1] = 'checkbox'
+	options.classes = classes
 
 	if placement == "left" then
 		options.children = {checkPanel, customPanel, label}
@@ -2142,7 +2174,7 @@ function gui.ColorPicker(args)
 		options.data = {}
 	end
 
-	---@type Panel
+	---@type ColorPicker
 	local mainPanel = nil
 
 	options.data.getColor = function()
@@ -2533,7 +2565,8 @@ function gui.ColorPicker(args)
 		options.selfStyle = {}
 	end
 
-	mainPanel = gui.Panel(options)
+	--the GetValue/SetValue installed below make this panel a ColorPicker.
+	mainPanel = gui.Panel(options) --[[@as ColorPicker]]
 
 	mainPanel.selfStyle.bgcolor = color
 
@@ -2574,7 +2607,7 @@ local triangleStyles = {
 gui.TriangleStyles = triangleStyles
 
 --- @class TreeNodeArgs:PanelArgs
---- @field text string
+--- @field text? string
 --- @field panelHeight nil|number
 --- @field contentPanel Panel
 --- @field editable nil|boolean
@@ -2771,8 +2804,8 @@ function gui.TreeNode(args)
 end
 
 --- Given a panel, returns it nicely framed in a tooltip.
---- @param panel Panel The panel containing the contents of the tooltip.
---- @param params PanelArgs
+--- @param panel Panel|nil The panel containing the contents of the tooltip. Nil gives an empty frame.
+--- @param params? PanelArgs
 --- @return Panel
 function gui.TooltipFrame(panel, params)
 	params = params or {}
@@ -2867,7 +2900,7 @@ end
 
 --- Given a history of stats @see StatsHistory will render a tooltip displaying it.
 --- provide text to give extra text that will display
---- @param args {entries: StatHistoryEntry[], description: string, text = nil|string}
+--- @param args {entries: StatHistoryEntry[], description: string, text: nil|string}
 --- @return Panel
 function gui.StatsHistoryTooltip(args)
 	local entries = {}
@@ -2991,7 +3024,7 @@ end
 
 --- @class ContextMenuEntry
 --- @field text string
---- @field click fun():nil
+--- @field click fun(entry?: ContextMenuEntry):nil gui.ContextMenuItem calls it with this entry when the item is pressed.
 --- @field group nil|string When consecutive elements have a different group, a divider is drawn between them.
 --- @field check nil|boolean
 --- @field disabled nil|boolean
@@ -3096,7 +3129,10 @@ function gui.ContextMenuItem(args, params)
 						rightClickMenu = nil
 					else
 						rightClickMenu = gui.ContextMenu{ halign = "left", floating = true, entries = args.rightClickMenu, click = params.click }
-						element:AddChild(rightClickMenu)
+						--nil when every entry is hidden (engine AddChild ignores nil too).
+						if rightClickMenu ~= nil then
+							element:AddChild(rightClickMenu)
+						end
 					end
 				end
 			end,
@@ -3128,8 +3164,18 @@ function gui.ContextMenuItem(args, params)
 	}
 end
 
+--- @class ContextMenuArgs
+--- @field entries ContextMenuEntry[]
+--- @field click? function Called after any entry's own click; global to the menu.
+--- @field halign? "left"|"center"|"right"
+--- @field valign? "top"|"center"|"bottom"
+--- @field submenu? boolean True when this menu is a submenu of another entry.
+--- @field width? number Minimum width of the items, default 200.
+--- @field x? number
+--- @field floating? boolean
+
 --- Create a context menu. This is suitable to be set as a panel's @Panel.popup field.
---- @param args {entries: ContextMenuEntry[], click: function, halign: nil|"left"|"center"|"right", valign = nil|"left"|"center"|"right", submenu: nil|boolean}
+--- @param args ContextMenuArgs
 --- @return Panel|nil
 function gui.ContextMenu(args)
 	local items = {}
@@ -4312,7 +4358,7 @@ end
 
 --- Given a monster token renders it as an image.
 --- @param monster CharacterToken
---- @param options PanelOptions
+--- @param options PanelArgs
 --- @return Panel
 function gui.CreateMonsterImage(monster, options)
 
@@ -5301,13 +5347,18 @@ function gui.DockablePanelMaximizeButton()
 	}
 end
 
+--- @class NewContentAlertArgs:PanelArgs
+--- @field info? any Accepted and ignored (legacy).
+--- @field count? number Number shown inside the marker when 2 or more.
+--- @field size? number Diameter of the circle, default 10.
+
 --- A panel for alerting to new content.
 --- args.count: with a count of 2 or more the marker shows the number
 --- inside it (capped at a single digit -- 9); nil, 0, or 1 shows the
 --- plain marker. The marker is the same size either way.
 --- args.size: diameter of the circle (default 10); the digit scales
 --- with it.
---- @param args PanelArgs
+--- @param args? NewContentAlertArgs
 --- @return Panel
 function gui.NewContentAlert(args)
 	args = args or {}
@@ -5428,8 +5479,8 @@ function gui.CurrencyEditor(options)
 		for currencyid,input in pairs(currencyInputs) do
 			local amount = tonumber(input.text)
 			if amount == nil then
-				input.text = tostring(value[currencyid]) or "0"
-				amount = value[currencyid]
+				input.text = tostring(currentValue[currencyid] or 0)
+				amount = currentValue[currencyid]
 			end
 
 			if amount ~= 0 then
@@ -5638,7 +5689,6 @@ function gui.LoadingIndicator(options)
 				p:SetClass("active", (n%3) == (i%3))
 			end
 		end,
-		children = children,
 	}
 
 	for k,v in pairs(options or {}) do

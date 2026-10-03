@@ -1976,7 +1976,7 @@ function ActivatedAbilitySummonBehavior:Cast(ability, casterToken, targets, args
     -- Register a post-cast handler that force-dismisses the tooltip card.
     args.OnFinishCastHandlers = args.OnFinishCastHandlers or {}
     args.OnFinishCastHandlers[#args.OnFinishCastHandlers+1] = function()
-        if GameHud == nil or GameHud.instance == nil then return end
+        if GameHud == nil or not GameHud.instance then return end
         if rawget(GameHud.instance, "abilityDisplay") == nil then return end
         local panel = GameHud.instance.abilityDisplay
         if panel ~= nil and panel.valid then
@@ -2308,6 +2308,8 @@ function ActivatedAbilitySummonBehavior:Cast(ability, casterToken, targets, args
                     args.symbols.summon = GenerateSymbols(chosenOption.properties)
                 end
                 if squadResult ~= nil then
+                    --PromptPlacementLoc only returns a squad result when given squadCtxArg, which is placementSquadCtx.
+                    ---@cast placementSquadCtx -nil
                     squadNameForSpawn = squadResult.squadName
                     if squadResult.exceededMinions then warningExceededMinions = true end
                     if squadResult.exceededSquads then warningExceededSquads = true end
@@ -2354,12 +2356,23 @@ function ActivatedAbilitySummonBehavior:Cast(ability, casterToken, targets, args
                             loc = ringLoc
                         end
                     end
+                    --token-only targets (applyto caster, caster_mount, ...) carry no loc; with no
+                    --free adjacent square, spawn at the token and let fitLocation find a space.
+                    if loc == nil and target.token ~= nil and target.token.valid then
+                        loc = target.token.loc
+                    end
                 end
+            end
+
+            if loc == nil then
+                break
             end
 
             local token = game.SpawnTokenFromBestiaryLocally(chosenOption.id, loc.withGroundAltitude, {
                 fitLocation = not self.replaceCaster,
             })
+            --chosenOption comes from assets.monsters, the collection the spawn looks the id up in.
+            ---@cast token -nil
 
             if tweakPlacement then
                 --spawn hidden from players; the tweak mode reveals on Continue.

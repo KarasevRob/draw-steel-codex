@@ -232,7 +232,7 @@ function GameHud.CreateRollOnTableDialog(self)
 						end,
 					})
 					if hookResult == "intercept" then
-						chat.PreviewChat{''}
+						chat.PreviewChat('')
 						return
 					end
 				end
@@ -282,7 +282,7 @@ function GameHud.CreateRollOnTableDialog(self)
 					end,
 				}
 
-				chat.PreviewChat{''}
+				chat.PreviewChat('')
 			end,
 		}
 	}
@@ -324,7 +324,8 @@ function GameHud.CreateRollOnTableDialog(self)
 				rows[total]:PulseClass("flash")
 
 				local t = m_options.tableRef:GetTable()
-				if t.visibility == "reveal" then
+				--nil if the table (or its document) was deleted while the dice rolled.
+				if t ~= nil and t.visibility == "reveal" then
 					t.rows[total].revealed = true
 					m_options.tableRef:TryUpload(t)
 
@@ -566,6 +567,8 @@ function GameHud.CreateRollOnTableDialog(self)
 		diceface = function(element, guid, num)
 			m_dicefaces[guid] = num
 			local total = 0
+			--diceface only arrives from dice events listened to in the roll's begin handler, which sets m_rolls first.
+			---@cast m_rolls -nil
 			for i,roll in ipairs(m_rolls) do
 				if m_dicefaces[roll.guid] == nil then
 					return
@@ -690,7 +693,8 @@ function RollOnTableProperties:CustomPanel(message)
                         if message.tokenid ~= nil then
                             local token = dmhub.GetCharacterById(message.tokenid)
                             if token ~= nil then
-                                s = StringInterpolateGoblinScript(s, token.properties)
+                                --a non-nil string in gives a non-nil string out.
+                                s = StringInterpolateGoblinScript(s, token.properties) --[[@as string]]
                             end
                         end
                         element:FireEventTree("setText", s)
@@ -721,7 +725,8 @@ end
 --dialog and standalone table host are handled in Timeline\AbilitySidebar.lua.
 dmhub.RegisterEventHandler("restoreFromBackup", function()
     local hud = GameHud.instance
-    if hud == nil then return end
+    --instance defaults to false (GameHud.lua) until a HUD is built.
+    if not hud then return end
 
     --rollDialog.Cancel does not self-guard against the hidden state, so check
     --IsShown first to avoid re-firing a stale cancelRoll closure.

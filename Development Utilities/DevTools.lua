@@ -876,7 +876,7 @@ DockablePanel.Register{
                     width = 200, height = 24, fontSize = 14,
                     change = function(element)
                         ---@cast element Dropdown
-                        m_mode = element.idChosen
+                        m_mode = element.idChosen --[[@as string]]
                     end,
                 },
             },
@@ -1877,6 +1877,7 @@ end
 --------------------------------------------------------------------------------
 
 --Sizes chosen to mirror the real hosts a panel gets mounted in.
+---@type {id: string, text: string, width: string|number|nil, height: string|number}[]
 local g_stagePresets = {
     { id = "full",   text = "Full",         width = "100%", height = "100%" },
     { id = "dock",   text = "Dock width",   width = nil,    height = "100%" },

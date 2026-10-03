@@ -1433,9 +1433,10 @@ function SkillDisplayParser(skillInput)
     local SkillColor = SwatchNeutral1
     local resultPanel
     local skillInfo = Skill.FindByName(skillInput)
-    print("The skill is", skillInfo.name, "and the id is", skillInfo.id)
-    --the line above already fails on a nil skill, so the handlers below never see one.
+    --every caller passes a hard-coded standard skill name, and the print below already
+    --fails on a nil skill, so nothing after this line sees one.
     ---@cast skillInfo -nil
+    print("The skill is", skillInfo.name, "and the id is", skillInfo.id)
     
     resultPanel = gui.Panel{
         flow = "horizontal",
@@ -1770,8 +1771,6 @@ function DSCharacterSheet.CharacterSheetAvatarPanel()
                     element:SetClass("panel_bg_hero", true)
                 end
             end,
-            styles = BuilderStyles,
-			classes = {"panel_hero_filled"},
             interactable = false,
     
             gui.Label{
@@ -1843,12 +1842,12 @@ function DSCharacterSheet.CharacterSheetAvatarPanel()
                             label.text = string.format("%s %d", classInfo.name, entry.level)
 
                             children[#children+1] = label
-                        elseif info.token.properties:IsMonster() then
+                        elseif character:IsMonster() then
                             local label = currentPanels[i] or gui.Label{
                                 classes = {"statsLabel", "classLevelLabel", "heading"},
                             }
 
-							label.text = info.token.properties.role
+							label.text = character.role
 
                             children[#children+1] = label
 						end
@@ -2114,6 +2113,7 @@ function CharSheet.CharacterHitpointsPanel()
 							end,
 
 							refreshToken = function(element, info)
+								---@cast element Label
 								local creature = info.token.properties
 								element.editable = creature:IsMonster()
 								local newValue = creature:MaxHitpoints()
@@ -3333,8 +3333,11 @@ function DSCharacterSheet.ActionsPanel()
 
 							linger = function(element)
 								local tooltip = CreateAbilityTooltip(otherAbilities[i], {token = CharacterSheet.instance.data.info.token})
-								tooltip.selfStyle.halign = "center"
-								tooltip.selfStyle.valign = "top"
+								--nil for an ability marked notooltip.
+								if tooltip ~= nil then
+									tooltip.selfStyle.halign = "center"
+									tooltip.selfStyle.valign = "top"
+								end
 								element.tooltip = tooltip
 							end,
 
@@ -3634,8 +3637,11 @@ function DSCharacterSheet.ActionsPanel()
 
 								linger = function(element)
 									local tooltip = CreateAbilityTooltip(attackAbilities[i], {token = CharacterSheet.instance.data.info.token})
-									tooltip.selfStyle.halign = "center"
-									tooltip.selfStyle.valign = "top"
+									--nil for an ability marked notooltip.
+									if tooltip ~= nil then
+										tooltip.selfStyle.halign = "center"
+										tooltip.selfStyle.valign = "top"
+									end
 									element.tooltip = tooltip
 								end,
 
@@ -3865,8 +3871,11 @@ function DSCharacterSheet.ActionsPanel()
 
 								linger = function(element)
 									local tooltip = CreateAbilityTooltip(spellAbilities[i], {token = CharacterSheet.instance.data.info.token})
-									tooltip.selfStyle.halign = "center"
-									tooltip.selfStyle.valign = "top"
+									--nil for an ability marked notooltip.
+									if tooltip ~= nil then
+										tooltip.selfStyle.halign = "center"
+										tooltip.selfStyle.valign = "top"
+									end
 									element.tooltip = tooltip
 								end,
 

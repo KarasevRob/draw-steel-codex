@@ -11,7 +11,7 @@
 DTRoller = RegisterGameType("DTRoller")
 
 --- Creates a new downtime roller instance
---- @param object character|follower|DTRoll The entity to abstract for the roll
+--- @param object creature|follower|DTRoll The entity to abstract for the roll (anything else returns nil)
 --- @param mentorId? string The id of the object's mentor
 --- @return DTRoller|nil instance The new downtime roller instance
 function DTRoller.CreateNew(object, mentorId)
@@ -24,7 +24,8 @@ function DTRoller.CreateNew(object, mentorId)
     local languages = DTBusinessRules.GetGlobalLanguages()
 
     local token = DTHelpers.GetTokenFromCreature(_object)
-    instance.name = (token.name and #token.name > 0 and token.name) or "(unnamed character)"
+    --nil when the creature is neither on this map nor matched among the game's characters.
+    instance.name = (token ~= nil and token.name and #token.name > 0 and token.name) or "(unnamed character)"
     instance.characteristics = DTRoller._charAttrsToList(_object)
     instance.languages = DTHelpers.MergeFlagLists(languages, _object:LanguagesKnown(), true)
     instance.skills = DTRoller._charSkillsToList(_object)

@@ -2519,10 +2519,13 @@ function GameHud.CreateEmbeddedRollDialog()
                             free = trigger.modifier:try_get("type") == "free",
                         }
 
+                        --the trigger's owner pays; a formula cost is evaluated against them.
+                        local ownerToken = dmhub.GetTokenById(trigger.charid)
+                        local costPayer = ownerToken ~= nil and ownerToken.properties or nil
                         if trigger.modifier.powerRollModifier:try_get("resourceCostType") == "cost" then
-                            activeTrigger.heroicResourceCost = tonumber(trigger.modifier.powerRollModifier:try_get("resourceCostAmount", 1))
+                            activeTrigger.heroicResourceCost = trigger.modifier.powerRollModifier:ResolveResourceCostAmount(costPayer)
                         elseif trigger.modifier.powerRollModifier:try_get("resourceCostType") == "epic" then
-                            activeTrigger.epicResourceCost = tonumber(trigger.modifier.powerRollModifier:try_get("resourceCostAmount", 1))
+                            activeTrigger.epicResourceCost = trigger.modifier.powerRollModifier:ResolveResourceCostAmount(costPayer)
                         end
 
                         activeTrigger._tmp_tokenid = trigger.charid
@@ -6142,6 +6145,10 @@ function GameHud.CreateEmbeddedRollDialog()
 
                 m_options = options
 
+                --this dialog is reused: a fresh roll can always be backed out
+                --of until its dice are thrown (see submit).
+                resultPanel.data.cancelWithdrawn = false
+
                 targetHints = options.targetHints
 
                 rollType = options.type
@@ -6312,6 +6319,14 @@ function GameHud.CreateEmbeddedRollDialog()
                 element.data.Cancel()
             end,
             submit = function(element)
+                --The dice are being thrown (Roll Dice and a hurl from the cage
+                --both land here). A roll that must stand once thrown loses its
+                --close (X) and ESC now (RollDialogCancelOffered), so a landed
+                --result can only be accepted.
+                if m_options ~= nil and m_options.noCancelOnceThrown then
+                    resultPanel.data.cancelWithdrawn = true
+                end
+
                 if not rollInput:HasClass("manualEdit") then
                     RecalculateMultiTargets()
                 end

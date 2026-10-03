@@ -705,6 +705,7 @@ function GameHud.CreateRollDialog(self)
     local rollDisabledLabel
     local rollDiceButton
     local cancelButton
+    local closeButton
     local proceedAfterRollButton
     local rollAgainButton
 
@@ -1373,10 +1374,13 @@ function GameHud.CreateRollDialog(self)
                             free = trigger.modifier:try_get("type") == "free",
                         }
 
+                        --the trigger's owner pays; a formula cost is evaluated against them.
+                        local ownerToken = dmhub.GetTokenById(trigger.charid)
+                        local costPayer = ownerToken ~= nil and ownerToken.properties or nil
                         if trigger.modifier.powerRollModifier:try_get("resourceCostType") == "cost" then
-                            activeTrigger.heroicResourceCost = tonumber(trigger.modifier.powerRollModifier:try_get("resourceCostAmount", 1))
+                            activeTrigger.heroicResourceCost = trigger.modifier.powerRollModifier:ResolveResourceCostAmount(costPayer)
                         elseif trigger.modifier.powerRollModifier:try_get("resourceCostType") == "epic" then
-                            activeTrigger.epicResourceCost = tonumber(trigger.modifier.powerRollModifier:try_get("resourceCostAmount", 1))
+                            activeTrigger.epicResourceCost = trigger.modifier.powerRollModifier:ResolveResourceCostAmount(costPayer)
                         end
 
                         activeTrigger._tmp_tokenid = trigger.charid
@@ -2636,6 +2640,10 @@ function GameHud.CreateRollDialog(self)
         height = 50,
         events = {
             press = function(element)
+                --the roll must stand once its dice are thrown (see submit).
+                if resultPanel.data.cancelWithdrawn then
+                    return
+                end
                 CancelRollDialog()
             end,
         }
@@ -2961,6 +2969,9 @@ function GameHud.CreateRollDialog(self)
                     classes = { "closeButton" },
                     escapeActivates = true,
                     escapePriority = EscapePriority.EXIT_ROLL_DIALOG,
+                    create = function(element)
+                        closeButton = element
+                    end,
                     press = function(element)
                         cancelButton:FireEventTree("press")
                     end,
@@ -3206,6 +3217,14 @@ function GameHud.CreateRollDialog(self)
                 m_options = options
                 m_forceDiceTower = options.dicetower or false
 
+                --this dialog is reused: a fresh roll can always be backed out
+                --of until its dice are thrown (see submit).
+                resultPanel.data.cancelWithdrawn = false
+                cancelButton:SetClass("collapsed", false)
+                if closeButton ~= nil and closeButton.valid then
+                    closeButton:SetClass("collapsed", false)
+                end
+
                 targetHints = options.targetHints
 
                 rollType = options.type
@@ -3313,6 +3332,18 @@ function GameHud.CreateRollDialog(self)
 
         events = {
             submit = function(element)
+                --The dice are being thrown. A roll that must stand once thrown
+                --(noCancelOnceThrown: Encounter of the Week's montage tests)
+                --loses Cancel, the close (X) and ESC now, so a landed result
+                --can only be accepted.
+                if m_options ~= nil and m_options.noCancelOnceThrown then
+                    resultPanel.data.cancelWithdrawn = true
+                    cancelButton:SetClass("collapsed", true)
+                    if closeButton ~= nil and closeButton.valid then
+                        closeButton:SetClass("collapsed", true)
+                    end
+                end
+
                 if not rollInput:HasClass("manualEdit") then
                     RecalculateMultiTargets()
                 end

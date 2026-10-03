@@ -132,6 +132,28 @@ Do exactly what the user asked. Common cases:
   instruction -- never as an automatic follow-on to fixing.
 - Anything else -> follow the instruction using the loaded context.
 
+## Committing a fix: always name the ticket id(s)
+
+Every git commit that carries a bug fix MUST name the ticket id of each report it
+fixes. This holds whenever the commit happens -- in this session or later when the
+user asks for it -- and in every repo the fix touches (`dmhub`, `draw-steel-codex`,
+`draw-steel-data`, ...): each of those commits gets the ids.
+
+- **The ticket id is the report id**: the short code the reporter was shown
+  (e.g. `5PFECU2K`). Older reports have a Firebase push id instead
+  (`-OwzDc6XqNM0KiXkOzOr`); use that as-is.
+- **Include every matching report, not just the one you were given.** Collect the
+  ids from `issue.reportIds` (every report folded into the same issue), plus any
+  other report the user named or that you found to have the same root cause. If you
+  find a likely match you are not sure about, ask the user before adding it.
+- **Format**: put the ids in parentheses at the end of the subject line, matching
+  existing history -- `Terrain edits resettle tokens instead of dropping them (K4G9W9MZ)`.
+  For several: `(QKG5YTWG, 3GJJQYJV)`. If they would make the subject too long, keep
+  the first in the subject and list all of them on a `Fixes: <id>, <id>, ...` line
+  in the body.
+- When you hand the user an uncommitted fix, give them the ticket ids for the
+  commit message.
+
 ## Closing out a bug (only when explicitly instructed)
 
 "Close out the bug" means the fix is done and the reporter + forum should be told.

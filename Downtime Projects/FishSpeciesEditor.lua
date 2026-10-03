@@ -136,7 +136,7 @@ function FishSpeciesEditor.CreateEditor()
                 return
             end
             m_species:SetIcon(element.idChosen)
-            swatch.bgimage = element.idChosen
+            swatch.bgimage = element.idChosen --[[@as string]]
             Upload()
         end
     }

@@ -844,7 +844,7 @@ local function CreateAbilityListPanel()
                 borderBox = true,
                 vmargin = 3,
                 click = function(element)
-                    local token = CharacterSheet.instance ~= nil
+                    local token = CharacterSheet.instance
                         and CharacterSheet.instance.data.info.token or nil
                     if token ~= nil and ShowVillainActionPicker ~= nil then
                         ShowVillainActionPicker(token, capturedSlot)
@@ -1192,7 +1192,7 @@ local function CreateAbilityListPanel()
         --instead of a filled ability. Reuses the search-reveal pulse, so the
         --signpost is the same gentle animation the director already knows.
         revealEmptyVillainSlot = function(element)
-            if CharacterSheet.instance == nil
+            if not CharacterSheet.instance
                 or CharacterSheet.instance.data.info.token == nil then
                 return
             end
@@ -1239,8 +1239,9 @@ end
 --does not propagate to ancestors, while hover propagates from the editor's
 --inner widgets up to the container this is attached to.
 local function ImplementationStatusHover(element)
+    --CharacterSheet.instance is false, not nil, while no sheet exists.
     local sheet = CharacterSheet.instance
-    if sheet == nil then
+    if not sheet then
         return
     end
     local token = sheet.data.info.token
@@ -2079,7 +2080,7 @@ function CharSheet.CharacterSheetAndAvatarPanel()
                 end,
                 click = function(element)
                     local sheet = CharacterSheet.instance
-                    if sheet == nil then
+                    if not sheet then
                         return
                     end
                     local token = sheet.data.info.token
@@ -2229,7 +2230,7 @@ function CharSheet.CharacterSheetAndAvatarPanel()
                     end,
                     change = function(element)
                         local sheet = CharacterSheet.instance
-                        if sheet == nil then
+                        if not sheet then
                             return
                         end
                         local c = sheet.data.info.token.properties
@@ -2258,7 +2259,7 @@ function CharSheet.CharacterSheetAndAvatarPanel()
                     end,
                     click = function(element)
                         local sheet = CharacterSheet.instance
-                        if sheet == nil then
+                        if not sheet then
                             return
                         end
                         local c = sheet.data.info.token.properties
@@ -3362,7 +3363,7 @@ local function ShowAdjustLevelDialog(token)
                                         report = token.properties:ConvertToCustomRetainer()
                                     end,
                                 }
-                                if CharacterSheet.instance ~= nil then
+                                if CharacterSheet.instance then
                                     CharacterSheet.instance:FireEvent("refreshAll")
                                 end
                                 gui.CloseModal()
@@ -3427,7 +3428,7 @@ local function ShowAdjustLevelDialog(token)
                             end,
                         }
                     end
-                    if CharacterSheet.instance ~= nil then
+                    if CharacterSheet.instance then
                         CharacterSheet.instance:FireEvent("refreshAll")
                     end
                     gui.CloseModal()
@@ -4038,7 +4039,7 @@ function ShowVillainActionPicker(token, slot)
                     token.properties:AddInnateActivatedAbility(copy)
                 end,
             }
-            if CharacterSheet.instance ~= nil then
+            if CharacterSheet.instance then
                 CharacterSheet.instance:FireEvent("refreshAll")
             end
             gui.CloseModal()
@@ -4135,7 +4136,7 @@ function ShowVillainActionPicker(token, slot)
                 },
                 click = function(element)
                     gui.CloseModal()
-                    if CharacterSheet.instance == nil then
+                    if not CharacterSheet.instance then
                         return
                     end
                     local newAbility = ActivatedAbility.Create {
@@ -5890,7 +5891,7 @@ local function DSCharSheet()
                                     -- names the base level and the revert path.
                                     hover = function(element)
                                         local sheet = CharacterSheet.instance
-                                        if sheet == nil then
+                                        if not sheet then
                                             return
                                         end
                                         local token = sheet.data.info.token
@@ -5913,7 +5914,7 @@ local function DSCharSheet()
                                     -- editing and this is a no-op.
                                     click = function(element)
                                         local sheet = CharacterSheet.instance
-                                        if sheet == nil then
+                                        if not sheet then
                                             return
                                         end
                                         local token = sheet.data.info.token
@@ -5930,7 +5931,7 @@ local function DSCharSheet()
                                         -- did not actually change: a spurious refreshAll mid-destroy
                                         -- recomputes stats while the modifier pipeline is half torn
                                         -- down (e.g. Stability transiently nil).
-                                        if CharacterSheet.instance == nil then
+                                        if not CharacterSheet.instance then
                                             return
                                         end
                                         local token = CharacterSheet.instance.data.info.token

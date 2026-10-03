@@ -56,7 +56,7 @@
 --- @field GetObjectInteractives fun(): table A function that returns the list of interactive components available for objects.
 --- @field ShowObjectInteractive fun(objid: string, interactiveid: string): nil A function that is called to show the object interactive UI.
 --- @field CreateObjectInteractive fun(): table A function that creates an interactive component table for attaching to an object.
---- @field CreateGameHud fun(container: SheetContainer, sheethud: SheetHud): Panel
+--- @field CreateGameHud fun(container: SheetContainer, sheethud: SheetHud): GameHud
 --- @field DataStreamed fun(eventName: string, path: string, payload: string): nil
 --- @field DataTransmitted fun(method: string, path: string, payload: string): nil
 --- @field DistanceDisplayFunction fun(distance: number): string Given a distance in the world, converts to a string ready to be displayed to the player.
@@ -202,6 +202,22 @@
 --- @field supportsParticleSystems boolean (read-only) True on engine builds that support dmhub.CreateParticleSystem and ParticleSystemHandleLua.
 --- @field rulerToolActive boolean Whether the ruler measurement tool is currently active.
 --- @field forceRefreshLogin boolean When set to true, forces a refresh of the login state on the next frame.
+--- @field EditObjectDialog fun(objids: string[]): any (Undocumented: engine-internal, not part of the modding API.)
+--- @field AddCustomTranslationString fun(label: Label, text: string): nil (Undocumented: engine-internal, not part of the modding API.)
+--- @field OpenDocument fun(url: string) (Undocumented: engine-internal, not part of the modding API.)
+--- @field DescribeDocument fun(url: string): string (Undocumented: engine-internal, not part of the modding API.)
+--- @field HoldAmendableRollOpen fun(): boolean (Undocumented: engine-internal, not part of the modding API.)
+--- @field tokensAvailable number (Undocumented: engine-internal, not part of the modding API.)
+--- @field LayerCamera LayerCameraLua (Undocumented: engine-internal, not part of the modding API.)
+--- @field Selection LuaSelectionController (Undocumented: engine-internal, not part of the modding API.)
+--- @field isAdminGame boolean (Undocumented: engine-internal, not part of the modding API.)
+--- @field modMergeInfo nil|{numFiles: number, conflicts: nil|string[]} (Undocumented: engine-internal, not part of the modding API.)
+--- @field debugPixelValue number (Undocumented: engine-internal, not part of the modding API.)
+--- @field currentUserStatusMessage nil|string (Undocumented: engine-internal, not part of the modding API.)
+--- @field termsOfServiceUpToDate boolean (Undocumented: engine-internal, not part of the modding API.)
+--- @field canSafelyYield boolean (Undocumented: engine-internal, not part of the modding API.)
+--- @field availableGameSystems table[] (Undocumented: engine-internal, not part of the modding API.)
+--- @field rules table (Undocumented: engine-internal, not part of the modding API.)
 dmhub = {}
 
 --- TestFunction
@@ -291,8 +307,8 @@ function dmhub.TableToString(val) end
 function dmhub.RefreshCharacterSheet() end
 
 --- GetTextureLoadEvent
---- @deprecated
---- @return any
+--- (Undocumented: engine-internal, not part of the modding API.)
+--- @return EventSourceLua
 function dmhub.GetTextureLoadEvent() end
 
 --- Asynchronously retrieves the width and height of an image by its asset id, calling the callback with the result.
@@ -320,7 +336,7 @@ function dmhub.GetModLoading() end
 function dmhub.RegisterOnInitAssetsFunction(fn) end
 
 --- Makes it so fn will be called anytime a mod is unloaded.
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 --- @param fn fun(moduleid: string): nil
 function dmhub.RegisterOnUnloadModFunction(fn) end
 
@@ -443,10 +459,11 @@ function dmhub.DebugStairways(loc) end
 --- @return nil|TileGameRules
 function dmhub.GetTileRulesAtLoc(loc) end
 
---- Returns true if the given location is difficult terrain. Checks both tile rules and auras.
+--- Returns true if the given location is difficult terrain. Checks both tile rules and auras. Pass a token to ask whether it is difficult terrain for that creature.
 --- @param loc Loc The location to query.
+--- @param token? CharacterToken The creature asking. When given, difficult terrain that creature ignores by keyword (e.g. Magic terrain for a Human's Can't Take Hold) and auras whose creature filter it fails do not count.
 --- @return boolean
-function dmhub.IsLocDifficultTerrain(loc) end
+function dmhub.IsLocDifficultTerrain(loc, token) end
 
 --- Returns true if the given location is currently inside the local viewer's vision. Always true for DM vision (including the DM not impersonating a player). Tests the same vision meshes that fog of war renders.
 --- @param loc Loc The location to query.
@@ -571,7 +588,7 @@ function dmhub.RemoveImageFromLibraryLocally(libraryName, imageid) end
 function dmhub.RemoveAndUploadImageFromLibrary(libraryName, imageid) end
 
 --- AddImageToLibraryLocally
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 --- @param libraryName? string
 --- @param imageid? string
 function dmhub.AddImageToLibraryLocally(libraryName, imageid) end
@@ -1017,9 +1034,9 @@ function dmhub.DuplicateWindowInNewProcess(options) end
 function dmhub.SyncCamera(options) end
 
 --- EvalWithErrorCode
---- @deprecated
---- @param text? string
---- @return any
+--- (Undocumented: engine-internal, not part of the modding API.)
+--- @param text string
+--- @return {success: boolean, data: any}
 function dmhub.EvalWithErrorCode(text) end
 
 --- Converts a Lua value to a raw JSON string, preserving list structures.
@@ -1033,8 +1050,8 @@ function dmhub.ToRawJson(val) end
 function dmhub.ToJson(val) end
 
 --- FromJson
---- @deprecated
---- @param str? string
+--- (Undocumented: engine-internal, not part of the modding API.)
+--- @param str string
 --- @return any
 function dmhub.FromJson(str) end
 
@@ -1093,7 +1110,7 @@ function dmhub.EndPerfWindow(key) end
 function dmhub.Log(msg) end
 
 --- LoadLocalImage
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 --- @param imageid? string
 --- @param guid? string
 --- @return string
@@ -1164,15 +1181,15 @@ function dmhub.ClearGiftNotification(key) end
 function dmhub.GetFriendsList() end
 
 --- GetPref
---- @deprecated
---- @param symbol? any
+--- (Undocumented: engine-internal, not part of the modding API.)
+--- @param symbol string
 --- @return any
 function dmhub.GetPref(symbol) end
 
 --- SetPref
---- @deprecated
---- @param symbol? any
---- @param val? any
+--- (Undocumented: engine-internal, not part of the modding API.)
+--- @param symbol string
+--- @param val any
 function dmhub.SetPref(symbol, val) end
 
 --- After the given delay, recalculates the area of the screen that the map should be drawn in.
@@ -1366,7 +1383,7 @@ function dmhub.RunSteamHandoffConsume(nonce, onComplete) end
 function dmhub.OpenURL(url) end
 
 --- Forces the mouse cursor to the given mouse cursor. Lasts for 'duration' time. You may call this again and again to refresh periodically.
---- @param cursorid MouseCursor
+--- @param cursorid MouseCursor|nil nil (with duration 0) clears the override.
 --- @param duration number
 function dmhub.OverrideMouseCursor(cursorid, duration) end
 
@@ -1473,6 +1490,16 @@ function dmhub.CopyTokensToClipboard(tokens) end
 --- @return string[]
 function dmhub.PasteTokensFromClipboard(loc) end
 
+--- Serializes a character for storage outside any game (e.g. a City's hero roster). Returns a table: 'record' = the character as JSON text, exactly as games store it; 'assets' = JSON text {images = {...}, audio = {...}} of the asset records its appearances reference, so another machine can render it. Both are text on purpose: send them on unchanged. Pair with ImportCharacter.
+--- @param token CharacterToken The character to export.
+--- @return nil|{record: string, assets: string}
+function dmhub.ExportCharacter(token) end
+
+--- Creates or replaces a character in the current game from ExportCharacter data (also accepts the record as a City returns it). Options: 'record' (JSON text, required), 'assets' (JSON text, optional -- asset records the game lacks are uploaded into it), 'charid' (optional -- replace this character; default a new id), 'name' (optional -- rename it). Returns the charid, or nil if the record could not be read or the game's assets have not loaded yet. The character resolves by id once the write echoes back, like a paste.
+--- @param options {record: string, assets: nil|string, charid: nil|string, name: nil|string}
+--- @return nil|string
+function dmhub.ImportCharacter(options) end
+
 --- Reset the given setting to its default value.
 --- @param settingid? string
 --- @return boolean
@@ -1515,7 +1542,7 @@ function dmhub.SetSettingValue(settingid, val, lockValue) end
 function dmhub.PreviewSettingValue(settingid, val) end
 
 --- ClearMergeInfo
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 function dmhub.ClearMergeInfo() end
 
 --- Returns true if the given key is currently depressed. Keys held in native popout windows count: their keystrokes go to the companion process, so Unity's Input polling alone would report them as up.
@@ -1637,7 +1664,7 @@ function dmhub.SendActionRequest(info) end
 function dmhub.CancelActionRequest(id) end
 
 --- TermsOfServiceAccepted
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 function dmhub.TermsOfServiceAccepted() end
 
 --- Quit the application.
@@ -1718,14 +1745,14 @@ function dmhub.Stopwatch() end
 function dmhub.ProfileMarker(name) end
 
 --- DebugFileWriteObject
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 --- @param path? string
 --- @param value? any
 function dmhub.DebugFileWriteObject(path, value) end
 
 --- DebugFileReadObject
---- @deprecated
---- @param path? string
+--- (Undocumented: engine-internal, not part of the modding API.)
+--- @param path string
 --- @return any
 function dmhub.DebugFileReadObject(path) end
 
@@ -1792,7 +1819,7 @@ function dmhub.HasStylus() end
 function dmhub.GetDiceStyling(diceset, colorStr) end
 
 --- Gets a raw image id from an iconid. An iconid can be an imageid, but can also be a reference to an image asset.
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 --- @param iconid? string
 --- @return string
 function dmhub.GetRawImageId(iconid) end
@@ -1878,7 +1905,7 @@ function dmhub.PanelInitProfileCalibrate() end
 function dmhub.PoolSetEnabled(enabled) end
 
 --- DebugUserDataReport
---- @deprecated
+--- (Undocumented: engine-internal, not part of the modding API.)
 function dmhub:DebugUserDataReport() end
 
 --- MigrateGameFormatV316

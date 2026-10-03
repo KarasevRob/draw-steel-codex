@@ -1160,6 +1160,10 @@ end
 
 function RollTable:RowIndexFromDiceResult(rollNum)
 	local rollInfo = self:CalculateRollInfo()
+	--nil when the rows' weights sum below 1: no row can match.
+	if rollInfo == nil then
+		return nil
+	end
 
 	--Clamp to the table's valid range so an added Modifier that pushes the total
 	--past either end still maps to the nearest edge row instead of falling off
@@ -1219,7 +1223,10 @@ function RollTable:Roll(choiceIndex, collection, depth)
 					for i=1,quantity do
 						local dataTable = dmhub.GetTable(item.dataTable) or {}
 						local subtable = dataTable[item.key]
-						subtable:Roll(item:try_get("choiceIndex"), collection, depth+1)
+						--the row can point at a table that has since been deleted; it then adds nothing.
+						if subtable ~= nil then
+							subtable:Roll(item:try_get("choiceIndex"), collection, depth+1)
+						end
 					end
 				end
 			else

@@ -542,6 +542,7 @@ local CreateEditorPanel = function(fieldInfo, displayInfo, options, valueIndex, 
 					options.onchange()
 				end,
 				refreshObjects = function(element)
+					---@cast element Dropdown
 					element.idChosen = fieldInfo.fieldList[1]:GetValue(valueIndex) or ""
 				end,
 			},
@@ -1074,6 +1075,10 @@ local CreateEditorPanel = function(fieldInfo, displayInfo, options, valueIndex, 
 								stabilization = label:Get("objectSmoothingSlider").value,
 							}
 
+							--nil while the DM HUD is inactive; try again next think.
+							if eventSource == nil then
+								return
+							end
 							eventSource:Listen(label)
 						end,
 						thinkTime = 0.5,
@@ -1164,6 +1169,10 @@ local CreateEditorPanel = function(fieldInfo, displayInfo, options, valueIndex, 
 								path = val,
 							}
 
+							--nil while the DM HUD is inactive; try again next think.
+							if eventSource == nil then
+								return
+							end
 							eventSource:Listen(label)
 						end,
 						thinkTime = 0.2,
@@ -1539,6 +1548,7 @@ local CreateEditorPanel = function(fieldInfo, displayInfo, options, valueIndex, 
 					end
 				end,
 				refreshObjects = function(element)
+					---@cast element Dropdown
 					element.options = displayInfo.enum
 					element.idChosen = fieldInfo.fieldList[1]:GetValue(valueIndex)
 				end,
@@ -1568,6 +1578,7 @@ local CreateEditorPanel = function(fieldInfo, displayInfo, options, valueIndex, 
 					end
 				end,
 				refreshObjects = function(element)
+					---@cast element Dropdown
 					element.optionChosen = cond(fieldInfo.fieldList[1]:GetValue(valueIndex), 'Yes', 'No')
 				end,
 			},
@@ -2782,6 +2793,7 @@ local CreateObjectEditor = function(nodes, options)
 					classes = {'add-property-dropdown'},
 					events = {
 						create = function(element)
+							---@cast element Dropdown
 							local options = {}
 							local availableOptions = WithAreaTemplateOption(assets.objectComponentOptions)
 							for i,optionInfo in ipairs(availableOptions) do
@@ -3249,7 +3261,6 @@ local CreateObjectEditor = function(nodes, options)
 			width = 16,
 			height = 16,
 			halign = "right",
-			valign = "right",
 			vmargin = 12,
 			hmargin = 8,
 			press = function(element)
@@ -3335,7 +3346,6 @@ local CreateObjectEditor = function(nodes, options)
 					width = 16,
 					height = 16,
 					halign = "right",
-					valign = "right",
 					vmargin = 12,
 					press = function(element)
 						m_childrenLocked = not m_childrenLocked
@@ -4721,7 +4731,7 @@ dmhub.ObjectsSelected = function(objects)
 
 		if m_objectEditor == nil then
 			m_objectEditor = CreateObjectEditorPanel()
-			gui.ShowDialogOverMap(mod, m_objectEditor, { nofade = true})
+			gui.ShowDialogOverMap(mod, m_objectEditor)
 		end
 
 		m_objectEditor.data.ShowObjects(objects)

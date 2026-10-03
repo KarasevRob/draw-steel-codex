@@ -641,7 +641,8 @@ function CBClassDetail._characteristicPanel()
                     local baseValue = locked and 2 or 0
                     if not blockSel then
                         local hero = _getHero()
-                        local attributes = hero:try_get("attributes")
+                        --hero is nil while the builder is open on a monster.
+                        local attributes = hero and hero:try_get("attributes")
                         baseValue = attributes and attributes[attr.id] and attributes[attr.id].baseValue or 0
                     end
                     element.text = string.format("%+d", baseValue)

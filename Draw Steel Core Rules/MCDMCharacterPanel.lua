@@ -3256,14 +3256,21 @@ function TacPanel.Portrait()
     }
 end
 
---- Count heroes from the three sources the hero-token refresh button consults:
---- (a) the encounter builder's numheroes setting, (b) hero tokens deployed on
---- the current map, and (c) hero tokens in the default player party.
+--- The party size the hero-token refresh button resets to: the game-wide
+--- numheroes setting, so every client resets to the same number.
+--- @return integer
+local function HeroTokenRefreshCount()
+    return tonumber(dmhub.GetSettingValue("numheroes")) or 4
+end
+
+--- Count heroes from the three sources the Director's refresh button consults:
+--- (a) the game-wide numheroes setting, (b) hero tokens deployed on the
+--- current map, and (c) heroes in the default player party, on any map.
 --- @return integer encounterCount
 --- @return integer mapCount
 --- @return integer partyCount
 local function HeroTokenRefreshCounts()
-    local encounterCount = dmhub.GetSettingValue("numheroes")
+    local encounterCount = HeroTokenRefreshCount()
 
     local mapCount = 0
     for _, tok in ipairs(dmhub.allTokens) do
@@ -3276,7 +3283,7 @@ local function HeroTokenRefreshCounts()
     local partyCount = 0
     local partyMembers = dmhub.GetCharacterIdsInParty(GetDefaultPartyID()) or {}
     for _, charid in ipairs(partyMembers) do
-        local tok = dmhub.GetTokenById(charid)
+        local tok = dmhub.GetCharacterById(charid)
         if tok ~= nil and tok.properties ~= nil and tok.properties:IsHero() then
             partyCount = partyCount + 1
         end
@@ -3298,7 +3305,8 @@ local function RefreshHeroTokensTo(token, n)
         end,
     }
     if n ~= prev then
-        local classInfo = token.properties:IsHero() and token.properties:GetClass() or nil
+        --IsHero() guarantees a character, which is where GetClass lives.
+        local classInfo = token.properties:IsHero() and (token.properties --[[@as character]]):GetClass() or nil
         track("hero_token_change", {
             change = n - prev,
             source = "session_reset",
@@ -3430,16 +3438,23 @@ function TacPanel.HeroTokenBox()
                 local token = element.parent.data.token
                 if token == nil then return end
 
+                -- Players always reset to the game-wide setting, so every
+                -- player resets to the same number.
+                if not IsDMOrPlayerHost() then
+                    RefreshHeroTokensTo(token, HeroTokenRefreshCount())
+                    return
+                end
+
                 local encounterCount, mapCount, partyCount = HeroTokenRefreshCounts()
 
-                -- All three sources agree: refresh directly, as before.
+                -- All three sources agree: refresh directly.
                 if encounterCount == mapCount and mapCount == partyCount then
                     RefreshHeroTokensTo(token, encounterCount)
                     return
                 end
 
-                -- Sources disagree: let the user pick which count to refresh to,
-                -- one entry per unique value.
+                -- Sources disagree: let the Director pick which count to
+                -- refresh to, one entry per unique value.
                 local seen = {}
                 local entries = {}
                 for _, n in ipairs({encounterCount, mapCount, partyCount}) do
@@ -3460,6 +3475,10 @@ function TacPanel.HeroTokenBox()
                 }
             end,
             linger = function(element)
+                if not IsDMOrPlayerHost() then
+                    gui.Tooltip(string.format("Reset Hero Tokens For Session (%d heroes)", HeroTokenRefreshCount()))(element)
+                    return
+                end
                 local encounterCount, mapCount, partyCount = HeroTokenRefreshCounts()
                 if encounterCount == mapCount and mapCount == partyCount then
                     gui.Tooltip(string.format("Reset Hero Tokens For Session (%d heroes)", encounterCount))(element)
@@ -7118,23 +7137,6 @@ local function MonsterSheetAbilities(props)
     return abilities, triggers, villainActions
 end
 
---- A hero's traits: every feature carrying real description text, from every
---- source the builder assigned -- ancestry, culture, career, class, kit.
----
---- Three kinds of entry are dropped. Those with no body text, which are a
---- heading over nothing. The CHOICE SLOTS -- "Purchased Dwarf Traits",
---- "Warden Language", "Censor Order" -- which are where a pick was made rather
---- than what was picked; typeName tells them apart, since everything resolved
---- to actual content comes back as a plain CharacterFeature. And the
---- boilerplate IsTraitBoilerplate rejects -- kit stat dumps, skill grants, and
---- the handful of fixed names below.
---- Names repeat across sources, so identical name+text pairs are shown once.
----
---- This overlaps the FEATURES section on purpose: that one groups by source and
---- filters, which is what makes 47 entries usable, while this one prints the
---- rules text the way the monster sheet does.
---- @param props any
---- @return table[] List of {name=, text=, live=}
 --- Entries that survive the typeName test but say nothing worth a card: either
 --- pure scaffolding, or a duplicate of something the panel already shows.
 --- Keyed by exact name; the kit stats are matched by suffix because the name is
@@ -7223,6 +7225,23 @@ local function TraitRendersElsewhere(feature)
     return kind ~= "normal"
 end
 
+--- A hero's traits: every feature carrying real description text, from every
+--- source the builder assigned -- ancestry, culture, career, class, kit.
+---
+--- Three kinds of entry are dropped. Those with no body text, which are a
+--- heading over nothing. The CHOICE SLOTS -- "Purchased Dwarf Traits",
+--- "Warden Language", "Censor Order" -- which are where a pick was made rather
+--- than what was picked; typeName tells them apart, since everything resolved
+--- to actual content comes back as a plain CharacterFeature. And the
+--- boilerplate IsTraitBoilerplate rejects -- kit stat dumps, skill grants, and
+--- the handful of fixed names below.
+--- Names repeat across sources, so identical name+text pairs are shown once.
+---
+--- This overlaps the FEATURES section on purpose: that one groups by source and
+--- filters, which is what makes 47 entries usable, while this one prints the
+--- rules text the way the monster sheet does.
+--- @param props any
+--- @return table[] List of {name=, text=, live=}
 local function HeroSheetTraits(props)
     local out = {}
     local seen = {}
@@ -7342,11 +7361,6 @@ local function MonsterSheetAbilityCard(ability, token)
 end
 
 --- Build one trait / trigger card: bold name over its rules text.
---- @param name string
---- @param text string
---- @param props any
---- @param live? boolean Mark the card as currently in effect
---- @return Panel
 --- One name-and-prose card in the monster-sheet grammar.
 ---
 --- Heroes get an "Open on sheet" link in the corner: these cards replaced the
@@ -8722,6 +8736,7 @@ end
 --- @return Panel
 function TacPanel.MultiEdit()
     local m_tokens = {}
+    ---@type string|false|nil
     local m_selectedSquadId = nil
 
     -- Squad name input
@@ -8762,7 +8777,9 @@ function TacPanel.MultiEdit()
                 tok:ModifyProperties{
                     description = "Set Color",
                     execute = function()
-                        DrawSteelMinion.SetSquadColor(m_selectedSquadId, color)
+                        --The picker is only visible while the squad row is, and the row is
+                        --only uncollapsed by the tokens handler that sets this to the shared squad name.
+                        DrawSteelMinion.SetSquadColor(m_selectedSquadId --[[@as string]], color)
                     end,
                 }
             end
@@ -9210,7 +9227,8 @@ function TacPanel.ConditionChipText(condid, cond, creature)
     local info = conditionsTable[condid]
     if info == nil then return "???" end
 
-    local text = info.name
+    --Never nil: CharacterCondition.name has a class default.
+    local text = info.name --[[@as string]]
 
     -- Append rider names
     local riderids = creature:GetConditionRiders(condid)
@@ -9425,7 +9443,8 @@ end
 --- @param info CharacterOngoingEffect definition
 --- @return string chip label text
 function TacPanel.StatusEffectChipText(entry, info)
-    local text = info.name
+    --Never nil: a game-typed instance raises on an unset field rather than returning nil.
+    local text = info.name --[[@as string]]
     if entry.stacks ~= nil and entry.stacks > 1 then
         text = string.format("%s x%d", text, entry.stacks)
     end
@@ -9709,7 +9728,9 @@ local function FillAurasEmittingPanels(token, chips)
                 width = 20,
                 height = 20,
                 hasAlpha = true,
-                value = token.properties:GetAuraDisplaySetting(capturedAuraName).bgcolor
+                --bgcolor is the optional override the change handler below writes;
+                --creature:GetAuraDisplaySetting's @return does not list it yet.
+                value = (token.properties:GetAuraDisplaySetting(capturedAuraName) --[[@as {bgcolor: string|nil}]]).bgcolor
                     or (token.playerControlled and token.playerColor.tostring or "#AA0000"),
                 change = function(element)
                     if TacPanel.IsReadOnly(element) then return end
@@ -10589,6 +10610,7 @@ function TacPanel.ConditionsRow()
             element:SetClass("collapsed", false)
 
             local creature = token.properties
+            ---@type Panel[]
             local children = {MakeLabel(), MakeAddButton()}
 
             for condid, cond in pairs(creature:try_get("inflictedConditions", {})) do
@@ -11882,8 +11904,6 @@ function TacPanel.StaminaClassic()
     }
 end
 
---- Display the Features panel
---- @return Panel
 --Best-effort description for a curated index entry. Mirrors the sheet's
 --FeatureEntryDescription: each probe is pcall-isolated because reading a
 --missing method on a game type errors rather than returning nil. Falls back to
@@ -11944,9 +11964,9 @@ end
 --A single feature chip: name only. Click opens a small popup with the
 --description and an "Open on sheet" link (the ch5 filterFeatures deep-link).
 --View + link only -- choice-changing stays on the sheet.
---- @param token CharacterToken
+--- @param token CharacterToken|nil nil until the update event retargets it (click is a no-op)
 --- @param name string display name
---- @param descFn function () -> string|nil resolved on click (lazy)
+--- @param descFn function|nil () -> string|nil resolved on click (lazy); nil shows "No description"
 --- @param onOpen function|nil called when the popup opens (lets the owning
 ---        section lock its filter so a later title-bar search change does not
 ---        rebuild the list and tear this popup down)
@@ -12042,6 +12062,7 @@ end
 --- sheet. Heroes gain a section they never had; monsters keep their traits.
 --- @return Panel
 function TacPanel.Features()
+    ---@type CharacterToken|nil
     local m_token = nil
     local m_filter = ""       -- the active filter (the Filter box text)
     local m_filterFromGlobal = false  -- true when the title-bar search set the filter
@@ -13991,7 +14012,8 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 	for _,charid in ipairs(partyMembers) do
 
 		local token = dmhub.GetCharacterById(charid)
-		local creature = token.properties
+		--nil for a party id with no character record: RefreshParty keeps those ids.
+		local creature = token and token.properties
 
 		if creature ~= nil then
 			local key = charid
@@ -14062,6 +14084,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 						--running it later would clobber the label's styles.
 						local headers = folder:GetChildrenWithClassRecursive("folder")
 						for _,header in ipairs(headers) do
+							--A non-empty rule list in, so MergeTokens returns a list, never nil.
 							header.styles = ThemeEngine.MergeTokens{
 								{
 									borderWidth = 0,
@@ -14072,7 +14095,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 									bgcolor = "@bgAlt",
 									transitionTime = 0.1,
 								},
-							}
+							} --[[@as StyleArgs[] ]]
 						end
 
 						local labels = folder:GetChildrenWithClassRecursive("folderLabel")
@@ -14095,6 +14118,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 						local triangles = folder:GetChildrenWithClassRecursive("triangle")
 						for _,tri in ipairs(triangles) do
 							tri.bgimage = "phosphor/caret-down-fill.png"
+							--A non-empty rule list in, so MergeTokens returns a list, never nil.
 							tri.styles = ThemeEngine.MergeTokens{
 								{
 									selectors = {"triangle"},
@@ -14116,7 +14140,7 @@ CharacterPanel.PopulatePartyMembers = function(element, party, partyMembers, mem
 									rotate = 0,
 									transitionTime = 0.2,
 								},
-							}
+							} --[[@as StyleArgs[] ]]
 						end
 
 						folder.data.contentPanel = contentPanel

@@ -1426,7 +1426,7 @@ local ShowSkillsPanel = function(parentPanel)
 				idChosen = skill.attribute,
 				change = function(element)
 					---@cast element Dropdown
-					skill.attribute = element.idChosen
+					skill.attribute = element.idChosen --[[@as string]]
 					UploadSkill()
 				end,
 			},
@@ -1682,7 +1682,7 @@ local ShowResourcesPanel = function(parentPanel)
 				idChosen = resource.grouping,
 				change = function(element)
 					---@cast element Dropdown
-					resource.grouping = element.idChosen
+					resource.grouping = element.idChosen --[[@as string]]
 					UploadResource()
 				end,
 			},
@@ -1750,7 +1750,7 @@ local ShowResourcesPanel = function(parentPanel)
 				idChosen = resource.textColor,
 				change = function(element)
 					---@cast element Dropdown
-					resource.textColor = element.idChosen
+					resource.textColor = element.idChosen --[[@as string]]
 					UploadResource()
 					quantityLabelPreview:FireEvent("create")
 				end,
@@ -1944,7 +1944,7 @@ local ShowResourcesPanel = function(parentPanel)
 				idChosen = currentDisplayMode,
 				change = function(element)
 					---@cast element Dropdown
-					currentDisplayMode = element.idChosen
+					currentDisplayMode = element.idChosen --[[@as string]]
 					sliders[1].data.setValueNoEvent(resource.display[currentDisplayMode]['hueshift'])
 					sliders[2].data.setValueNoEvent(resource.display[currentDisplayMode]['saturation'])
 					sliders[3].data.setValueNoEvent(resource.display[currentDisplayMode]['brightness'])
@@ -2109,7 +2109,7 @@ local ShowResourcesPanel = function(parentPanel)
 				idChosen = resource.levelsFrom,
 				change = function(element)
 					---@cast element Dropdown
-					resource.levelsFrom = element.idChosen
+					resource.levelsFrom = element.idChosen --[[@as string]]
 					UploadResource()
 				end,
 			}
@@ -3575,7 +3575,7 @@ local ShowEquipmentCategoriesPanel = function(parentPanel)
 
 				change = function(element)
 					---@cast element Dropdown
-					data.editorType = element.idChosen
+					data.editorType = element.idChosen --[[@as string]]
 					UploadData()
 				end,
 			},
@@ -3839,7 +3839,7 @@ local ShowImageFoldersPanel = function(parentPanel)
 				idChosen = data.imageType,
 				change = function(element)
 					---@cast element Dropdown
-					data.imageType = element.idChosen
+					data.imageType = element.idChosen --[[@as string]]
 					UploadData()
 				end,
 				options = {
@@ -3913,7 +3913,7 @@ local ShowImageFoldersPanel = function(parentPanel)
 						if element.idChosen == "none" then
 							data.artistid = nil
 						else
-							data.artistid = element.idChosen
+							data.artistid = element.idChosen --[[@as string]]
 						end
 
 						UploadData()
@@ -5365,6 +5365,8 @@ local ShowTranslationsPanel = function(parentPanel)
 
 			for _,transid in ipairs(i18n.translations) do
 				local translation = i18n.GetTranslation(transid)
+				--transid comes from i18n.translations, the same live collection.
+				---@cast translation -nil
 
 				newDataItems[transid] = dataItems[transid] or CreateListItem{
 					select = element.aliveTime > 0.2,
@@ -6199,7 +6201,7 @@ local LibraryPanel = function()
 			if element.data.poppedOut then
 				return
 			end
-			if GameHud.instance == nil or GameHud.instance.documentsPanel == nil or
+			if not GameHud.instance or GameHud.instance.documentsPanel == nil or
 				(not GameHud.instance.documentsPanel.valid) then
 				return
 			end

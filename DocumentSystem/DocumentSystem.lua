@@ -2803,6 +2803,8 @@ function CustomDocument.GetOrCreateTabbedViewer()
         escapePriority = EscapePriority.EXIT_MODAL_DIALOG,
         click = function(element)
             local v = element:FindParentWithClass("journalTabbedViewer")
+            --this button is built into the journalTabbedViewer's own tab bar.
+            ---@cast v -nil
             v:FireEvent("closeAllTabs")
         end,
         linger = function(element)
@@ -5154,12 +5156,14 @@ end
 --Returns the verb, the owner key, the owner's document, and the open
 --dialog (nil when there is none).
 ---@return nil|"open"|"switch"|"close"|"raise" verb
----@return string? ownerKey
+---@return string ownerKey
 ---@return PanelDocument? doc
 ---@return Panel? dialog
 local function RailActivation(key)
     key = string.lower(key)
     local ownerKey = PanelDocument.WindowOwner(key)
+    --WindowOwner returns nil only for a nil key, and key is a string here.
+    ---@cast ownerKey -nil
     local doc = RailPanelDocument(ownerKey)
     if doc == nil then
         return nil, ownerKey, nil, nil
@@ -7532,6 +7536,8 @@ end
 --inherit sizes from a record nobody writes.
 local function RailRememberWindow(key, x, y, doc)
     key = PanelDocument.WindowOwner(key)
+    --WindowOwner returns nil only for a nil key; every caller passes a rail key.
+    ---@cast key -nil
     local windows = RailRestoreWindows()
     local width, height = RailWindowSize(doc)
     local prev = windows[key]
@@ -7579,6 +7585,8 @@ end
 
 local function RailForgetWindow(key)
     key = PanelDocument.WindowOwner(key)
+    --WindowOwner returns nil only for a nil key; every caller passes a rail key.
+    ---@cast key -nil
     local windows = RailRestoreWindows()
     if windows[key] ~= nil then
         windows[key] = nil
@@ -12160,6 +12168,8 @@ function PanelDocument.LayerDepth(panel)
         return nil
     end
     local layer = DocumentsLayer()
+    --LayerChildOf just found node on this same layer, so it is up.
+    ---@cast layer -nil
     for i, child in ipairs(layer.children) do
         if child == node then
             return i
@@ -15018,7 +15028,7 @@ RailScriptButtonDialog = function(toolkitid, idx)
         valign = "center",
         change = function(element)
             ---@cast element Dropdown
-            m_mode = element.idChosen
+            m_mode = element.idChosen --[[@as string]]
             codeSection:SetClass("collapsed", m_mode ~= "script")
             commandSection:SetClass("collapsed", m_mode ~= "command")
             RefreshScriptStatus()
@@ -16274,7 +16284,7 @@ local function RailShowCommunityBrowser(side, opts)
                 rmargin = 32,
                 change = function(dropdownElement)
                     ---@cast dropdownElement Dropdown
-                    m_sort = dropdownElement.idChosen or "hearts"
+                    m_sort = dropdownElement.idChosen --[[@as string]] or "hearts"
                     RenderCards()
                 end,
             },
@@ -22732,7 +22742,7 @@ end
 --prompt uses a pair of them. Global: the Panels-menu Views group uses
 --it too.
 function ViewsToast(text, undoFn, actions)
-    if GameHud.instance == nil or (not GameHud.instance.documentsPanel) or (not GameHud.instance.documentsPanel.valid) then
+    if not GameHud.instance or (not GameHud.instance.documentsPanel) or (not GameHud.instance.documentsPanel.valid) then
         return
     end
     local toast

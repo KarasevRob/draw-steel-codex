@@ -498,9 +498,14 @@ end
 function GameHud.TooltipPlacementOutsideBox(minx, miny, maxx, maxy)
 	--Keep the hovered tile inside the box too: during ability targeting it can be well
 	--outside the path -- a jump that lands short at a wall while the user aims past it --
-	--and a tooltip just off the path box would then sit on the cursor. mouseLoc is nil
-	--when the pointer is over UI rather than the map.
-	local mouseLoc = dmhub.mouseLoc
+	--and a tooltip just off the path box would then sit on the cursor. Only a pointer
+	--inside the usable map area (between the HUD docks) counts; over a dock it is not on
+	--the map. (This used dmhub.mouseLoc, which does not exist, so it never ran.)
+	local mouseLoc = dmhub.GetMouseWorldPoint()
+	local usable = dmhub.cameraUsableBounds
+	if usable ~= nil and (mouseLoc.x < usable.x1 or mouseLoc.x > usable.x2 or mouseLoc.y < usable.y1 or mouseLoc.y > usable.y2) then
+		mouseLoc = nil
+	end
 	if mouseLoc ~= nil then
 		local cursorPad = 1.2
 		if mouseLoc.x - cursorPad < minx then minx = mouseLoc.x - cursorPad end
@@ -2362,7 +2367,7 @@ end
 function Tip.ResetAll()
 	dmhub.SetSettingValue("tipsLearned", {})
 	local gh = GameHud.instance
-	if gh == nil then return end
+	if not gh then return end
 	gh.activeTipId = nil
 	gh._tipState = nil
 	gh._tipLastScan = nil
@@ -2381,7 +2386,7 @@ end
 function Tip.Clear(id)
 	Tip.MarkLearned(id)
 	local gh = GameHud.instance
-	if gh == nil then return end
+	if not gh then return end
 	if gh:try_get("activeTipId") == id then
 		gh:_ClearActiveTip()
 	end
@@ -2542,7 +2547,7 @@ Tip.Register{
 		return true
 	end,
 	whenShown = function(state)
-		state.tokenId = dmhub.selectedTokens[1].id
+		state.tokenId = dmhub.selectedTokens[1].charid
 		--Highlight by id, not class: the "light-btn" class is unfortunately
 		--reused for the unrelated look-up-between-floors button in
 		--MCDMCharacterPanel.lua, so class targeting hits the wrong element
@@ -2610,7 +2615,7 @@ Tip.Register{
 		return not BeastheartCompanionIsNearby(tok)
 	end,
 	whenShown = function(state)
-		state.tokenId = dmhub.selectedTokens[1].id
+		state.tokenId = dmhub.selectedTokens[1].charid
 		tutorial.SetTutorial{
 			name = "tip-beastheart-call",
 			entries = {

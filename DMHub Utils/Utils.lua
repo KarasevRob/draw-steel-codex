@@ -73,11 +73,17 @@ end
 --- so a cancel would be a free undo. A roll with no cast behind it (standalone
 --- and table rolls carry no castOptions) stays cancellable, as does every roll
 --- for a Director.
+--- A roll shown with `noCancelOnceThrown` (Encounter of the Week's montage
+--- tests) also withdraws it, for everyone, once its dice are thrown: the
+--- dialog sets data.cancelWithdrawn on submit.
 --- Deliberately NOT applied to dialog.data.Cancel() itself: system teardown
 --- paths -- restoreFromBackup, the request-rolls and roll-table cleanups --
 --- call that directly and must always work.
 function RollDialogCancelOffered(dialog)
     if dialog == nil or not dialog.valid or dialog.data == nil then
+        return false
+    end
+    if dialog.data.cancelWithdrawn then
         return false
     end
     if not StrictRollsEnforced() then
@@ -1019,6 +1025,12 @@ function debug_and_return(item)
     return item
 end
 
+--- Expands the `{goblinscript}` expressions in str against symbols. Nil only for a nil str.
+--- @overload fun(str: string, symbols?: any, depth?: number): string
+--- @param str string|nil
+--- @param symbols? any
+--- @param depth? number
+--- @return string|nil
 function StringInterpolateGoblinScript(str, symbols, depth)
     if str == nil then
         return nil
@@ -1559,6 +1571,11 @@ local function DeepCopyInternal(t, visited)
 end
 
 local g_profileDeepCopy = dmhub.ProfileMarker("LuaDeepCopy")
+--- A deep copy of t: tables recursively (shared references and metatables kept),
+--- userdata through dmhub.DeepCopy, anything else returned as is.
+--- @generic T
+--- @param t T
+--- @return T
 function DeepCopy(t)
     local _ = g_profileDeepCopy.Begin
     local result = DeepCopyInternal(t, {})

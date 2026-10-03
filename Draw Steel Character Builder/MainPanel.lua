@@ -212,7 +212,7 @@ function CharacterBuilder.CreatePanel()
             if hero == nil then hero = _getHero() end
             if hero == nil then error("HOW TF IS HERO NIL?") end
             local cultureAggregates = CharacterCultureAggregateChoice.CreateAll(hero)
-            local aspectFeatures = CharacterAspectChoice.CreateAll(hero)
+            local aspectFeatures = CharacterAspectChoice.CreateAll()
             if cultureAggregates or aspectFeatures then
                 local levelChoices = hero:GetLevelChoices()
 
@@ -305,6 +305,8 @@ function CharacterBuilder.CreatePanel()
             end
 
             local perks = {}
+            --levelChoices is only non-empty when hero is non-nil (early return above).
+            ---@cast hero -nil
             local features = hero:GetClassFeaturesAndChoicesWithDetails()
             if features then
                 for _,f in ipairs(features) do
@@ -407,6 +409,8 @@ function CharacterBuilder.CreatePanel()
 
                 local hero = props
                 if hero:IsHero() then
+                    --IsHero() is true only on character instances.
+                    ---@cast hero character
 
                     -- Validate the description info
                     local desc = hero:Description()
@@ -457,7 +461,7 @@ function CharacterBuilder.CreatePanel()
 
         removeAncestry = function(element)
             local state = element.data.state
-            local hero = _getHero(state)
+            local hero = _getHero()
             if hero and (hero:try_get("raceid") or hero:try_get("subraceid")) then
                 element:AddChild(CharacterBuilder._confirmDialog{
                     title = "Confirm Change Ancestry",
@@ -474,7 +478,7 @@ function CharacterBuilder.CreatePanel()
 
         removeCareer = function(element)
             local state = element.data.state
-            local hero = _getHero(state)
+            local hero = _getHero()
             if hero then
                 element:AddChild(CharacterBuilder._confirmDialog{
                     title = "Confirm Change Career",
@@ -490,7 +494,7 @@ function CharacterBuilder.CreatePanel()
 
         removeClass = function(element)
             local state = element.data.state
-            local hero = _getHero(state)
+            local hero = _getHero()
             if hero then
                 element:AddChild(CharacterBuilder._confirmDialog{
                     title = "Confirm Change Class",
@@ -522,6 +526,8 @@ function CharacterBuilder.CreatePanel()
             local cachedLevelChoices = state:Get("levelChoices")
 
             local hero = _getHero()
+            --fired only from refreshToken's IsHero branch and the hero-only Ancestry selector.
+            ---@cast hero -nil
             local levelChoices = hero:GetLevelChoices() or {}
             local inheritedAncestry = hero:InheritedAncestry()
             local inheritedAncestryId = inheritedAncestry and inheritedAncestry.id or nil
@@ -584,6 +590,8 @@ function CharacterBuilder.CreatePanel()
             }
             local careerItem = dmhub.GetTableVisible(Background.tableName)[careerId]
             if careerItem then
+                --fired only from refreshToken's IsHero branch and the hero-only Career selector.
+                ---@cast hero -nil
                 local featureDetails = {}
                 careerItem:FillFeatureDetails(levelChoices, featureDetails)
 
@@ -633,6 +641,8 @@ function CharacterBuilder.CreatePanel()
             local cachedKitId = state:Get(SEL.KIT .. ".selectedId")
 
             local hero = _getHero()
+            --fired only from refreshToken's IsHero branch and the hero-only Class selector.
+            ---@cast hero -nil
             local level = hero and hero:CharacterLevel()
             local extraLevelInfo = hero:ExtraLevelInfo()
             local classAndSubClasses = hero and hero:GetClassesAndSubClasses() or {}

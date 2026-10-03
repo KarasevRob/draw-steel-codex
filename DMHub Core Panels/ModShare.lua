@@ -2440,7 +2440,7 @@ local showShareModuleDialog = function(options)
                     if element.idChosen == "self" then
                         moduleInstance.authorid = module.savedAuthorid or dmhub.GetDisplayName(dmhub.userid)
                     else
-                        moduleInstance.authorid = element.idChosen
+                        moduleInstance.authorid = element.idChosen --[[@as string]]
                     end
                     m_publishAsOrg = element.idChosen ~= "self"
                     dialogPanel:FireEventTree("refreshModule")
@@ -2733,7 +2733,7 @@ local showShareModuleDialog = function(options)
                 sort = true,
                 change = function(element)
                     ---@cast element Dropdown
-                    moduleInstance.coverDocumentId = element.idChosen ~= "none" and element.idChosen or nil
+                    moduleInstance.coverDocumentId = element.idChosen ~= "none" and element.idChosen --[[@as string]] or nil
                 end,
             },
         },
@@ -3104,7 +3104,7 @@ local showShareModuleDialog = function(options)
 				width = 260,
 				change = function(element)
 					---@cast element Dropdown
-					moduleInstance.moduleType = element.idChosen
+					moduleInstance.moduleType = element.idChosen --[[@as string]]
 					RefreshModuleType()
 				end,
 			},
@@ -3433,7 +3433,7 @@ local showShareModuleDialog = function(options)
 			dialogPanel.styles = ThemeEngine.MergeStyles(dialogCustomStyles)
 		end
 		if assetsPanel ~= nil and assetsPanel.valid then
-			assetsPanel.styles = ThemeEngine.MergeTokens(assetsCustomStyles)
+			assetsPanel.styles = ThemeEngine.MergeTokens(assetsCustomStyles) --[[@as StyleArgs[] ]]
 		end
 	end)
 end
@@ -4448,7 +4448,6 @@ mod.shared.ShowDownloadShareDialog = function(options)
 		end
 
 		m_latestSearch = search
-			index = m_tabSelected,
 
 		m_moduleIndex:Search{
 			text = search,
@@ -5838,7 +5837,7 @@ mod.shared.ShowDownloadShareDialog = function(options)
 			dialogPanel.styles = ThemeEngine.MergeStyles(dialogCustomStyles)
 		end
 		if moduleDisplayPanel ~= nil and moduleDisplayPanel.valid then
-			moduleDisplayPanel.styles = ThemeEngine.MergeTokens(moduleDisplayCustomStyles)
+			moduleDisplayPanel.styles = ThemeEngine.MergeTokens(moduleDisplayCustomStyles) --[[@as StyleArgs[] ]]
 		end
 	end)
 
@@ -5951,10 +5950,11 @@ mod.shared.ShowExportDialog = function()
 			hmargin = 8,
 			text = tostring(tourWidth),
 			change = function(element)
-				if tonumber(element.text) == nil then
+				local n = tonumber(element.text)
+				if n == nil then
 					element.text = tostring(tourWidth)
 				else
-					tourWidth = math.floor(tonumber(element.text))
+					tourWidth = math.floor(n)
 				end
 
 				tourSettingsPanel:FireEvent("refreshTour")
@@ -5969,10 +5969,11 @@ mod.shared.ShowExportDialog = function()
 			hmargin = 8,
 			text = tostring(tourHeight),
 			change = function(element)
-				if tonumber(element.text) == nil then
+				local n = tonumber(element.text)
+				if n == nil then
 					element.text = tostring(tourHeight)
 				else
-					tourHeight = math.floor(tonumber(element.text))
+					tourHeight = math.floor(n)
 				end
 
 				tourSettingsPanel:FireEvent("refreshTour")
@@ -6006,7 +6007,7 @@ mod.shared.ShowExportDialog = function()
 			},
 			change = function(element)
 				---@cast element Dropdown
-				hz = element.idChosen
+				hz = element.idChosen --[[@as string]]
 			end,
 
 		},
@@ -6095,7 +6096,7 @@ mod.shared.ShowExportDialog = function()
 			},
 			change = function(element)
 				---@cast element Dropdown
-				exportType = element.idChosen
+				exportType = element.idChosen --[[@as string]]
 				if exportType == "tour" then
 					tourSettingsPanel:FireEvent("refreshTour")
 				else

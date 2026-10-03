@@ -396,6 +396,8 @@ local function ParseCharacterEquipment(c, doc)
             end
 
             if itemidFound ~= nil then
+                --assigned together with itemidFound above.
+                ---@cast itemInfoFound -nil
                 if EquipmentCategory.IsPack(itemInfoFound) and itemInfoFound:has_key("packItems") then
                     --unpack packs immediately.
 					for i,entry in ipairs(itemInfoFound.packItems) do
@@ -1053,6 +1055,8 @@ Importers = {
 
                                         --do we think this spell was a level or a cantrip?
                                         local num = tonumber(string.match(spellsKey, "(%d+)") or 0)
+                                        --tonumber of a run of digits, or of 0, always succeeds.
+                                        ---@cast num -nil
                                         if num > 0 then
                                             numSpells = numSpells+1
                                             spellsPrepared[#spellsPrepared+1] = spellidMatch

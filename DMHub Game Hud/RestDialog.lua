@@ -116,7 +116,7 @@ LaunchablePanel.Register{
 	end,
 	--Begin the respite game mode directly instead of opening a rest box.
 	content = function()
-		if GameHud.instance ~= nil then
+		if GameHud.instance then
 			GameHud.instance:BeginRespiteMode()
 		end
 		return nil

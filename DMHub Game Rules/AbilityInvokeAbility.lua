@@ -869,6 +869,17 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
 
                 --be careful not to put anything in here we don't want to transmit to the database.
                 local symbols = { spellname = options.symbols.spellname or ability.name, charges = options.symbols.charges, cast = options.symbols.cast, forcedMovementOrigin = options.symbols.forcedMovementOrigin, forcedMovementOriginTokenId = options.symbols.forcedMovementOriginTokenId, movementtargetvalid = options.symbols.movementtargetvalid }
+
+                --The Monster AI activity this cast is reacting to (a hero trigger
+                --provoked by a monster's move or strike). Carried into the invoked
+                --ability so a custom trigger it fires still holds the AI open --
+                --see ActivatedAbilityCustomTriggerBehavior:Cast. A plain string,
+                --so safe for the remote invocation record.
+                local aiActivityId = options.symbols.aiActivityId
+                if type(aiActivityId) == "string" and aiActivityId ~= "" then
+                    symbols.aiActivityId = aiActivityId
+                end
+
                 if parentTargetToken ~= nil then
                     symbols.parenttarget = GenerateSymbols(parentTargetToken.properties)
                 end

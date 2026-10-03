@@ -330,7 +330,7 @@ mod.shared.EditTilesheetAssetDialog = function(tileid, startingValues)
 					events = {
 						change = function(element)
 							---@cast element Dropdown
-							asset.effectLayer = element.idChosen
+							asset.effectLayer = element.idChosen --[[@as string]]
 							assets:RefreshAssets("Tilesheet")
 						end,
 					},

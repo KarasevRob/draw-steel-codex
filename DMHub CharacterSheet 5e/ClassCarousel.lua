@@ -383,6 +383,11 @@ function CharSheet.StartingEquipmentDisplay(claimedKey, hasclassStyle)
                                                     end
 
                                                     displayedItem = itemInfo
+                                                    --nil when the id is in none of the three tables (e.g. the item was deleted).
+                                                    if itemInfo == nil then
+                                                        element.text = ""
+                                                        return
+                                                    end
                                                     element.text = string.format("%s x %d", tr(itemInfo.name), itemEntry.quantity)
 
                                                 end,

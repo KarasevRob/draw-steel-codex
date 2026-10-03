@@ -1277,6 +1277,8 @@ CreateChatPanel = function()
 	local function ArgCompletionPress(element)
 		local macroName, args, partial, argIndex = Commands.GetCurrentArg(inputPanel.text)
 		if macroName == nil then return end
+		--GetCurrentArg returns args whenever it returns a macroName.
+		---@cast args -nil
 		local completionValue = element.data.commandText
 		-- Rebuild: /command <previous args> <completionValue>
 		local commandPrefix = string.match(inputPanel.text, "^(/%S+)") or inputPanel.text
@@ -1313,6 +1315,8 @@ CreateChatPanel = function()
 					if macroInfo.completions ~= nil then
 						local _, typedArgs, partial, ai = Commands.GetCurrentArg(text)
 						if typedArgs ~= nil then
+							--GetCurrentArg returns args and partial together, so partial is set here.
+							---@cast partial -nil
 							local ok, suggestions = pcall(macroInfo.completions, typedArgs, ai)
 							if ok and suggestions ~= nil then
 								-- Filter by partial prefix (case-insensitive)
@@ -1799,6 +1803,7 @@ CreateChatPanel = function()
 				end
 			end,
 			uparrow = function(element)
+				---@cast element Input
 				if CompletionsArrow("up") then
 					return
 				end
@@ -1831,6 +1836,7 @@ CreateChatPanel = function()
 				UpdateCompletions()
 			end,
 			downarrow = function(element)
+				---@cast element Input
 				if CompletionsArrow("down") then
 					return
 				end
@@ -1886,12 +1892,16 @@ CreateChatPanel = function()
 				end
 			end,
 			submit = function(element)
+				---@cast element Input
 
 				local completionText = GetAndClearCompletionSelected()
 				if completionText ~= nil then
 					if completionIsArgMode then
 						-- Replace just the current arg, preserving previous args
 						local macroName, args, partial, argIndex = Commands.GetCurrentArg(element.text)
+						--Arg mode is only set by UpdateCompletions after GetCurrentArg parsed this same
+						--text (every edit re-runs it), so args is present.
+						---@cast args -nil
 						local commandPrefix = string.match(element.text, "^(/%S+)") or element.text
 						local parts = {commandPrefix}
 						for i = 1, #args do
@@ -1937,6 +1947,7 @@ CreateChatPanel = function()
 				--Does not include executing a command.
 			end,
 			slash = function(element)
+				---@cast element Input
 				element.hasFocus = true
 				element.text = "/"
 				element.caretPosition = 1

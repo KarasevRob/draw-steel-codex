@@ -384,7 +384,7 @@ function CBSelectors._back()
         text = "BACK",
         data = { selector = SEL.BACK },
         create = function(element)
-            element:SetClass("collapsed", CharacterBuilder._inCharSheet(element))
+            element:SetClass("collapsed", CharacterBuilder._inCharSheet())
         end,
         press = function(element)
             print("THC:: TODO:: Not in CharSheet. Close the window, probably?")

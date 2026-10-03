@@ -3005,7 +3005,7 @@ dmhub.RegisterEventHandler("restoreFromBackup", function()
     end
 
     --Tear down any dialog mounted in the standalone roll host.
-    if GameHud.instance ~= nil and GameHud.instance.standaloneRollHost ~= nil
+    if GameHud.instance and GameHud.instance.standaloneRollHost ~= nil
        and GameHud.instance.standaloneRollHost.valid then
         local host = GameHud.instance.standaloneRollHost
         for _, child in ipairs(host.children) do

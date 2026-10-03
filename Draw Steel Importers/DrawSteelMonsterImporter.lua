@@ -970,27 +970,33 @@ MCDMImporter.ParseMonsterAbility = function(bestiaryEntry, lines, knownAbilities
             if abilityTemplate:try_get("invokeSurroundingAbility") then
                 --we embed the newAbility within the template behavior.
                 local invokeCustom = MCDMImporter.GetStandardAbility("InvokeCustom")
-                local invokeBehavior = invokeCustom.behaviors[1]
-                invokeBehavior.customAbility = DeepCopy(newAbility)
-                invokeBehavior.customAbility.guid = dmhub.GenerateGuid()
-
-                local a = DeepCopy(abilityTemplate)
-                a.name = newAbility.name
-                a.iconid = newAbility.iconid
-                a.flavor = newAbility:try_get("flavor")
-                a.description = newAbility.description
-                a.categorization = newAbility.categorization
-                a.keywords = DeepCopy(newAbility.keywords)
-                a.display = DeepCopy(newAbility.display)
-
-                if abilityTemplate:try_get("insertAtStart") then
-                    --note this is inverted to what we expect since insert at start mean *our* new behaviors go before the invoked ability.
-                    a.behaviors[#a.behaviors+1] = invokeBehavior
+                if invokeCustom == nil then
+                    import:Log(FormatError("Could not find standard 'InvokeCustom' ability to embed this effect in."))
+                    hasErrors = true
                 else
-                    table.insert(a.behaviors, 1, invokeBehavior)
-                end
+                    --copy: behaviors[1] is the live standardAbilities row, shared by every wrapped ability.
+                    local invokeBehavior = DeepCopy(invokeCustom.behaviors[1])
+                    invokeBehavior.customAbility = DeepCopy(newAbility)
+                    invokeBehavior.customAbility.guid = dmhub.GenerateGuid()
 
-                newAbility = a
+                    local a = DeepCopy(abilityTemplate)
+                    a.name = newAbility.name
+                    a.iconid = newAbility.iconid
+                    a.flavor = newAbility:try_get("flavor")
+                    a.description = newAbility.description
+                    a.categorization = newAbility.categorization
+                    a.keywords = DeepCopy(newAbility.keywords)
+                    a.display = DeepCopy(newAbility.display)
+
+                    if abilityTemplate:try_get("insertAtStart") then
+                        --note this is inverted to what we expect since insert at start mean *our* new behaviors go before the invoked ability.
+                        a.behaviors[#a.behaviors+1] = invokeBehavior
+                    else
+                        table.insert(a.behaviors, 1, invokeBehavior)
+                    end
+
+                    newAbility = a
+                end
             else
                 --import:Log(FormatNote("Effect matched known effect: " .. v.name))
                 if abilityTemplate:try_get("insertAtStart") then
@@ -1610,27 +1616,32 @@ MCDMImporter.ParseCreatureAbilities = function(bestiaryEntry, inputLines, knownA
                 if abilityTemplate:try_get("invokeSurroundingAbility") then
                     --we embed the newAbility within the template behavior.
                     local invokeCustom = MCDMImporter.GetStandardAbility("InvokeCustom")
-                    local invokeBehavior = invokeCustom.behaviors[1]
-                    invokeBehavior.customAbility = DeepCopy(newAbility)
-                    invokeBehavior.customAbility.guid = dmhub.GenerateGuid()
-
-                    local a = DeepCopy(abilityTemplate)
-                    a.name = newAbility.name
-                    a.iconid = newAbility.iconid
-                    a.flavor = newAbility:try_get("flavor")
-                    a.description = newAbility.description
-                    a.categorization = newAbility.categorization
-                    a.keywords = DeepCopy(newAbility.keywords)
-                    a.display = DeepCopy(newAbility.display)
-
-                    if abilityTemplate:try_get("insertAtStart") then
-                        --note this is inverted to what we expect since insert at start mean *our* new behaviors go before the invoked ability.
-                        a.behaviors[#a.behaviors+1] = invokeBehavior
+                    if invokeCustom == nil then
+                        abilityErrors[#abilityErrors+1] = FormatStatus("Could not find standard 'InvokeCustom' ability to embed this effect in.", "error")
                     else
-                        table.insert(a.behaviors, 1, invokeBehavior)
-                    end
+                        --copy: behaviors[1] is the live standardAbilities row, shared by every wrapped ability.
+                        local invokeBehavior = DeepCopy(invokeCustom.behaviors[1])
+                        invokeBehavior.customAbility = DeepCopy(newAbility)
+                        invokeBehavior.customAbility.guid = dmhub.GenerateGuid()
 
-                    newAbility = a
+                        local a = DeepCopy(abilityTemplate)
+                        a.name = newAbility.name
+                        a.iconid = newAbility.iconid
+                        a.flavor = newAbility:try_get("flavor")
+                        a.description = newAbility.description
+                        a.categorization = newAbility.categorization
+                        a.keywords = DeepCopy(newAbility.keywords)
+                        a.display = DeepCopy(newAbility.display)
+
+                        if abilityTemplate:try_get("insertAtStart") then
+                            --note this is inverted to what we expect since insert at start mean *our* new behaviors go before the invoked ability.
+                            a.behaviors[#a.behaviors+1] = invokeBehavior
+                        else
+                            table.insert(a.behaviors, 1, invokeBehavior)
+                        end
+
+                        newAbility = a
+                    end
                 else
                     --import:Log(FormatNote("Effect matched known effect: " .. v.name))
                     if abilityTemplate:try_get("insertAtStart") then
@@ -2059,10 +2070,19 @@ MCDMImporter.ImportText = function(importer, text)
                 import:Log(FormatError("In monster " .. monsterHeadingMatch.name .. ": " .. error))
                 print("MONSTER:: ERROR", monsterHeadingMatch.name, error)
             else
+                --each header match above is only attempted when the previous one matched, and a failed
+                --one sets error, so with no error all five matched.
+                ---@cast evMatch -nil
+                ---@cast staminaMatch -nil
+                ---@cast speedSizeMatch -nil
+                ---@cast traitsFreeStrikeMatch -nil
+                ---@cast attrMatch -nil
 
                 --work out the monster group, 'goblin', 'kobold', etc.
                 local folder = nil
                 if currentVillainPower ~= nil then
+                    --currentMonsterGroup is found or created whenever currentVillainPower is set, and never cleared.
+                    ---@cast currentMonsterGroup -nil
                     folder = import:GetExistingItem("monsterFolder", currentVillainPower)
                     print("MonsterFolder:: monster", monsterHeadingMatch.name, "is in", currentVillainPower)
                     if folder == nil then
@@ -2351,6 +2371,8 @@ MCDMImporter.ImportText = function(importer, text)
 
                     for _,traitEntry in ipairs(traitsEntries) do
                         local traitMatch = regex.MatchGroups(traitEntry[1], "^\\s*<b>(?<name>[^<]+)</b>\\s*$")
+                        --traitEntry[1] is a line that already matched this shape (without the group) when the trait was collected.
+                        ---@cast traitMatch -nil
 
                         local traitText = ""
                         for j=2,#traitEntry do

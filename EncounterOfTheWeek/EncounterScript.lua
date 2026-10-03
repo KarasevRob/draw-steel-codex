@@ -16,7 +16,14 @@
 --    beats = { beat, ... },     -- document order
 --    warnings = { "line N: ...", ... },
 --    hasEncounterTag = bool,    -- a [[encounter]] island anywhere in the text
+--    story = { towngate = storySection, conclusion = ..., defeat = ... },
 --  }
+--  storySection = { kind = "story", key, title, line, text, tags,
+--                   sceneTag, sceneLine }
+--    The "# Town Gate", "# Conclusion" and "# Defeat" sections. They are
+--    not beats: the town shows the Town Gate text while a party forms, and
+--    each client shows the Conclusion (victory) or Defeat text on a story
+--    screen before going home.
 --  beat = { kind = "montage"|"narrative"|"encounter"|"unknown", title, line,
 --           tags = {name,...},
 --           -- montage only:
@@ -1904,12 +1911,20 @@ function EncounterScript.AnnotationKey(text, tagText, line)
     return tagText .. "-" .. count
 end
 
+--The story sections ("# Town Gate", "# Conclusion", "# Defeat"): lowered
+--heading -> the key they are stored under in parse.story.
+EncounterScript.STORY_SECTIONS = {
+    ["town gate"] = "towngate",
+    ["conclusion"] = "conclusion",
+    ["defeat"] = "defeat",
+}
+
 function EncounterScript.Parse(text)
     local lines = SplitLines(text)
     --`delves`: the "# Delve: <Name>" sections, by EncounterScript.MatchKey
     --of their name. They are not beats -- nothing plays them in order -- an
     --option enters one with a "Delve: <Name>" line (see "Delves" below).
-    local result = { beats = {}, warnings = {}, hasEncounterTag = false, delves = {} }
+    local result = { beats = {}, warnings = {}, hasEncounterTag = false, delves = {}, story = {} }
 
     local function Warn(lineIndex, fmt, ...)
         result.warnings[#result.warnings + 1] = string.format("line %d: " .. fmt, lineIndex, ...)
@@ -1957,6 +1972,10 @@ function EncounterScript.Parse(text)
         end
         if beat == nil then
             --prose before the first beat is ignored (a doc title, notes).
+            return
+        end
+        if beat.kind == "story" then
+            beat.text = cond(beat.text == "", text, beat.text .. "\n\n" .. text)
             return
         end
         if beat.kind == "narrative" then
@@ -2140,10 +2159,13 @@ function EncounterScript.Parse(text)
             local title = trim(h1)
             local kind = lower(title)
             local delveName = string.match(title, "^[Dd]elve:%s*(.+)$")
+            local storyKey = EncounterScript.STORY_SECTIONS[kind]
             if delveName ~= nil then
                 kind = "delve"
+            elseif storyKey ~= nil then
+                kind = "story"
             elseif kind ~= "montage" and kind ~= "encounter" and kind ~= "narrative" then
-                Warn(i, "unknown beat '%s' (expected Montage, Narrative, Encounter or Delve: <name>); ignored", title)
+                Warn(i, "unknown beat '%s' (expected Montage, Narrative, Encounter, Delve: <name>, Town Gate, Conclusion or Defeat); ignored", title)
                 kind = "unknown"
             end
             beat = { kind = kind, title = title, line = i, tags = {} }
@@ -2167,6 +2189,15 @@ function EncounterScript.Parse(text)
                     Warn(i, "a second '# Delve: %s'; only the first is used", beat.name)
                 else
                     result.delves[key] = beat
+                end
+            elseif kind == "story" then
+                ---@cast storyKey string
+                beat.key = storyKey
+                beat.text = ""
+                if result.story[storyKey] ~= nil then
+                    Warn(i, "a second '# %s'; only the first is used", title)
+                else
+                    result.story[storyKey] = beat
                 end
             else
                 result.beats[#result.beats + 1] = beat
@@ -2356,7 +2387,7 @@ function EncounterScript.Parse(text)
                 --sceneLine says WHICH [[scene]] this is: its annotation lives
                 --on the document the line came from (see ExpandIncludes),
                 --keyed by how many of the same tag precede it there.
-                if beat.kind == "montage" and tagName == "scene" and beat.sceneTag == nil then
+                if (beat.kind == "montage" or beat.kind == "story") and tagName == "scene" and beat.sceneTag == nil then
                     beat.sceneTag = tagText
                     beat.sceneLine = i
                 end
@@ -2829,6 +2860,122 @@ function EncounterScript.ChestRow(tableRoll, total)
     return nil
 end
 
+--- outcome icons --------------------------------------------------------------
+--What an entry or option MAY lead to, worked out from the effects its tiers
+--(and, for a threat, its consequence) parse to -- never written by the
+--author. The stage shows one small icon per outcome on the entry's card and
+--on each option's button. Teased tiers count (nearly every tier of the live
+--week is teased, and an icon says only "may", not which tier or how much);
+--a "{hidden}" clause does not, since the author asked for it never to show.
+--
+--"other" is everything else the outcome does that the six icons do not
+--cover -- healing, surges, allies, initiative, an unlock, and any clause the
+--grammar could not read (an unreadable clause is assumed to DO something,
+--just something unknown). A threat being vanquished and the recognized
+--no-ops ("you fail", "nothing happens") are not outcomes at all. On a threat
+--only its consequence's "other" counts: its tests' leftovers are not what
+--the card is warning about.
+
+--The order the icons sit in: the party's gains, then what it costs them,
+--then the unknown.
+EncounterScript.OUTCOME_ORDER = { "intelligence", "herotoken", "treasure", "temphp", "malice", "harm", "other" }
+
+local OUTCOME_OF_EFFECT = {
+    intelligence = "intelligence",
+    herotoken = "herotoken",
+    item = "treasure",
+    temphp = "temphp",
+    malice = "malice",
+    stamina = "harm",
+    loserecovery = "harm",
+}
+
+local function OutcomeOfEffect(effect)
+    if effect.hidden or effect.kind == "vanquish" then
+        return nil
+    end
+    if effect.kind == "narrative" and not effect.unrecognized then
+        return nil
+    end
+    return OUTCOME_OF_EFFECT[effect.kind] or "other"
+end
+
+local function AddEffectOutcomes(found, effects, source)
+    for _, effect in ipairs(effects or {}) do
+        local outcome = OutcomeOfEffect(effect)
+        if outcome ~= nil then
+            found[outcome] = found[outcome] or {}
+            found[outcome][source] = true
+        end
+    end
+end
+
+--An option's tiers, or -- for a "Delve:" option, which has no roll -- every
+--obstacle test and chest row of the delve it enters.
+local function AddOptionOutcomes(found, option, parse, seenDelves)
+    if option.roll ~= nil then
+        for t = 1, #option.roll.tiers do
+            AddEffectOutcomes(found, option.roll.effects[t], "option")
+        end
+    end
+    if option.delve ~= nil then
+        local delve = EncounterScript.FindDelve(parse, option.delve)
+        if delve ~= nil and not seenDelves[delve] then
+            seenDelves[delve] = true
+            for _, obstacle in ipairs(delve.obstacles or {}) do
+                for _, o in ipairs(obstacle.options or {}) do
+                    AddOptionOutcomes(found, o, parse, seenDelves)
+                end
+            end
+            local chest = delve.sections ~= nil and delve.sections.chest or nil
+            if chest ~= nil and chest.table ~= nil then
+                for _, row in ipairs(chest.table.rows or {}) do
+                    AddEffectOutcomes(found, row.effects, "option")
+                end
+            end
+        end
+    end
+end
+
+local function OrderedOutcomes(found, entryKind)
+    if entryKind == "threat" and found.other ~= nil then
+        found.other.option = nil
+        if found.other.consequence == nil then
+            found.other = nil
+        end
+    end
+    local result = {}
+    for _, kind in ipairs(EncounterScript.OUTCOME_ORDER) do
+        local sources = found[kind]
+        if sources ~= nil then
+            result[#result + 1] = { kind = kind, fromOptions = sources.option == true, fromConsequence = sources.consequence == true }
+        end
+    end
+    return result
+end
+
+--{ { kind = "malice", fromOptions = bool, fromConsequence = bool }, ... } in
+--OUTCOME_ORDER. `parse` resolves "Delve:" options (nil: delves add nothing);
+--`entry` is the option's entry (a threat's options show no "other").
+function EncounterScript.OptionOutcomes(option, parse, entry)
+    local found = {}
+    AddOptionOutcomes(found, option, parse, {})
+    return OrderedOutcomes(found, entry ~= nil and entry.kind or nil)
+end
+
+--An entry's outcomes: every option's, plus a threat's consequence.
+function EncounterScript.EntryOutcomes(entry, parse)
+    local found = {}
+    local seenDelves = {}
+    for _, option in ipairs(entry.options or {}) do
+        AddOptionOutcomes(found, option, parse, seenDelves)
+    end
+    if entry.consequence ~= nil then
+        AddEffectOutcomes(found, entry.consequence.effects, "consequence")
+    end
+    return OrderedOutcomes(found, entry.kind)
+end
+
 function EncounterScript.FindEntry(beat, entryId)
     for _, e in ipairs(EncounterScript.MontageEntries(beat)) do
         if e.id == entryId then
@@ -3013,6 +3160,12 @@ function EncounterScript.Describe(parse)
                     end
                 end
             end
+        end
+    end
+    for _, key in ipairs({ "towngate", "conclusion", "defeat" }) do
+        local s = parse.story ~= nil and parse.story[key] or nil
+        if s ~= nil then
+            line("story %s: %s%s", s.title, s.text, cond(s.sceneTag ~= nil, string.format(" [[%s]]", tostring(s.sceneTag)), ""))
         end
     end
     for _, w in ipairs(parse.warnings or {}) do

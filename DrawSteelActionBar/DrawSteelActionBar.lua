@@ -190,7 +190,9 @@ local g_manualTargetChosen = false
 --- @type nil|string The first target chosen by the player, the charid of this token.
 local g_firstTarget = nil
 
---- @type Loc[]
+--- Chosen space targets as {loc=, marker=, token=} records, except that a "line"
+--- ability stores its start square as a bare Loc at index 1.
+--- @type {loc: Loc, marker: nil|LuaMultiObjectReference, token: nil|CharacterToken}[]
 local m_positionTargetsChosen = {} --list of Locs for targets. Used on emptyspace targeting.
 
 --- @type nil|ActivatedAbility
@@ -546,7 +548,33 @@ local g_channeledResourcePanel
 
 local g_casterTokenStack = {}
 
---- @type {shapePathEnd: nil|LuaShape[], labelsAtPathEnd: nil|LuaObjectReference[], pathEndOvershoot: nil|number, fallingShape: nil|LuaObjectReference, fallDamageLabel: nil|LuaObjectReference, fallDamageKey: nil|string, shapeRequiresConfirm: nil|boolean, shapeConfirmedLoc: nil|Loc, shape: nil|LuaShape, label: nil|LuaObjectReference, radius: nil|LuaObjectReference, showingMovementArrow: nil|boolean}
+--- Point/area targeting preview state; reset to {} whenever targeting ends.
+---@class DSActionBarPointTargeting
+---@field shapePathEnd nil|LuaShape[]
+---@field labelsAtPathEnd nil|(LuaObjectReference|SheetContainer)[]
+---@field pathEndOvershoot nil|number
+---@field fallingShape nil|LuaObjectReference
+---@field fallDamageLabel nil|SheetContainer
+---@field fallDamageKey nil|string
+---@field chargeJumpLabel nil|LuaTargetingMarkers
+---@field chargeJumpLabelKey nil|string
+---@field chargeJumpUnreachable nil|boolean
+---@field chargeJumpRequiresRoll nil|boolean
+---@field labelsAtThroughCreatures nil|(LuaObjectReference|SheetContainer)[]
+---@field shapeRequiresConfirm nil|boolean
+---@field shapeConfirmedLoc nil|Loc
+---@field shape nil|LuaShape
+---@field label nil|SheetContainer
+---@field radius nil|LuaObjectReference
+---@field partnerShape nil|LuaShape
+---@field partnerRadius nil|LuaObjectReference
+---@field partnerCasterToken nil|CharacterToken
+---@field partnerBurstRadius nil|number
+---@field partnerOnlyTokenIds nil|table<string, boolean>
+---@field showingMovementArrow nil|boolean
+---@field showingWarningArrows nil|boolean
+
+---@type DSActionBarPointTargeting
 local g_pointTargeting = {}
 
 --- Partner burst: pre-create the cast object carrying "caster" retargets for the
@@ -590,7 +618,7 @@ local function RecordPartnerBurstRetargets(targets)
     end
 end
 
---- @type nil|{oncast=nil|function, oncancel=nil|function}
+--- @type nil|{oncast: nil|function, oncancel: nil|function}
 local g_invokerInfo = nil
 
 --tokens we are force targeting based on them being in a radius. A mapping of tokenid -> token
@@ -842,7 +870,7 @@ local function OverviewAbilityFacets(ability)
                     if f.damage ~= nil then
                         facets.damage = true
                         if i == 2 or (i == #tiers and facets.damageValue == 0) then
-                            facets.damageValue = f.damage
+                            facets.damageValue = f.damage --[[@as number]] --checked ~= nil above
                         end
                     end
                     if f.forced ~= nil then
@@ -897,7 +925,7 @@ local function OverviewAbilityFacets(ability)
                     if f.damage ~= nil then
                         facets.damage = true
                         if facets.damageValue == 0 then
-                            facets.damageValue = f.damage
+                            facets.damageValue = f.damage --[[@as number]] --checked ~= nil above
                         end
                     end
                     if f.forced ~= nil then
@@ -1110,7 +1138,7 @@ local function ShowMovementDiagram(token, path, label, alternates, damages, text
     if text == nil then
         text = label
         if path.numSteps ~= nil then
-            local distance = path.numSteps * dmhub.FeetPerTile
+            local distance = path.numSteps * dmhub.unitsPerSquare
             text = string.format("%s: %s %s", label, MeasurementSystem.NativeToDisplayString(distance), string.lower(MeasurementSystem.UnitName()))
         end
     end
@@ -1215,6 +1243,7 @@ function CrossSection.ShowAttack(sourceToken, targetToken)
         text = tr("Line of Effect")
     end
 
+    ---@type nil|string
     local what = result.description
     if what == "ridge" then
         what = tr("the terrain")
@@ -1315,7 +1344,7 @@ local function BroadcastMovementPlan(caster, path, movementType)
         return
     end
     for _, tok in ipairs(dmhub.allTokens) do
-        if tok ~= nil and tok.valid and tok.id ~= caster.id and tok.sheet ~= nil then
+        if tok ~= nil and tok.valid and tok.charid ~= caster.charid and tok.sheet ~= nil then
             tok.sheet:FireEventTree("movementplan", tok, caster, path, movementType)
         end
     end
@@ -1349,7 +1378,7 @@ local function TryPopCasterToken()
         return false
     end
 
-    dmhub.tokenInfo:PopSelectedTokenOverride(g_casterTokenStack[#g_casterTokenStack])
+    dmhub.tokenInfo:PopSelectedTokenOverride()
     g_token = DrawSteelActionBar._operate.BaseBarToken()
     print("ActionBar:: pop g_token =", g_token)
     g_creature = g_token and g_token.properties or nil
@@ -4069,7 +4098,7 @@ local function ShowFilterSightlineRays(ownerElement)
     g_filterSightlines.owner = ownerElement
 end
 
---- @param args nil|{casterToken: nil|CharacterToken, ability: nil|ActivatedAbility, instantCast: nil|boolean, targets: nil|table, cast: nil|table, symbols: nil|table}
+--- @param args nil|{casterToken: nil|CharacterToken, ability: nil|ActivatedAbility, instantCast: nil|boolean, targets: nil|table, cast: nil|table, symbols: nil|table, overviewPress: nil|function}
 local function AbilityHeading(args)
     local args = args or {}
 
@@ -7815,8 +7844,6 @@ local function ActionSubMenu(args)
                 element.children = m_children
             end
         end,
-
-        children = m_children,
     }
 
     return resultPanel
@@ -7875,7 +7902,7 @@ local function BuildOverviewColumns()
         if tok ~= nil and tok.valid and tok.properties ~= nil then
             local statblock = nil
             pcall(function() statblock = tok.properties:GetMonsterType() end)
-            local key = statblock or tok.id
+            local key = statblock or tok.charid
             local column = byKey[key]
             if column == nil then
                 column = {
@@ -9001,13 +9028,13 @@ local function SetTargetLineOfSightRayForKey(key, ray)
     m_targetLineOfSightRays[key] = ray
 end
 
----@param rays table<{a: Token, b: Token}>[]
+---@param rays {a: CharacterToken, b: CharacterToken, locked: nil|boolean}[]
 ---@param ability ActivatedAbility|nil
 ---@param range number|nil
 local function ReplaceTargetLineOfSightRays(rays, ability, range)
     local t = {}
     for i, ray in ipairs(rays) do
-        local key = string.format("%s-%s", ray.a.id, ray.b.id)
+        local key = string.format("%s-%s", ray.a.charid, ray.b.charid)
         --One minion can hold two slots on the same creature (gang-up), so rays
         --can repeat a pair. Without this guard the second pass overwrites t[key]
         --and the first marker leaks -- nothing can ever destroy it again.
@@ -9068,7 +9095,7 @@ local function AdoptLineOfSightMark()
     --Both tokens are assigned together with m_markLineOfSight.
     ---@cast m_markLineOfSightSourceToken -nil
     ---@cast m_markLineOfSightToken -nil
-    SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id),
+    SetTargetLineOfSightRayForKey(string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid),
         m_markLineOfSight)
     m_markLineOfSight = nil
     m_markLineOfSightToken = nil
@@ -9230,7 +9257,7 @@ local function CreateTargetInfo(spell)
             -- targeting (falls through below).
             if SquadStrikeActive() then
                 if SquadIsActiveMinionToken(targetToken) then
-                    if g_squadPendingLockMinion ~= nil and g_squadPendingLockMinion.id == targetToken.id then
+                    if g_squadPendingLockMinion ~= nil and g_squadPendingLockMinion.charid == targetToken.charid then
                         g_squadPendingLockMinion = nil
                     else
                         g_squadPendingLockMinion = targetToken
@@ -9300,7 +9327,7 @@ local function CreateTargetInfo(spell)
                                 local targetable = voxels[i]:GetComponent("Targetable")
                                 if targetable ~= nil and targetable.properties ~= nil then
                                     local voxelToken = dmhub.LookupToken(targetable.properties)
-                                    if voxelToken ~= nil and voxelToken.valid and not list_contains(g_targetsChosen, voxelToken.id) then
+                                    if voxelToken ~= nil and voxelToken.valid and not list_contains(g_targetsChosen, voxelToken.charid) then
                                         targetToken = voxelToken
                                         break
                                     end
@@ -9321,7 +9348,7 @@ local function CreateTargetInfo(spell)
                     if m_markLineOfSight ~= nil and m_markLineOfSightToken == targetToken then
                         m_markLineOfSight:FlashLabels()
                     else
-                        local key = string.format("%s-%s", g_token.id, targetToken.id)
+                        local key = string.format("%s-%s", g_token.charid, targetToken.charid)
                         local ray = m_targetLineOfSightRays[key]
                         if ray ~= nil then
                             ray:FlashLabels()
@@ -9443,12 +9470,12 @@ local AddRadiusMarker = function(locOverride, radius, color, filterFunction)
         return
     end
 
+    --Only called while targeting a cast, when g_token is the caster.
+    ---@cast g_token -nil
     local tokenCasting = g_token
     if g_currentAbility ~= nil then
         tokenCasting = g_currentAbility:GetRangeSource(g_token)
     end
-    --Only called while targeting a cast, when g_token is the caster.
-    ---@cast tokenCasting -nil
 
 
     local locs = tokenCasting.locsOccupying
@@ -9540,12 +9567,12 @@ end
 --token occupies, so size > 1 tokens measure from their nearest edge). Used to
 --slice tiered targeting rings into annuli.
 local function DistanceFromCasterInTiles(loc)
+    --Only called while targeting a cast, when g_token is the caster.
+    ---@cast g_token -nil
     local tokenCasting = g_token
     if g_currentAbility ~= nil then
         tokenCasting = g_currentAbility:GetRangeSource(g_token)
     end
-    --Only called while targeting a cast, when g_token is the caster.
-    ---@cast tokenCasting -nil
 
     local best = nil
     for _, occLoc in ipairs(tokenCasting.locsOccupying) do
@@ -10156,7 +10183,7 @@ local function SetAltitudeMode(mode, defaultTargetOverride)
     end
 end
 
----@return table<{loc: table, token: Token}>[]
+---@return {loc: Loc, token: CharacterToken}[]
 local function BuildTargetsList()
     --accumulate our target list based on what is selected.
     local targets = {}
@@ -10369,7 +10396,7 @@ local function CreateTokenSelectionContainer()
             ClearLocate()
         end,
         --- @param tokens nil|CharacterToken[] The candidates to show; nil empties the strip.
-        --- @param options nil|{choose: nil|fun(token: CharacterToken):boolean, reasons: nil|table<string,string>}
+        --- @param options nil|{choose: nil|(fun(token: CharacterToken):boolean), reasons: nil|table<string,string>}
         --- choose is the prompt's pick handler, returning false if it refuses the
         --- candidate; reasons[charid] explains a candidate the prompt would refuse.
         settokens = function(element, tokens, options)
@@ -10866,9 +10893,9 @@ CreateAbilityController = function()
             for i, mode in ipairs(g_currentAbility.modeList) do
                 local available = true
                 if mode.condition ~= nil and mode.condition ~= "" then
-                    available = ExecuteGoblinScript(mode.condition, g_token.properties:LookupSymbol(), 1,
+                    local result = ExecuteGoblinScript(mode.condition, g_token.properties:LookupSymbol(), 1,
                         "Mode condition")
-                    available = type(available) == "number" and available > 0
+                    available = type(result) == "number" and result > 0
                 end
 
                 if available then
@@ -11134,7 +11161,6 @@ CreateAbilityController = function()
                 textAlignment = "center",
                 borderWidth = 1,
                 bgimage = "panels/square.png",
-                borderWidth = 1,
                 borderColor = "#ffffff55",
                 bgcolor = "#ffffff22",
             },
@@ -11663,15 +11689,19 @@ CreateAbilityController = function()
                 return
             end
 
-            for i = 1, #m_castingTriggers do
-                local triggerToken = dmhub.GetTokenById(m_castingTriggers[i].charid)
-                if triggerToken ~= nil and triggerToken.valid then
+            --build a new list rather than removing in place: table.remove inside a
+            --numeric for skips the next entry and indexes past the end. Forward order
+            --is kept so the last newly-triggered targetcount still wins.
+            local keptTriggers = {}
+            for _, castingTrigger in ipairs(m_castingTriggers) do
+                local triggerToken = dmhub.GetTokenById(castingTrigger.charid)
+                if triggerToken == nil or not triggerToken.valid then
+                    keptTriggers[#keptTriggers + 1] = castingTrigger
+                else
                     local availableTriggers = triggerToken.properties:GetAvailableTriggers() or {}
-                    local availableTrigger = availableTriggers[m_castingTriggers[i].id]
-                    if availableTrigger == nil then
-                        table.remove(m_castingTriggers, i)
-                    else
-                        m_castingTriggers[i] = availableTrigger
+                    local availableTrigger = availableTriggers[castingTrigger.id]
+                    if availableTrigger ~= nil then
+                        keptTriggers[#keptTriggers + 1] = availableTrigger
 
                         if availableTrigger.triggered and (not m_castingTriggersCache[availableTrigger.id]) then
                             m_castingTriggersCache[availableTrigger.id] = true
@@ -11685,6 +11715,7 @@ CreateAbilityController = function()
                     end
                 end
             end
+            m_castingTriggers = keptTriggers
         end,
         clearCastingTriggers = function(element)
             element.monitorGame = nil
@@ -12029,7 +12060,7 @@ CreateAbilityController = function()
             DrawSteelActionBar._openPrompt = targetChooser
         end,
 
-        --- @param invokerInfo nil|{oncast=nil|function, oncancel=nil|function}
+        --- @param invokerInfo nil|{oncast: nil|function, oncancel: nil|function}
         invokeAbility = function(element, casterToken, ability, symbols, invokerInfo, options)
             options = options or {}
             gui.SetFocus(nil)
@@ -12123,14 +12154,17 @@ CreateAbilityController = function()
             local range = g_currentAbility:GetRange(g_token.properties, g_currentSymbols)
             g_currentSymbols.range = range
             local rays = g_currentAbility:GetTargetingRays(g_token, range, g_currentSymbols, targets)
+            --GetTargetingRays declares its @return as table<{a, b}>[], which LuaLS reads as a
+            --map keyed by the record; the elements are these (MCDMActivatedAbility.lua).
+            ---@cast rays nil|{a: CharacterToken, b: CharacterToken, locked: nil|boolean}[]
             local rayCoversTarget = false
             if rays ~= nil then
                 --the ability specifies the rays, we try to fish out the
                 --new one to highlight and maintain any existing ones.
                 for _, ray in ipairs(rays) do
-                    if ray.b.id == targetToken.id then
+                    if ray.b.charid == targetToken.charid then
                         rayCoversTarget = true
-                        if m_targetLineOfSightRays[string.format("%s-%s", ray.a.id, ray.b.id)] == nil then
+                        if m_targetLineOfSightRays[string.format("%s-%s", ray.a.charid, ray.b.charid)] == nil then
                             m_markLineOfSight = dmhub.MarkLineOfSight(ray.a, ray.b, ray.a.properties:GetPierceWalls(), GetArrowColor(g_currentAbility, ray.a, ray.b), EffectiveArrowRange(ray.a, ray.b, range, g_currentAbility))
                             AddModifierLabelsToMarker(m_markLineOfSight, ray.a, ray.b, g_currentAbility, range)
                             m_markLineOfSightToken = targetToken
@@ -12174,7 +12208,7 @@ CreateAbilityController = function()
         --map events that we get when in point targeting mode.
         --- @param element Panel
         --- @param loc Loc
-        --- @param point table
+        --- @param point nil|Vector3|'all' The hovered point; 'all' (with a nil loc) for the 'all' target type
         maphover = function(element, loc, point)
             element.data.lastHoverLoc = loc
             element.data.lastHoverPoint = point
@@ -12248,6 +12282,8 @@ CreateAbilityController = function()
                 local targetingType = g_currentAbility:try_get("targeting", "direct")
 
                 if (shape == 'emptyspace' or shape == 'anyspace') and (targetingType == "pathfind" or targetingType == "vacated" or targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures") then
+                    --only the 'all' target type hovers with a nil loc (point == 'all'); a space target has a real one.
+                    ---@cast loc -nil
                     if g_token.creatureDimensions.x > 1 and g_token.creatureDimensions.x % 2 == 1 then
                         for i = 3, g_token.creatureDimensions.x, 2 do
                             loc = loc.west.south
@@ -12256,6 +12292,8 @@ CreateAbilityController = function()
                 end
 
                 if shape == "line" and #m_positionTargetsChosen == 0 then
+                    --shape is the ability's targetType here, so the hover is a real point, not 'all'.
+                    ---@cast point Vector3
                     local lineDistance = g_currentAbility:GetLineDistance(g_token.properties, g_currentSymbols)
                     --still choosing the starting point of the line.
                     g_pointTargeting.shape = dmhub.CalculateShape {
@@ -12280,12 +12318,14 @@ CreateAbilityController = function()
                     local movementType = g_currentAbility:GetMovementType(g_token, g_currentSymbols)
                     local shifting = (movementType == "shift")
 
+                    --this branch is a space target, which hovers with a real loc (only 'all' has none).
+                    ---@cast loc -nil
                     local movementInfo = g_token:MarkMovementArrow(loc, { shifting = shifting, waypoints = waypoints })
                     if movementInfo ~= nil then
                         local targets = g_currentAbility:FindTargetsInMovementVicinity(g_token, movementInfo.path) or
                             filteredTargets
                         for _, target in ipairs(targets) do
-                            filteredTargets[target.id] = target
+                            filteredTargets[target.charid] = target
                         end
 
                         --Mirror the drag flow's movementplan broadcast so OA warning
@@ -12306,6 +12346,8 @@ CreateAbilityController = function()
                         ShowMovementDiagram(g_token, movementInfo.path, cond(shifting, tr("Shift"), tr("Movement")))
                     end
                 elseif shape == "emptyspace" and targetingType == "direct" then
+                    --as above: a space target always hovers with a real loc.
+                    ---@cast loc -nil
                     --Only draw the teleport arrow when the target is on the caster's floor.
                     --For cross-floor teleport the arrow would render on the caster's floor pointing
                     --at the wrong place; leave clearMovementArrow=true so any prior arrow is removed
@@ -12469,7 +12511,7 @@ CreateAbilityController = function()
                                     diagramLabel = placementName
                                     diagramTextOverride = string.format(tr("%s appears here"), placementName)
                                     if movementInfo.path.numSteps ~= nil then
-                                        local placementDist = movementInfo.path.numSteps * dmhub.FeetPerTile
+                                        local placementDist = movementInfo.path.numSteps * dmhub.unitsPerSquare
                                         diagramTextOverride = string.format(tr("%s appears here (%s %s away)"), placementName, MeasurementSystem.NativeToDisplayString(placementDist), string.lower(MeasurementSystem.UnitName()))
                                     end
                                 end
@@ -12478,6 +12520,8 @@ CreateAbilityController = function()
                         end
                     end
                 elseif (shape == 'emptyspace' or shape == 'anyspace') and (targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures") then
+                    --as above: a space target always hovers with a real loc.
+                    ---@cast loc -nil
                     local waypoints = {}
                     for _, pos in ipairs(m_positionTargetsChosen) do
                         waypoints[#waypoints + 1] = pos.loc
@@ -12533,6 +12577,9 @@ CreateAbilityController = function()
                             end
                         end
                         movementInfo = g_token:MarkMovementArrow(loc, markOptions)
+                        --MarkMovementArrow's declared return omits the charge-jump fields the engine
+                        --adds when charge options are passed (CharacterToken.cs MarkMovementArrow).
+                        ---@cast movementInfo nil|{path: LuaPath, collideWith: nil|CharacterToken[], bounceCollisions: nil|{speed: number, collideWith: CharacterToken[], destination: Loc}[], validCharge: nil|boolean, requiresRoll: nil|boolean, requiredTier: nil|integer, guaranteedTier: nil|integer, jumpLabelLoc: nil|Loc, tierOutcomes: nil|table<integer, table>}
                         if chargeOptions ~= nil and (movementInfo == nil or movementInfo.validCharge ~= true) then
                             g_pointTargeting.chargeJumpUnreachable = true
                             movementInfo = nil
@@ -12542,7 +12589,7 @@ CreateAbilityController = function()
                             --The map arrow renders the actual jump segment for this charge.
                             ClearMovementDiagram()
                             destroyChargeJumpLabel = false
-                            local labelLoc = movementInfo.jumpLabelLoc
+                            local labelLoc = movementInfo.jumpLabelLoc --[[@as Loc]] --checked ~= nil above
                             g_pointTargeting.chargeJumpRequiresRoll = movementInfo.requiresRoll == true
                             local labelText = tr("Jump")
                             if g_pointTargeting.chargeJumpRequiresRoll then
@@ -12593,7 +12640,7 @@ CreateAbilityController = function()
                         local targets = g_currentAbility:FindTargetsInMovementVicinity(g_token, movementInfo.path) or
                             filteredTargets
                         for _, target in ipairs(targets) do
-                            filteredTargets[target.id] = target
+                            filteredTargets[target.charid] = target
                         end
 
                         --Broadcast OA warning arrows for straightpath movement (e.g. Charge),
@@ -12812,6 +12859,8 @@ CreateAbilityController = function()
                             local needRedraw = prevPathEnd == nil or #prevPathEnd ~= #newPathEndShapes or
                                 prevOvershoot ~= g_pointTargeting.pathEndOvershoot
                             if not needRedraw then
+                                --needRedraw is false only when prevPathEnd is non-nil.
+                                ---@cast prevPathEnd -nil
                                 for i, prevShape in ipairs(prevPathEnd) do
                                     if not prevShape:Equal(newPathEndShapes[i]) then
                                         needRedraw = true
@@ -12861,8 +12910,8 @@ CreateAbilityController = function()
                             for _, step in ipairs(path.steps) do
                                 local tokensAtLoc = game.GetTokensAtLoc(step)
                                 for _, tok in ipairs(tokensAtLoc or {}) do
-                                    if tok.id ~= g_token.id and hitIds[tok.id] == nil then
-                                        hitIds[tok.id] = true
+                                    if tok.charid ~= g_token.charid and hitIds[tok.charid] == nil then
+                                        hitIds[tok.charid] = true
                                         throughShapes[#throughShapes + 1] = dmhub.CalculateShape {
                                             shape = cond(tok.creatureDimensions.x % 2 == 1, "radius", "radiusfromintersection"),
                                             token = tok,
@@ -12991,6 +13040,8 @@ CreateAbilityController = function()
                     point = nil
                     shape = "RadiusFromCreature"
                 end
+                --'all' was just replaced by nil.
+                ---@cast point nil|Vector3
                 if shape == 'emptyspace' or shape == 'emptyspacefriend' or shape == 'anyspace' then
                     radius = dmhub.unitsPerSquare * 0.5
                     requireEmpty = (shape == 'emptyspace')
@@ -13010,6 +13061,8 @@ CreateAbilityController = function()
                             --we offset the target point to match creature movement behavior.
                             shape = "cylinder"
                             local offset = (g_token.creatureDimensions.x - 1) * 0.5
+                            --point is only cleared above for the 'all' type; a space shape keeps the hovered point.
+                            ---@cast point -nil
                             point = core.Vector3(point.x + offset, point.y + offset, point.z)
                         end
                     else
@@ -13025,6 +13078,8 @@ CreateAbilityController = function()
                 g_currentSymbols.range = range
                 if shape == "line" and g_currentAbility.canChooseLowerRange then
                     local pos = g_token:PosAtLoc(g_token.loc)
+                    --point is only cleared above for the 'all' type, never a line.
+                    ---@cast point -nil
                     local dist = math.ceil(math.max(math.abs(point.x - pos.x), math.abs(point.y - pos.y)))
                     range = math.min(range, dist)
                 end
@@ -13047,7 +13102,8 @@ CreateAbilityController = function()
                     shape = "radius"
                     radius = 0
                 elseif shape == "line" then
-                    locOverride = m_positionTargetsChosen[1]
+                    --a line ability's entry 1 is its start square, a bare Loc.
+                    locOverride = m_positionTargetsChosen[1] --[[@as Loc]]
                 end
 
                 local locations = nil
@@ -13262,7 +13318,7 @@ CreateAbilityController = function()
             SetTargetsInRadius(filteredTargets)
 
             if g_pointTargeting.radius ~= nil then
-                if g_pointTargeting.shape ~= nil and g_pointTargeting.shape:Equal(prevShape) then
+                if g_pointTargeting.shape ~= nil and prevShape ~= nil and g_pointTargeting.shape:Equal(prevShape) then
                     --shape unchanged.
                     --return
                 end
@@ -13504,6 +13560,7 @@ CreateAbilityController = function()
 
             --set the starting point of the line.
             if shape == "line" and #m_positionTargetsChosen == 0 then
+                --a line ability's start square is stored as a bare Loc (see the declaration).
                 m_positionTargetsChosen[#m_positionTargetsChosen + 1] = loc
                 return
             end
@@ -13830,7 +13887,7 @@ CreateAbilityController = function()
                     ---@cast m_markLineOfSightSourceToken -nil
                     ---@cast m_markLineOfSightToken -nil
                     SetTargetLineOfSightRayForKey(
-                        string.format("%s-%s", m_markLineOfSightSourceToken.id, m_markLineOfSightToken.id),
+                        string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid),
                         m_markLineOfSight)
                     m_markLineOfSight = nil
                     m_markLineOfSightToken = nil
@@ -14230,13 +14287,16 @@ CalculateSpellTargeting = function(forceCast, initialSetup)
 
         --if this spell dictates specific targeting rays to use.
         local rays = g_currentAbility:GetTargetingRays(g_token, range, g_currentSymbols, targets)
+        --GetTargetingRays declares its @return as table<{a, b}>[], which LuaLS reads as a
+        --map keyed by the record; the elements are these (MCDMActivatedAbility.lua).
+        ---@cast rays nil|{a: CharacterToken, b: CharacterToken, locked: nil|boolean}[]
         if rays ~= nil then
             ReplaceTargetLineOfSightRays(rays, g_currentAbility, range)
 
             --record the targeting as symbols.
             local targetPairs = {}
             for i, ray in ipairs(rays) do
-                targetPairs[#targetPairs + 1] = { a = ray.a.id, b = ray.b.id }
+                targetPairs[#targetPairs + 1] = { a = ray.a.charid, b = ray.b.charid }
             end
 
             g_currentSymbols.targetPairs = targetPairs
@@ -14631,7 +14691,7 @@ Search.RevealActionBarAbility = function(tokenid, abilityName)
         if mod.unloaded then
             return
         end
-        if g_actionBar == nil or not g_actionBar.valid or g_token == nil or g_token.id ~= tokenid then
+        if g_actionBar == nil or not g_actionBar.valid or g_token == nil or g_token.charid ~= tokenid then
             openAttempts = openAttempts + 1
             if openAttempts < 30 then dmhub.Schedule(0.1, openDrawer) end
             return

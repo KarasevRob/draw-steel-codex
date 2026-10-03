@@ -687,6 +687,7 @@ function GameHud:RequireRollListenerPanel()
 	--for whichever dialog that turned out to be -- the roll type decides.
 	local showingRollId = nil
 	local showingPrompt = nil
+	---@type string|nil
 	local rollRequestId = nil
 
 	--track rolls we currently have ongoing
@@ -714,6 +715,8 @@ function GameHud:RequireRollListenerPanel()
 			   and showingRollId == showingPrompt.LiveRollId() then
 				--we requested the current roll dialog that is shown. See if our reason
 				--for doing so has been canceled, in which case we want to close that dialog.
+				--rollRequestId is always assigned before showingPrompt is.
+				---@cast rollRequestId -nil
 				if dmhub.GetPlayerActionRequest(rollRequestId) == nil then
 					showingPrompt.Cancel()
 				end
@@ -1000,7 +1003,8 @@ function GameHud:RequireRollListenerPanel()
 								ShowPromptDialog(1)
 
 								--if we didn't kick off an auto roll set us to dialog status now.
-								request = dmhub.GetPlayerActionRequest(k)
+								--k came from GetPlayerActionRequests() earlier in this same synchronous handler.
+								request = dmhub.GetPlayerActionRequest(k) --[[@as LuaPlayerActionRequest]]
 								if request.info.tokens[tokid].status == nil then
 									request:BeginChanges()
 									request.info.tokens[tokid].status = 'dialog'
@@ -2326,6 +2330,8 @@ function GameHud:ShowRollSummaryDialog(actionid, resultTable)
 							if success then
 
 								if damageCalc ~= nil then
+									--damageEntry is set in the same loop step that sets damageCalc.
+									---@cast damageEntry -nil
 									children[#children+1] = gui.Label{
 										classes = {"consequenceLabel", "avoided"},
 										text = string.format("%s %s (%s)", damageEntry.amount, damageEntry.damageType, damageCalc.summary or "saved"),
@@ -2339,6 +2345,8 @@ function GameHud:ShowRollSummaryDialog(actionid, resultTable)
 								end
 							else
 								if damageCalc ~= nil then
+									--damageEntry is set in the same loop step that sets damageCalc.
+									---@cast damageEntry -nil
 									children[#children+1] = gui.Label{
 										classes = {"consequenceLabel"},
 										text = string.format("%s %s (%s)", damageEntry.amount, damageEntry.damageType, damageCalc.summary or "full damage"),
@@ -2391,6 +2399,8 @@ function GameHud:ShowRollSummaryDialog(actionid, resultTable)
 		end
 	end
 
+    --GetOrLaunchPanel("Request Rolls") above created the dialog.
+    ---@cast g_requireRollDialog -nil
     if numLocal == 1 and numTokens == 1 then
         g_requireRollDialog.parent:SetClass("hidden", true)
     end

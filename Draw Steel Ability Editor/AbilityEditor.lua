@@ -4666,7 +4666,9 @@ local function _buildPresentationSection(ability, fireChange)
             }
             local projectileFolderId = "14d073f8-d00a-4ab4-b184-0545124c9940"
             local objectProjectilesFolder = assets:GetObjectNode(projectileFolderId)
-            for _, projectileObject in ipairs(objectProjectilesFolder.children) do
+            --the core projectiles folder can be deleted from a game; offer only "(None)" then.
+            local projectileObjects = objectProjectilesFolder ~= nil and objectProjectilesFolder.children or {}
+            for _, projectileObject in ipairs(projectileObjects) do
                 if not projectileObject.isfolder then
                     options[#options + 1] = {
                         id = projectileObject.id,

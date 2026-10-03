@@ -262,7 +262,7 @@ local function createDrawSteelBanner(options)
                             q.playersGoFirst = m_heroesWin
                             q.playersTurn = m_heroesWin
                             dmhub:UploadInitiativeQueue()
-                            if GameHud.instance ~= nil and GameHud.instance:has_key("choiceInitiativeBar") then
+                            if GameHud.instance and GameHud.instance:has_key("choiceInitiativeBar") then
                                 GameHud.instance.choiceInitiativeBar:FireEvent("refresh")
                             end
                         end
@@ -924,7 +924,7 @@ end
 --createDrawSteelBanner). Call this on a single client (the one advancing the
 --round); it broadcasts the banner to the other users itself.
 function showDrawSteelRerollBanner()
-    if GameHud.instance == nil or GameHud.instance.parentPanel == nil then
+    if not GameHud.instance or GameHud.instance.parentPanel == nil then
         return
     end
     local banner = createDrawSteelBanner{ controller = true, reroll = true }
@@ -980,7 +980,7 @@ function Encounter.StartCombatWithTokens(args)
         return false, "combat is already running"
     end
 
-    if GameHud.instance == nil or GameHud.instance.parentPanel == nil then
+    if not GameHud.instance or GameHud.instance.parentPanel == nil then
         return false, "no game hud to host the Draw Steel banner"
     end
 
@@ -2005,14 +2005,16 @@ local function ShowCombatSetupDialog(selectedTokens, preselectEncounter, presele
     local playerParty = GetParty(GetDefaultPartyID())
     local heroVictories = {}
     for _,tok in ipairs(tokens) do
-        if tok ~= nil and tok.valid then
+        --nil for a token with no creature data (its character record has no
+        --properties): it has nothing to roll, so it is left out like an invalid token.
+        local initiativeId = (tok ~= nil and tok.valid) and InitiativeQueue.GetInitiativeId(tok) or nil
+        if initiativeId ~= nil then
             local partyid = tok.partyId
             local playerSide = partyid ~= nil and ((partyid == playerPartyId) or (playerParty ~= nil and playerParty:GetAllyParties()[partyid] ~= nil))
             if not playerSide and tok.playerControlled then
                 playerSide = true
             end
 
-            local initiativeId = InitiativeQueue.GetInitiativeId(tok)
             groupings[initiativeId] = groupings[initiativeId] or { playerSide = playerSide, tokens = {}}
             local group = groupings[initiativeId]
             group.tokens[#group.tokens+1] = tok

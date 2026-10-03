@@ -479,7 +479,7 @@ CreateThemeSettingsDialog = function()
                             audio.FireSoundEvent("Notify.PalleteChange_Apply")
 
                             local hud = GameHud.instance
-                            if hud ~= nil then
+                            if hud then
                                 if rawget(hud, "leftDock") then
                                     hud.leftDock:UpdateStyle()
                                 end

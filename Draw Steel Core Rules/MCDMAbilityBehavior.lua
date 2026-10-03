@@ -287,7 +287,9 @@ local function ExecuteDamage(behavior, ability, casterToken, targetToken, option
             --damage tier fires from a caster with no patron set. options.symbols.cast
             --is the per-cast ActivatedAbilityCast; using a transient flag lets us
             --gate the warning per-cast without polluting persisted state.
-            local cast = options ~= nil and options.symbols ~= nil and options.symbols.cast
+            --`or nil`: without it a missing options/symbols leaves cast == false, which passes
+            --the nil test below and then fails to index.
+            local cast = options ~= nil and options.symbols ~= nil and options.symbols.cast or nil
             if cast == nil or not cast:try_get("_tmp_patronDamageWarned", false) then
                 if cast ~= nil then cast._tmp_patronDamageWarned = true end
                 print(string.format(

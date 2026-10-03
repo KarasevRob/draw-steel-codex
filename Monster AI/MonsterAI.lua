@@ -1606,8 +1606,9 @@ function MonsterAI:PlayTurnCoroutine(initiativeid)
     else
         self:SetLogContext(nil, {turn = initiativeid})
         self:LogDecision("TURN ABORTED", {
+            --the `or` arms only run once queue == nil was false.
             reason = queue == nil and "no initiative queue"
-                or queue.hidden and "initiative queue is hidden"
+                or (queue --[[@as InitiativeQueue]]).hidden and "initiative queue is hidden"
                 or "initiative entry is no longer current",
         })
     end
@@ -2194,9 +2195,10 @@ function MonsterAI:ExecuteVillainActionCandidate(candidate)
     if not self.active or token == nil or not token.valid or token.properties:IsDead() then
         self:LogDecision("VILLAIN ACTION CANCELLED", {
             ability = ability ~= nil and ability.name or nil,
+            --the later `or` arms only run once token == nil was false.
             reason = not self.active and "Monster AI stopped"
                 or token == nil and "caster is missing"
-                or not token.valid and "caster is invalid"
+                or not (token --[[@as CharacterToken]]).valid and "caster is invalid"
                 or "caster is dead",
         })
         return false
@@ -2761,6 +2763,8 @@ function MonsterAI:ExecuteSquadStrike(ability)
             local attacker = dmhub.GetTokenById(pair.a)
             local target = dmhub.GetTokenById(pair.b)
             if AffordableMemberAbility(attacker) ~= nil and self.TokenIsLiveCombatant(target) then
+                --TokenIsLiveCombatant is false for a nil token.
+                ---@cast target -nil
                 livePairs[#livePairs+1] = pair
                 liveAssignedTargets[pair.b] = (liveAssignedTargets[pair.b] or 0) + 1
                 assignedTargetIds[#assignedTargetIds+1] = target.charid
@@ -2927,6 +2931,8 @@ function MonsterAI:ExecuteSquadStrike(ability)
     for _,pair in ipairs(targetPairs) do
         local candidate = dmhub.GetTokenById(pair.a)
         if self.TokenIsLiveCombatant(candidate) then
+            --TokenIsLiveCombatant is false for a nil token.
+            ---@cast candidate -nil
             castAbility = FindAbilityByName(candidate.properties:GetActivatedAbilities(), abilityName)
             if castAbility ~= nil and castAbility:CanAfford(candidate) then
                 casterToken = candidate
@@ -2937,6 +2943,8 @@ function MonsterAI:ExecuteSquadStrike(ability)
 
     local executed = false
     if #targetPairs > 0 and casterToken ~= nil then
+        --casterToken is only set once castAbility was found non-nil, and the loop then breaks.
+        ---@cast castAbility -nil
         if self.squadCaptain and self.TokenIsLiveCombatant(self.squadCaptain) then
             if castAbility:HasKeyword("Melee") then
                 self:Speech(self.squadCaptain, {"Attack together!", "Strike as one!", "Get 'em, boys!"})
@@ -3051,6 +3059,8 @@ function MonsterAI:FindBestMoveToUseStrike(token, ability, scorefn)
     if bestMove ~= nil then
         local selectedTargets = {}
         for i=1,math.min(numTargets, #(bestTargets or {})) do
+            --the loop runs zero times when bestTargets is nil.
+            ---@cast bestTargets -nil
             selectedTargets[#selectedTargets+1] = bestTargets[i]
         end
         self:LogDecision("TARGET PLAN", {
@@ -4125,6 +4135,8 @@ function MonsterAI:FindAdvancePlan(token, paths)
                                 end)
                             end
                             if reachableGoal then
+                                --reachableGoal is only set inside the path ~= nil branch above.
+                                ---@cast path -nil
                                 -- Engine previews reuse their path object. Keep only value locations.
                                 local dest = nil
                                 for _,step in ipairs(path.steps) do
@@ -4792,6 +4804,10 @@ function MonsterAI:Speech(token, text, options)
         text = text[math.random(1, #text)]
     end
     local ability = MCDMImporter.GetStandardAbility("Speech")
+    --nil when the standardAbilities table has no "Speech" row; the speech is cosmetic, so skip it.
+    if ability == nil then
+        return
+    end
     ability = ability:MakeTemporaryClone()
 
     MCDMUtils.DeepReplace(ability, "<<text>>", text)

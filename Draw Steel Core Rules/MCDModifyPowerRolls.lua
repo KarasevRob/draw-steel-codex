@@ -284,7 +284,8 @@ CharacterModifier.TypeInfo.power = {
             local token = dmhub.LookupToken(creature)
 
 
-            print("TRIGGER:: TRIGGER", token.charid)
+            --token can be nil here; the deferred trigger below handles that case.
+            print("TRIGGER:: TRIGGER", token ~= nil and token.charid or nil)
             --Deferred until the casts currently resolving on this client
             --complete (see ActivatedAbility.RunWhenCastsComplete): a custom
             --trigger activated from the roll dialog (e.g. In All This

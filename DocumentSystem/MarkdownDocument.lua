@@ -212,9 +212,9 @@ local g_resolveCache = {}
 ---
 --- Resolve a stylesheet id to a fully-merged { base, classes }. nil/unknown id
 --- returns the default skin with empty classes. Result is memoized per id.
---- @param id string|nil
---- @return ResolvedStylesheet
 ResolveStylesheet = setmetatable({}, {
+    --- @param id string|nil
+    --- @return ResolvedStylesheet
     __call = function(self, id)
         local key = id or "@default"
         local cached = g_resolveCache[key]
@@ -402,7 +402,7 @@ local function JSE_ColorRow(label, value, onset)
             -- Color.tostring gives "#RRGGBBAA"; pass strings through unchanged.
             confirm = function(element)
                 local v = element.value
-                if type(v) == "userdata" then v = v.tostring end
+                if type(v) == "userdata" then v = (v --[[@as Color]]).tostring end
                 onset(v)
             end },
     }
@@ -2446,6 +2446,8 @@ function MarkdownDocument.PartitionTokensIntoBlocks(tokens)
                 }
                 blocks[#blocks + 1] = current
             end
+            --joinsCurrent is only true when current was already non-nil.
+            ---@cast current -nil
 
             current.tokens[#current.tokens + 1] = token
             local tokenEnd = token.srcLineEnd or token.srcLine
@@ -4479,7 +4481,7 @@ local function RenderMarkdownTokens(ctx, tokens)
                         -- Only show context menu for navigable document types
                         local isNavigable = false
                         if type(doc) == "table" or type(doc) == "userdata" then
-                            if doc.IsDerivedFrom and doc.IsDerivedFrom("CustomDocument") and doc:try_get("id") then
+                            if doc.IsDerivedFrom and doc.IsDerivedFrom("CustomDocument") and (doc --[[@as CustomDocument]]):try_get("id") then
                                 isNavigable = true
                             elseif MarkdownRender.IsRenderable(doc) then
                                 isNavigable = true
@@ -4545,7 +4547,7 @@ local function RenderMarkdownTokens(ctx, tokens)
                                 -- resolve it -- let those fall through to OpenContent instead.
                                 local navigableDocId = nil
                                 if type(doc) == "table" or type(doc) == "userdata" then
-                                    if doc.IsDerivedFrom and doc.IsDerivedFrom("CustomDocument") and doc:try_get("id") then
+                                    if doc.IsDerivedFrom and doc.IsDerivedFrom("CustomDocument") and (doc --[[@as CustomDocument]]):try_get("id") then
                                         navigableDocId = doc.id
                                     end
                                 end
@@ -10852,7 +10854,7 @@ function MarkdownDocument:SeamlessEditPanel(args)
         --wrappers, maps, PDFs) opens through OpenContent.
         local navigableDocId = nil
         if type(target) == "table" or type(target) == "userdata" then
-            if target.IsDerivedFrom and target.IsDerivedFrom("CustomDocument") and target:try_get("id") then
+            if target.IsDerivedFrom and target.IsDerivedFrom("CustomDocument") and (target --[[@as CustomDocument]]):try_get("id") then
                 navigableDocId = target.id
             end
         end

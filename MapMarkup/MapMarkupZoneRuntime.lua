@@ -897,6 +897,11 @@ local function RebuildZoneCache()
                 --keywordid because a record with an unresolvable keyword still
                 --belongs to a group (see m.zoneStripes.GroupKey).
                 zonegroup = m.zoneStripes.GroupKey(entry),
+                --read by the engine: painted records with the same seamKey
+                --that share a tile edge are separate patches (see "New Patch"
+                --in the Zones tab), and the Director's overlay draws a dashed
+                --seam between them. Only painted records carry it.
+                seamKey = m.zoneStripes.GroupKey(entry),
             }
             m.dispelState.overlaySources[#m.zoneOverlayZones] = entry
 

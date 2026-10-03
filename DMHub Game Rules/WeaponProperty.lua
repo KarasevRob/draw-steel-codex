@@ -220,6 +220,7 @@ function WeaponProperty.CreateEditor()
             classes = {"formStackedRow"},
             gui.Check{
                 text = "Has Value",
+                value = false,
                 editItem = function(element, item)
                     element.value = item.hasValue
                 end,
@@ -238,6 +239,7 @@ function WeaponProperty.CreateEditor()
             end,
             gui.Check{
                 text = "Modifies Attacks",
+                value = false,
                 editItem = function(element, item)
                     element.value = item.modifiesAttacks
                 end,

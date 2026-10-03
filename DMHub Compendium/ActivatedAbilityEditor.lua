@@ -346,11 +346,11 @@ function ActivatedAbility:PersistencePanel()
 					height = 20,
 					fontSize = 16,
 					characterLimit = 2,
-					text = self:Persistence().cost or 1,
+					text = tostring(self:Persistence().cost or 1),
 					change = function(element)
 						local persistence = self:get_or_add("persistence", {})
 						persistence.cost = tonumber(element.text) or 1
-						element.text = persistence.cost
+						element.text = tostring(persistence.cost)
 					end,
 				}
 			},
@@ -615,7 +615,7 @@ function ActivatedAbility:TargetTypeEditor()
                 },
                 change = function(element)
                     ---@cast element Dropdown
-                    self.multipleModes = element.idChosen
+                    self.multipleModes = element.idChosen --[[@as boolean|string]]
                     if self.multipleModes and self:try_get("modeList") == nil then
                         self.modeList = {
                         }
@@ -832,7 +832,7 @@ function ActivatedAbility:TargetTypeEditor()
 				idChosen = self.durationType,
 				change = function(element)
 					---@cast element Dropdown
-					self.durationType = element.idChosen
+					self.durationType = element.idChosen --[[@as string]]
 					resultPanel:FireEventTree("refreshSpell")
 				end,
 			},
@@ -1819,11 +1819,8 @@ function ActivatedAbility:BehaviorEditor(options)
 	local commonPanel = nil
 	
 	if not options.behaviorOnly then
-		commonPanel = self:TargetTypeEditor{
-			refreshAbility = function(element)
-				resultPanel:FireEvent("refreshAbility")
-			end
-		}
+		-- TargetTypeEditor takes no arguments; it refreshes itself.
+		commonPanel = self:TargetTypeEditor()
 	end
 
 	local behaviorDropdown = gui.Panel{
@@ -1999,7 +1996,7 @@ function ActivatedAbilityBehavior:ApplyToEditor(parentPanel, list)
 			idChosen = self.applyto,
 			change = function(element)
 				---@cast element Dropdown
-				self.applyto = element.idChosen
+				self.applyto = element.idChosen --[[@as string]]
 				parentPanel:FireEvent('refreshBehavior')
 			end,
 		},
@@ -2563,7 +2560,7 @@ function ActivatedAbilityBehavior:OngoingEffectEditor(parentPanel, list, options
 				elseif element.idChosen == 'momentary' then
 					self.duration = "momentary"
 				elseif element.idChosen == 'end_of_next_turn' or element.idChosen == 'until_rest' or element.idChosen == 'until_long_rest' or element.idChosen == 'endround' or element.idChosen == 'save_ends' or element.idChosen == "eoe_or_dying" or element.idChosen == "eoe" or element.idChosen == 'endnextround' or element.idChosen == 'eoe' then
-					self.duration = element.idChosen
+					self.duration = element.idChosen --[[@as string]]
 				else
 					self.duration = nil
 				end
@@ -2584,7 +2581,7 @@ function ActivatedAbilityBehavior:OngoingEffectEditor(parentPanel, list, options
 				text = tostring(self.duration),
 				events = {
 					change = function(element)
-						self.duration = math.floor(tonumber(element.text)) or 1
+						self.duration = math.floor(tonumber(element.text) or 1)
 					end
 				}
 			},
@@ -2801,7 +2798,7 @@ function ActivatedAbilityBehavior:DamageTypeEditor(parentPanel, list)
 			idChosen = self.damageType,
 			change = function(element)
 				---@cast element Dropdown
-				self.damageType = element.idChosen
+				self.damageType = element.idChosen --[[@as string]]
 			end,
 		},
 	}
@@ -2890,7 +2887,7 @@ function ActivatedAbilityBehavior:AuraEditor(parentPanel, list)
 			idChosen = self.duration,
 			change = function(element)
 				---@cast element Dropdown
-				self.duration = element.idChosen
+				self.duration = element.idChosen --[[@as string]]
 				parentPanel:FireEvent('refreshBehavior')
 			end,
 		},
@@ -3259,7 +3256,8 @@ function ActivatedAbilityCastSpellBehavior.AbilityModifierEditor(self, parentPan
 		end,
 	}
 
-	ActivatedAbilityAugmentedAbilityBehavior.AbilityModifierEditor(self, parentPanel, list)
+	-- Reused on purpose: a cast-spell behavior carries the same `modifier` field the editor reads.
+	ActivatedAbilityAugmentedAbilityBehavior.AbilityModifierEditor(self --[[@as ActivatedAbilityAugmentedAbilityBehavior]], parentPanel, list)
 end
 
 function ActivatedAbilityBehavior:CheckTypeEditor(parentPanel, title, attributeName, list)
@@ -4057,7 +4055,7 @@ function ActivatedAbility:ShowEditActivatedAbilityDialog(options)
 				color = "@fgStrong",
 				priority = 4,
 			},
-		})) do
+		}) --[[@as table[] ]]) do -- non-empty input, so never nil
 			themeStyles[#themeStyles+1] = rule
 		end
 	end

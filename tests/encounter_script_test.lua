@@ -1376,4 +1376,151 @@ do
     check(EncounterScript.AnnotationKey(tagged, "scene", 4) == "scene-3", "a line after a line with two tags")
 end
 
+--outcome icons: computed from the effects, never authored
+do
+    local NL = string.char(10)
+    local function Kinds(list)
+        local out = {}
+        for _, o in ipairs(list) do
+            out[#out + 1] = o.kind .. cond(o.fromConsequence, "*", "")
+        end
+        return table.concat(out, ",")
+    end
+    local op = EncounterScript.Parse(table.concat({
+        "# Montage",
+        "## Threat: Beasts",
+        "Consequence: Each party member loses 5 stamina.",
+        "### Hunt",
+        "|Hunt: Might",
+        "|You lose 4 stamina.",
+        "|+1 Malice. The threat is vanquished.",
+        "|The threat is vanquished. +1 Hero Token",
+        "### Sneak",
+        "|Sneak: Agility",
+        "|A shadow => You lose a recovery.",
+        "|You gain 5 temporary stamina. {+2 Intelligence}",
+        "|You gain one Healing Potion. +1 Intelligence",
+        "## Opportunity: Quiet Glade",
+        "### Rest",
+        "|Rest: Presence",
+        "|Nothing happens.",
+        "|You heal 5 stamina.",
+        "|You heal 10 stamina.",
+    }, NL))
+    local entries = EncounterScript.MontageEntries(op.beats[1])
+    local beasts, glade = entries[1], entries[2]
+    check(Kinds(EncounterScript.OptionOutcomes(beasts.options[1], op)) == "herotoken,malice,harm", "an option's outcomes, in order: " .. Kinds(EncounterScript.OptionOutcomes(beasts.options[1], op)))
+    check(Kinds(EncounterScript.OptionOutcomes(beasts.options[2], op)) == "intelligence,treasure,temphp,harm",
+        "a teased tier counts, a hidden clause does not: " .. Kinds(EncounterScript.OptionOutcomes(beasts.options[2], op)))
+    local all = EncounterScript.EntryOutcomes(beasts, op)
+    check(Kinds(all) == "intelligence,herotoken,treasure,temphp,malice,harm*", "an entry merges its options and its consequence: " .. Kinds(all))
+    check(all[6].fromOptions and all[6].fromConsequence, "harm comes from both")
+    check(Kinds(EncounterScript.EntryOutcomes(glade, op)) == "other", "healing is an 'other' reward")
+
+    local delveOut = EncounterScript.OptionOutcomes(tombEntry.options[1], delveParse)
+    check(Kinds(delveOut) == "treasure,harm,other", "a delve option takes its obstacles and chest: " .. Kinds(delveOut))
+    check(#EncounterScript.OptionOutcomes(tombEntry.options[1], nil) == 0, "no parse, no delve")
+
+    --"other": anything the six icons do not cover, an unreadable clause
+    --included. A threat counts only its consequence's.
+    local otherParse = EncounterScript.Parse(table.concat({
+        "# Montage",
+        "## Opportunity: Shrine",
+        "### Pray",
+        "|Prayer: Presence",
+        "|You fail the test.",
+        "|You heal 5 stamina.",
+        "|The spirits smile on you.",
+        "### Leave an offering",
+        "|Offering: Presence",
+        "|Nothing happens.",
+        "|{Unlock Shrine Vault}",
+        "|+1 Hero Token",
+        "## Opportunity: Shrine Vault (Locked)",
+        "### Open",
+        "|Open: Might",
+        "|a",
+        "|b",
+        "|c",
+        "## Threat: Scouts",
+        "Consequence: The goblins are ready for you.",
+        "### Outrun",
+        "|Outrun: Agility",
+        "|You heal 3 stamina.",
+        "|The threat is vanquished.",
+        "|The threat is vanquished.",
+        "## Threat: Wolves",
+        "Consequence: Each party member loses 3 stamina.",
+        "### Fight",
+        "|Fight: Might",
+        "|The wolves howl.",
+        "|The threat is vanquished.",
+        "|The threat is vanquished.",
+    }, NL))
+    local oe = EncounterScript.MontageEntries(otherParse.beats[1])
+    local shrine2, scouts, wolves = oe[1], oe[3], oe[4]
+    check(Kinds(EncounterScript.OptionOutcomes(shrine2.options[1], otherParse, shrine2)) == "other",
+        "healing and an unreadable clause are 'other'; 'you fail' is not")
+    check(Kinds(EncounterScript.OptionOutcomes(shrine2.options[2], otherParse, shrine2)) == "herotoken",
+        "a hidden unlock and 'nothing happens' are not 'other'")
+    check(Kinds(EncounterScript.EntryOutcomes(shrine2, otherParse)) == "herotoken,other", "an opportunity's 'other'")
+    local scoutsOut = EncounterScript.EntryOutcomes(scouts, otherParse)
+    check(Kinds(scoutsOut) == "other*" and not scoutsOut[1].fromOptions, "a threat's 'other' is its consequence's only: " .. Kinds(scoutsOut))
+    check(#EncounterScript.OptionOutcomes(scouts.options[1], otherParse, scouts) == 0, "a threat's option shows no 'other'")
+    check(Kinds(EncounterScript.EntryOutcomes(wolves, otherParse)) == "harm*", "a fully readable consequence adds no 'other'")
+end
+
+--story sections: "# Town Gate", "# Conclusion", "# Defeat" are not beats.
+do
+    local NL = "\n"
+    local storyParse = EncounterScript.Parse(table.concat({
+        "# Town Gate",
+        "",
+        "Merchants have been complaining about the forest.",
+        "",
+        "A band of Heroes is sought!",
+        "",
+        "# Narrative",
+        "",
+        "## Ajax's Patrols",
+        "",
+        "### Press on",
+        "",
+        "# Encounter",
+        "",
+        "[[encounter]]",
+        "",
+        "# Conclusion",
+        "",
+        "[[scene]]",
+        "",
+        "With the Goblins defeated, you return to Blackbottom.",
+        "",
+        "# defeat",
+        "",
+        "The Goblins have triumphed today.",
+    }, NL))
+    check(#storyParse.warnings == 0, "story sections parse with no warnings: " .. table.concat(storyParse.warnings, " | "))
+    check(#storyParse.beats == 2, "story sections are not beats: " .. #storyParse.beats)
+    check(storyParse.beats[1].kind == "narrative" and storyParse.beats[2].kind == "encounter", "the beats around them are intact")
+    local gate = storyParse.story.towngate
+    check(gate ~= nil and gate.kind == "story" and gate.title == "Town Gate", "town gate section")
+    check(gate.text == "Merchants have been complaining about the forest.\n\nA band of Heroes is sought!", "town gate text keeps its paragraphs: " .. tostring(gate.text))
+    local conclusion = storyParse.story.conclusion
+    check(conclusion ~= nil and conclusion.text == "With the Goblins defeated, you return to Blackbottom.", "conclusion text")
+    check(conclusion.sceneTag == "scene" and conclusion.sceneLine ~= nil, "a story section takes a [[scene]] backdrop")
+    check(storyParse.story.defeat ~= nil and storyParse.story.defeat.text == "The Goblins have triumphed today.", "defeat heading is case-insensitive")
+    check(storyParse.beats[2].sceneTag == nil, "the conclusion's scene does not leak into the encounter beat")
+
+    local dup = EncounterScript.Parse("# Conclusion\n\nOne.\n\n# Conclusion\n\nTwo.")
+    check(#dup.warnings == 1 and dup.story.conclusion.text == "One.", "a second story section of a kind warns, the first wins")
+
+    local noStory = EncounterScript.Parse("# Encounter\n\n[[encounter]]")
+    check(next(noStory.story) == nil, "a script without story sections has an empty story table")
+
+    local implicit = EncounterScript.Parse("# Town Gate\n\nThe gate.\n\n[[encounter]]")
+    check(#implicit.beats == 1 and implicit.beats[1].implicit, "story sections alone still allow the implicit encounter beat")
+    check(implicit.story.towngate.text == "The gate.", "the island line is not story text")
+end
+
 print(string.format("encounter_script_test: %d checks passed", passed))
