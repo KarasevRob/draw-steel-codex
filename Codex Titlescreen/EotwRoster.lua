@@ -684,6 +684,9 @@ local function JoinRoster(tok, onDone)
                 --the city refused it (e.g. the roster is full): this machine
                 --must not keep a town hero the city does not know about.
                 game.DeleteCharacters({charid})
+            elseif #EotwRoster.ActiveHeroes() < EotwRoster.MAX_ACTIVE then
+                --a new hero starts out active while there is room.
+                EotwRoster.SetActive(charid, true)
             end
             if onDone ~= nil then
                 onDone(ok, message)
@@ -696,15 +699,110 @@ function EotwRoster.CanAddHero()
     return EotwRoster.LivingCount() < EotwRoster.MAX_LIVING
 end
 
---Build a new hero in the character builder; it joins the roster if kept.
-function EotwRoster.CreateHero(onDone)
+--The player's unfinished hero, if any: a lobby character the EotW builder
+--is working on, tagged properties.eotwDraft. It never reaches the city and
+--does not count against the roster limit. One per player.
+function EotwRoster.FindDraft()
+    for _,tok in ipairs(table.values(dmhub.GetAllCharacters())) do
+        local isDraft = false
+        pcall(function()
+            local props = tok.properties
+            isDraft = rawget(props, "eotwDraft") == true and rawget(props, "creatorid") == dmhub.userid
+        end)
+        if isDraft then
+            return tok
+        end
+    end
+    return nil
+end
+
+--Throw away the player's unfinished hero.
+function EotwRoster.DiscardDraft()
+    local draft = EotwRoster.FindDraft()
+    if draft ~= nil then
+        game.DeleteCharacters({draft.charid})
+        Bump()
+    end
+end
+
+--Open the EotW builder on the draft. Finishing it joins the roster;
+--closing keeps it as the draft, unless nothing was chosen at all.
+local function OpenDraft(host, tok, onDone)
+    if host == nil or not host.valid then
+        return
+    end
+    EotwBuilder.Open{
+        host = host,
+        token = tok,
+        onFinish = function(t)
+            t:ModifyProperties{
+                description = "Finish the hero",
+                undoable = false,
+                execute = function()
+                    t.properties.eotwDraft = false
+                end,
+            }
+            JoinRoster(t, onDone)
+            Bump()
+        end,
+        onClose = function(t)
+            if EotwBuild.IsUnstarted(t) then
+                game.DeleteCharacters({t.charid})
+            end
+            Bump()
+        end,
+    }
+end
+
+--Build a new hero in the EotW builder (or carry on with the draft); it
+--joins the roster when the player finishes it. host is the panel the
+--builder mounts on (the town screen).
+function EotwRoster.CreateHero(host, onDone)
     if not EotwRoster.CanAddHero() then
         Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
         return
     end
-    TitlescreenHeroes.Create(function(character)
-        JoinRoster(character, onDone)
+    local draft = EotwRoster.FindDraft()
+    if draft ~= nil then
+        OpenDraft(host, draft, onDone)
+        return
+    end
+    local heroType = nil
+    for _,v in pairs(dmhub.GetTable(CharacterType.tableName) or {}) do
+        if not rawget(v, "hidden") and v.name == "Hero" then
+            heroType = v
+            break
+        end
+    end
+    if heroType == nil then
+        Fail("could not start a new hero (no Hero character type)")
+        return
+    end
+    local charid = game.CreateCharacter("character", heroType)
+    WhenCharacterExists(charid, function(tok)
+        tok:ModifyProperties{
+            description = "Start a hero",
+            undoable = false,
+            execute = function()
+                tok.properties.mtime = ServerTimestamp()
+                tok.properties.originalid = charid
+                tok.properties.creatorid = dmhub.userid
+                tok.properties.eotwDraft = true
+            end,
+        }
+        Bump()
+        OpenDraft(host, tok, onDone)
     end)
+end
+
+--Whether a roster hero may still be rebuilt in the EotW builder: only until
+--their first encounter (none completed, and not away in a party now).
+function EotwRoster.CanRebuildHero(heroid)
+    local hero = EotwRoster.FindHero(heroid)
+    if hero == nil or EotwRoster.AwayHeroes()[heroid] ~= nil then
+        return false
+    end
+    return #(hero.completed or {}) == 0
 end
 
 --Recruit a pregen: copy the module's pregen into the lobby game under the
@@ -739,11 +837,26 @@ function EotwRoster.RecruitPregen(pregenId, name, onDone)
     end)
 end
 
---Open a roster hero in the character builder; saved back on close.
-function EotwRoster.EditHero(heroid)
+--Open a roster hero: in the EotW builder while it can still be rebuilt
+--(and a host to mount on is given), otherwise in the character sheet.
+--Saved back to the city on close either way.
+function EotwRoster.EditHero(heroid, host)
     local tok = dmhub.GetCharacterById(heroid)
     if tok == nil then
         Fail("that hero has not loaded yet")
+        return
+    end
+    if host ~= nil and host.valid and EotwRoster.CanRebuildHero(heroid) then
+        local Save = function()
+            EotwRoster.PushHero(heroid)
+        end
+        EotwBuilder.Open{
+            host = host,
+            token = tok,
+            title = "Rebuild Your Hero",
+            onFinish = Save,
+            onClose = Save,
+        }
         return
     end
     TitlescreenHeroes.Edit(tok, function()
@@ -840,6 +953,8 @@ local function ModalFrame(args)
         flow = "vertical",
         styles = { Styles.Default },
         captureEscape = true,
+        --above the town screen's own escape, which would close the town.
+        escapePriority = EscapePriority.EXIT_MODAL_DIALOG,
         escape = function(element)
             element:DestroySelf()
         end,
@@ -1134,7 +1249,7 @@ local GUILD_STYLES = {
 }
 
 --One roster row: portrait, name, details, status, and the hero's actions.
-local function GuildRow(hero, away)
+local function GuildRow(hero, away, host)
     local heroid = hero.heroid
     local summary = hero.summary or {}
     local tok = dmhub.GetCharacterById(heroid)
@@ -1238,11 +1353,15 @@ local function GuildRow(hero, away)
                 bgimage = "phosphor/pencil-simple.png",
                 hoverCursor = "pressbutton",
                 linger = function(element)
-                    gui.Tooltip("Open this hero's character sheet")(element)
+                    if EotwRoster.CanRebuildHero(heroid) then
+                        gui.Tooltip("Rebuild this hero. You can change a hero's build until their first encounter.")(element)
+                    else
+                        gui.Tooltip("Open this hero's character sheet")(element)
+                    end
                 end,
                 press = function()
                     audio.FireSoundEvent("Mouse.Click")
-                    EotwRoster.EditHero(heroid)
+                    EotwRoster.EditHero(heroid, host)
                 end,
             },
             gui.Panel{
@@ -1278,15 +1397,18 @@ local function GuildRow(hero, away)
     }
 end
 
---The Hero's Guild: the player's whole roster, with Create and Recruit.
---host is the panel to mount the dialog on (the town screen).
-function EotwRoster.ShowGuild(host)
-    local dlg
+--The Hero's Guild: the player's whole roster, with Create and Recruit. This
+--is the body of the guild's full-screen location (the town screen draws the
+--art, the title and the way back around it), so it fills its parent. host is
+--the panel to mount the guild's own dialogs on (the town screen).
+function EotwRoster.GuildPanel(host)
     local listPanel = nil
     local headerLabel = nil
     local statusLabel = nil
     local createButton = nil
     local recruitButton = nil
+    local discardButton = nil
+    local confirmingDiscard = false
 
     local Rebuild = function()
         if listPanel == nil or not listPanel.valid then
@@ -1301,14 +1423,14 @@ function EotwRoster.ShowGuild(host)
             rows[1] = gui.Label{ text = "Your roster is empty. Create a hero of your own, or recruit one of the adventurers looking for work.", fontSize = 18, color = DIM, width = "80%", height = "auto", halign = "center", textAlignment = "center", vmargin = 30 }
         else
             for _,hero in ipairs(heroes) do
-                rows[#rows+1] = GuildRow(hero, away[hero.heroid])
+                rows[#rows+1] = GuildRow(hero, away[hero.heroid], host)
             end
         end
         listPanel.children = rows
 
         local count = EotwRoster.LivingCount()
         if headerLabel ~= nil and headerLabel.valid then
-            headerLabel.text = string.format("%d / %d heroes  -  %d / %d active", count, EotwRoster.MAX_LIVING, #EotwRoster.ActiveHeroes(), EotwRoster.MAX_ACTIVE)
+            headerLabel.text = string.format("%d / %d heroes   <color=#d9b56a>%d / %d active</color>", count, EotwRoster.MAX_LIVING, #EotwRoster.ActiveHeroes(), EotwRoster.MAX_ACTIVE)
         end
         if statusLabel ~= nil and statusLabel.valid then
             statusLabel.text = EotwRoster.lastError or ""
@@ -1319,120 +1441,173 @@ function EotwRoster.ShowGuild(host)
                 b.selfStyle.opacity = cond(canAdd, 1, 0.45)
             end
         end
+        local hasDraft = EotwRoster.FindDraft() ~= nil
+        if createButton ~= nil and createButton.valid then
+            createButton.text = cond(hasDraft, "Continue Your Hero", "Create a Hero")
+        end
+        if discardButton ~= nil and discardButton.valid then
+            discardButton:SetClass("collapsed", not hasDraft)
+        end
     end
 
-    local titleParts = Title("The Hero's Guild", "Every hero you have sworn to the guild. Mark up to four as active to adventure in town; take any of them to the Town Gate.")
+    --the roster fills the body; the count line heads it, and the guild's
+    --actions sit along the bottom. The way back to town is the location's.
+    local body = gui.Panel{
+        width = "100%",
+        height = "100%",
+        flow = "vertical",
 
-    dlg = ModalFrame{
-        width = 1100,
-        height = 860,
-        children = {
-            titleParts[1],
-            titleParts[2],
+        gui.Panel{
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+            bmargin = 10,
             gui.Label{
-                text = "",
-                fontSize = 18,
+                text = "Your Roster",
+                fontSize = 26,
                 bold = true,
                 color = TEXT,
                 width = "auto",
                 height = "auto",
-                halign = "center",
-                vmargin = 6,
+                valign = "center",
+            },
+            gui.Label{
+                text = "",
+                fontSize = 18,
+                color = DIM,
+                width = "auto",
+                height = "auto",
+                halign = "right",
+                valign = "center",
                 create = function(element)
                     headerLabel = element
                 end,
             },
-            gui.Panel{
-                width = "94%",
-                height = "100%-250",
-                halign = "center",
-                flow = "vertical",
-                vscroll = true,
-                rpad = 12,
-                borderBox = true,
-                styles = GUILD_STYLES,
+        },
+        gui.Label{
+            text = string.format("Mark up to %d heroes as active to adventure in town. Any of them can set out from the Town Gate.", EotwRoster.MAX_ACTIVE),
+            fontSize = 16,
+            italics = true,
+            color = DIM,
+            width = "100%",
+            height = "auto",
+            bmargin = 12,
+        },
+        gui.Panel{
+            width = "100%",
+            height = "100%-190",
+            flow = "vertical",
+            vscroll = true,
+            rpad = 12,
+            borderBox = true,
+            styles = GUILD_STYLES,
+            create = function(element)
+                listPanel = element
+                Rebuild()
+            end,
+        },
+        gui.Label{
+            text = "",
+            fontSize = 16,
+            color = "#ff8888",
+            width = "100%",
+            height = 22,
+            textAlignment = "center",
+            create = function(element)
+                statusLabel = element
+            end,
+        },
+        gui.Panel{
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            valign = "bottom",
+            flow = "horizontal",
+            gui.Button{
+                text = "Create a Hero",
+                fontSize = 20,
+                width = 230,
+                height = 46,
+                hmargin = 6,
                 create = function(element)
-                    listPanel = element
-                    Rebuild()
+                    createButton = element
+                end,
+                click = function()
+                    if not EotwRoster.CanAddHero() then
+                        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+                        return
+                    end
+                    EotwRoster.lastError = nil
+                    EotwRoster.CreateHero(host)
                 end,
             },
-            gui.Label{
-                text = "",
-                fontSize = 16,
-                color = "#ff8888",
-                width = "90%",
-                height = 22,
-                halign = "center",
-                textAlignment = "center",
+            gui.Button{
+                text = "Discard Draft",
+                fontSize = 20,
+                width = 200,
+                height = 46,
+                hmargin = 6,
+                classes = { "collapsed" },
                 create = function(element)
-                    statusLabel = element
+                    discardButton = element
+                end,
+                linger = function(element)
+                    gui.Tooltip("Throw away the hero you have not finished (click twice).")(element)
+                end,
+                resetConfirm = function(element)
+                    confirmingDiscard = false
+                    element.text = "Discard Draft"
+                end,
+                click = function(element)
+                    if not confirmingDiscard then
+                        confirmingDiscard = true
+                        element.text = "Really Discard?"
+                        element:ScheduleEvent("resetConfirm", 4)
+                        return
+                    end
+                    confirmingDiscard = false
+                    element.text = "Discard Draft"
+                    EotwRoster.DiscardDraft()
                 end,
             },
-            gui.Panel{
-                width = "auto",
-                height = "auto",
-                halign = "center",
-                valign = "bottom",
-                bmargin = 14,
-                flow = "horizontal",
-                gui.Button{
-                    text = "Create a Hero",
-                    fontSize = 20,
-                    width = 220,
-                    height = 44,
-                    hmargin = 6,
-                    create = function(element)
-                        createButton = element
-                    end,
-                    click = function()
-                        if not EotwRoster.CanAddHero() then
-                            Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
-                            return
-                        end
-                        EotwRoster.lastError = nil
-                        EotwRoster.CreateHero()
-                    end,
-                },
-                gui.Button{
-                    text = "Recruit a Hero",
-                    fontSize = 20,
-                    width = 220,
-                    height = 44,
-                    hmargin = 6,
-                    create = function(element)
-                        recruitButton = element
-                    end,
-                    click = function()
-                        if not EotwRoster.CanAddHero() then
-                            Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
-                            return
-                        end
-                        EotwRoster.lastError = nil
-                        ShowRecruitPicker(host)
-                    end,
-                },
-                Button("Back to Town", function() dlg:DestroySelf() end, 220),
+            gui.Button{
+                text = "Recruit a Hero",
+                fontSize = 20,
+                width = 230,
+                height = 46,
+                hmargin = 6,
+                create = function(element)
+                    recruitButton = element
+                end,
+                click = function()
+                    if not EotwRoster.CanAddHero() then
+                        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+                        return
+                    end
+                    EotwRoster.lastError = nil
+                    ShowRecruitPicker(host)
+                end,
             },
         },
+
+        --rebuild whenever the roster (or a working copy) changes.
+        gui.Panel{
+            floating = true,
+            width = 1,
+            height = 1,
+            interactable = false,
+            data = { seen = -1 },
+            thinkTime = 0.25,
+            think = function(element)
+                if element.data.seen ~= EotwRoster.revision then
+                    element.data.seen = EotwRoster.revision
+                    Rebuild()
+                end
+            end,
+        },
     }
-    host:AddChild(dlg)
-    --rebuild whenever the roster (or a working copy) changes.
-    dlg:AddChild(gui.Panel{
-        floating = true,
-        width = 1,
-        height = 1,
-        interactable = false,
-        data = { seen = -1 },
-        thinkTime = 0.25,
-        think = function(element)
-            if element.data.seen ~= EotwRoster.revision then
-                element.data.seen = EotwRoster.revision
-                Rebuild()
-            end
-        end,
-    })
     EotwRoster.Refresh()
-    return dlg
+    return body
 end
 
 --- the Graveyard ----------------------------------------------------------
