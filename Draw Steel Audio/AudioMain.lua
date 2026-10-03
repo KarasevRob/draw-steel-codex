@@ -520,6 +520,44 @@ audio.SoundEvent{
 --Gameplay Sounds
 
 
+
+
+--Collar
+
+audio.SoundEvent{
+    name = "Ability.Collar_Attach",
+    mixgroup = "gameplay",
+    sounds = {"abl/collar/Abl_Collar_Attach_v1_01.wav","abl/collar/Abl_Collar_Attach_v1_02.wav","abl/collar/Abl_Collar_Attach_v1_03.wav"},
+    volume = 0.25,
+    pitchRand = 0.05,
+    ignoreDuplicates = 0.1,
+}
+
+audio.SoundEvent{
+    name = "Ability.Collar_Remove",
+    mixgroup = "gameplay",
+    sounds = {"abl/collar/Abl_Collar_Remove_v1_01.wav","abl/collar/Abl_Collar_Remove_v1_02.wav","abl/collar/Abl_Collar_Remove_v1_03.wav"},
+    volume = 0.3,
+    pitchRand = 0.05,
+    ignoreDuplicates = 0.1,
+}
+
+
+audio.SoundEvent{
+    name = "Ability.Collar_DetonateBeep",
+    mixgroup = "gameplay",
+    sounds = {"abl/collar/Collar_Detonate_Beep_v1_01.wav","abl/collar/Collar_Detonate_Beep_v1_02.wav","abl/collarCollar_Detonate_Beep_v1_03.wav","abl/collarCollar_Detonate_Beep_v1_04.wav"},
+    volume = 0.3,
+    pitchRand = 0.01,
+    ignoreDuplicates = 0.01,
+}
+
+
+
+
+
+
+
 --Torch On/Off
 audio.SoundEvent{
     name = "Ability.Torch_On",
@@ -735,6 +773,24 @@ audio.SoundEvent{
     pitchRand = 0.05,
     ignoreDuplicates = 1,
 }
+
+
+
+--Explosions
+
+
+audio.SoundEvent{
+    name = "Ability.Explosion_Medium_Short",
+    mixgroup = "gameplay",
+    sounds = {"abl/explo/Explo_Medium_Short_v1_01.wav","abl/explo/Explo_Medium_Short_v1_02.wav","explo/Explo_Medium_Short_v1_03.wav",},
+    volume = 0.2,
+    pitchRand = 0.15,
+    ignoreDuplicates = 0.1
+,
+}
+
+
+
 
 
 
