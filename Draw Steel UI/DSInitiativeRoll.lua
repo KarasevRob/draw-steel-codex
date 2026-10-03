@@ -262,7 +262,7 @@ local function createDrawSteelBanner(options)
                             q.playersGoFirst = m_heroesWin
                             q.playersTurn = m_heroesWin
                             dmhub:UploadInitiativeQueue()
-                            if GameHud.instance ~= nil and GameHud.instance:has_key("choiceInitiativeBar") then
+                            if GameHud.instance and GameHud.instance:has_key("choiceInitiativeBar") then
                                 GameHud.instance.choiceInitiativeBar:FireEvent("refresh")
                             end
                         end
@@ -924,7 +924,7 @@ end
 --createDrawSteelBanner). Call this on a single client (the one advancing the
 --round); it broadcasts the banner to the other users itself.
 function showDrawSteelRerollBanner()
-    if GameHud.instance == nil or GameHud.instance.parentPanel == nil then
+    if not GameHud.instance or GameHud.instance.parentPanel == nil then
         return
     end
     local banner = createDrawSteelBanner{ controller = true, reroll = true }
@@ -980,7 +980,7 @@ function Encounter.StartCombatWithTokens(args)
         return false, "combat is already running"
     end
 
-    if GameHud.instance == nil or GameHud.instance.parentPanel == nil then
+    if not GameHud.instance or GameHud.instance.parentPanel == nil then
         return false, "no game hud to host the Draw Steel banner"
     end
 

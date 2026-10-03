@@ -1976,7 +1976,7 @@ function ActivatedAbilitySummonBehavior:Cast(ability, casterToken, targets, args
     -- Register a post-cast handler that force-dismisses the tooltip card.
     args.OnFinishCastHandlers = args.OnFinishCastHandlers or {}
     args.OnFinishCastHandlers[#args.OnFinishCastHandlers+1] = function()
-        if GameHud == nil or GameHud.instance == nil then return end
+        if GameHud == nil or not GameHud.instance then return end
         if rawget(GameHud.instance, "abilityDisplay") == nil then return end
         local panel = GameHud.instance.abilityDisplay
         if panel ~= nil and panel.valid then

@@ -974,7 +974,8 @@ MCDMImporter.ParseMonsterAbility = function(bestiaryEntry, lines, knownAbilities
                     import:Log(FormatError("Could not find standard 'InvokeCustom' ability to embed this effect in."))
                     hasErrors = true
                 else
-                    local invokeBehavior = invokeCustom.behaviors[1]
+                    --copy: behaviors[1] is the live standardAbilities row, shared by every wrapped ability.
+                    local invokeBehavior = DeepCopy(invokeCustom.behaviors[1])
                     invokeBehavior.customAbility = DeepCopy(newAbility)
                     invokeBehavior.customAbility.guid = dmhub.GenerateGuid()
 
@@ -1618,7 +1619,8 @@ MCDMImporter.ParseCreatureAbilities = function(bestiaryEntry, inputLines, knownA
                     if invokeCustom == nil then
                         abilityErrors[#abilityErrors+1] = FormatStatus("Could not find standard 'InvokeCustom' ability to embed this effect in.", "error")
                     else
-                        local invokeBehavior = invokeCustom.behaviors[1]
+                        --copy: behaviors[1] is the live standardAbilities row, shared by every wrapped ability.
+                        local invokeBehavior = DeepCopy(invokeCustom.behaviors[1])
                         invokeBehavior.customAbility = DeepCopy(newAbility)
                         invokeBehavior.customAbility.guid = dmhub.GenerateGuid()
 

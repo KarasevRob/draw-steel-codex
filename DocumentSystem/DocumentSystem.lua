@@ -22742,7 +22742,7 @@ end
 --prompt uses a pair of them. Global: the Panels-menu Views group uses
 --it too.
 function ViewsToast(text, undoFn, actions)
-    if GameHud.instance == nil or (not GameHud.instance.documentsPanel) or (not GameHud.instance.documentsPanel.valid) then
+    if not GameHud.instance or (not GameHud.instance.documentsPanel) or (not GameHud.instance.documentsPanel.valid) then
         return
     end
     local toast

@@ -6201,7 +6201,7 @@ local LibraryPanel = function()
 			if element.data.poppedOut then
 				return
 			end
-			if GameHud.instance == nil or GameHud.instance.documentsPanel == nil or
+			if not GameHud.instance or GameHud.instance.documentsPanel == nil or
 				(not GameHud.instance.documentsPanel.valid) then
 				return
 			end

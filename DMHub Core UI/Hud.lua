@@ -248,7 +248,7 @@ local function PromoteModalToChildWindow(hud, layer, modal)
 	if root == nil or (not root.valid) then
 		return
 	end
-	if GameHud.instance == nil or GameHud.instance.documentsPanel == nil or
+	if not GameHud.instance or GameHud.instance.documentsPanel == nil or
 		(not GameHud.instance.documentsPanel.valid) then
 		return
 	end

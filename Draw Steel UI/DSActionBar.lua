@@ -1722,15 +1722,19 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
                     ---@cast m_castingTriggers -nil
                     ---@cast m_castingTriggersCache -nil
                     ---@cast CurrentCalculateSpellTargeting -nil
-                    for i=1,#m_castingTriggers do
-                        local triggerToken = dmhub.GetTokenById(m_castingTriggers[i].charid)
-                        if triggerToken ~= nil and triggerToken.valid then
+                    --build a new list rather than removing in place: table.remove inside a
+                    --numeric for skips the next entry and indexes past the end. Forward order
+                    --is kept so the last newly-triggered targetcount still wins.
+                    local keptTriggers = {}
+                    for _,castingTrigger in ipairs(m_castingTriggers) do
+                        local triggerToken = dmhub.GetTokenById(castingTrigger.charid)
+                        if triggerToken == nil or not triggerToken.valid then
+                            keptTriggers[#keptTriggers+1] = castingTrigger
+                        else
                             local availableTriggers = triggerToken.properties:GetAvailableTriggers() or {}
-                            local availableTrigger = availableTriggers[m_castingTriggers[i].id]
-                            if availableTrigger == nil then
-                                table.remove(m_castingTriggers, i)
-                            else
-                                m_castingTriggers[i] = availableTrigger
+                            local availableTrigger = availableTriggers[castingTrigger.id]
+                            if availableTrigger ~= nil then
+                                keptTriggers[#keptTriggers+1] = availableTrigger
 
                                 if availableTrigger.triggered and (not m_castingTriggersCache[availableTrigger.id]) then
                                     m_castingTriggersCache[availableTrigger.id] = true

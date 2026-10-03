@@ -844,7 +844,7 @@ local function CreateAbilityListPanel()
                 borderBox = true,
                 vmargin = 3,
                 click = function(element)
-                    local token = CharacterSheet.instance ~= nil
+                    local token = CharacterSheet.instance
                         and CharacterSheet.instance.data.info.token or nil
                     if token ~= nil and ShowVillainActionPicker ~= nil then
                         ShowVillainActionPicker(token, capturedSlot)
@@ -1192,7 +1192,7 @@ local function CreateAbilityListPanel()
         --instead of a filled ability. Reuses the search-reveal pulse, so the
         --signpost is the same gentle animation the director already knows.
         revealEmptyVillainSlot = function(element)
-            if CharacterSheet.instance == nil
+            if not CharacterSheet.instance
                 or CharacterSheet.instance.data.info.token == nil then
                 return
             end
@@ -3363,7 +3363,7 @@ local function ShowAdjustLevelDialog(token)
                                         report = token.properties:ConvertToCustomRetainer()
                                     end,
                                 }
-                                if CharacterSheet.instance ~= nil then
+                                if CharacterSheet.instance then
                                     CharacterSheet.instance:FireEvent("refreshAll")
                                 end
                                 gui.CloseModal()
@@ -3428,7 +3428,7 @@ local function ShowAdjustLevelDialog(token)
                             end,
                         }
                     end
-                    if CharacterSheet.instance ~= nil then
+                    if CharacterSheet.instance then
                         CharacterSheet.instance:FireEvent("refreshAll")
                     end
                     gui.CloseModal()
@@ -4039,7 +4039,7 @@ function ShowVillainActionPicker(token, slot)
                     token.properties:AddInnateActivatedAbility(copy)
                 end,
             }
-            if CharacterSheet.instance ~= nil then
+            if CharacterSheet.instance then
                 CharacterSheet.instance:FireEvent("refreshAll")
             end
             gui.CloseModal()
@@ -4136,7 +4136,7 @@ function ShowVillainActionPicker(token, slot)
                 },
                 click = function(element)
                     gui.CloseModal()
-                    if CharacterSheet.instance == nil then
+                    if not CharacterSheet.instance then
                         return
                     end
                     local newAbility = ActivatedAbility.Create {
@@ -5931,7 +5931,7 @@ local function DSCharSheet()
                                         -- did not actually change: a spurious refreshAll mid-destroy
                                         -- recomputes stats while the modifier pipeline is half torn
                                         -- down (e.g. Stability transiently nil).
-                                        if CharacterSheet.instance == nil then
+                                        if not CharacterSheet.instance then
                                             return
                                         end
                                         local token = CharacterSheet.instance.data.info.token

@@ -483,7 +483,7 @@ function ActivatedAbilityAttackBehavior:Cast(ability, casterToken, targets, opti
 		--will never fire and this loop would spin forever, leaving the red
 		--targeting arrows stuck on the map. Bail out as a cancel so the cast
 		--finishes and cleans them up.
-		local dialog = GameHud.instance ~= nil and GameHud.instance.rollDialog or nil
+		local dialog = GameHud.instance and GameHud.instance.rollDialog or nil
 		if dialog == nil or (not dialog.valid) or rollid == nil or dialog.data.rollid ~= rollid then
 			canceled = true
 		end

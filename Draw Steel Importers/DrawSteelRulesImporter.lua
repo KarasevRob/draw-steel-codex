@@ -82,7 +82,7 @@ import.Register{
         local currentClassMode = nil
         local currentLevel = nil
 
-        print("CLASSES:: COUNT", #sections.classes or 0)
+        print("CLASSES:: COUNT", #(sections.classes or {}))
         for lineNum,sline in ipairs(sections.classes or {}) do
 
             sline = trim(sline)
