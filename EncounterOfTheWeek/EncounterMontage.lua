@@ -3584,6 +3584,9 @@ local function ShowMontageRoll(args)
                 targetCreature = c,
                 showDialogDuringRoll = true,
                 amendable = true,
+                --once the dice are thrown the result stands: no close (X) or
+                --ESC back to the options, where a failed test could be retried.
+                noCancelOnceThrown = true,
 
                 rollProperties = rollProperties,
                 PopulateCustom = ActivatedAbilityPowerRollBehavior.GetPowerTablePopulateCustom(rollProperties),

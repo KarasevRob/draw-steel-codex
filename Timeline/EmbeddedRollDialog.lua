@@ -6145,6 +6145,10 @@ function GameHud.CreateEmbeddedRollDialog()
 
                 m_options = options
 
+                --this dialog is reused: a fresh roll can always be backed out
+                --of until its dice are thrown (see submit).
+                resultPanel.data.cancelWithdrawn = false
+
                 targetHints = options.targetHints
 
                 rollType = options.type
@@ -6315,6 +6319,14 @@ function GameHud.CreateEmbeddedRollDialog()
                 element.data.Cancel()
             end,
             submit = function(element)
+                --The dice are being thrown (Roll Dice and a hurl from the cage
+                --both land here). A roll that must stand once thrown loses its
+                --close (X) and ESC now (RollDialogCancelOffered), so a landed
+                --result can only be accepted.
+                if m_options ~= nil and m_options.noCancelOnceThrown then
+                    resultPanel.data.cancelWithdrawn = true
+                end
+
                 if not rollInput:HasClass("manualEdit") then
                     RecalculateMultiTargets()
                 end

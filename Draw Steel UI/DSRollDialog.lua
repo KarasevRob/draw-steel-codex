@@ -705,6 +705,7 @@ function GameHud.CreateRollDialog(self)
     local rollDisabledLabel
     local rollDiceButton
     local cancelButton
+    local closeButton
     local proceedAfterRollButton
     local rollAgainButton
 
@@ -2639,6 +2640,10 @@ function GameHud.CreateRollDialog(self)
         height = 50,
         events = {
             press = function(element)
+                --the roll must stand once its dice are thrown (see submit).
+                if resultPanel.data.cancelWithdrawn then
+                    return
+                end
                 CancelRollDialog()
             end,
         }
@@ -2964,6 +2969,9 @@ function GameHud.CreateRollDialog(self)
                     classes = { "closeButton" },
                     escapeActivates = true,
                     escapePriority = EscapePriority.EXIT_ROLL_DIALOG,
+                    create = function(element)
+                        closeButton = element
+                    end,
                     press = function(element)
                         cancelButton:FireEventTree("press")
                     end,
@@ -3209,6 +3217,14 @@ function GameHud.CreateRollDialog(self)
                 m_options = options
                 m_forceDiceTower = options.dicetower or false
 
+                --this dialog is reused: a fresh roll can always be backed out
+                --of until its dice are thrown (see submit).
+                resultPanel.data.cancelWithdrawn = false
+                cancelButton:SetClass("collapsed", false)
+                if closeButton ~= nil and closeButton.valid then
+                    closeButton:SetClass("collapsed", false)
+                end
+
                 targetHints = options.targetHints
 
                 rollType = options.type
@@ -3316,6 +3332,18 @@ function GameHud.CreateRollDialog(self)
 
         events = {
             submit = function(element)
+                --The dice are being thrown. A roll that must stand once thrown
+                --(noCancelOnceThrown: Encounter of the Week's montage tests)
+                --loses Cancel, the close (X) and ESC now, so a landed result
+                --can only be accepted.
+                if m_options ~= nil and m_options.noCancelOnceThrown then
+                    resultPanel.data.cancelWithdrawn = true
+                    cancelButton:SetClass("collapsed", true)
+                    if closeButton ~= nil and closeButton.valid then
+                        closeButton:SetClass("collapsed", true)
+                    end
+                end
+
                 if not rollInput:HasClass("manualEdit") then
                     RecalculateMultiTargets()
                 end

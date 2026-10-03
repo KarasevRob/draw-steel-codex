@@ -73,11 +73,17 @@ end
 --- so a cancel would be a free undo. A roll with no cast behind it (standalone
 --- and table rolls carry no castOptions) stays cancellable, as does every roll
 --- for a Director.
+--- A roll shown with `noCancelOnceThrown` (Encounter of the Week's montage
+--- tests) also withdraws it, for everyone, once its dice are thrown: the
+--- dialog sets data.cancelWithdrawn on submit.
 --- Deliberately NOT applied to dialog.data.Cancel() itself: system teardown
 --- paths -- restoreFromBackup, the request-rolls and roll-table cleanups --
 --- call that directly and must always work.
 function RollDialogCancelOffered(dialog)
     if dialog == nil or not dialog.valid or dialog.data == nil then
+        return false
+    end
+    if dialog.data.cancelWithdrawn then
         return false
     end
     if not StrictRollsEnforced() then
