@@ -7295,6 +7295,12 @@ function creature:ApplyOngoingEffect(ongoingEffectid, duration, casterInfo, opti
                 if casterSet ~= nil and cond:has_key("casterInfo") and type(cond.casterInfo.tokenid) == "string" then
                     casterSet[cond.casterInfo.tokenid] = true
                 end
+                --keep every earlier caster too, not just the most recent one (casterInfo).
+                if casterSet ~= nil then
+                    for tokenid,_ in pairs(cond:try_get("casterSet") or {}) do
+                        casterSet[tokenid] = true
+                    end
+                end
 
                 if bondid ~= nil then
                     cond.bondid = bondid
@@ -7319,6 +7325,12 @@ function creature:ApplyOngoingEffect(ongoingEffectid, duration, casterInfo, opti
 			if found == false and cond.ongoingEffectid == ongoingEffectid then
                 if casterSet ~= nil and cond:has_key("casterInfo") and type(cond.casterInfo.tokenid) == "string" then
                     casterSet[cond.casterInfo.tokenid] = true
+                end
+                --keep every earlier caster too, not just the most recent one (casterInfo).
+                if casterSet ~= nil then
+                    for tokenid,_ in pairs(cond:try_get("casterSet") or {}) do
+                        casterSet[tokenid] = true
+                    end
                 end
 
                 if ongoingEffect.clearStacksWhenApplying then
