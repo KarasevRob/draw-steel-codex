@@ -144,6 +144,9 @@ m.zonePaletteEntries = {}
 m.zoneSelectedType = 1
 m.zoneToolId = "zonerect"
 m.zoneTargetId = nil
+--"New Patch" one-shot: the next paint stroke becomes its own zone record even
+--where it touches zones of the same type. Set/cleared via MM.SetZoneNewPatch.
+m.zoneNewPatch = false
 
 --Footsteps mode state: the selected surface family (AudioSurfaceTypes id)
 --and the active paint tool.
@@ -595,6 +598,12 @@ MapMarkupHooks.cancelEditingWrapper = function(sheet)
     --is what stops the window's own escape handler closing the panel out from
     --under a single keypress.
     if m.arm.Armed() then
+        --An armed "New Patch" is the smaller thing to back out of: the first
+        --Escape cancels it and leaves the tool live, like a half-drawn stroke.
+        if m.zoneNewPatch and m.mode == "zones" then
+            MM.SetZoneNewPatch(false)
+            return true
+        end
         --m.arm.Set repaints the strip and unregisters the map tools.
         m.arm.Set(false)
         --Drop focus with the tool, exactly like panelEscape does: both

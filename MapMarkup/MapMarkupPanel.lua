@@ -935,7 +935,19 @@ end
 --destroyed the focused chip, and left focus nil - so exactly one stroke
 --landed and every later one silently did nothing. contentPanel lives as
 --long as the panel does, and gui.ChildHasFocus counts the element itself.
+--
+--It ARMS as well as focusing. Every caller is a deliberate press on the
+--panel, and a press on the panel arms it. Focusing alone left a stuck state
+--after Escape: Escape disarms and drops focus, then a press on a chip or tab
+--put focus back here with the panel still disarmed. The host's
+--click-to-focus then saw focus already held and skipped panelFocused (see
+--ClaimTabFocus / FocusPanelContent), so the panel showed its focus edge but
+--could not draw until it was closed and reopened.
+--m.arm.Set runs before SetFocus because claiming MapTools can make another
+--tool drop its GUI focus.
 local function TakeMarkupFocus()
+    m.arm.Set(true)
+
     local contentPanel = m.markupHud
     if contentPanel ~= nil and contentPanel.valid then
         gui.SetFocus(contentPanel)
@@ -1203,12 +1215,11 @@ CreateMarkupEditor = function()
         --ARMS (agreed 2026-08-15: the explicit-arming rework first shipped
         --arrive-disarmed, walked back so opening arms like the other
         --map-mode panels; Escape and hiding still disarm, focus loss still
-        --does not). TakeMarkupFocus additionally re-fires the current
+        --does not). TakeMarkupFocus arms, and also re-fires the current
         --mode's tool think, without which the very next click can land
         --before the 0.3s poll re-registers the map tool and silently do
         --nothing.
         panelFocused = function(element)
-            m.arm.Set(true)
             TakeMarkupFocus()
         end,
 
@@ -1224,6 +1235,28 @@ CreateMarkupEditor = function()
         --map focus) and never sees the press while the window has it.
         panelEscape = function(element, claim)
             if not m.arm.Armed() then
+                return
+            end
+            --Part-way through a multi-click stroke (a Stairs centerline, a
+            --Line of walls, a Poly zone): Escape drops just that stroke and
+            --the tool stays armed and focused, ready for a fresh one. The
+            --NEXT Escape puts the tool down. The engine's own polygon-tool
+            --escape listener would do the stroke half, but this window's
+            --escape capture outranks it (EXIT_DIALOG over DMHUB_CANCEL_TOOL)
+            --so it never gets the press while the window is up.
+            if editor:CancelMapStroke() then
+                if claim ~= nil then
+                    claim.claimed = true
+                end
+                return
+            end
+            --Next smallest thing: an armed "New Patch" modifier (Zones tab).
+            --Escape cancels it and the tool stays live.
+            if m.zoneNewPatch and m.mode == "zones" then
+                MM.SetZoneNewPatch(false)
+                if claim ~= nil then
+                    claim.claimed = true
+                end
                 return
             end
             m.arm.Set(false)
