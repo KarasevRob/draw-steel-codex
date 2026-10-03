@@ -230,6 +230,23 @@ end
 function ActivatedAbilityRemoveCreatureBehavior:Cast(ability, casterToken, targets, options)
     local charids = {}
     local removedInitiativeIds = {}
+
+    --Re-evaluates filterTarget against the target's current state. The waits
+    --below can last many seconds, and the target may stop matching during them
+    --(e.g. a hero spends hero tokens on Recovery on Death and is no longer dead).
+    local function stillPassesFilter(target, i)
+        local filterTarget = trim(self.filterTarget)
+        if filterTarget == "" then
+            return true
+        end
+        local symbols = table.shallow_copy(options.symbols or {})
+        symbols.target = target.token.properties
+        symbols.caster = casterToken.properties
+        symbols.targetnumber = i
+        symbols.numberoftargets = #targets
+        return GoblinScriptTrue(ExecuteGoblinScript(filterTarget, target.token.properties:LookupSymbol(symbols), 1, "Filter remove creature"))
+    end
+
     for i,target in ipairs(targets) do
 
         --A target can be destroyed/despawned before we get here (e.g. by an earlier
@@ -288,16 +305,7 @@ function ActivatedAbilityRemoveCreatureBehavior:Cast(ability, casterToken, targe
 
             --make sure we still pass the filter.
             if targetPasses then
-                local filterTarget = trim(self.filterTarget)
-                if filterTarget ~= "" then
-                    local symbols = table.shallow_copy(options.symbols or {})
-                    symbols.target = target.token.properties
-                    symbols.caster = casterToken.properties
-                    symbols.targetnumber = i
-                    symbols.numberoftargets = #targets
-
-                    targetPasses = GoblinScriptTrue(ExecuteGoblinScript(filterTarget, target.token.properties:LookupSymbol(symbols), 1, "Filter remove creature"))
-                end
+                targetPasses = stillPassesFilter(target, i)
             end
         end
 
@@ -338,9 +346,13 @@ function ActivatedAbilityRemoveCreatureBehavior:Cast(ability, casterToken, targe
                 coroutine.yield(0.1)
             end
 
-            --re-validate after the wait.
+            --re-validate after the wait. The prompts waited on here can undo
+            --the death itself (Recovery on Death, report BGGJ7TH2), so the
+            --filter must be checked again, not just the token.
             if not target.token.valid or target.token.properties == nil then
                 targetPasses = false
+            else
+                targetPasses = stillPassesFilter(target, i)
             end
         end
 
