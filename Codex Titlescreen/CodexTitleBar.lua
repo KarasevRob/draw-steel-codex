@@ -1596,6 +1596,23 @@ local g_tileIndicator = {
     },
 }
 
+--Off = a still status bar for players distracted by flicker: the plate
+--shows only the map name and the floor the player is on, and the chip is
+--a plain Ground square, so nothing changes as the mouse crosses tiles.
+--No editor: the only place to change it is the top of the map overlay
+--menu (see CreateOverlayMenu), next to the readout it controls.
+g_tileIndicator.tileInfoSetting = setting{
+    id = "statusbar:tileinfo",
+    description = "Status Bar Shows Tile Info",
+    help = "Show the coordinates, terrain and elevation of the tile under the mouse in the status bar. Turn off for a status bar that does not change as the mouse moves.",
+    storage = "preference",
+    default = true,
+}
+
+function g_tileIndicator.ShowsTileInfo()
+    return g_tileIndicator.tileInfoSetting:Get() ~= false
+end
+
 --The same diagonal-stripe recipe as the Map Markup zone swatches
 --(m_zoneStripes.Gradient): a linear gradient one stripe period long
 --along a diagonal vector, hard flip between the color and its
@@ -2224,6 +2241,17 @@ function g_tileIndicator.CreateOverlayMenu()
 
     local children = {}
 
+    --Before anything else: whether the plate this menu hangs from follows
+    --the mouse at all.
+    children[#children+1] = gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "vertical",
+        bmargin = 8,
+        SettingCheck("statusbar:tileinfo", "Status Bar Shows Tile Info",
+            "Show the coordinates, terrain and elevation of the tile under the mouse. Turn off to show only the map and floor name, which does not change as the mouse moves."),
+    }
+
     --Directors get the map appearance picker first: it is about the map
     --the clicked label names, the overlay toggles come after.
     local appearanceSection = g_tileIndicator.CreateAppearanceSection()
@@ -2413,7 +2441,13 @@ function g_tileIndicator.CreatePanel()
                 return
             end
 
-            local kind, colorOverride, nameOverride = g_tileIndicator.Classify()
+            --Tile info off: a fixed Ground square, whatever is under the mouse.
+            local kind, colorOverride, nameOverride
+            if g_tileIndicator.ShowsTileInfo() then
+                kind, colorOverride, nameOverride = g_tileIndicator.Classify()
+            else
+                kind = g_tileIndicator.kinds.ground
+            end
             local color = colorOverride or kind.color
             local key = (nameOverride or kind.name) .. "|" .. color
             if key == element.data.key then
@@ -2445,49 +2479,32 @@ local function CreateStatusBar()
     local m_mapNameLabel
     local m_mapCluster
 
-    --Encounter of the Week hides the cluster outright rather than merely
-    --dropping its plate: the map name and engine status are chrome the
-    --encounter's own presentation has no use for. Three signals, any of
-    --which suffices, because the EotW codemod is a separate mod that may not
-    --have loaded when the bar is first built: its own IsEotwGame, the
-    --account's dedicated EotW slot (set by the titlescreen's create/join
-    --flows), and the arrival args the titlescreen parks before entering.
-    --All pcall-guarded, exactly as DocumentNewUser does it.
-    --
-    --Latched once true, and deliberately one-way: a game never stops being
-    --an EotW game, which is what makes it safe to collapse the cluster --
-    --a collapsed panel's think does not run, so the collapse can never undo
-    --itself (the same trap the tile chip documents in g_tileIndicator).
-    local m_isEotwGame = false
-    local function IsEotwGame()
-        if m_isEotwGame then
-            return true
-        end
-
-        local eotw = false
-        pcall(function() eotw = EncounterOfTheWeekGame.IsEotwGame() end)
-        if not eotw then
-            pcall(function() eotw = (lobby.eotwGameid ~= nil and lobby.eotwGameid == dmhub.gameid) end)
-        end
-        if not eotw then
-            pcall(function()
-                local pending = rawget(_G, "EotwPendingArrival")
-                eotw = (type(pending) == "table" and pending.gameid ~= nil and pending.gameid == dmhub.gameid)
-            end)
-        end
-
-        m_isEotwGame = (eotw == true)
-        return m_isEotwGame
-    end
-
     local function MapClusterAvailable()
-        return dmhub.inGame and (not dmhub.isLobbyGame) and (not IsEotwGame())
+        return dmhub.inGame and (not dmhub.isLobbyGame)
     end
 
+    --Encounter of the Week covers the map with a full-screen script stage
+    --during montage and narrative beats. The map name, status and tile chip
+    --describe a map the player cannot see then, so the cluster collapses for
+    --as long as the stage is presented and returns when the map does. The
+    --EotW codemod is a separate mod (and absent outside EotW), hence the
+    --rawget and pcall.
+    local function ScriptStageCoversMap()
+        local covered = false
+        pcall(function()
+            local montage = rawget(_G, "EncounterMontage")
+            covered = montage ~= nil and montage.IsPresented() == true
+        end)
+        return covered
+    end
+
+    --Driven from the status bar's own think (see resultPanel below), NOT from
+    --anything inside the cluster: a collapsed panel's think does not run, so
+    --a driver inside it could collapse the cluster but never bring it back.
     local function RefreshMapClusterAffordance()
         if m_mapCluster ~= nil and m_mapCluster.valid then
             m_mapCluster:SetClass("menuItem", MapClusterAvailable())
-            m_mapCluster:SetClass("collapsed", IsEotwGame())
+            m_mapCluster:SetClass("collapsed", ScriptStageCoversMap())
         end
     end
 
@@ -2519,13 +2536,28 @@ local function CreateStatusBar()
         data = { fullText = "" },
         thinkTime = 0.1,
         think = function(element)
-            RefreshMapClusterAffordance()
             if (not dmhub.inGame) or dmhub.isLobbyGame then
                 element.data.fullText = ""
                 element.text = ""
                 return
             end
-            local text = string.format("%s %s", game.currentMap.description, dmhub.status)
+            local text
+            if g_tileIndicator.ShowsTileInfo() then
+                text = string.format("%s %s", game.currentMap.description, dmhub.status)
+            else
+                --The floor the player is ON, not the one under the mouse
+                --(which is what dmhub.status names), so it holds still.
+                local floor = game.currentFloor
+                local floorName = floor ~= nil and floor.description or nil
+                if type(floorName) == "string" and floorName ~= "" then
+                    text = string.format("%s, %s", game.currentMap.description, floorName)
+                else
+                    text = game.currentMap.description
+                end
+            end
+            if text == element.data.fullText then
+                return
+            end
             element.data.fullText = text
             element.text = text
         end,
@@ -2537,15 +2569,13 @@ local function CreateStatusBar()
     --here rather than on a half. hpad is inline rather than left to the
     --menuItem style so the cluster does not shift sideways on the frames
     --where the class is dropped.
-    --Built with the classes the current game already implies, so an EotW
-    --game never shows the cluster for the frames before the first think.
     --(A nil from cond() cannot simply be listed here -- it would truncate
     --the class list -- so the list is assembled.)
     local mapClusterClasses = {}
     if MapClusterAvailable() then
         mapClusterClasses[#mapClusterClasses+1] = "menuItem"
     end
-    if IsEotwGame() then
+    if ScriptStageCoversMap() then
         mapClusterClasses[#mapClusterClasses+1] = "collapsed"
     end
 
@@ -2592,6 +2622,11 @@ local function CreateStatusBar()
         -- instead of overrunning a hardcoded budget.
         width = "auto",
         halign = "right",
+
+        thinkTime = 0.1,
+        think = function(element)
+            RefreshMapClusterAffordance()
+        end,
 
         -- Dev-only note: when this game is loading its assets from a local
         -- directory (the "local assets" developer feature -- a custom data
