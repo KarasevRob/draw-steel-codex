@@ -1784,14 +1784,19 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
         return dmhub.GetSettingValue("pdfcontinuous") and true or false
     end
 
-    --side-by-side spread view: pages are laid out two per row, with the
-    --first page alone on the right like a book cover, so facing pages sit
-    --next to each other the way the printed book reads. All the scroll and
-    --pooling math works in ROWS; in single-page view every row holds
-    --exactly one page and these helpers reduce to identity.
+    --side-by-side spread view: pages are laid out two per row so facing
+    --pages sit next to each other the way the printed book reads. All the
+    --scroll and pooling math works in ROWS; in single-page view every row
+    --holds exactly one page and these helpers reduce to identity.
     local IsTwoPage = function()
         return m_twoPage
     end
+
+    --how the spreads pair up. false (the MCDM books): the cover is on the
+    --left of the first spread, beside the inside-cover page. true: the
+    --cover sits alone on the right and the inside cover starts the next
+    --spread; use it for a PDF whose pages fall on the opposite sides.
+    local coverAlone = false
 
     local PagesPerRow = function()
         return m_twoPage and 2 or 1
@@ -1801,19 +1806,27 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
         if not m_twoPage then
             return npage
         end
-        return math.floor((npage + 1) / 2)
+        if coverAlone then
+            return math.floor((npage + 1) / 2)
+        end
+        return math.floor(npage / 2)
     end
 
-    --first and last page index of a row (equal for the lone cover row and
+    --first and last page index of a row (equal for a lone cover row and
     --a lone final page).
     local RowPages = function(row)
         if not m_twoPage then
             return row, row
         end
-        if row <= 0 then
-            return 0, 0
+        local first
+        if coverAlone then
+            if row <= 0 then
+                return 0, 0
+            end
+            first = row * 2 - 1
+        else
+            first = row * 2
         end
-        local first = row * 2 - 1
         return first, math.min(first + 1, npages - 1)
     end
 
@@ -1821,16 +1834,18 @@ local ShowPDFViewerDialogInternal = function(doc, starting_page)
         return RowOfPage(npages - 1) + 1
     end
 
-    --the column a page occupies in its row: 0 = left, 1 = right. The cover
-    --sits alone on the right, like the first page of an open book.
+    --the column a page occupies in its row: 0 = left, 1 = right.
     local ColOfPage = function(npage)
         if not m_twoPage then
             return 0
         end
-        if npage == 0 then
-            return 1
+        if coverAlone then
+            if npage == 0 then
+                return 1
+            end
+            return (npage % 2 == 1) and 0 or 1
         end
-        return (npage % 2 == 1) and 0 or 1
+        return npage % 2
     end
 
     --height of the full content stack as a fraction of its width. Page
