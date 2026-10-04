@@ -1226,7 +1226,7 @@ function CustomDocument:CreateInterface(args)
                 return nil
             end
             local ts = doc.textStorage
-            if ts == nil then
+            if not ts then
                 return nil
             end
             return ts.sections
