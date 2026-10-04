@@ -947,7 +947,7 @@ function RichEncounter.CreateDisplay(self)
                 --tokens to despawn; skip them to keep the charid index aligned with spawn.
                 if group.wave == nil and (group.minHeroes == nil or numHeroes >= group.minHeroes) then
                     local spawnIndex = 1
-                    for monsterid,quantity in pairs(group.monsters) do
+                    for monsterid,quantity in pairs(group.monsters or {}) do
                         --match the adjusted count used at spawn time so token ids stay aligned.
                         quantity = Encounter.AdjustedMonsterQuantity(group, monsterid, quantity, numHeroes)
             print("SPAWN:: DESPAWNING monsterid =", monsterid, quantity)
