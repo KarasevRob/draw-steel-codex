@@ -4919,11 +4919,16 @@ CreateEncounterPanel = function()
                         vmargin = 8,
                         draggable = true,
 
+                        --"documentPanel" is an open journal document you can edit.
                         canDragOnto = function(self, target)
-                            return target ~= nil and target:HasClass("folder")
+                            return target ~= nil and (target:HasClass("folder") or target:HasClass("documentPanel"))
                         end,
 
+                        --dropping on a document adds a copy of this encounter to it.
                         drag = function(self, target)
+                            if target ~= nil and target.valid and target:HasClass("documentPanel") then
+                                target:FireEvent("insertRichTag", RichEncounter.FromEncounter(encounter), encounter.name)
+                            end
                         end,
 
                         data = {
