@@ -24,5 +24,6 @@ function TileGameRules:Clone() end
 --- @param aura? Aura
 --- @param scratchRules? TileGameRules
 --- @param climbableGrantHeight? number
+--- @param ignoreDifficultTerrain? boolean
 --- @return TileGameRules
-function TileGameRules:AppendGameRulesFromAura(aura, scratchRules, climbableGrantHeight) end
+function TileGameRules:AppendGameRulesFromAura(aura, scratchRules, climbableGrantHeight, ignoreDifficultTerrain) end

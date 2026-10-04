@@ -36,27 +36,28 @@ function EncounterOfTheWeek.Enabled()
     return dmhub.GetSettingValue("dev:encounteroftheweek") == true
 end
 
---Debug "Player Window": an admin in a game's lobby view can launch a second
---copy of the app logged in as the secondary account (like the New Player
---Window command). That child is started with `--eotw-game <gameid>`; on
---reaching the titlescreen it opens this screen and joins that game, so the
---multiplayer flow can be exercised from one machine. Consumed once by the
---screen's auto-join.
-EncounterOfTheWeek.autoJoinGameid = nil
+--Debug "New Player Window" (the Codex menu while this screen is open, admin
+--accounts only; see EncounterOfTheWeek.CodexMenuItems): launches a second
+--copy of the app logged in as the secondary account with `--eotw`. That
+--child opens this screen on reaching the titlescreen and is from then on an
+--ordinary separate player -- its own roster, heroes and parties -- so the
+--multiplayer flow can be exercised from one machine.
+EncounterOfTheWeek.autoOpen = false
 do
-    local args = dmhub.commandLineArguments
-    for i,str in ipairs(args) do
-        if str == "--eotw-game" and args[i+1] ~= nil then
-            EncounterOfTheWeek.autoJoinGameid = args[i+1]
+    for _,str in ipairs(dmhub.commandLineArguments) do
+        if str == "--eotw" then
+            EncounterOfTheWeek.autoOpen = true
         end
     end
 end
 
---True while the child launched with --eotw-game still has to open the
---screen: the titlescreen calls ShowScreen for it on reaching the selection
---screen (the arg bypasses the dev gate, which is per account preference).
+--One shot: true the first time it is asked in a child launched with --eotw.
+--The titlescreen calls ShowScreen for it on reaching the selection screen
+--(the arg bypasses the dev gate, so the secondary account needs no setup).
 function EncounterOfTheWeek.WantsAutoOpen()
-    return EncounterOfTheWeek.autoJoinGameid ~= nil
+    local result = EncounterOfTheWeek.autoOpen
+    EncounterOfTheWeek.autoOpen = false
+    return result
 end
 
 --Set by the game-side EotW codemod just before it exits a finished game
@@ -81,9 +82,20 @@ local LOBBY_OPTIONS = EotwRoster.CITY_OPTIONS
 local CITY_MAP_IMAGE = "39beb163-c5b5-408d-be3c-191825776239"
 local CITY_MAP_ASPECT = 4096 / 2980
 
+--Art for the locations that take over the whole screen when opened (see
+--LocationScene in CreateScreen): Czepeku Scenes stills (3840x2160) uploaded
+--as core image assets, tagged with their creator so the scene credits them
+--(DMHub Core UI/CreatorCredit.lua). A scene's art may also be a video id.
+local GUILD_ART = "db897e57-df62-48f0-a241-87add567824c" --Viking Longhouse, Original Day
+local GATE_ART = "db5bcf88-00fc-4e0b-89c9-5ddb98d1a772" --Market Streets, Original Day
+CreatorCredit.RegisterArt(GUILD_ART, "czepeku")
+CreatorCredit.RegisterArt(GATE_ART, "czepeku")
+
 --The town's locations, as fractions of the map image (so they survive a
 --re-export at another size). open(ctx) runs on click; locked(ctx) returns
---the reason the location is closed, or nil.
+--the reason the location is closed, or nil. A location with a scene opens
+--full screen over its art instead of as a dialog over the map; focusX is
+--where to crop the art on screens that are not 16:9.
 local CITY_LOCATIONS = {
     {
         id = "guild",
@@ -91,6 +103,13 @@ local CITY_LOCATIONS = {
         icon = "phosphor/shield-star-fill.png",
         x = 0.44,
         y = 0.42,
+        scene = {
+            art = GUILD_ART,
+            aspect = 16 / 9,
+            focusX = 0.5,
+            title = "The Hero's Guild",
+            tagline = "A fire in the hearth, shields on the walls, and a ledger of every hero sworn to the guild. Create a hero, take on a recruit, or choose who adventures in town.",
+        },
         open = function(ctx) ctx.OpenGuild() end,
     },
     {
@@ -99,6 +118,13 @@ local CITY_LOCATIONS = {
         icon = "phosphor/sword-fill.png",
         x = 0.53,
         y = 0.135,
+        scene = {
+            art = GATE_ART,
+            aspect = 16 / 9,
+            focusX = 0.35,
+            title = "The Town Gate",
+            tagline = "Parties muster in the market below the old tower before they set out. Join one that is forming, or gather your own.",
+        },
         locked = function(ctx)
             if EotwRoster.GetHeroes() == nil then
                 return "The guild is still checking your roster..."
@@ -119,6 +145,18 @@ local CITY_LOCATIONS = {
         open = function(ctx) ctx.OpenGraveyard() end,
     },
 }
+
+--The CITY_LOCATIONS row with this id.
+--- @param id string
+--- @return table
+local function CityLocation(id)
+    for _,loc in ipairs(CITY_LOCATIONS) do
+        if loc.id == id then
+            return loc
+        end
+    end
+    error("EotW: no town location " .. id)
+end
 
 --Style pack for gui.Check in the create dialog. The titlescreen's legacy
 --cascade has no checkbox rules (they live in the themed default styles), so
@@ -1014,6 +1052,35 @@ function EncounterOfTheWeek.ShowScreen()
     root:AddChild(m_veil)
 end
 
+--True while the screen is up (not closed, and not hidden for a game load).
+function EncounterOfTheWeek.IsScreenOpen()
+    return m_screen ~= nil and m_screen.valid and not m_screen:HasClass("hidden")
+end
+
+--Extra rows for the titlescreen's Codex menu (CodexTitleBar appends them).
+--Admins get "New Player Window" while the town is open: a second app window
+--logged in as the secondary account, which opens straight into this screen
+--(see EncounterOfTheWeek.autoOpen). connect = false so the child does not
+--borrow this process's lobby game -- it loads the secondary account's own.
+function EncounterOfTheWeek.CodexMenuItems()
+    if not dmhub.isAdminAccount or not EncounterOfTheWeek.IsScreenOpen() then
+        return {}
+    end
+    return {
+        {
+            text = "New Player Window",
+            icon = "phosphor/users-three.png",
+            click = function()
+                dmhub.DuplicateWindowInNewProcess{
+                    asplayer = true,
+                    connect = false,
+                    args = "--eotw",
+                }
+            end,
+        },
+    }
+end
+
 --Builds the full-screen EotW panel: overview text, the games list driven by
 --the lobby's /state/games roster, and the lobby chat + presence column.
 CreateScreen = function(args)
@@ -1076,8 +1143,16 @@ CreateScreen = function(args)
     --card plays the grow + fade-in entrance.
     local m_knownHeroCards = nil
 
+    --Other players' roster heroes, read from the City for their cards, keyed
+    --"userid|heroid": a detached token once loaded, false while the request
+    --is out or after it failed (so each hero is asked for once per screen).
+    ---@type table<string, CharacterToken|false>
+    local m_remoteHeroTokens = {}
+
     --forward decls (assigned below; captured by earlier click handlers).
     --OpenGameView is assigned during setup, before any handler can run.
+    ---@type fun()
+    local RefreshGames = nil
     ---@type fun(gameid: string)
     local OpenGameView = nil
     local CloseGameView = nil
@@ -1108,6 +1183,39 @@ CreateScreen = function(args)
             halign = "center",
             vmargin = 16,
             create = createfn,
+        }
+    end
+
+    --The Gate scene's card is narrow over the parties list, so the art (the
+    --tower) stays clear, and wide in a party view, where a full party's six
+    --hero cards need one row. The list panel sits in the Gate's body, which
+    --sits in the card.
+    local GATE_CARD_WIDTH_LIST = 1000
+    local GATE_CARD_WIDTH_PARTY = 1240
+    local m_gateCardWidth = nil
+    local SetGateCardWidth = function(width)
+        if width == m_gateCardWidth or gamesListPanel == nil or not gamesListPanel.valid then
+            return
+        end
+        local body = gamesListPanel.parent
+        local card = body ~= nil and body.parent or nil
+        if card ~= nil then
+            m_gateCardWidth = width
+            card.selfStyle.width = width
+        end
+    end
+
+    --A small gold heading over a group of rows in a location's card.
+    local ListSectionTitle = function(text)
+        return gui.Label{
+            text = string.upper(text),
+            fontSize = 17,
+            bold = true,
+            color = "#d9b56a",
+            width = "100%",
+            height = "auto",
+            tmargin = 14,
+            bmargin = 6,
         }
     end
 
@@ -1182,6 +1290,82 @@ CreateScreen = function(args)
             action = "set-heroes",
             args = { gameid = gameid, heroes = heroes },
             error = ShowGamesError,
+        }
+    end
+
+    --The set-heroes entry for one of our roster heroes (a list-heroes view).
+    --The city rewrites the display fields from its stored summary anyway;
+    --live working-copy values just keep our own view current until it does.
+    local RosterHeroSpec = function(hero)
+        local summary = hero.summary or {}
+        local spec = {
+            kind = "roster",
+            id = hero.heroid,
+            name = summary.name or "Hero",
+            className = summary.className or "",
+            ancestry = summary.ancestry,
+            level = summary.level,
+        }
+        local tok = dmhub.GetCharacterById(hero.heroid)
+        if tok ~= nil then
+            spec.className, spec.ancestry, spec.level = EotwRoster.HeroDetails(tok)
+        end
+        return spec, tok
+    end
+
+    --Bring our active heroes into a party we just formed or joined (user
+    --direction 2026-10-03): as many as fit the open slots and our per-player
+    --cap of 4, in roster order. Runs only while we hold no heroes there, so
+    --it never undoes a pick. Heroes in another party are skipped, except in
+    --leavingGameid, the party we are walking out of (its leave-game was sent
+    --first, and the city handles requests in order).
+    local ClaimActiveHeroes = function(gameid, leavingGameid)
+        if m_conn == nil then
+            return
+        end
+        local record = GetGameRecord(gameid)
+        local slotsTotal = MAX_HEROES
+        local slotsFilled = 0
+        if record ~= nil then
+            if #MyHeroesCopy(record) > 0 then
+                return
+            end
+            slotsTotal = math.min(record.slotsTotal or MAX_HEROES, MAX_HEROES)
+            slotsFilled = record.slotsFilled or 0
+        end
+        local space = math.min(4, slotsTotal - slotsFilled)
+
+        local busy = {}
+        for otherid,other in pairs(m_conn:GetPath("/state/games") or {}) do
+            local player = other.players ~= nil and other.players[dmhub.loginUserid] or nil
+            if otherid ~= gameid and otherid ~= leavingGameid and player ~= nil then
+                for _,h in ipairs(player.heroes or {}) do
+                    busy[h.id] = true
+                end
+            end
+        end
+
+        local heroes = {}
+        for _,hero in ipairs(EotwRoster.ActiveHeroes()) do
+            if #heroes >= space then
+                break
+            end
+            if hero.status ~= "fallen" and not busy[hero.heroid] then
+                heroes[#heroes+1] = (RosterHeroSpec(hero))
+            end
+        end
+        if #heroes == 0 then
+            return
+        end
+        m_conn:Request{
+            action = "set-heroes",
+            args = { gameid = gameid, heroes = heroes },
+            --automatic, so a refusal (a slot taken meanwhile) is not an
+            --error to the player: the party is joined either way and the
+            --heroes can still be added by hand.
+            error = function(message)
+                printf("EotW: could not bring in active heroes: %s", tostring(message))
+            end,
         }
     end
 
@@ -1277,6 +1461,7 @@ CreateScreen = function(args)
                 if prev ~= nil and prev ~= gameid then
                     DestroyPreviousGame(prev)
                 end
+                ClaimActiveHeroes(gameid, prev)
                 if OpenGameView ~= nil then
                     OpenGameView(gameid)
                 end
@@ -1506,13 +1691,14 @@ CreateScreen = function(args)
         end
 
         return gui.Panel{
-            width = "96%",
+            width = "100%",
             height = "auto",
             halign = "center",
             flow = "horizontal",
             bgimage = "panels/square.png",
-            bgcolor = "#ffffff11",
-            pad = 8,
+            bgcolor = "#ffffff0e",
+            cornerRadius = 8,
+            pad = 10,
             borderBox = true,
             vmargin = 4,
 
@@ -1560,10 +1746,12 @@ CreateScreen = function(args)
     --is the host looking at another player's hero; it drives Kick, which
     --removes that whole player (and all their heroes) from the roster.
     --The token behind a hero record, when this machine can resolve one:
-    --pregens come from the module snapshot cache, and MY lobby heroes live
-    --in the local lobby game. Other players' lobby heroes exist only on
-    --their machines, so they render with a silhouette placeholder.
-    local ResolveHeroToken = function(heroEntry, mine)
+    --pregens come from the module snapshot cache, and MY roster heroes live
+    --in the local lobby game. Another player's roster hero exists only on
+    --their machine, so the first ask fetches it from the City (get-hero
+    --carries its image records) as a detached token and rebuilds the view
+    --when it lands; until then the card shows a silhouette.
+    local ResolveHeroToken = function(heroEntry, mine, ownerUserid)
         if heroEntry.kind == "pregen" then
             return EncounterOfTheWeek.GetPregenToken(heroEntry.id)
         end
@@ -1571,6 +1759,42 @@ CreateScreen = function(args)
         if mine then
             return dmhub.GetCharacterById(heroEntry.id)
         end
+        if heroEntry.kind ~= "roster" or ownerUserid == nil or heroEntry.id == nil then
+            return nil
+        end
+        local key = string.format("%s|%s", ownerUserid, heroEntry.id)
+        local cached = m_remoteHeroTokens[key]
+        if cached ~= nil then
+            return cached or nil
+        end
+        if m_conn == nil then
+            return nil
+        end
+        m_remoteHeroTokens[key] = false
+        m_conn:Request{
+            action = "get-hero",
+            args = { userid = ownerUserid, heroid = heroEntry.id, asJson = true },
+            success = function(result)
+                if mod.unloaded then
+                    return
+                end
+                local tok = dmhub.CreateDetachedCharacter{
+                    record = result.record,
+                    assets = result.assets,
+                }
+                if tok == nil then
+                    printf("EotW: could not read %s's hero %s from the city", ownerUserid, heroEntry.id)
+                    return
+                end
+                m_remoteHeroTokens[key] = tok
+                if m_viewGameid ~= nil then
+                    RefreshGames()
+                end
+            end,
+            error = function(message)
+                printf("EotW: could not load %s's hero %s: %s", ownerUserid, heroEntry.id, tostring(message))
+            end,
+        }
         return nil
     end
 
@@ -1646,13 +1870,17 @@ CreateScreen = function(args)
             --a cloud-asset GUID whose record is not loaded cannot render
             --(e.g. pregen art on an engine build that does not register the
             --module's streamed images); drop it so the silhouette shows
-            --instead of an empty frame.
-            if IsUnresolvableAssetId(portrait) then
-                portrait = nil
-                portraitRect = nil
-            end
-            if IsUnresolvableAssetId(frameBg) then
-                frameBg = nil
+            --instead of an empty frame. A remote hero's art is registered
+            --as session extras, which assets.allAssets does not list, so
+            --artRegistered skips the check.
+            if not params.artRegistered then
+                if IsUnresolvableAssetId(portrait) then
+                    portrait = nil
+                    portraitRect = nil
+                end
+                if IsUnresolvableAssetId(frameBg) then
+                    frameBg = nil
+                end
             end
         end
 
@@ -1876,7 +2104,7 @@ CreateScreen = function(args)
         local kickUserid = params.kickUserid
         local mine = myIndex ~= nil
 
-        local tok = ResolveHeroToken(heroEntry, mine)
+        local tok = ResolveHeroToken(heroEntry, mine, params.ownerUserid)
 
         --prefer live token data; the roster record's display copies are the
         --fallback (all another player's lobby hero can offer).
@@ -1972,6 +2200,8 @@ CreateScreen = function(args)
             chipText = chipText,
             born = params.born,
             extras = extras,
+            --another player's roster hero: CreateDetachedCharacter registered its art.
+            artRegistered = not mine and heroEntry.kind == "roster",
         }
     end
 
@@ -2153,6 +2383,7 @@ CreateScreen = function(args)
                     gameid = gameid,
                     heroEntry = heroEntry,
                     ownerName = player.name,
+                    ownerUserid = userid,
                     myIndex = myIndex,
                     kickUserid = kickUserid,
                     born = knownBefore ~= nil and not knownBefore[key],
@@ -2307,28 +2538,6 @@ CreateScreen = function(args)
                 end,
             }
         end
-        --Debug: an admin can spawn a second app window logged in as the
-        --secondary account that opens this screen and joins this game, to
-        --exercise the multiplayer flow from one machine. Only while the
-        --game is open, since that is the only time a join can succeed;
-        --the child joins through the lobby like any player, so a private
-        --game rejects it (the error shows in the child's list).
-        if isMember and isOpen and dmhub.isAdminAccount then
-            buttons[#buttons+1] = gui.Button{
-                text = "Player Window",
-                fontSize = 20,
-                width = 160,
-                height = 44,
-                hmargin = 6,
-                click = function()
-                    dmhub.DuplicateWindowInNewProcess{
-                        asplayer = true,
-                        connect = false,
-                        args = string.format("--eotw-game %s", gameid),
-                    }
-                end,
-            }
-        end
         --Re-join a game already in progress: any member once it is "ready",
         --or the host while it is still "launched" (their re-entry re-runs
         --the setup, which is re-entry safe). This is the manual path back
@@ -2425,13 +2634,14 @@ CreateScreen = function(args)
         --(RefreshGames is declared later in the file and not in scope here).
         local rowPanel
         rowPanel = gui.Panel{
-            width = "96%",
+            width = "100%",
             height = "auto",
             halign = "center",
             flow = "horizontal",
             bgimage = "panels/square.png",
             bgcolor = "#334422aa",
-            pad = 8,
+            cornerRadius = 8,
+            pad = 10,
             borderBox = true,
             vmargin = 4,
 
@@ -2495,7 +2705,7 @@ CreateScreen = function(args)
         return rowPanel
     end
 
-    local RefreshGames = function()
+    RefreshGames = function()
         if gamesListPanel == nil or not gamesListPanel.valid then
             return
         end
@@ -2508,30 +2718,6 @@ CreateScreen = function(args)
         --still re-renders below while the game switch spins up.
         CheckLaunchedGames()
 
-        --debug player window (see EncounterOfTheWeek.autoJoinGameid): the
-        --first roster snapshot that names the game joins it -- or just
-        --opens its view if this account is somehow already a member.
-        --One shot: a rejected join (private game, full, launched) shows
-        --the error and leaves the player on the list.
-        if EncounterOfTheWeek.autoJoinGameid ~= nil and m_conn.connected then
-            local games = m_conn:GetPath("/state/games")
-            if games ~= nil then
-                local gameid = EncounterOfTheWeek.autoJoinGameid
-                EncounterOfTheWeek.autoJoinGameid = nil
-                local record = games[gameid]
-                if record == nil then
-                    ShowGamesError("Player window: the game to join is no longer listed.")
-                else
-                    local myUserid = dmhub.loginUserid
-                    if record.hostUserid == myUserid or (record.players ~= nil and record.players[myUserid] ~= nil) then
-                        OpenGameView(gameid)
-                    else
-                        JoinGame(gameid)
-                    end
-                end
-            end
-        end
-
         --game lobby view mode: render the viewed game, falling back to
         --the list if it vanished (abandoned, expired, or we left it).
         if m_viewGameid ~= nil then
@@ -2541,6 +2727,7 @@ CreateScreen = function(args)
                 ShowGamesError("That game is no longer available.")
                 RefreshChat()
             else
+                SetGateCardWidth(GATE_CARD_WIDTH_PARTY)
                 gamesListPanel.children = BuildGameView(m_viewGameid, record)
                 if gamesTitleLabel ~= nil and gamesTitleLabel.valid then
                     gamesTitleLabel.text = "Your Party"
@@ -2556,8 +2743,9 @@ CreateScreen = function(args)
             end
         end
 
+        SetGateCardWidth(GATE_CARD_WIDTH_LIST)
         if gamesTitleLabel ~= nil and gamesTitleLabel.valid then
-            gamesTitleLabel.text = "The Town Gate"
+            gamesTitleLabel.text = "Adventuring Parties"
         end
         if createGameButton ~= nil and createGameButton.valid then
             createGameButton:SetClass("collapsed", false)
@@ -2596,7 +2784,7 @@ CreateScreen = function(args)
             end
         end
 
-        children[#children+1] = AreaTitle("Parties Forming")
+        children[#children+1] = ListSectionTitle("Parties Forming")
         if #forming == 0 then
             children[#children+1] = EmptyNote("No parties are forming right now. Form one and others can join you!")
         end
@@ -2604,7 +2792,7 @@ CreateScreen = function(args)
             children[#children+1] = row
         end
         if #underway > 0 then
-            children[#children+1] = AreaTitle("Encounters Underway")
+            children[#children+1] = ListSectionTitle("Encounters Underway")
             for _,row in ipairs(underway) do
                 children[#children+1] = row
             end
@@ -2877,22 +3065,7 @@ CreateScreen = function(args)
         end)
         local myCards = {}
         for _,hero in ipairs(heroes) do
-            local summary = hero.summary or {}
-            local tok = dmhub.GetCharacterById(hero.heroid)
-            local spec = {
-                kind = "roster",
-                id = hero.heroid,
-                name = summary.name or "Hero",
-                className = summary.className or "",
-                ancestry = summary.ancestry,
-                level = summary.level,
-            }
-            if tok ~= nil then
-                local className, ancestry, level = EotwRoster.HeroDetails(tok)
-                spec.className = className
-                spec.ancestry = ancestry
-                spec.level = level
-            end
+            local spec, tok = RosterHeroSpec(hero)
             local noteText = nil
             if EotwRoster.HasCompleted(hero, record.encounter ~= "" and record.encounter or ENCOUNTER_MAP_NAME) then
                 noteText = "Already Completed"
@@ -2919,6 +3092,8 @@ CreateScreen = function(args)
             styles = { Styles.Default },
 
             captureEscape = true,
+            --above the town's own escape (see the screen below).
+            escapePriority = EscapePriority.EXIT_MODAL_DIALOG,
             escape = function(element)
                 element:DestroySelf()
             end,
@@ -3082,6 +3257,7 @@ CreateScreen = function(args)
                                             action = "join-game",
                                             args = { gameid = gameid },
                                             success = function()
+                                                ClaimActiveHeroes(gameid, prev)
                                                 --straight into the new game's
                                                 --lobby view to pick heroes.
                                                 if OpenGameView ~= nil then
@@ -3136,6 +3312,8 @@ CreateScreen = function(args)
             styles = { Styles.Default },
 
             captureEscape = true,
+            --above the town's own escape (see the screen below).
+            escapePriority = EscapePriority.EXIT_MODAL_DIALOG,
             escape = function(element)
                 element:DestroySelf()
             end,
@@ -3297,6 +3475,23 @@ CreateScreen = function(args)
     --- @type Panel
     local chatPanel = nil
 
+    --The location open full screen over the map ("guild", "gate"), or nil
+    --on the map. The town's own furniture (map, plaque, hero strip) hides
+    --while one is open. The Gate's scene is built once and kept, because its
+    --games list must stay live (RefreshGames is what notices a launched
+    --game and takes us into it); the Guild's is built on each visit.
+    local m_locationId = nil
+    local m_guildScene = nil
+    local gateScene = nil
+    local locationHost = nil
+    local townViewport = nil
+    local townPlaque = nil
+    local chatButton = nil
+    ---@type fun(id: string)
+    local OpenLocation = nil
+    ---@type fun()
+    local CloseLocation = nil
+
     local ApplyPan = function()
         m_panX = math.max(0, math.min(mapW - panelWidth, m_panX))
         m_panY = math.max(0, math.min(mapH - panelHeight, m_panY))
@@ -3310,13 +3505,10 @@ CreateScreen = function(args)
 
     local townContext = {
         OpenGuild = function()
-            EotwRoster.ShowGuild(resultPanel)
+            OpenLocation("guild")
         end,
         OpenGate = function()
-            if gatePanel ~= nil and gatePanel.valid then
-                gatePanel:SetClass("collapsed", false)
-                RefreshGames()
-            end
+            OpenLocation("gate")
         end,
         OpenGraveyard = function()
             EotwRoster.ShowGraveyard(resultPanel)
@@ -3454,6 +3646,205 @@ CreateScreen = function(args)
         },
     }
 
+    ---- locations: full-screen scenes over the map ----
+
+    --The card holding a location's controls sits on the right, clear of the
+    --close button above it and the creator credit + chat button below it.
+    local SCENE_CARD_TOP = 76
+    local SCENE_CARD_BOTTOM = 104
+    local SCENE_CARD_MARGIN = 40
+    --The chat button moves left of the creator's logo while a scene is up
+    --(the badge is 170 wide, 28 in from the edge).
+    local SCENE_CHAT_BUTTON_MARGIN = 28 + 170 + 24
+
+    local sceneStyles = {
+        {
+            selectors = { "eotwSceneCard" },
+            bgimage = "panels/square.png",
+            --translucent on purpose: the art should read through the card.
+            bgcolor = "#0e0b08dc",
+            borderWidth = 1,
+            borderColor = "#d9b56a55",
+            cornerRadius = 12,
+        },
+        {
+            selectors = { "eotwSceneBack" },
+            bgimage = "panels/square.png",
+            bgcolor = "#0b0907b0",
+            borderWidth = 1,
+            borderColor = "#d9b56a66",
+            cornerRadius = 20,
+            transitionTime = 0.12,
+        },
+        {
+            selectors = { "eotwSceneBack", "hover" },
+            bgcolor = "#3a2e1ad0",
+            borderColor = "#d9b56a",
+        },
+        {
+            selectors = { "eotwSceneBackIcon" },
+            bgcolor = "#d9b56a",
+        },
+        {
+            selectors = { "eotwSceneBackIcon", "parent:hover" },
+            bgcolor = "#ffe9b0",
+        },
+    }
+
+    --The top-left of a scene: the way back to the map, then the place's
+    --name over a gold rule and a line about it.
+    local SceneHeader = function(scene)
+        return gui.Panel{
+            floating = true,
+            halign = "left",
+            valign = "top",
+            hmargin = 56,
+            vmargin = 40,
+            width = 620,
+            height = "auto",
+            flow = "vertical",
+
+            gui.Panel{
+                classes = { "eotwSceneBack" },
+                width = "auto",
+                height = 40,
+                hpad = 16,
+                borderBox = true,
+                flow = "horizontal",
+                hoverCursor = "pressbutton",
+                hover = function(element)
+                    audio.FireSoundEvent("Mouse.Hover")
+                end,
+                press = function(element)
+                    audio.FireSoundEvent("Mouse.Click")
+                    CloseLocation()
+                end,
+                gui.Panel{
+                    classes = { "eotwSceneBackIcon" },
+                    interactable = false,
+                    bgimage = "phosphor/arrow-left-bold.png",
+                    width = 18,
+                    height = 18,
+                    valign = "center",
+                    rmargin = 10,
+                },
+                gui.Label{
+                    interactable = false,
+                    text = "Back to Town",
+                    fontSize = 17,
+                    bold = true,
+                    color = "#f6ead0",
+                    width = "auto",
+                    height = "auto",
+                    valign = "center",
+                },
+            },
+
+            gui.Label{
+                text = "<cspace=0.3em>BLACKBOTTOM</cspace>",
+                fontSize = 15,
+                bold = true,
+                color = "#d9b56a",
+                width = "auto",
+                height = "auto",
+                tmargin = 34,
+            },
+            gui.Label{
+                text = scene.title,
+                fontFace = "display",
+                fontSize = 68,
+                color = "#f6ead0",
+                width = "auto",
+                height = "auto",
+            },
+            --a gold rule, fading out to the right.
+            gui.Panel{
+                width = 340,
+                height = 2,
+                tmargin = 6,
+                bgimage = "panels/square.png",
+                bgcolor = "#d9b56a",
+                gradient = gui.Gradient{
+                    point_a = { x = 0, y = 0.5 },
+                    point_b = { x = 1, y = 0.5 },
+                    stops = {
+                        { position = 0, color = core.Color{ r = 1, g = 1, b = 1, a = 1 } },
+                        { position = 0.5, color = core.Color{ r = 1, g = 1, b = 1, a = 0.8 } },
+                        { position = 1, color = core.Color{ r = 1, g = 1, b = 1, a = 0 } },
+                    },
+                },
+            },
+            gui.Label{
+                text = scene.tagline,
+                fontSize = 20,
+                italics = true,
+                color = "#ece3cf",
+                width = 560,
+                height = "auto",
+                tmargin = 16,
+            },
+        }
+    end
+
+    --A location's full-screen scene: its art (credited to its creator by
+    --CreatorCredit.Backdrop), a shade down the left for the header to read
+    --on, the header, and a card on the right holding content. The scene is
+    --opaque, so the map behind it takes no clicks.
+    local LocationScene = function(loc, cardWidth, content)
+        local scene = loc.scene
+        return CreatorCredit.Backdrop{
+            width = panelWidth,
+            height = panelHeight,
+            image = scene.art,
+            aspect = scene.aspect,
+            focusX = scene.focusX,
+            badge = { hmargin = 28, vmargin = 24 },
+            children = {
+                gui.Panel{
+                    floating = true,
+                    halign = "left",
+                    valign = "top",
+                    width = 1000,
+                    height = panelHeight,
+                    interactable = false,
+                    bgimage = "panels/square.png",
+                    bgcolor = "black",
+                    gradient = gui.Gradient{
+                        point_a = { x = 0, y = 0.5 },
+                        point_b = { x = 1, y = 0.5 },
+                        stops = {
+                            { position = 0, color = core.Color{ r = 1, g = 1, b = 1, a = 0.78 } },
+                            { position = 0.4, color = core.Color{ r = 1, g = 1, b = 1, a = 0.45 } },
+                            { position = 1, color = core.Color{ r = 1, g = 1, b = 1, a = 0 } },
+                        },
+                    },
+                },
+                gui.Panel{
+                    styles = sceneStyles,
+                    floating = true,
+                    width = "100%",
+                    height = "100%",
+                    flow = "none",
+                    SceneHeader(scene),
+                    gui.Panel{
+                        classes = { "eotwSceneCard" },
+                        floating = true,
+                        halign = "right",
+                        valign = "top",
+                        hmargin = SCENE_CARD_MARGIN,
+                        tmargin = SCENE_CARD_TOP,
+                        width = cardWidth,
+                        height = panelHeight - SCENE_CARD_TOP - SCENE_CARD_BOTTOM,
+                        pad = 24,
+                        borderBox = true,
+                        flow = "vertical",
+                        content,
+                    },
+                },
+            },
+        }
+    end
+
     --The active heroes along the bottom: the hero cards the montage uses
     --(EotwHeroCard), one per active roster hero whose working copy has
     --loaded. Clicking a card opens that hero's sheet.
@@ -3536,28 +3927,30 @@ CreateScreen = function(args)
         end,
     }
 
-    --The Town Gate: parties forming up and encounters underway (the
-    --roster records of the city's games list), forming a party, and a
-    --party's own view while you are in it.
+    --The Town Gate's controls, the body of its scene: parties forming up and
+    --encounters underway (the roster records of the city's games list),
+    --forming a party, and a party's own view while you are in it.
     gatePanel = gui.Panel{
-        classes = { "eotw-area", "collapsed" },
-        floating = true,
-        bgimage = "panels/square.png",
-        width = 1180,
-        height = 900,
-        halign = "center",
-        valign = "center",
+        width = "100%",
+        height = "100%",
         flow = "vertical",
-        styles = areaStyles,
-        cornerRadius = 10,
 
-        AreaTitle("The Town Gate", function(element)
-            gamesTitleLabel = element
-        end),
+        gui.Label{
+            text = "Adventuring Parties",
+            fontSize = 26,
+            bold = true,
+            color = "#efe4cc",
+            width = "100%",
+            height = "auto",
+            bmargin = 4,
+            create = function(element)
+                gamesTitleLabel = element
+            end,
+        },
 
         gui.Panel{
             width = "100%",
-            height = "100%-200",
+            height = "100%-110",
             flow = "vertical",
             vscroll = true,
             rpad = 12,
@@ -3574,9 +3967,9 @@ CreateScreen = function(args)
         gui.Label{
             fontSize = 16,
             color = "#ff8888",
-            width = "94%",
+            width = "100%",
             height = 22,
-            halign = "center",
+            textAlignment = "center",
             text = "",
             create = function(element)
                 gamesErrorLabel = element
@@ -3590,41 +3983,75 @@ CreateScreen = function(args)
             end,
         },
 
-        gui.Panel{
-            width = "auto",
-            height = "auto",
+        --hidden while a party view is open (RefreshGames collapses it);
+        --leaving the party is the way back to the list.
+        gui.Button{
+            text = "Form a Party",
+            fontSize = 22,
+            width = 240,
+            height = 48,
             halign = "center",
             valign = "bottom",
-            vmargin = 10,
-            flow = "horizontal",
-
-            --hidden while a party view is open (RefreshGames collapses it);
-            --leaving the party is the way back to the list.
-            gui.Button{
-                text = "Form a Party",
-                fontSize = 22,
-                width = 220,
-                height = 48,
-                hmargin = 8,
-                create = function(element)
-                    createGameButton = element
-                end,
-                click = function(element)
-                    ShowCreateDialog()
-                end,
-            },
-            gui.Button{
-                text = "Back to Town",
-                fontSize = 22,
-                width = 220,
-                height = 48,
-                hmargin = 8,
-                click = function(element)
-                    gatePanel:SetClass("collapsed", true)
-                end,
-            },
+            create = function(element)
+                createGameButton = element
+            end,
+            click = function(element)
+                ShowCreateDialog()
+            end,
         },
     }
+
+    gateScene = LocationScene(CityLocation("gate"), GATE_CARD_WIDTH_LIST, gatePanel)
+    gateScene:SetClass("collapsed", true)
+
+    --Hides the town's own furniture while a scene is up, and moves the chat
+    --button clear of the scene's creator credit.
+    local ApplyLocationMode = function()
+        local inLocation = m_locationId ~= nil
+        for _,p in ipairs({ townViewport, townPlaque, heroStrip }) do
+            if p ~= nil and p.valid then
+                p:SetClass("collapsed", inLocation)
+            end
+        end
+        if chatButton ~= nil and chatButton.valid then
+            chatButton.selfStyle.hmargin = cond(inLocation, SCENE_CHAT_BUTTON_MARGIN, 20)
+        end
+    end
+
+    CloseLocation = function()
+        if m_locationId == nil then
+            return
+        end
+        if gateScene ~= nil and gateScene.valid then
+            gateScene:SetClass("collapsed", true)
+        end
+        if m_guildScene ~= nil and m_guildScene.valid then
+            m_guildScene:DestroySelf()
+        end
+        m_guildScene = nil
+        m_locationId = nil
+        ApplyLocationMode()
+    end
+
+    OpenLocation = function(id)
+        if m_locationId == id or locationHost == nil or not locationHost.valid then
+            return
+        end
+        CloseLocation()
+        m_locationId = id
+        if id == "gate" then
+            gateScene:SetClass("collapsed", false)
+            CreatorCredit.ReplayFade(gateScene)
+            --re-check the resume row too: the lookup made when the screen
+            --was built can come back empty if the lobby was not ready yet.
+            RefreshResumeState()
+            RefreshGames()
+        elseif id == "guild" then
+            m_guildScene = LocationScene(CityLocation("guild"), 860, EotwRoster.GuildPanel(resultPanel))
+            locationHost:AddChild(m_guildScene)
+        end
+        ApplyLocationMode()
+    end
 
     --Town chat + who is in town, in a drawer over the bottom-right corner.
     chatPanel = gui.Panel{
@@ -3754,14 +4181,21 @@ CreateScreen = function(args)
         },
 
         captureEscape = true,
+        --Above the titlescreen's own escape (3) and below the hero builder
+        --(5, see EotwBuilder.lua), which mounts over this screen. The town's
+        --dialogs sit at EXIT_MODAL_DIALOG. The close button does NOT take
+        --escape: at its default EXIT_DIALOG it would close the whole town
+        --from inside a location, a dialog, or the builder.
+        escapePriority = 4,
         escape = function(element)
-            --close the topmost town panel first; the town itself last.
-            if gatePanel ~= nil and gatePanel.valid and not gatePanel:HasClass("collapsed") then
-                gatePanel:SetClass("collapsed", true)
-                return
-            end
+            --close the topmost town panel first: the chat drawer, then
+            --an open location, and the town itself last.
             if chatPanel ~= nil and chatPanel.valid and not chatPanel:HasClass("collapsed") then
                 chatPanel:SetClass("collapsed", true)
+                return
+            end
+            if m_locationId ~= nil then
+                CloseLocation()
                 return
             end
             element:FireEvent("closeEncounterOfTheWeek")
@@ -3872,6 +4306,9 @@ CreateScreen = function(args)
             dragMove = false,
             dragThreshold = 4,
             styles = townStyles,
+            create = function(element)
+                townViewport = element
+            end,
             events = {
                 press = function(element)
                     m_dragStartX = m_panX
@@ -3927,6 +4364,9 @@ CreateScreen = function(args)
             hmargin = 20,
             vmargin = 20,
             width = 440,
+            create = function(element)
+                townPlaque = element
+            end,
             height = "auto",
             flow = "vertical",
             styles = townStyles,
@@ -3982,7 +4422,20 @@ CreateScreen = function(args)
 
         heroStrip,
 
-        --chat drawer toggle, bottom-right.
+        --the open location's full-screen scene, over the town and under the
+        --chat and the close button (see OpenLocation).
+        gui.Panel{
+            floating = true,
+            width = "100%",
+            height = "100%",
+            flow = "none",
+            create = function(element)
+                locationHost = element
+            end,
+            gateScene,
+        },
+
+        --chat drawer toggle, bottom-right (left of a scene's creator credit).
         gui.Button{
             text = "Town Chat",
             fontSize = 18,
@@ -3993,6 +4446,9 @@ CreateScreen = function(args)
             bmargin = 20,
             width = 160,
             height = 44,
+            create = function(element)
+                chatButton = element
+            end,
             click = function(element)
                 chatPanel:SetClass("collapsed", not chatPanel:HasClass("collapsed"))
                 RefreshChat()
@@ -4000,7 +4456,6 @@ CreateScreen = function(args)
         },
 
         chatPanel,
-        gatePanel,
 
         gui.CloseButton{
             floating = true,
@@ -4008,6 +4463,7 @@ CreateScreen = function(args)
             valign = "top",
             hmargin = 12,
             vmargin = 12,
+            escapeActivates = false,
             click = function(element)
                 element:FireEventOnParents("closeEncounterOfTheWeek")
             end,

@@ -6806,6 +6806,15 @@ local function CreateTopBar()
                     items[#items+1] = storeItem
                 end
 
+                --Encounter of the Week's debug rows (admin, town open).
+                --rawget: tolerate a codex without the EotW file loaded.
+                local eotw = rawget(_G, "EncounterOfTheWeek")
+                if eotw ~= nil and eotw.CodexMenuItems ~= nil then
+                    for _,eotwItem in ipairs(eotw.CodexMenuItems()) do
+                        items[#items+1] = eotwItem
+                    end
+                end
+
                 items[#items+1] = {
                     text = "Quit to Desktop",
                     icon = "game-icons/power-button.png",

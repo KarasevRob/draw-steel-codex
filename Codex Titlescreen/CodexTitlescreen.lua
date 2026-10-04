@@ -928,7 +928,8 @@ local function LobbyHeroes()
         --Encounter of the Week town heroes (Codex Titlescreen/EotwRoster.lua)
         --are working copies of heroes stored in the Blackbottom city; they
         --live in the lobby game too but are never titlescreen heroes.
-        local townHero = props ~= nil and rawget(props, "eotwHero") == true
+        --An unfinished EotW hero (eotwDraft) is the town builder's, too.
+        local townHero = props ~= nil and (rawget(props, "eotwHero") == true or rawget(props, "eotwDraft") == true)
         local ctime = props ~= nil and rawget(props, "ctime") or nil
         if type(ctime) ~= "number" then
             --Absent on module content; a non-number errors the comparator mid-sort.
@@ -7153,9 +7154,8 @@ function CreateTitlescreen(dialog, options)
             OfferPromoGrants(titlescreen)
 
             --A debug Encounter of the Week player window (launched with
-            ----eotw-game) goes straight to the EotW screen, which then
-            --joins the named game. rawget: see the eotwTitlescreenLink
-            --note on load order.
+            ----eotw) goes straight to the EotW screen, once. rawget: see
+            --the eotwTitlescreenLink note on load order.
             local eotw = rawget(_G, "EncounterOfTheWeek")
             if eotw ~= nil and eotw.WantsAutoOpen ~= nil and eotw.WantsAutoOpen() then
                 eotw.ShowScreen()

@@ -33,6 +33,6 @@ function CharacterTokenAnimationLua.ConfigureSpawnedParticles(inst, args) end
 --- @param args table
 function CharacterTokenAnimationLua:Tween(args) end
 
---- Hide or show every Renderer and Canvas on the token (sprite, frame, spine, shadow, HUD). Records which were enabled so SetVisible(true) only re-enables those (a token already hidden by fog stays hidden). Engine guarantees the token is restored visible when the animation finishes; SetVisible(true) is only needed if the script wants visibility back partway through.
+--- Hide or show every Renderer and Canvas on the token (sprite, frame, spine, shadow, HUD). Records which were enabled so SetVisible(true) only re-enables those (a token already hidden by fog stays hidden). Inside a token animation the engine guarantees the token is restored visible when the animation finishes; SetVisible(true) is only needed if the script wants visibility back partway through. Outside an animation it is client-local and lasts until SetVisible(true) or the token is removed from the map, e.g. hiding a token the instant before it is despawned so its despawn fade is never seen.
 --- @param visible? boolean
 function CharacterTokenAnimationLua:SetVisible(visible) end

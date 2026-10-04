@@ -1,6 +1,7 @@
 ---@meta
 
 --- @class CharacterToken
+--- @field debugFlag boolean (Undocumented: engine-internal, not part of the modding API.)
 --- @field charid string The charid (also known as tokenid) of the token/character. Uniquely identifies this token.
 --- @field debugInfo string A summary of this token suitable for outputting to a debug log.
 --- @field monitorPath string (Read-only) The 'path' within the game's cloud storage that this token resides at. If you want to see if this token has changed, you can monitor that path. @see Panel.monitorGame
@@ -81,6 +82,7 @@
 --- @field portraitFrameBrightness number
 --- @field portraitFrame nil|string
 --- @field portraitFrameMaterial nil|string Id of a premium frame material registered with dmhub.tokenFrames:Register that lights this token's frame ring (normal map, roughness/metallic, sheen). nil or empty = plain frame texture. This does not change portraitFrame: set portraitFrame to the material's albedo asset as well, so clients and UI that only know the flat frame still show it. Upload with UploadAppearance.
+--- @field portraitRibbon nil|string (Undocumented: engine-internal, not part of the modding API.)
 --- @field teleportAnimation string The id of the registered token animation (see dmhub.tokenAnimations:RegisterTeleport) played when this token teleports. Empty string -> no animation, logical teleport only.
 --- @field animation CharacterTokenAnimationLua The per-token animation interface used inside a token-animation callback. Provides Light / Billboard / PlayEffect / Tween / SetVisible primitives plus a sound passthrough. Spawns made while a scripted animation is running are tracked and stopped automatically when the animation ends.
 --- @field offTokenPortrait string
@@ -110,8 +112,6 @@
 --- @field initiativeStatus InitiativeStatus (Read-only) the initiative status of the token.
 --- @field countFloorsWithVisionAbove number The number of floors above this token that the token can 'look up' at. Generally this requires there being a hole directly above the token.
 --- @field countFloorsAbove number The number of floors above this token, regardless of whether there are holes above them.
---- @field debugFlag boolean (Undocumented: engine-internal, not part of the modding API.)
---- @field portraitRibbon nil|string (Undocumented: engine-internal, not part of the modding API.)
 CharacterToken = {}
 
 --- Returns true if this token id is not a 'real' in game token but instead a preview token shown to an in app camera.
@@ -308,6 +308,11 @@ function CharacterToken:IsFriend(other) end
 --- @deprecated
 --- @return any
 function CharacterToken:GetCreature() end
+
+--- Plays a named particle effect (any effect in the token or dice effect libraries -- the names the Dice Studio particle picker lists) on this token for EVERY client on the map, not just this one. Args are those of token.animation:PlayEffect except pos: id, scale, rotation (degrees about Z, or an {x,y,z} euler table), tint, looping, ttl (a looping effect with a ttl stops itself after it -- recommended, as a safety net), delay. Each client plays it only while it can see the token, and loads the effect first if it isn't loaded yet. Transient: clients that arrive on the map later do not see it. handle:Stop() on this client stops it everywhere. Do not call it from inside a token animation (those already run on every client); use token.animation:PlayEffect there.
+--- @param args {id: string, scale: nil|number, rotation: nil|number|{x: number, y: number, z: number}, tint: nil|ColorArg, looping: nil|boolean, ttl: nil|number, delay: nil|number}
+--- @return NetworkedEffectHandleLua
+function CharacterToken:BroadcastEffect(args) end
 
 --- Set the spine animation playing on this token. id is the animation name (required); transition is the cross-fade duration in seconds (optional); loop defaults to true; track defaults to 0. No-op if the token doesn't have an active spine animation or if the named animation isn't found in the skeleton.
 --- @param options {id: string, transition: nil|number, loop: nil|boolean, track: nil|number}

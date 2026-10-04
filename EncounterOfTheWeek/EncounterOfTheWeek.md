@@ -83,6 +83,10 @@ handovers on a non-host screen.
 | **City DO** for the Blackbottom town (committed; listed for its deploy state) (2026-10-02; see "The City DO") | `cloudflare-game-server`: new `src/city.ts`, `src/city-core.ts`, `test/city-core.test.ts`, `test/city-smoke.ts`; hooks in `src/lobby.ts`; `"roster"` hero kind in `src/lobby-core.ts`; routes in `src/index.ts`; binding + migration `v4` in `wrangler.toml` and `wrangler.dmhub.toml`; `CLAUDE.md` | **DEPLOYED to staging 2026-10-02** (version `a867550f`); `city-smoke.ts` all 34 checks passed against staging; committed dmhub `4a0a9e3af` |
 | **Town front end** (2026-10-02; see "The town client") | Engine: `Assets/Scripts/LobbyConnection.cs`, `LobbiesLua.cs` (route option, empty-args fix), `GameController.cs` + `LuaInterface.cs` (`ExportCharacter`/`ImportCharacter`); stubs `Definitions/dmhub.lua`, `Definitions/lobbies.lua`. Codex: NEW `Codex Titlescreen/EotwHeroCard.lua` and `EotwRoster.lua` (registered in the Codex Titlescreen codemod, Firebase confirmed), `EncounterOfTheWeek.lua` (the town screen), `CodexTitlescreen.lua` (`TitlescreenHeroes`, `LobbyHeroes` skip), `EncounterOfTheWeek/EncounterOfTheWeekHud.lua` (card aliases), `EncounterOfTheWeek/EncounterOfTheWeek.lua` (city id). Server: `city.ts`/`city-core.ts` `asJson` + tests | C# BUILT (dev build); server DEPLOYED to staging (`22189dfe`); Lua typing clean; single-client verified live (see that section); NOT deployed to the cloud codemods (new core files need an app restart wherever they land) |
 | **Encounter stories + Victories** (2026-10-02; see "Encounter stories and the Victory award") | Server: `city-core.ts` / `city.ts` (`city_completions`, `record-outcome {completed}`, `completed` on `list-heroes` and party heroes), `lobby-core.ts` (`completed` survives sanitizing), `test/city-core.test.ts` (307/307). Core: `Draw Steel UI/DSVictoryScreen.lua` (`AwardVictories` + exemptions). Codex: `EncounterScript.lua` (story sections) + `tests/encounter_script_test.lua` (474), `EncounterOfTheWeek.lua` (game side), `EncounterMontageStage.lua` (`ShowStoryScreen`), `Codex Titlescreen/EncounterOfTheWeek.lua`, `Codex Titlescreen/EotwRoster.lua`. Publisher: `tools/eotw_publish/documents.py` (`story_section`), `publish_eotw.py`. Content: `C:\dev\eotw\objectTables\documents\encounter.yaml` (Goblin Ambush: Town Gate, Conclusion, Defeat) | Unit tests + luac + typing pass; **module v29 PUBLISHED 2026-10-03** (dataid `d240b941`, carries the Town Gate text); Form a Party backstory verified live; server NOT deployed (the user deploys: `npm run deploy` in `cloudflare-game-server`); the rest unverified |
+| **EotW hero builder** (2026-10-03; see "The hero builder and hero sheet") | NEW `Codex Titlescreen/EotwBuild.lua` (step engine) and `EotwBuilder.lua` (screen), both registered in the Codex Titlescreen codemod (Firebase confirmed); `EotwRoster.lua` (drafts, Create/Continue/Discard, Rebuild); `CodexTitlescreen.lua` (`LobbyHeroes` skips `eotwDraft`) | Typing clean; engine MCP-verified; screen user-tested once, round-1 fixes not re-tested; needs an app restart to load |
+| **New Player Window in the Codex menu** (2026-10-03; see "Debug New Player Window"): the game view's "Player Window" button and its `--eotw-game` auto-join removed | `Codex Titlescreen/EncounterOfTheWeek.lua` (`autoOpen`/`WantsAutoOpen`, `IsScreenOpen`, `CodexMenuItems`), `CodexTitleBar.lua` (main-menu Codex menu appends them), `CodexTitlescreen.lua` (comment) | luac + typing clean; no engine change (uses the existing `connect`/`args` options); needs an app restart; UNTESTED |
+| **Active heroes join by default + other players' portraits in the party view** (2026-10-03; see "The town client", Gate) | Engine: `GameController.ReadDetachedCharacter`, `LuaInterface.cs` `dmhub.CreateDetachedCharacter`; stub `Definitions/dmhub.lua`. Codex: `Codex Titlescreen/EncounterOfTheWeek.lua` (`ClaimActiveHeroes`, `RosterHeroSpec`, `ResolveHeroToken` + `m_remoteHeroTokens`, `artRegistered`; `RefreshGames` is now forward-declared) | C# NEEDS BUILD; luac + typing clean; needs an app restart; UNTESTED |
+| **Location scenes + creator credits** (2026-10-03; see "The town client" -> "Locations take over the screen" and "Creator credits") | NEW `DMHub Core UI/CreatorCredit.lua` (registered, Firebase confirmed); `Codex Titlescreen/EncounterOfTheWeek.lua` (scenes, Gate card, Escape fix); `Codex Titlescreen/EotwRoster.lua` (`GuildPanel` replaces `ShowGuild`; ModalFrame escape priority). Art + logo uploaded as core image assets | luac + typing clean; verified live on one client: both scenes, the logo's tooltip, Back, Escape, the recruit picker and Form a Party dialog over the scenes. Party view at 1240 wide and the video path not seen. NOT deployed to the cloud codemods; the new core file needs an app restart wherever it lands |
 | This document | | |
 
 The codex working copy also holds plenty of unrelated uncommitted work, so
@@ -168,7 +172,10 @@ In a real EotW game with **at least two clients** and the current week:
    - finish the single-client checks: form a party with a roster hero
      (abandon the old staging EotW game first), Begin and play, Create
      through the builder, dismiss;
-   - pre-select the active heroes in the add-hero picker;
+   - verify the active-hero auto-claim and remote portraits (BUILT
+     2026-10-03, see "The town client"; needs the engine build for
+     `dmhub.CreateDetachedCharacter`): form a party and join one from the
+     New Player Window, each with active heroes;
    - verify the encounter stories + Victory award live (see that section's
      "Not yet verified"): deploy the City to staging (`npm run deploy`; the
      module is already republished as v29), then play Goblin Ambush to a
@@ -179,9 +186,10 @@ In a real EotW game with **at least two clients** and the current week:
    - other players' heroes in town (`town-heroes`) and a second machine;
    - the real map export.
 
-8. **The hero builder and hero sheet** (designed 2026-10-03, not started;
-   see that section). First answer its open questions, then start with build
-   step 1 (the headless step engine).
+8. **The hero builder and hero sheet** (see that section). Step engine and
+   builder screen BUILT 2026-10-03, with the user's round-1 notes addressed.
+   Next: re-test those notes, a live end-to-end Create -> Finish -> roster,
+   then build step 5 (the read-only hero sheet).
 
    Progression is Phase 11, after its own design pass. **Note:** the EotW
    screen now IS the town, and its games live in the City's roster instead
@@ -196,6 +204,7 @@ In a real EotW game with **at least two clients** and the current week:
 | Titlescreen screen, lobby client UI, create/join/launch, hero picker | `Codex Titlescreen/EncounterOfTheWeek.lua` (core codex, Codex Titlescreen codemod, before `CodexTitlescreen.lua`) |
 | Titlescreen link | `Codex Titlescreen/CodexTitlescreen.lua` (`eotwTitlescreenLink`) |
 | Town roster sync, Hero's Guild, Graveyard | `Codex Titlescreen/EotwRoster.lua` (global `EotwRoster`) |
+| Creator credits (logo badge, art backdrop) for the location scenes | `DMHub Core UI/CreatorCredit.lua` (global `CreatorCredit`, core) |
 | Hero card (town strip + montage HUD) | `Codex Titlescreen/EotwHeroCard.lua` (global `EotwHeroCard`) |
 | City DO (the town's server) | `cloudflare-game-server/src/city-core.ts` (pure logic), `src/city.ts` (`CityObject`), tests `test/city-core.test.ts`, `test/city-smoke.ts` |
 | Character export/import | `dmhub.ExportCharacter` / `dmhub.ImportCharacter` in `Assets/Scripts/LuaInterface.cs` -> `GameController.ExportCharacter` / `ImportCharacter` |
@@ -328,8 +337,9 @@ All in `Codex Titlescreen/EncounterOfTheWeek.lua`, mounted on
   "Level N Ancestry Class", "Controlled by <player>", a PREGEN chip), a hover
   trash on your own heroes, a hover kick on others' (host), and a "+" card
   that opens the Add Hero picker (a card grid of your titlescreen heroes and
-  the pregens). Another player's lobby hero has no portrait on your machine
-  (portraits are per-game assets), so it shows a silhouette. New cards fade
+  the pregens). Another player's roster hero is not on your machine, so its
+  card first shows a silhouette and fetches the hero from the City (see
+  "The town client", Gate). New cards fade
   in; neighbours slide apart through a scripted width tween (width is not
   style-animatable). The game's private chat replaces lobby chat. Host
   controls: Kick, Begin (enabled at 4-6 heroes), Abandon (two-click confirm).
@@ -386,11 +396,31 @@ All in `Codex Titlescreen/EncounterOfTheWeek.lua`, mounted on
   120 chars, opaque to the DO). The publisher, the titlescreen's
   `IsEncounterMapName` and the game-side `DEFAULT_ENCOUNTER_MAP` test hold
   three copies of this naming rule; keep them in step.
-- **Debug Player Window** (admin accounts, game `open`): the game view's
-  button runs `dmhub.DuplicateWindowInNewProcess{asplayer = true, connect =
-  false, args = "--eotw-game <gameid>"}`. The child boots to the titlescreen
-  as the secondary account, auto-opens the EotW screen (bypassing the dev
-  gate) and joins. A private game rejects it.
+- **Debug New Player Window** (admin accounts, the town screen open; user
+  direction 2026-10-03, replacing the game view's old "Player Window"
+  button and its auto-join): the titlescreen's **Codex** menu gets a "New
+  Player Window" row (`EncounterOfTheWeek.CodexMenuItems()`, appended by
+  `CodexTitleBar.lua`'s main-menu Codex menu; shown only while
+  `EncounterOfTheWeek.IsScreenOpen()`). It runs
+  `dmhub.DuplicateWindowInNewProcess{asplayer = true, connect = false, args =
+  "--eotw"}`. The child boots to the titlescreen as the secondary account
+  (dev-key builds: `--asplayer` picks the partner account in `devkey.json`),
+  and on reaching the selection screen opens the town once
+  (`WantsAutoOpen` is one-shot; the arg bypasses the dev gate). From there it
+  is an ordinary separate player: its own City roster (keyed by its userid),
+  its own lobby game holding the hero working copies (`AccountInfo.lobbyGame`
+  is per account, and `connect = false` keeps it from borrowing the parent's),
+  its own builder drafts, parties and joins.
+  **Shared-machine caveat:** both processes read and write the same
+  preference files (`PrefsManager`, `<persistentDataPath>/settings/`), and
+  each caches a preference in memory after its first read. The per-userid
+  JSON maps `eotw:heroRevs` and `eotw:pendingOutcomes` are each one file, so
+  the last window to write one overwrites the other window's newer entries
+  **on disk** (its in-memory copy stays right). After a restart, a clobbered
+  `heroRevs` costs only a redundant re-import from the City; a clobbered
+  `pendingOutcomes` could lose a win not yet applied. Not fixed; it only
+  matters if a window restarts between leaving an encounter and reopening
+  the town.
 
 ---
 
@@ -846,18 +876,113 @@ holds.
   (`showSkills = false`, `showResources = false`; user direction
   2026-10-02). Clicking a card opens
   the sheet. With no active hero it shows a hint plaque instead.
+- **Locations take over the screen** (user direction 2026-10-03). Opening
+  the Hero's Guild or the Town Gate replaces the Blackbottom map with a
+  full-screen scene: Czepeku Scenes art, a header at the top left (Back to
+  Town, a "BLACKBOTTOM" overline, the place's name in the display face over
+  a gold rule, a line of flavor), a translucent card on the right holding
+  the location's controls, and the Czepeku logo in the bottom-right corner.
+  The map, plaque and hero strip collapse while a scene is up; the Town
+  Chat button moves left of the logo.
+  - **Art.** Guild = *Viking Longhouse, Original Day*; Gate = *Market
+    Streets, Original Day*. The user asked for the "Original Day video", but
+    both downloaded zips (`~/Downloads/Market Streets Scenes.zip`,
+    `Viking Longhouse Scenes.zip`) hold only 3840x2160 JPEG stills, so the
+    stills ship for now (user's call). They are core image assets
+    `GUILD_ART` `db897e57-...` and `GATE_ART` `db5bcf88-...` in
+    `Codex Titlescreen/EncounterOfTheWeek.lua`; the source files sit in
+    `C:/dev/eotw/art/`. **To switch to video:** upload the mp4/webm as a
+    core asset and pass it as the scene's `video` (the still stays as the
+    poster under it) -- `CreatorCredit.Backdrop` already layers a video over
+    the still, but that path has not been run with a real video.
+  - **Data.** A location row's `scene = {art, aspect, focusX, title,
+    tagline}` in `CITY_LOCATIONS`; `LocationScene(loc, cardWidth, content)`
+    builds it. The Gate's scene is built once and kept (collapsed when
+    closed), because `RefreshGames` is what notices a launched game and
+    takes the player into it, so the games list must stay alive; the Guild's
+    is built on each visit. Opening the Gate also re-runs
+    `RefreshResumeState`: the lookup made when the screen is built at boot
+    can come back empty, which used to hide the "Your game in progress" row
+    until the screen was reopened.
+  - The Gate card is 1000 wide over the parties list (the tower stays
+    clear) and widens to 1240 in a party view so six hero cards fit one row
+    (`SetGateCardWidth`). The party view at 1240 has NOT been seen live:
+    forming a party would delete the account's existing staging game.
+  - The Graveyard is still a dialog over the map (no art chosen for it).
 - **Guild**: a stacked list, up to 12 rows. Each row has a portrait,
   details, a star (active, max 4), a pencil (edit) and a trash can (dismiss,
-  with a confirm). Below it: Create a Hero, Recruit a Hero (a grid of the
-  week's pregens, then a name prompt prefilled with the pregen's name), and
-  Leave the Guild.
+  with a confirm). Above it "Your Roster" with the counts; below it Create a
+  Hero and Recruit a Hero (a grid of the week's pregens, then a name prompt
+  prefilled with the pregen's name). `EotwRoster.GuildPanel(host)` returns
+  the card's body (it was the `ShowGuild` dialog).
 - **Gate**: the old games list, retitled. It groups "Parties Forming" and
   "Encounters Underway"; Form a Party opens the old create dialog,
   renamed. The add-hero picker lists your living roster heroes that are
   neither claimed nor away, active ones first, as `{kind = "roster"}`.
+  - **Active heroes join by default** (user direction 2026-10-03). Forming a
+    party, or joining one, sends a `set-heroes` with your active heroes right
+    after the `join-game` succeeds (`ClaimActiveHeroes`): as many as fit the
+    open slots and the per-player cap of 4, in roster order, skipping heroes
+    claimed by another party except the one being left (its `leave-game`
+    goes out first and the City handles requests in order). It runs only
+    while you hold no heroes in that party, and a refusal is logged, not
+    shown, since the party is joined either way. Joining as well as forming
+    was a judgment call: the user asked about "starting" a game.
+  - **Other players' portraits.** A roster hero exists as a working copy
+    only in its owner's lobby game, so another machine had nothing to read
+    the portrait from (its image records live in the owner's game, and the
+    party record carries only display text). Now the first time a party
+    card needs another player's roster hero, `ResolveHeroToken` sends
+    `get-hero {userid, heroid, asJson}` and hands the record + assets to
+    the engine's **`dmhub.CreateDetachedCharacter{record, assets}`** (NEW,
+    NEEDS BUILD). That returns a detached token (like the pregen snapshot's)
+    and registers the hero's image records as session extras
+    (`ImageDownloader.AddExtraImageAsset`), so they render in the lobby game
+    without being uploaded into it. Tokens are cached per screen in
+    `m_remoteHeroTokens` (`false` while pending or after a failure, so each
+    hero is asked for once); the view rebuilds when one lands. The card
+    skips its `IsUnresolvableAssetId` check for these (`artRegistered`),
+    because that check reads `assets.allAssets`, which does not list
+    session extras. A hero is not editable while in a party, so the cache
+    does not go stale. The same call can back the read-only sheet of
+    another player's hero and `town-heroes` later.
 - **Graveyard**: everyone's graves, paged, with your own highlighted.
 - **Town Chat**: a drawer toggled from the bottom-right button.
-- Escape closes the gate, then the chat, then the screen.
+- **Escape** closes the chat drawer, then an open location, then the
+  screen. That only became true 2026-10-03: before, the top-right
+  `gui.CloseButton` took Escape at `EXIT_DIALOG` (14) and closed the whole
+  town from anywhere, including from inside the Gate, the Guild's dialogs
+  and the hero builder. Now the close button has `escapeActivates = false`,
+  the screen's handler is at priority 4 (above the titlescreen's 3, below
+  the builder's 5), and the town's dialogs (`ModalFrame`, Form a Party,
+  Add a Hero) are at `EXIT_MODAL_DIALOG`. Verified live: Gate -> map,
+  recruit picker -> Guild -> map.
+
+**Creator credits** (2026-10-03; general mechanism, user direction). Art by
+outside creators carries the creator's logo, via the NEW core file
+`DMHub Core UI/CreatorCredit.lua` (global `CreatorCredit`, registered in the
+DMHub Core UI codemod after `GuiUtils`, Firebase confirmed):
+- `CreatorCredit.Register(id, {name, logo, logoWidth, logoHeight, url})`
+  adds a creator. The list lives at the bottom of that file. Logos are core
+  image assets, light on transparent.
+- `CreatorCredit.RegisterArt(imageid, id)` tags a piece of art, so a
+  backdrop of it finds its credit without being told.
+- `CreatorCredit.Badge{creator, width?, halign?, valign?, hmargin?,
+  vmargin?}` is the logo as a floating badge, bottom-right by default. Hover
+  shows "Art by <name>" and the site; click opens the url through
+  `dmhub.OpenURL`.
+- `CreatorCredit.Backdrop{width, height, image, video?, aspect?, focusX?,
+  focusY?, creator?, badge?, children}` is a full-bleed, cover-fitted art
+  panel on black. It fades in when the image loads, has a soft shade in the
+  bottom-right corner under the badge, and draws the badge.
+  `CreatorCredit.ReplayFade(panel)` replays the fade for a backdrop that is
+  kept and re-shown.
+- Registered: `czepeku` = "Czepeku Scenes", logo `4e3b9a3b-...` (242x79,
+  made from the user's `~/Downloads/czepeku-scenes.png` by turning black
+  into transparency; source in `C:/dev/eotw/art/czepeku-scenes-logo.png`),
+  url https://czepeku.com.
+- Possible later: take a creator's logo and url from their creator
+  organization's branding (`/ModuleAuthor/{orgid}`) instead of the file.
 
 **Verified live, one client, 2026-10-02:**
 - the map, panning, nodes and the plaque;
@@ -913,9 +1038,10 @@ progression rules can be applied after the fact. Run the design with the
 
 ## Other open decisions (recommended default first)
 
-5. **Active heroes and the gate.** *Recommended:* the party pick at the gate
-   pre-selects the active heroes but offers the whole living roster. Picking
-   a hero for a party does not change the active set.
+5. **Active heroes and the gate.** DECIDED 2026-10-03: forming or joining a
+   party claims the active heroes automatically, as space allows (see "The
+   town client", Gate); the picker still offers the whole living roster.
+   Picking a hero for a party does not change the active set.
 6. **The town's social layer.** Built as recommended, minus the other
    players' heroes: the plaque says "N adventurers in town", and the lobby
    chat is a drawer. Showing who is present with their active heroes
@@ -948,7 +1074,7 @@ progression rules can be applied after the fact. Run the design with the
 
 ---
 
-# The hero builder and hero sheet (DESIGN 2026-10-03; not started)
+# The hero builder and hero sheet (DESIGN 2026-10-03; step engine + builder screen BUILT 2026-10-03)
 
 User direction (2026-10-03): EotW gets **its own guided character builder
 and its own simplified hero sheet**, written as new code. The existing
@@ -1061,11 +1187,10 @@ Live counts (2026-10-03, 110 complications):
   modifier below Gold (Corrupted Mentor, War Dog Collar, Curse of Stone).
   A stricter rule that also looks inside the features would leave about 41.
 
-**Decision needed:** which rule. *Recommended:* the 44, computed live, so the
-list grows as the data team raises tiers. Apply each complication's
-prerequisite GoblinScript as well, as the old adapter does. A complication
-that has its own choices goes through the same choice rows as everything
-else.
+**Decided (2026-10-03): the 44 rule**, computed live, so the list grows as
+the data team raises tiers. Apply each complication's prerequisite
+GoblinScript as well, as the old adapter does. A complication that has its
+own choices goes through the same choice rows as everything else.
 
 ## Architecture
 
@@ -1087,81 +1212,410 @@ write is `token:ModifyProperties{...}` on the lobby-game working copy; the
 the step engine re-reads the character. `TitlescreenHeroes` and the full
 sheet drop out of the EotW path.
 
-**The step engine (`EotwBuild`)** is plain data plus functions, so it can be
-driven and tested over MCP before any UI exists:
-- `EotwBuild.STEPS` is an ordered list of `{id, title, intro, Pending(hero),
-  Choices(hero), Fill(hero), Clear(hero)}`:
+**The step engine (`EotwBuild`, BUILT 2026-10-03)** is
+`Codex Titlescreen/EotwBuild.lua` (~1,300 lines, typing clean, registered in
+the Codex Titlescreen codemod before `EotwRoster.lua`). It has no UI, so it
+was driven and tested over MCP before any screen exists. It has two layers:
+- **hero functions** (`EotwBuild.hero.*`) take the character properties and
+  mutate them directly. The token functions run them inside
+  `ModifyProperties`; tests run them on an in-memory
+  `character.CreateNew(<Hero type id>)`. A bare `character.new{}` lacks
+  `skillProficiencies` and `attributes` and errors;
+- **token functions** (`EotwBuild.SetAncestry(token, id)`, `Fill`,
+  `Status`, ...) are what the screen calls. Each write is one
+  `token:ModifyProperties` (undoable = false). Name and portrait go through
+  `token.name` / `token.portrait` + `UploadAppearance`.
 
-  | Step | Choices it gathers |
-  |---|---|
-  | `ancestry` | the ancestry, then the choices that come from the race (traits, Revenant former life, ...) |
-  | `culture` | a typical culture (aggregate) or three aspects; the culture language; the aspect skills |
-  | `career` | the career; its skills, languages and perk; the inciting incident |
-  | `class` | the class; subclass; characteristic array and arrangement; kit (when the class uses kits); every level-1 class choice (abilities, skills, perks, deity/domain) |
-  | `complication` | "none", or one gold complication, then its own choices |
-  | `appearance` | name and portrait (required); the description fields (optional) |
+`EotwBuild.STEPS` holds the six steps `{id, title, base?}`:
 
-- `EotwBuild.Status(hero)` returns, for each step,
-  `{complete, filled, total, pending = {choice...}}`. It is computed fresh
-  from the character every time, never cached, so it cannot drift. A step
-  is complete when its base pick is made and every visible choice, nested
-  ones included, is complete.
-- **Changing an earlier pick invalidates later ones.** A new ancestry drops
-  its old trait picks. A new culture can make a career skill a duplicate.
-  So `Status` also reports **stale** picks (an option that is no longer
-  offered, or a duplicate), and the step shows them as needing attention.
-  Changing a base pick that has dependent picks asks for confirmation first,
-  then clears them.
-- `EotwBuild.Fill(hero, stepid)` fills **only the unfilled choices** of one
-  step and never overwrites a choice the player made. It runs to a fixpoint
-  so that nested choices revealed by a fill are filled too. It is
-  points-aware, and it picks from `GetChoices`, so it does not create
-  duplicates. For each choice it takes, in order:
-  1. a **recommendation** from `EotwBuild.DEFAULTS`, a Lua table keyed by
-     class/ancestry/career id (characteristic arrangement, kit, signature
-     ability, ...). It starts small and grows; an entry whose option is not
-     currently offered is ignored;
-  2. a **heuristic** where one exists. Characteristics: put the array's
-     highest value into the class's primary characteristic. Name: the
-     ancestry's name generator. Portrait: the class art the `/buildchar`
-     macro uses;
-  3. **random** from the valid options.
+| Step | Main pick (`BaseOptions(hero, stepid)`) | Choice rows |
+|---|---|---|
+| `ancestry` | `Race` table (`SetAncestry`) | the race's `FillFeatureDetails` (traits, points-bought) |
+| `culture` | the typical cultures, `CultureAggregates()` grouped "Ancestry Cultures" / "Archetypical Cultures" (`SetCultureAggregate`) | the 3 aspects (`CharacterAspectChoice`; `SetCultureAspect(category, id)`), the cultural language, each aspect's skill |
+| `career` | `Background` table (`SetCareer`) | the career's skills, languages, perk + the inciting incident (`CharacterIncidentChoice`, stored as a note *and* `levelChoices`) |
+| `class` | `Class` table (`SetClass`: level 1, locked characteristics applied) | deity, subclass(es), **characteristics** (row id `"characteristics"`; `SetCharacteristics(arrayIndex, build?)`), **kit** (row id `"kit"`), then every level-1 class choice |
+| `complication` | gold complications passing their prerequisite (`SetComplication(id)`; `SetComplication(nil)` = "none", stored as `eotwNoComplication = true`; `ClearComplication` undoes both) | the complication's own choices |
+| `appearance` | -- | Name, Portrait (a fresh token's portrait is the placeholder `DEFAULT_MONSTER_AVATAR`, which counts as unset: `PortraitIsSet`); `descriptionFilled/Total` counts the 9 optional description fields |
+
+- **`EotwBuild.Status(token)`** returns `{complete, incomplete = {stepid},
+  steps}`. `StepStatus(token, stepid)` returns `{id, title, complete, filled,
+  total, stale, rows}`. Each row is `{guid (the row id), name, complete,
+  remaining, numChoices, selectedNames, stale = {ids}, exhausted, nested,
+  base?}`. Base rows have `guid = "base"` (Appearance has `"name"` and
+  `"portrait"`). Status is computed fresh every call.
+- A row is **complete** when its picks or points are spent, or when no
+  option is left to pick (`exhausted`; the old sheet treats it the same
+  way). Example: Orc's *Passionate Artisan* is a 2-pick choice with **zero
+  options** in the data, so it is always "exhausted". That is a content gap,
+  not an engine bug.
+- **Stale** = a picked id the row no longer offers. Fill removes stale picks
+  before filling. **Not detected yet:** a pick that became a *duplicate*
+  (e.g. a culture changed later grants a skill the career already picked).
+  The pickers avoid creating duplicates, but a later change can still leave
+  one.
+- **Writes.** `Choose(token, stepid, rowid, optionId)` /
+  `Unchoose(...)` act on the row ids Status reports. A one-pick row swaps
+  its pick. An id that is no longer offered can still be removed.
+  `HasDependentPicks(token, stepid)` tells the UI whether to confirm before
+  `SetAncestry` / `SetCareer` / `SetClass` / `SetCultureAggregate` /
+  `SetComplication`. Those setters **clear the step's old picks**
+  (`hero.ClearStepChoices`: `levelChoices` entries, incident notes, kit,
+  characteristics, kit/companion bonus choices, culture aspects), so nothing
+  orphaned is left behind. The old builder left them.
+- **`Fill(token, stepid)`** makes the main pick if it is missing, removes
+  stale picks, then fills **one pick at a time**, rebuilding the rows after
+  each one. That way nested choices (a subclass's abilities, a deity's
+  domains) are filled too. A row that refuses a pick is skipped (`stuck`),
+  and the loop is bounded at 60 picks. It never replaces a player's pick.
+  Order of preference for each pick:
+  1. `EotwBuild.DEFAULTS.choices[choiceGuid]` / `DEFAULTS.classes[classid] =
+     {array, kit}`. These start **empty**;
+  2. the heuristics:
+     - culture: the one named after the ancestry ("Elf, High" -> "High
+       Elf"); Revenant has none, so it gets a random culture;
+     - characteristics: highest values to the unlocked characteristics in
+       attribute order;
+     - name: the ancestry's name generator (`GenerateName`), or "<Ancestry>
+       <Class>";
+     - portrait: the class `portraitid`;
+  3. random from `GetChoices` (already-taken options excluded,
+     points-aware).
+
+  On the Complication page, Fill picks **none**. `FillAll(token)` fills
+  every step (a dev convenience: a complete random hero).
+- **Parent choices first.** A Conduit's domain rows are subclass choices
+  that exist *before* the deity is picked, and change once it is. Rows are
+  therefore ordered (on screen and for Fill): deity / ancestry inheritance,
+  then subclass, then characteristics and kit, then the rest. Fill uses the
+  same order.
+- **Gotcha:** the old builder's `CharacterCharacteristicChoice` and
+  `CharacterKitChoice` both use the **class id as their guid**. In one
+  `CBFeatureCache` they collapse into one row (Kit overwrote
+  Characteristics). `Wrappers` gives each of them its own cache and a row id
+  of its own.
+- **Characteristic option ids are regenerated on every rebuild**, so the UI
+  must use `SetCharacteristics(arrayIndex)`. `Choose` on the
+  characteristics row also works, but only with an id from the same Status.
+- **Level.** `SetClass` writes `classes = {{classid, level = 1}}`. There is
+  no level control. Level-up later reuses the engine with a "Level N" step
+  that lists only that level's new choices.
 - **Possible later source of defaults:** copy the picks of the week's pregen
-  for the same class or ancestry, wherever they are valid. Every pregen is
-  then a hand-made default. Not in the first cut.
-- **Level.** The class step writes `classes = {{classid, level = 1}}` and
-  only lists choices for level <= the hero's level. There is no level
-  control. Level-up later reuses the engine with a "Level N" step that lists
-  only that level's new choices.
+  for the same class or ancestry wherever they are valid, so every pregen
+  becomes a hand-made default. Not built.
 
-## The builder screen
+**Verified 2026-10-03 (MCP, at the titlescreen):**
+- The `CB*` data layer is loaded at the titlescreen.
+- 33 in-memory heroes (3 for each of the 11 classes, across all 12
+  ancestries) were filled to complete. Every one was level 1 with sensible
+  stamina, and only kit-using classes got a kit. The only rows that needed
+  a closer look were the Passionate Artisan rows above. Where an ancestry
+  culture exists, the culture always matched the ancestry.
+- Fill kept a player-picked subclass.
+- Switching class cleared every old pick (`levelChoices` back to empty).
+- A planted bogus pick showed as stale and was replaced by Fill.
+- A gold complication's own choice was filled.
+- Clearing the complication made the step incomplete again.
+- End to end on a **real lobby character** through the token functions:
+  `FillAll` made 29 picks and all six steps were complete. The class art
+  replaced the placeholder portrait. A Conduit filled deity before domains.
+  The test character was deleted afterwards.
+- After an app restart, `EotwBuild.lua` loads from the codemod
+  (`READ CONTENTS ... EotwBuild` in Player.log).
 
-- **Stepper across the top**: six pills, Ancestry ... Appearance. Each pill
-  shows a tick (complete), the current step (highlighted), or "n left"
-  (incomplete). Stale picks show as a warning dot.
-- **Strictly guided.** A pill is clickable if it is complete or is the first
-  incomplete step. Later steps are locked until the earlier ones are done.
-  *Recommended;* see the open questions.
-- **Each page**:
-  - **Left**: the step's intro and its options as cards in the familiar
-    builder look (`CBStyles` classes and theme tokens). For a complication,
-    the card shows the benefit and drawback (`CharacterComplication:Render`).
-  - **Right**: the step's **choice checklist**, one row per choice, each
-    filled or empty, with the next empty row highlighted. A step with
-    nothing chosen yet says what to do first.
-- **Footer**:
-  - Back;
-  - **Fill in the rest** (fills this page only; disabled when the page is
-    complete);
-  - Next (enabled when the page is complete; on Appearance it becomes
-    **Finish**).
-- **A summary rail** shows the hero so far: portrait, name, "Level 1
-  Ancestry Class", the characteristics, and stamina. The player sees the
-  result take shape as they go.
-- **Finish** stamps `eotwHero` and goes through `EotwRoster.JoinRoster`, the
-  same path as today. The hero only reaches the city once complete.
-- **Cancel** asks first, then deletes the unfinished working copy. *Or* the
-  draft is kept for later; see the open questions.
+## The Skills & Languages step (BUILT 2026-10-03; user direction; untested)
+
+A seventh step, after Class (`EotwBuild.STEPS`: ancestry, culture, career,
+class, **skills**, complication, appearance). Skills and languages come from
+many sources, so every **skill choice** (`CharacterSkillChoice`) and
+**language choice** (`CharacterLanguageChoice`) is made here, not on its
+own step.
+
+- **The native language is the exception.** The culture's
+  `cultureLanguageChoice` stays on the Culture page, and it is the hero's
+  **native language**.
+- **Other steps** leave the skill and language choices out of their rows:
+  `Wrappers(hero, stepid, includePools)`. Clearing a step's picks still
+  includes them.
+- **The info box.** The page of a step that grants skills or languages
+  shows a small box (`StepGrants`): what it grants outright ("You gain:
+  Sneak (skill)") and what it lets the hero choose, plus a "Pick These on
+  Skills & Languages" button. Fixed grants are `proficiency` modifiers
+  (subtype skill/language) whose `sourceguid` is not one of the step's
+  choices.
+- **Pools.** `EotwBuild.hero.Pools(hero, kind)` turns each of those choices
+  into a pool: capacity = `NumChoices`; allowed = the choice's
+  `GetOptions()` (for skills, only unhidden skills from
+  `Skill.SkillsById`); current picks = `levelChoices[guid]`.
+- **Matching.** The player picks skills, not pools. `MatchPools` places the
+  picks into pool slots by augmenting paths (bipartite matching). It tries
+  each pick's current pool first, so adding a pick moves as few others as
+  possible. A pick sitting in an "any skill" pool is moved to make room for
+  a skill only that pool can take.
+  - A skill is **selectable** when the current picks plus that skill can
+    still all be placed.
+  - `TogglePoolPick` adds or drops one pick, re-matches, and rewrites
+    every pool's `levelChoices`. Stale picks (no longer allowed) drop out on
+    the next write.
+  - Fill (`FillPools`) adds random selectable picks until no pool has room.
+  - Unit-tested standalone (`MatchPools` extracted and run with the bundled
+    `lua.exe`: reroute, refusal, capacity and preference cases all pass).
+- **What the page shows** (`PoolTable`):
+  - a list of every pool, with its source step, description and remaining
+    count;
+  - every unhidden skill, grouped by skill group;
+  - the native language, then every language.
+  - Each card's state is one of:
+    - **native**: teal, from the culture;
+    - **fixed**: known from elsewhere, tan;
+    - **selected**;
+    - **selectable**;
+    - **unavailable**: dimmed.
+  - Hovering a card shows its description, its state, which pools could
+    take it, and any special benefit.
+- **Special benefits.** A gold star marks a skill that an active `power`
+  modifier names in its `skills` array: an edge, a +2, a project-roll
+  bonus. Example: Passionate Artisan's chosen crafting skills, once its
+  data is fixed. The tooltip names the modifier. Languages have no
+  equivalent scan.
+- **Not checked in the app yet:**
+  - `FixedKnown` / `SkillBenefits` reading `GetActiveModifiers()` entries
+    (`entry.mod`);
+  - `innateLanguages`;
+  - the step's status rows (the generic `RowStatus` over the pool rows,
+    whose "exhausted" check uses each row's own free options, not the
+    matching).
+
+## The builder screen (BUILT 2026-10-03; three rounds of user testing)
+
+`Codex Titlescreen/EotwBuilder.lua` (global `EotwBuilder`; registered in the
+Codex Titlescreen codemod after `EotwBuild.lua`; typing clean).
+`EotwBuilder.Open{host, token, title?, step?, onFinish(token),
+onClose(token)}` mounts a full-screen opaque panel on `host` (the town
+screen, above the Guild dialog; `escapePriority = 5`). Every write goes
+through `EotwBuild`, and then the whole screen redraws from
+`EotwBuild.Status`.
+
+**Redraws are incremental (round 3).** The page is a list of keyed blocks
+with signatures:
+- the title and intro;
+- the main-pick cards (signature: the current pick);
+- the grants box;
+- one block per choice row (signature: its status plus every option's
+  selected/available state; characteristics add the values and the
+  half-done swap);
+- the Appearance page as one block (name, portrait, frame and anthem).
+
+A block whose signature is unchanged keeps its panel, and only changed
+blocks are rebuilt and swapped into the same content panel. Rebuilding the
+whole page flickered on every pick. The stepper and summary lines are
+skipped when their signatures are unchanged.
+
+**Scrolling.** The page keeps its scroll offset **in pixels** across
+redraws: `ScrollOffset` before the rebuild, then `RestoreScrollOffset`
+after layout (applied at once, then again at 0.05 s and 0.2 s). The page's
+content panel is fresh only on a new step. When blocks are swapped in
+place, the offset is restored only after layout. Keeping the 0..1 fraction
+instead sent the page to the bottom when it grew (picking a class), and a
+page that did not scroll read as 0, which is the bottom.
+
+**Look.** The old builder's cream-on-near-black palette (`CBStyles.COLORS`)
+in local rules. The root cascade is `ThemeEngine.MergeStyles(CBStyles
+rules + EotwHeroCard.rules + ours)`, so ability and kit renders in the
+detail pane get their usual classes. It is re-merged on `OnThemeChanged`.
+
+**Layout.**
+- **Header**: the title ("Create Your Hero" / "Rebuild Your Hero"), the
+  **stepper**, and **Save and Close**. The stepper has six pills; each shows
+  a number, or a tick when done, plus "Not started" / "n left" / "Done" /
+  "Needs attention" (stale). Every pill is clickable.
+- **Summary rail** (left, 360): the town's own hero card
+  (`EotwHeroCard.CreateHeroCard`, characteristics + stamina + recoveries)
+  and lines for Culture, Career, Kit and Complication.
+  - **The card is built once.** Only the lines are rebuilt; rebuilding the
+    card on every redraw made it flicker through the placeholder image.
+  - **It repaints only on `refreshCard`**, which its host must fire. The
+    rail fires it on create and every 0.25 s, as the town strip does.
+- **Page** (centre, scrolls):
+  - the step's title and intro (`CharacterBuilder.STRINGS`);
+  - **main-pick cards**. Culture groups them under "Ancestry Cultures" and
+    "Archetypical Cultures", then "Or build your own culture from three
+    aspects". Complication puts "No Complication" first;
+  - **one block per choice row**: name, a status line ("Choose 2", "3
+    points to spend", "Done", "Nothing left to choose", or the stale
+    warning), the row's description, and option chips. A chip that is
+    taken elsewhere or unaffordable is dimmed; clicking a chip
+    picks/unpicks it.
+  - The **characteristics** row's chips are the arrays. Under them are the
+    five characteristic boxes, with fixed ones marked. **Drag one onto
+    another**, or click both, to swap their values
+    (`SetCharacteristics(array, build)`). Clicking uses `click`, not
+    `press`, because press also fires when a drag ends.
+  - **A one-pick row** (subclass, kit, deity, ...) switches its pick on a
+    click of another option: `RowOptions` marks every offered option
+    available, and `Choose` swaps the pick. Before this, the player had to
+    unpick first.
+- **Detail pane** (right, 500): what the player is looking at.
+  - **Main picks**: hovering a card previews it while nothing is chosen,
+    and the preview **stays** after the pointer leaves, until another card
+    is hovered. Once something is chosen, the pane stays on the chosen item
+    (user direction 2026-10-03). The Complication page always previews,
+    because "No Complication" is a default, not a choice.
+  - **A class or ancestry** fills the whole pane with its art
+    (cover-cropped, top kept; `CoverCrop`), with the name and text on a
+    darkened band. The crop waits until both the image and the panel size
+    are known: `imageLoaded` can come before layout, or not at all for a
+    cached image, so a 0.05 s think retries it until it succeeds. Round 3:
+    the art was sometimes stretched before this
+    (`#10110Fe6`) over the lower part that scrolls when long. This is the
+    old builder's look (user direction).
+  - **A subclass or domain** shows its description and what it grants at
+    1st level (`FillFeatureDetailsForLevel(..., 1, ...)`), with ability
+    cards for the abilities.
+  - **A typical culture** shows what it sets: each aspect with its
+    description and the choices it offers, and its language.
+  - **A kit** shows the whole kit (`Kit:Render`: bonuses, signature
+    abilities, maneuver).
+  - **An ability pick** shows its ability card (`AbilityCard`), rendered top-aligned
+    (`ability:Render{valign = "top"}`), with no repeat of the flavor text.
+    The old `CBOptionWrapper:Panel()` render left a large gap above the
+    card and repeated the text.
+  - Anything else falls back to `CBOptionWrapper:Panel()` plus the option's
+    description.
+- **Footer**: a message line (fill results, "Still to do: ..."), **Back**,
+  **Fill in the Rest** (disabled on a complete page), and **Next**. Next
+  reads "Skip for Now" on an incomplete page and "Finish" on the last step.
+  Finish with steps incomplete lists them and jumps to the first.
+- **Changing a main pick** that has dependent picks asks first
+  (`EotwBuilder.Confirm`).
+
+**The Appearance page** (user direction 2026-10-03: no Description section):
+- **Name**: an input that saves on edit (0.5 s lag) without rebuilding the
+  page, which would steal focus; plus **Suggest a Name** (the ancestry's
+  name generator).
+- **Portrait**:
+  - a 240px **framed preview** (portrait + `bgimageTokenMask` frame,
+    `portraitRect`). **Drag** it to move the portrait (`portraitOffset`);
+  - a **Zoom** slider (`portraitZoom`) and **Reset Placement**;
+  - **Use Class Art**, **Use Ancestry Art**, and an `IconEditor` (library
+    Avatar) to pick or upload an image;
+  - **The portrait defaults to the class art**: `EotwBuild.SyncDefaultPortrait`
+    runs on every redraw. A portrait that is unset, or is still *some*
+    class's art, follows the current class. Ancestry art or an upload is
+    left alone.
+- **Frame**: an `IconEditor` on the `AvatarFrame` library (`portraitFrame`;
+  none allowed).
+- **Anthem**: `gui.AudioEditor` (autoplay through the `anthem` mix group)
+  and a volume slider (`anthem`, `anthemVolume`).
+- The description fields and their engine helpers were removed.
+
+**Wiring (`EotwRoster`).**
+- **Create a Hero** -> `EotwRoster.CreateHero(host)`. It reopens the
+  player's **draft** (`EotwRoster.FindDraft`: a lobby character with
+  `eotwDraft = true` and `creatorid` = this user) if there is one.
+  Otherwise it creates a Hero-type character stamped `eotwDraft = true`
+  (with `mtime`/`originalid`/`creatorid`) and opens the builder on it.
+- **Finish** sets `eotwDraft = false` and goes through `JoinRoster` (which
+  stamps `eotwHero` and pushes to the city).
+- **Save and Close / Escape** keeps the draft, unless `EotwBuild.IsUnstarted`
+  (nothing chosen, no name, no portrait), in which case the character is
+  deleted.
+- **The Guild**: Create reads **Continue Your Hero** while a draft exists,
+  and a **Discard Draft** button appears (click twice).
+- **The pencil** on a Guild row opens the builder ("Rebuild Your Hero") when
+  `EotwRoster.CanRebuildHero`: the hero has no completed encounters and is
+  not away in a party. Otherwise it opens the old full sheet, until the
+  read-only sheet exists. A survived *defeat* is not recorded anywhere, so
+  a hero who lost an encounter can still be rebuilt; this is a known gap.
+  Rebuilding pushes to the city on close and on finish. A hero rebuilt into
+  an incomplete state is still pushed, and nothing stops it yet.
+- The town strip's card still opens the old sheet.
+- Drafts are kept out of the titlescreen's campaign heroes (`LobbyHeroes()`
+  skips `eotwDraft` as well as `eotwHero`). The roster sync never sees them,
+  because it only handles `eotwHero` characters.
+
+**Complication defaults to No Complication** (user direction 2026-10-03).
+The step is complete from the start, so it never blocks Finish. Its pill
+and header read **"Optional"**, with no tick, whenever no complication is
+taken, and **"Done"** only once one is chosen. `EotwBuild` reports
+`optional` (= no complication) on the step and its base row. The "No
+Complication" card shows as selected. The portrait
+thumbnail in the picker is cover-cropped, not stretched.
+
+**Round 4 changes (2026-10-03, user direction; addressed in code, not re-tested):**
+- **Default portrait.** The default is the **ancestry's art** until a class
+  is chosen, then the class's. `SyncDefaultPortrait` treats any class or
+  ancestry art as "the default".
+- **The ancestry's culture.**
+  - Picking an ancestry fills in its own culture (`AncestryCultureId`: "Elf,
+    High" -> "High Elf"): aspects plus native language, flagged
+    `eotwAutoCulture`.
+  - The Culture step then reads **"Optional"** (complete, so it never
+    blocks Finish).
+  - Any change the player makes clears the flag, and the step reads "Done":
+    choosing a culture, an aspect, or the language.
+  - Changing ancestry again re-applies the culture while it is still the
+    automatic one. If the new ancestry has no culture (Revenant), an
+    automatic culture is cleared.
+- **"Known" says where from.** `GrantSources` maps each outright-granted
+  skill or language to a phrase like "your career (Agent)", built from
+  each source step's `StepGrants().fixedIds`. The native language says
+  "your culture"; anything unmatched says "another of your features".
+- **Dead languages** (`Language.dead`) carry a "(dead)" suffix and a
+  violet, italic style, and their detail says they are read, not spoken.
+- **Appearance flicker.** Appearance is three blocks: name, portrait and
+  extras.
+  - Suggest a Name writes the input directly and redraws only the chrome.
+  - The portrait block's signature is portrait + zoom + offset.
+  - The extras block reaches the preview through `state.preview`.
+- **Portrait thumbnail.** The `IconEditor` swaps its own image, and
+  `imageLoaded` never reached our handler, so a 0.1 s think cover-crops
+  each new image once.
+- **Save and Close becomes Finish** once every step is complete
+  (`UpdateFooter`; the click finishes).
+- **New heroes start active.** `JoinRoster` (Create and Recruit) calls
+  `SetActive` after a successful push if fewer than four heroes are active.
+
+**User testing, round 3 (2026-10-03), addressed, re-tested in round 4:**
+- Complication says Optional rather than Done;
+- flicker when picking on a scrolled page;
+- the Skills & Languages step;
+- art stretching;
+- ancestry art like classes.
+
+**User testing, round 2 (2026-10-03), addressed, re-tested in round 3:**
+- the preview reverted on dehover;
+- the hero card flickered;
+- picking a class scrolled to the bottom;
+- one-pick rows had to be unpicked first;
+- thin subclass details;
+- class art should fill the pane;
+- drag-to-swap characteristics;
+- Complication defaults to none / "Optional";
+- a stretched portrait thumbnail.
+
+**User testing, round 1 (2026-10-03), all addressed, re-tested by round 2:**
+- hover previews stuck after a pick;
+- the page scrolled to the bottom when changing step;
+- no culture overview;
+- kits showed only a description;
+- the ability preview had a gap above it;
+- the Description section was replaced with anthem, frame and placement;
+- the hero card never showed the name or portrait;
+- the portrait now defaults to the class art, with Use Ancestry Art added.
+
+**Not yet checked:**
+- the drag direction of the portrait offset (copied from the old Appearance
+  tab);
+- whether the anthem autoplays when the Appearance page opens on a hero
+  that already has one;
+- an end-to-end Finish -> roster -> city push;
+- Continue/Discard Draft;
+- the Rebuild path.
+
+**Cleanup owed:** a test character `94056de3-a979-4d3b-acd2-3a4862ac0aee`
+may have been left in the lobby game (created for a look at the old
+builder just as the app switched games). If it shows among the
+titlescreen heroes, delete it.
 
 ## The hero sheet
 
@@ -1186,8 +1640,9 @@ It opens from:
   today) and another player's hero (which needs a way to render a hero that
   is not a lobby character: a temporary import, or a detached creature).
 
-The only actions on the sheet are Close and, when the rules allow it, **Edit
-in Builder** (see the open questions).
+The only actions on the sheet are Close and **Edit in Builder**. Edit in
+Builder appears only for the player's own hero, and only before its first
+encounter.
 
 **Hardening (later).** In an EotW game, the token radial menu, the "sheet"
 keybind and the character-panel context menu can still reach the full
@@ -1195,53 +1650,38 @@ sheet. Point them at `EotwHeroSheet` for `eotwHero` characters.
 
 ## Build order
 
-1. **Step engine, headless.**
-   - Check that the `CB*` globals load at the titlescreen.
-   - Then `EotwBuild` with `Status` and `Fill` for all six steps.
-   - Prove it over MCP: create a lobby character, run Fill on each step in
-     turn, and check that Status reports everything complete, the hero has
-     level-1 stamina, abilities and skills, and there are no duplicates.
-   - Then build 20 random heroes across every class and ancestry and look
-     for errors.
-2. **Builder shell**: stepper, page frame, checklist, footer, summary rail.
-   Build the Ancestry and Career pages first (the simplest), and check them
-   in the UI harness (`ui-harness` skill) over a fixture hero.
-3. **The remaining pages**: Culture, Class (the largest: subclass,
-   characteristic arrangement, kit, ability picks), Complication,
-   Appearance.
-4. **Guild wiring**: Create opens the new builder, and Finish -> JoinRoster.
-   Run a live end-to-end with a kept hero; this also closes "Create through
-   the builder" in "The town client".
+1. ~~**Step engine, headless.**~~ DONE 2026-10-03 (see "The step engine"
+   above for what was verified).
+2. ~~**Builder shell**~~ BUILT 2026-10-03 (see "The builder screen").
+3. ~~**The remaining pages**~~ BUILT 2026-10-03; round-1 feedback addressed,
+   re-test owed.
+4. ~~**Guild wiring**~~ BUILT 2026-10-03 (drafts, Continue/Discard,
+   Rebuild). Still owed: a live end-to-end with a kept hero; this also
+   closes "Create through the builder" in "The town client".
 5. **Hero sheet**: switch the Guild and the strip to it.
 6. **Later**: the in-game card, other players' heroes, the hardening above,
    the pregen-derived defaults, and level-up (with Phase 11).
 
-Rough size: engine ~800 lines, builder ~2,500, sheet ~1,200.
+Size so far: engine ~1,350 lines, builder screen ~1,900 lines; sheet estimated ~1,200.
 
-## Open questions (recommended answer first)
+## Decisions taken (2026-10-03, with the user)
 
-1. **Gold rule**: the 44 (every non-narrative feature Gold), the stricter
-   ~41 (nested abilities included), or the 28 (every feature Gold)?
-2. **Complication default**: does "Fill in the rest" on the Complication
-   page choose *no complication*, or a random gold one? *Recommended:* none,
-   because a complication has a drawback.
-3. **Unfinished heroes**: discard on Cancel, or keep one resumable draft per
-   player that the Guild offers as "Continue your hero"? *Recommended:* keep
-   the draft, local only, and do not count it against the 12.
-4. **Editing after creation**: *Recommended:* a hero can be re-opened in the
-   builder until its first encounter. After that the build is locked, and
-   only level-up changes it.
-5. **Strict step order**: lock later steps until earlier ones are complete?
-   *Recommended:* yes, because it is the guided experience.
-6. **Appearance**: what is required (*recommended:* name + portrait), and
-   where portraits come from (upload via `gui.IconEditor`, the existing
-   avatar library, or the class art as the default)?
-7. **Culture**: lead with the typical (aggregate) cultures and keep "build
-   your own from three aspects" as a secondary option? *Recommended:* yes.
-8. **Reusing the old builder's data model** (`CB*` wrappers and synthetic
-   choices) under new UI, rather than re-implementing those rules.
-   *Recommended:* reuse. Re-implementing the choice rules is where bugs
-   would come from.
+1. **Gold rule: the 44.** A complication is offered when every
+   non-Narrative feature is Gold, computed live.
+2. **Fill in the rest on the Complication page chooses no complication.**
+3. **One resumable draft per player**, local only, not counted against the
+   12.
+4. **Editing after creation:** allowed until the hero's first encounter;
+   after that only level-up changes the build.
+5. **Free navigation:** the player can skip around. Unfinished steps they
+   leave stay marked incomplete, and Finish requires all six.
+6. **Appearance:** name and portrait are required, and everything else is
+   optional. No saddles. The class art is the default portrait, and the
+   player may upload their own.
+7. **Culture:** the typical (aggregate) cultures come first, and "build your
+   own from three aspects" is the secondary option.
+8. **Reuse the old builder's data layer** (`CB*` wrappers and synthetic
+   choices) under the new UI.
 
 ---
 
@@ -2203,6 +2643,7 @@ UI facts learned here that apply elsewhere:
 | `/eotwprep start\|stop\|state\|force\|reset\|unlock\|intelligence <n>` | Tactical Preparation |
 | `/eotwzones setup\|reveal <zone>\|apply\|state\|reset` | traps and zones alone |
 | `EncounterOfTheWeekGame.DebugGetState()` | the `eotwstate` doc |
+| Codex menu > New Player Window (titlescreen, town open, admin) | a second window as the secondary account, opened into the town; see "Debug New Player Window" |
 
 **Dev-driver trap**: outside an EotW game nothing stamps `doc.data.beat`, and
 the stage chooses its body from it, so set it to the beat you are testing.
@@ -2354,9 +2795,9 @@ a playtest write-back and the authoring game edit the same files.
   leave/kick, and a kicked client is not disconnected from the game.
 - **Unlisted module access for non-owners** (fetching the pregen snapshot,
   creating a game from it) is unverified with a second account.
-- **Remote hero portraits** show a silhouette. Accepted for the current
-  lobby; the Blackbottom City DO fixes it by shipping each hero's image
-  records with the hero.
+- ~~Remote hero portraits show a silhouette.~~ Fixed for roster heroes
+  2026-10-03 (`dmhub.CreateDetachedCharacter` over `get-hero`; NEEDS BUILD,
+  untested).
 - Montage stage vs narrative/prep stages lay the hero row out differently
   (the montage row is ~80px lower). Unify?
 - Not built: a click-to-select alternative to dragging; an assisting hero on
@@ -2446,7 +2887,9 @@ Create through a full builder session and dismiss untested.
 verified live.
 [~] 61 **Town Gate**: unlock rule, lists and Form a Party verified to open;
 the add-hero picker lists roster heroes only (the pregen claim path is gone)
-with the active ones first, but does not pre-select them. Forming a party,
+with the active ones first; forming or joining a party now claims the active
+heroes automatically (2026-10-03, untested), and other players' cards load
+their portraits from the City (NEEDS BUILD). Forming a party,
 joining and Begin with roster heroes untested.
 [~] 62 **coming home**: the Victory half BUILT 2026-10-02, unverified
 (conclusion-time outcome read -> `eotw:pendingOutcomes` -> applied in town
@@ -2471,10 +2914,11 @@ design what carries home (levels and bands vs treasure and renown; see
 "Progression"), then plan it. The outcome log from step 62 is its input.
 
 **Phase 12 -- hero builder and hero sheet (designed 2026-10-03; not
-started).** Design in "The hero builder and hero sheet". [ ] 66 open
-questions answered, [ ] 67 `EotwBuild` step engine (headless, MCP-verified),
-[ ] 68 builder shell + Ancestry/Career pages, [ ] 69 Culture/Class/
-Complication/Appearance pages, [ ] 70 Guild Create -> builder -> JoinRoster,
+started).** Design in "The hero builder and hero sheet". [x] 66 design
+decisions taken, [x] 67 `EotwBuild` step engine (headless, MCP-verified; uncommitted),
+[~] 68 builder shell + Ancestry/Career pages, [~] 69 Culture/Class/
+Complication/Appearance pages, [~] 70 Guild Create -> builder -> JoinRoster
+(all built and user-tested once; round-1 fixes not re-tested; uncommitted),
 [ ] 71 `EotwHeroSheet` from the Guild and the strip, [ ] 72 in-game card,
 other players' heroes, sheet hardening, level-up.
 
