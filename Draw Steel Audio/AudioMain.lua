@@ -164,6 +164,15 @@ audio.SoundEvent{
 }
 
 
+audio.SoundEvent{
+    name = "Notify.Malice_Use",
+    mixgroup = "ui",
+    sounds = {"Notify_Malice_Used_v1_01.wav"},
+    volume = 0.3,
+    ignoreDuplicates = 1,
+}
+
+
 
 
 
