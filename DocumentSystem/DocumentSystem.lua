@@ -202,6 +202,9 @@ do
     --The exits a page of this class offers, added to the ones it inherits:
     --{ id, label, victories, flag }. Same shared-default rule as fields.
     DocumentClass.exits = {}
+    --The actions a page of this class offers, added to the ones it inherits:
+    --{ id, verb }, where verb names a registered action. Same shared-default rule.
+    DocumentClass.actions = {}
 
     --Built-in types a class may inherit from. The functional types are left out:
     --code finds montage, negotiation and heroic test pages by their exact type id.
@@ -254,7 +257,7 @@ do
             text = chain[1].name, icon = root.icon, beat = root.beat, glyph = root.glyph, ord = root.ord,
             showInNewMenu = root.showInNewMenu ~= false, custom = true,
             body = root.body or "markdown", hiddenFromPlayers = root.hiddenFromPlayers == true,
-            fields = {}, exits = {},
+            fields = {}, exits = {}, actions = {},
         }
         --an entry redeclared further down the chain replaces the inherited one in place.
         local function Adder(list)
@@ -267,9 +270,10 @@ do
                 end
             end
         end
-        local AddFields, AddExits = Adder(info.fields), Adder(info.exits)
+        local AddFields, AddExits, AddActions = Adder(info.fields), Adder(info.exits), Adder(info.actions)
         AddFields(root.fields)
         AddExits(root.exits)
+        AddActions(root.actions)
         for i = #chain, 1, -1 do
             local class = chain[i]
             info.icon = class.icon or info.icon
@@ -281,6 +285,7 @@ do
             if class.hiddenFromPlayers ~= "inherit" then info.hiddenFromPlayers = class.hiddenFromPlayers == true end
             AddFields(class:try_get("fields"))
             AddExits(class:try_get("exits"))
+            AddActions(class:try_get("actions"))
         end
 
         g_classCache[id] = info
@@ -651,6 +656,16 @@ do
             DocumentClass.CreateExitsEditor(class, function()
                 UploadClass(class)
             end),
+            gui.Label{
+                classes = {"bold"},
+                text = "Actions",
+                width = "auto",
+                height = "auto",
+                vmargin = 8,
+            },
+            DocumentClass.CreateActionsEditor(class, function()
+                UploadClass(class)
+            end),
         }
     end
 
@@ -814,6 +829,37 @@ do
             return {}
         end
         return CustomDocument.DocTypeInfo(doc).fields or {}
+    end
+
+    --Actions (JOURNAL_PROGRAM.md Phase 5). Fields are data; "Begin
+    --Negotiation" is code. So code registers an action under a name, and a
+    --class -- or a built-in type's docTypeInfo row -- lists the names it wants
+    --as buttons. A class never carries code.
+    CustomDocument.registeredActions = {}
+
+    --@param args {id: string, text: string, mode: "read"|"edit", run: fun(doc: CustomDocument, element: Panel, done: fun()), directorOnly?: boolean, anyPage?: boolean}
+    --mode says which view shows the button. An "edit" action that changes the
+    --document calls done() afterwards, so the editor saves and redraws.
+    --anyPage marks an action that works on any page, which is what lets a
+    --Director-made class offer it.
+    function CustomDocument.RegisterAction(args)
+        CustomDocument.registeredActions[args.id] = args
+    end
+
+    --The buttons a document's class asks for in one view, as { text, action }.
+    --Empty without dev:documentclasses.
+    function CustomDocument.ClassActions(doc, mode)
+        local result = {}
+        if not g_documentClassesSetting:Get() then
+            return result
+        end
+        for _, declared in ipairs(CustomDocument.DocTypeInfo(doc).actions or {}) do
+            local action = CustomDocument.registeredActions[declared.verb]
+            if action ~= nil and action.mode == mode and (dmhub.isDM or not action.directorOnly) then
+                result[#result + 1] = { text = action.text, action = action }
+            end
+        end
+        return result
     end
 
     --The exits declared for a document's class (JOURNAL_PROGRAM.md Phase 4).
@@ -1275,8 +1321,25 @@ do
 
     --The generated editor: every declared field of the document's class, top
     --to bottom, writing into the document and leaving the save to the shell.
-    function CustomDocument:FieldsEditPanel()
-        local doc = self
+    local function ActionButton(doc, entry, refresh)
+        return gui.Button{
+            classes = { "sizeM" }, width = 260, height = 26, halign = "left", vmargin = 4,
+            text = entry.text,
+            click = function(element)
+                entry.action.run(doc, element, function()
+                    --notify BEFORE the redraw: it orphans this button, and
+                    --NotifyEdited walks up the tree from it.
+                    CustomDocument.NotifyEdited(element)
+                    if refresh ~= nil then
+                        refresh()
+                    end
+                end)
+            end,
+        }
+    end
+
+    --The generated editor's rows. `refresh` redraws them.
+    local function FieldsEditChildren(doc, refresh)
         local children = {}
         local section = nil
         for _, field in ipairs(CustomDocument.ClassFields(doc)) do
@@ -1285,6 +1348,10 @@ do
                 children[#children + 1] = SectionHeader(section)
             end
             children[#children + 1] = FieldEditor(doc, field)
+        end
+
+        for _, entry in ipairs(CustomDocument.ClassActions(doc, "edit")) do
+            children[#children + 1] = ActionButton(doc, entry, refresh)
         end
 
         local exits = CustomDocument.ClassExits(doc)
@@ -1333,10 +1400,20 @@ do
             children[#children + 1] = warning
         end
 
-        return gui.Panel{
+        return children
+    end
+
+    function CustomDocument:FieldsEditPanel()
+        local doc = self
+        local panel
+        local function refresh()
+            panel.children = FieldsEditChildren(doc, refresh)
+        end
+        panel = gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
-            children = children,
+            children = FieldsEditChildren(doc, refresh),
         }
+        return panel
     end
 
     local function OptionText(field, id)
@@ -1431,6 +1508,9 @@ do
                 children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
             end
         end
+        for _, entry in ipairs(CustomDocument.ClassActions(self, "read")) do
+            children[#children + 1] = ActionButton(self, entry, nil)
+        end
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
             children = children,
@@ -1439,8 +1519,10 @@ do
 
     --A type with its own form (negotiation, montage, heroic test) rather than
     --a prose page the fields can sit above.
+    --Asked of the type, not of nodeType: a montage page is nodeType "custom"
+    --too, and would otherwise get the generated view stacked on its own.
     local function HasOwnForm(doc)
-        return doc.nodeType ~= "custom"
+        return doc.typeName ~= "MarkdownDocument"
     end
 
     --Fields above, the page's own panel below. `panel` keeps the height the
@@ -1472,6 +1554,7 @@ do
 
     local function HasDeclaredForm(doc)
         return #CustomDocument.ClassFields(doc) > 0 or #CustomDocument.ClassExits(doc) > 0
+            or #CustomDocument.ClassActions(doc, "read") > 0 or #CustomDocument.ClassActions(doc, "edit") > 0
     end
 
     --Wraps a document's read panel with its class's fields, if it has any.
@@ -1491,6 +1574,10 @@ do
         end
         if not HasOwnForm(doc) then
             return StackFields(doc, doc:FieldsEditPanel(), panel)
+        end
+        if #CustomDocument.ClassFields(doc) == 0 then
+            --nothing to compare the type's own form against.
+            return panel
         end
 
         local generated = nil
@@ -1575,6 +1662,74 @@ do
         recordList = "Column names, separated by commas",
         keyedList = "Row names, separated by commas",
     }
+
+    --The editor for a class's own actions: each row picks one of the
+    --registered actions that work on any page.
+    function DocumentClass.CreateActionsEditor(class, onChange)
+        local listPanel
+        local Rebuild
+
+        local function Options()
+            local options = {}
+            for id, action in pairs(CustomDocument.registeredActions) do
+                if action.anyPage then
+                    options[#options + 1] = { id = id, text = action.text }
+                end
+            end
+            table.sort(options, function(a, b) return a.text < b.text end)
+            return options
+        end
+
+        Rebuild = function()
+            local actions = class:try_get("actions") or {}
+            local options = Options()
+            local children = {}
+            for i, declared in ipairs(actions) do
+                children[#children + 1] = gui.Panel{
+                    flow = "horizontal", width = "auto", height = "auto", vmargin = 2,
+                    gui.Dropdown{
+                        width = 260, height = 24, valign = "center",
+                        options = options,
+                        idChosen = declared.verb,
+                        change = function(element)
+                            ---@cast element Dropdown
+                            declared.verb = element.idChosen
+                            onChange()
+                        end,
+                    },
+                    gui.Button{
+                        classes = { "sizeS" }, width = 70, height = 22, valign = "center", lmargin = 6,
+                        text = "Remove",
+                        click = function()
+                            table.remove(actions, i)
+                            onChange()
+                            Rebuild()
+                        end,
+                    },
+                }
+            end
+            if #options > 0 then
+                children[#children + 1] = gui.Button{
+                    classes = { "sizeS" }, width = 160, height = 24, halign = "left", vmargin = 4,
+                    text = "+ Add Action",
+                    click = function()
+                        --get_or_add: the type default is one shared empty table.
+                        local own = class:get_or_add("actions", {})
+                        own[#own + 1] = { id = dmhub.GenerateGuid(), verb = options[1].id }
+                        onChange()
+                        Rebuild()
+                    end,
+                }
+            end
+            listPanel.children = children
+        end
+
+        listPanel = gui.Panel{
+            flow = "vertical", width = "auto", height = "auto",
+            create = function() Rebuild() end,
+        }
+        return listPanel
+    end
 
     --The editor for a class's own exits. An exit is a name plus what taking
     --it writes: Victories awarded, and a campaign flag to set.

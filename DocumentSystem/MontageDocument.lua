@@ -400,19 +400,7 @@ function MontageDocument:DisplayPanel()
             text = "Begin Montage",
             halign = "center",
             click = function(element)
-                local livedata = LiveMontage.new {
-                    participants = {}
-                }
-
-                for _, token in ipairs(dmhub.allTokens) do
-                    if token.properties:IsHero() and token.ownerId ~= nil then
-                        livedata.participants[token.charid] = LiveMontageParticipant.new {
-                            tokenid = token.id,
-                        }
-                    end
-                end
-
-                GameHud.PresentDialogToUsers(resultPanel, "montage", { montageid = self.id }, livedata)
+                self:Begin(resultPanel)
                 element:FindParentWithClass("framedPanel"):DestroySelf()
             end,
         },
@@ -420,6 +408,39 @@ function MontageDocument:DisplayPanel()
 
     return resultPanel
 end
+
+--Start the montage: every hero with an owner takes part, and the montage
+--dialog is presented to every client. hostPanel is any panel in the HUD.
+function MontageDocument:Begin(hostPanel)
+    local livedata = LiveMontage.new {
+        participants = {}
+    }
+
+    for _, token in ipairs(dmhub.allTokens) do
+        if token.properties:IsHero() and token.ownerId ~= nil then
+            livedata.participants[token.charid] = LiveMontageParticipant.new {
+                tokenid = token.id,
+            }
+        end
+    end
+
+    GameHud.PresentDialogToUsers(hostPanel, "montage", { montageid = self.id }, livedata)
+end
+
+--Begin Montage as a registered action (see CustomDocument.RegisterAction).
+CustomDocument.docTypeInfo.montage.actions = { { id = "start", verb = "montage.start" } }
+CustomDocument.RegisterAction{
+    id = "montage.start",
+    text = "Begin Montage",
+    mode = "read",
+    run = function(doc, element)
+        doc:Begin(element)
+        local framed = element:FindParentWithClass("framedPanel")
+        if framed ~= nil then
+            framed:DestroySelf()
+        end
+    end,
+}
 
 function MontageDocument:EditPanel()
     local resultPanel

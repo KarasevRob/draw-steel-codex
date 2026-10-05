@@ -797,6 +797,11 @@ do
         }
     end
 
+    info.actions = {
+        { id = "start", verb = "negotiation.start" },
+        { id = "seed", verb = "negotiation.seed" },
+    }
+
     info.fields = {
         { id = "npcName", label = "NPC Name", kind = "string", storage = "document", section = "The NPC",
             placeholder = "As the players hear it" },
@@ -888,6 +893,32 @@ function NegotiationDocument:SeedFromArchetype(negotiator)
             name = p.name or "", line = p.description or "" }
     end
     self.traits = traits
+end
+
+--The "Seed from a Sample Negotiator..." menu: lists the archetypes by
+--impression and seeds this page from the one picked. onSeeded runs after the
+--page has changed, for the caller to save and redraw.
+function NegotiationDocument:ShowSeedMenu(element, onSeeded)
+    local entries = {}
+    local list = {}
+    for id, neg in unhidden_pairs(dmhub.GetTable(Negotiator.tableName) or {}) do
+        list[#list + 1] = neg
+    end
+    table.sort(list, function(a, b)
+        return (a:try_get("impressionScore", 1)) < (b:try_get("impressionScore", 1))
+    end)
+    for _, neg in ipairs(list) do
+        local negotiator = neg
+        entries[#entries + 1] = {
+            text = string.format("%d  %s", negotiator:try_get("impressionScore", 1), negotiator.name),
+            click = function()
+                element.popup = nil
+                self:SeedFromArchetype(negotiator)
+                onSeeded()
+            end,
+        }
+    end
+    element.popup = gui.ContextMenu{ entries = entries }
 end
 
 --Resolve the starting interest/patience (explicit override or attitude table).
@@ -1572,30 +1603,13 @@ function NegotiationDocument:EditPanel()
             classes = { "sizeM" }, width = 260, height = 26, halign = "left",
             text = "Seed from a Sample Negotiator...",
             click = function(element)
-                local entries = {}
-                local list = {}
-                for id, neg in unhidden_pairs(dmhub.GetTable(Negotiator.tableName) or {}) do
-                    list[#list + 1] = neg
-                end
-                table.sort(list, function(a, b)
-                    return (a:try_get("impressionScore", 1)) < (b:try_get("impressionScore", 1))
+                doc:ShowSeedMenu(element, function()
+                    --element is the seed button (a closure upvalue), which
+                    --survives RebuildTraits, so order is free.
+                    CustomDocument.NotifyEdited(element)
+                    seedNote.text = SeedNoteText()
+                    RebuildTraits()
                 end)
-                for _, neg in ipairs(list) do
-                    local negotiator = neg
-                    entries[#entries + 1] = {
-                        text = string.format("%d  %s", negotiator:try_get("impressionScore", 1), negotiator.name),
-                        click = function()
-                            element.popup = nil
-                            doc:SeedFromArchetype(negotiator)
-                            --element is the seed button (a closure upvalue),
-                            --which survives RebuildTraits, so order is free.
-                            CustomDocument.NotifyEdited(element)
-                            seedNote.text = SeedNoteText()
-                            RebuildTraits()
-                        end,
-                    }
-                end
-                element.popup = gui.ContextMenu{ entries = entries }
             end,
         },
         seedNote,
@@ -1741,17 +1755,45 @@ function NegotiationDocument:DisplayPanel()
             valign = "bottom", halign = "center",
             text = "Begin Negotiation",
             click = function(element)
-                NegotiationRun.Begin(doc, resultPanel)
-                local framed = element:FindParentWithClass("framedPanel")
-                if framed ~= nil then
-                    framed:DestroySelf()
-                end
+                doc:BeginFromPage(element, resultPanel)
             end,
         } or nil,
     }
 
     return resultPanel
 end
+
+--Begin Negotiation as the page's button does it: present the stage, then
+--close the journal window the button sits in. hostPanel is any panel in the
+--HUD; it defaults to the button.
+function NegotiationDocument:BeginFromPage(element, hostPanel)
+    NegotiationRun.Begin(self, hostPanel or element)
+    local framed = element:FindParentWithClass("framedPanel")
+    if framed ~= nil then
+        framed:DestroySelf()
+    end
+end
+
+--The page's two buttons as registered actions (see CustomDocument.RegisterAction).
+CustomDocument.RegisterAction{
+    id = "negotiation.start",
+    text = "Begin Negotiation",
+    mode = "read",
+    directorOnly = true,
+    run = function(doc, element)
+        doc:BeginFromPage(element)
+    end,
+}
+
+CustomDocument.RegisterAction{
+    id = "negotiation.seed",
+    text = "Seed from a Sample Negotiator...",
+    mode = "edit",
+    directorOnly = true,
+    run = function(doc, element, done)
+        doc:ShowSeedMenu(element, done)
+    end,
+}
 
 --NegotiationPanelSetting is declared in Negotiation.lua, which main.lua loads
 --first (the flag has to exist before the OLD dialog decides whether to

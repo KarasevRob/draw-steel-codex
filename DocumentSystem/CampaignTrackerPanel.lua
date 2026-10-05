@@ -971,6 +971,17 @@ function RunAgenda.AddDocument(doc)
     }
 end
 
+CustomDocument.RegisterAction{
+    id = "run.add",
+    text = "Add to the Run",
+    mode = "read",
+    directorOnly = true,
+    anyPage = true,
+    run = function(doc)
+        RunAgenda.AddDocument(doc)
+    end,
+}
+
 --scripting hooks: read or replace the whole agenda from the console or
 --tooling. The Run panel monitors the shared document, so a SetItems
 --refreshes every open view.
