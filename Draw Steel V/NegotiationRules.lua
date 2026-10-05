@@ -779,6 +779,70 @@ NegotiationDocument.offers = {}
 --summaries: array of appended run records (strings).
 NegotiationDocument.summaries = {}
 
+--The same page as a field declaration (JOURNAL_PROGRAM.md Phase 3), so the
+--generated editor can be held up against EditPanel below. storage =
+--"document" binds each field to the document field of the same name, so both
+--editors read and write the same data. Used only while dev:documentclasses
+--is on; nothing here changes how a negotiation runs.
+do
+    local info = CustomDocument.docTypeInfo.negotiation
+    info.body = "none"
+    info.hiddenFromPlayers = true
+
+    local offerKeys = {}
+    for i = 0, NegotiationRules.MAX do
+        offerKeys[#offerKeys + 1] = {
+            index = NegotiationRules.OfferIndex(i),
+            label = string.format("%d  \"%s\"", i, NegotiationRules.offerLabels[i]),
+        }
+    end
+
+    info.fields = {
+        { id = "npcName", label = "NPC Name", kind = "string", storage = "document", section = "The NPC",
+            placeholder = "As the players hear it" },
+        { id = "npcDesc", label = "Who They Are", kind = "string", storage = "document",
+            placeholder = "In a line (e.g. Town reeve - holds the gate keys)" },
+        { id = "portrait", label = "Portrait", kind = "image", storage = "document",
+            library = "Avatar", width = 96, height = 120 },
+        { id = "hideName", label = "Start unnamed (\"???\" until revealed)", kind = "bool", storage = "document" },
+        { id = "sceneImage", label = "Scene", kind = "image", storage = "document", section = "The scene",
+            library = "journal", width = 240, height = 135 },
+        { id = "archetype", label = "Seeded from", kind = "label", storage = "document" },
+        { id = "impression", label = "Impression", kind = "number", storage = "document", default = 1 },
+        { id = "attitude", label = "Attitude", kind = "enum", storage = "document", section = "Starting attitude",
+            options = function()
+                local options = {}
+                for _, a in ipairs(NegotiationRules.attitudes) do
+                    options[#options + 1] = {
+                        id = a.id,
+                        text = string.format("%s  (Interest %d, Patience %d)", a.name, a.interest, a.patience),
+                    }
+                end
+                return options
+            end },
+        { id = "opening", label = "Opening", kind = "text", storage = "document", section = "The opening",
+            placeholder = "How they enter, and their first line. The NPC speaks first." },
+        { id = "traits", label = "Motivations & Pitfalls", kind = "recordList", storage = "document", groupBy = "kind",
+            columns = {
+                { id = "kind", label = "Kind", kind = "enum", options = {
+                    { id = "motivation", text = "Motivation", heading = "What they want (motivations)" },
+                    { id = "pitfall", text = "Pitfall", heading = "Never touch (pitfalls)" },
+                } },
+                { id = "name", label = "Name", kind = "string" },
+                { id = "line", label = "Line", kind = "text", placeholder = "What they say about it (their voice)" },
+            } },
+        { id = "offers", label = "What they offer, by interest", kind = "keyedList", storage = "document",
+            displayReversed = true, keys = offerKeys,
+            columns = {
+                { id = "terms", label = "Terms", kind = "text",
+                    placeholder = "What he offers (leave blank to use the book's line)" },
+            } },
+        { id = "stakes", label = "Stakes", kind = "text", storage = "document", section = "Stakes",
+            placeholder = "What happens on a deal - and on no deal." },
+        { id = "summaries", label = "Run records", kind = "stringList", storage = "document" },
+    }
+end
+
 function NegotiationDocument.CreateNew(args)
     local doc = NegotiationDocument.new{
         description = "New Negotiation",
