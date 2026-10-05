@@ -1705,18 +1705,44 @@ function NegotiationDocument:DisplayPanel()
         summaryChildren[#summaryChildren + 1] = md(s)
     end
 
+    --The face and the room, when the Director has set them, at the sizes the
+    --editor's pickers use. Without these a picture chosen in the editor was
+    --only ever seen on the stage.
+    local portrait = doc:try_get("portrait", "")
+    local sceneImage = doc:try_get("sceneImage", "")
+
     local body = gui.Panel{
         width = "100%", height = "100%-50", flow = "vertical", valign = "top", vscroll = true,
 
-        gui.Label{
-            classes = { "bold", "sizeXl" },
-            width = "auto", height = "auto", halign = "left", vmargin = 4,
-            text = doc.description,
+        gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            (portrait ~= "") and gui.Panel{
+                classes = { "image" },
+                width = 96, height = 120, valign = "top", rmargin = 12,
+                bgcolor = "white",
+                bgimage = portrait,
+            } or nil,
+            gui.Panel{
+                flow = "vertical", height = "auto", valign = "top",
+                width = (portrait ~= "") and "100%-108" or "100%",
+                gui.Label{
+                    classes = { "bold", "sizeXl" },
+                    width = "auto", height = "auto", halign = "left", vmargin = 4,
+                    text = doc.description,
+                },
+                md(string.format("%s%s",
+                    doc:try_get("npcDesc", "") ~= "" and (doc.npcDesc .. "\n\n") or "",
+                    string.format("**%s** - starts at **Interest %d**, **Patience %d**.  Impression **%d**.",
+                        att.name, interest, patience, doc:try_get("impression", 1)))),
+            },
         },
-        md(string.format("%s%s",
-            doc:try_get("npcDesc", "") ~= "" and (doc.npcDesc .. "\n\n") or "",
-            string.format("**%s** - starts at **Interest %d**, **Patience %d**.  Impression **%d**.",
-                att.name, interest, patience, doc:try_get("impression", 1)))),
+
+        (sceneImage ~= "") and gui.Panel{
+            classes = { "image" },
+            width = 240, height = 135, halign = "left", vmargin = 6,
+            bgcolor = "white",
+            bgimage = sceneImage,
+        } or nil,
 
         TraitGroup("motivation", "What they want"),
         TraitGroup("pitfall", "Never touch"),
