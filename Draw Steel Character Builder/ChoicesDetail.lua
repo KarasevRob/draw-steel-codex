@@ -380,8 +380,8 @@ function CBChoicesDetail._overviewPanel()
                 end
             end
             -- In showcase style the parent's sidebar box closes the overview.
-            local sidebar = showcase and _safeGet(parent, "builderSidebar", "") or ""
-            if type(sidebar) == "string" and sidebar ~= "" then
+            local sidebar = parent ~= nil and showcase and _safeGet(parent, "builderSidebar", "") or ""
+            if parent ~= nil and type(sidebar) == "string" and sidebar ~= "" then
                 children[#children+1] = gui.Panel{
                     width = "100%-24",
                     height = "auto",
