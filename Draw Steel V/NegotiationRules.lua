@@ -804,7 +804,7 @@ do
 
     info.actions = {
         { id = "start", verb = "negotiation.start" },
-        { id = "seed", verb = "negotiation.seed" },
+        { id = "seed", verb = "negotiation.seed", placement = "top" },
     }
 
     info.fields = {
@@ -817,7 +817,6 @@ do
         { id = "hideName", label = "Start unnamed (\"???\" until revealed)", kind = "bool", storage = "document" },
         { id = "sceneImage", label = "Scene", kind = "image", storage = "document", section = "The scene",
             library = "journal", width = 240, height = 135 },
-        { id = "archetype", label = "Seeded from", kind = "label", storage = "document" },
         { id = "impression", label = "Impression", kind = "number", storage = "document", default = 1 },
         { id = "attitude", label = "Attitude", kind = "enum", storage = "document", section = "Starting attitude",
             options = function()
@@ -900,30 +899,143 @@ function NegotiationDocument:SeedFromArchetype(negotiator)
     self.traits = traits
 end
 
---The "Seed from a Sample Negotiator..." menu: lists the archetypes by
---impression and seeds this page from the one picked. onSeeded runs after the
---page has changed, for the caller to save and redraw.
-function NegotiationDocument:ShowSeedMenu(element, onSeeded)
-    local entries = {}
+--What the last seed did, kept so a control rebuilt straight after it (the
+--generated editor redraws its whole form) can still say so.
+local g_lastSeed = { docid = false, text = "" }
+
+--The "Sample negotiator" control: a dropdown that shows which Sample
+--Negotiator this page was seeded from and seeds it from another, with a line
+--underneath saying what that did.
+--
+--Seeding is where a page starts, so this belongs at the top of an editor.
+--It replaces every motivation and pitfall, so it asks first when there are
+--any. onSeeded(element) runs after the page has changed, for the caller to
+--save and redraw.
+function NegotiationDocument:SeedControl(onSeeded)
+    local doc = self
+    local negotiators = dmhub.GetTable(Negotiator.tableName) or {}
+
     local list = {}
-    for id, neg in unhidden_pairs(dmhub.GetTable(Negotiator.tableName) or {}) do
-        list[#list + 1] = neg
+    for id, neg in unhidden_pairs(negotiators) do
+        list[#list + 1] = { id = id, name = neg.name or "", impression = neg:try_get("impressionScore", 1) }
     end
     table.sort(list, function(a, b)
-        return (a:try_get("impressionScore", 1)) < (b:try_get("impressionScore", 1))
+        if a.impression ~= b.impression then
+            return a.impression < b.impression
+        end
+        return a.name < b.name
     end)
-    for _, neg in ipairs(list) do
-        local negotiator = neg
-        entries[#entries + 1] = {
-            text = string.format("%d  %s", negotiator:try_get("impressionScore", 1), negotiator.name),
-            click = function()
-                element.popup = nil
-                self:SeedFromArchetype(negotiator)
-                onSeeded()
-            end,
-        }
+
+    --archetype is the negotiator's NAME: a provenance label, not a link.
+    local archetype = doc:try_get("archetype", "")
+    local options = { { id = "", text = "None (built from scratch)" } }
+    local currentId = ""
+    for _, entry in ipairs(list) do
+        options[#options + 1] = { id = entry.id, text = string.format("%d  %s", entry.impression, entry.name) }
+        if currentId == "" and archetype ~= "" and entry.name == archetype then
+            currentId = entry.id
+        end
     end
-    element.popup = gui.ContextMenu{ entries = entries }
+    if archetype ~= "" and currentId == "" then
+        --seeded from one that has since been renamed or removed.
+        currentId = "@kept"
+        options[#options + 1] = { id = "@kept", text = archetype .. " (no longer a sample negotiator)" }
+    end
+
+    local function StatusText()
+        if g_lastSeed.docid == doc:try_get("id") then
+            return g_lastSeed.text
+        end
+        if archetype ~= "" then
+            return string.format("Copied from %s. The motivations and pitfalls below are yours to edit.", archetype)
+        end
+        return "Pick one to fill in the impression, motivations and pitfalls."
+    end
+
+    local status = gui.Label{
+        classes = { "sizeS" },
+        width = "94%", height = "auto", halign = "left", vmargin = 3,
+        textWrap = true,
+        text = StatusText(),
+    }
+
+    local function Count(kind)
+        local n = 0
+        for _, t in ipairs(doc:try_get("traits", {})) do
+            if t.kind == kind then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    local function Apply(element, id, replaced)
+        local text
+        if id == "" then
+            doc.archetype = ""
+            text = "No longer marked as seeded. The motivations and pitfalls are unchanged."
+        else
+            local negotiator = negotiators[id]
+            doc:SeedFromArchetype(negotiator)
+            text = string.format("Seeded from %s: impression %d, %d motivations and %d pitfalls %s.",
+                negotiator.name or "", doc:try_get("impression", 1), Count("motivation"), Count("pitfall"),
+                replaced and "replaced" or "added")
+        end
+        g_lastSeed = { docid = doc:try_get("id"), text = text }
+        archetype = doc:try_get("archetype", "")
+        currentId = id
+        status.text = text
+        element.idChosen = id
+        onSeeded(element)
+    end
+
+    return gui.Panel{
+        flow = "vertical", width = "100%", height = "auto", halign = "left",
+        gui.Panel{
+            flow = "horizontal", width = "94%", height = "auto", halign = "left", vmargin = 2,
+            gui.Label{
+                classes = { "bold" },
+                width = 150, height = "auto", minHeight = 24, halign = "left", valign = "center",
+                text = "Sample negotiator",
+            },
+            gui.Dropdown{
+                classes = { "sizeM" }, width = 300, height = 30, halign = "left",
+                options = options,
+                idChosen = currentId,
+                change = function(element)
+                    ---@cast element Dropdown
+                    local id = element.idChosen --[[@as string]]
+                    if id == currentId or id == "@kept" then
+                        return
+                    end
+                    local existing = #doc:try_get("traits", {})
+                    if id ~= "" and existing > 0 then
+                        --show the old choice until the Director confirms, so
+                        --dismissing the question leaves the control truthful.
+                        element.idChosen = currentId
+                        gui.ModalMessage{
+                            title = "Replace Motivations and Pitfalls?",
+                            message = string.format(
+                                "This page has %d motivations and pitfalls. Seeding from %s replaces all of them.",
+                                existing, negotiators[id].name or ""),
+                            options = {
+                                { text = "Cancel" },
+                                {
+                                    text = "Replace",
+                                    execute = function()
+                                        Apply(element, id, true)
+                                    end,
+                                },
+                            },
+                        }
+                        return
+                    end
+                    Apply(element, id, false)
+                end,
+            },
+        },
+        status,
+    }
 end
 
 --Resolve the starting interest/patience (explicit override or attitude table).
@@ -1340,25 +1452,6 @@ end
 function NegotiationDocument:EditPanel()
     local doc = self
 
-    --provenance: which Sample Negotiator this was seeded from. The seed is a
-    --copy, so this is a label, not a link - but it is the only thing that tells
-    --the Director (and later the rail) what kind of negotiator he is running.
-    local seedNote
-    local function SeedNoteText()
-        local a = doc:try_get("archetype", "")
-        if a == "" then
-            return ""
-        end
-        return string.format("Seeded from %s (impression %d). The traits are yours to edit - this is a copy.",
-            a, doc:try_get("impression", 1))
-    end
-    seedNote = gui.Label{
-        classes = { "sizeS" },
-        width = "94%", height = "auto", halign = "left", vmargin = 3,
-        fontSize = 12, color = "#7a7468", textWrap = true,
-        text = SeedNoteText(),
-    }
-
     --Change handlers write into the document object and notify the hosting
     --journal shell (CustomDocument.NotifyEdited), which owns the actual
     --uploads: debounced autosave, write verification with retry, and the
@@ -1541,8 +1634,18 @@ function NegotiationDocument:EditPanel()
         visibilityWarning,
     }
 
+    --built ahead of the form: seeding fills an empty descriptor, and the
+    --input has to show it.
+    local npcDescInput = textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)")
+
     return gui.Panel{
         width = "100%", height = "100%", flow = "vertical", vscroll = true,
+
+        doc:SeedControl(function(element)
+            CustomDocument.NotifyEdited(element)
+            npcDescInput.text = doc:try_get("npcDesc", "")
+            RebuildTraits()
+        end),
 
         SectionHeader("The NPC"),
         gui.Panel{
@@ -1572,7 +1675,7 @@ function NegotiationDocument:EditPanel()
                     end,
                 },
                 textInput("npcName", "NPC name (as the players hear it)"),
-                textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)"),
+                npcDescInput,
                 gui.Check{
                     classes = { "sizeS" },
                     width = "100%", height = 24, minWidth = 0,
@@ -1602,22 +1705,6 @@ function NegotiationDocument:EditPanel()
                 CustomDocument.NotifyEdited(element)
             end,
         },
-
-        SectionHeader("Seed from an archetype"),
-        gui.Button{
-            classes = { "sizeM" }, width = 260, height = 26, halign = "left",
-            text = "Seed from a Sample Negotiator...",
-            click = function(element)
-                doc:ShowSeedMenu(element, function()
-                    --element is the seed button (a closure upvalue), which
-                    --survives RebuildTraits, so order is free.
-                    CustomDocument.NotifyEdited(element)
-                    seedNote.text = SeedNoteText()
-                    RebuildTraits()
-                end)
-            end,
-        },
-        seedNote,
 
         SectionHeader("Starting attitude"),
         gui.Dropdown{
@@ -1818,11 +1905,11 @@ CustomDocument.RegisterAction{
 
 CustomDocument.RegisterAction{
     id = "negotiation.seed",
-    text = "Seed from a Sample Negotiator...",
+    text = "Sample negotiator",
     mode = "edit",
     directorOnly = true,
-    run = function(doc, element, done)
-        doc:ShowSeedMenu(element, done)
+    create = function(doc, done)
+        return doc:SeedControl(done)
     end,
 }
 

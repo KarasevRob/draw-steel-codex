@@ -854,9 +854,12 @@ do
     --as buttons. A class never carries code.
     CustomDocument.registeredActions = {}
 
-    --@param args {id: string, text: string, mode: "read"|"edit", run: fun(doc: CustomDocument, element: Panel, done: fun()), directorOnly?: boolean, anyPage?: boolean}
+    --@param args {id: string, text: string, mode: "read"|"edit", run?: fun(doc: CustomDocument, element: Panel, done: fun()), create?: fun(doc: CustomDocument, done: fun(element: Panel)): Panel, directorOnly?: boolean, anyPage?: boolean}
     --mode says which view shows the button. An "edit" action that changes the
     --document calls done() afterwards, so the editor saves and redraws.
+    --An action that is more than a button gives create instead of run: it
+    --returns its own control, and calls done(element) with one of its panels.
+    --Where a class lists the action, placement = "top" puts it above the fields.
     --anyPage marks an action that works on any page, which is what lets a
     --Director-made class offer it.
     function CustomDocument.RegisterAction(args)
@@ -870,7 +873,7 @@ do
         for _, declared in ipairs(Declarations(doc).actions or {}) do
             local action = CustomDocument.registeredActions[declared.verb]
             if action ~= nil and action.mode == mode and (dmhub.isDM or not action.directorOnly) then
-                result[#result + 1] = { text = action.text, action = action }
+                result[#result + 1] = { text = action.text, action = action, placement = declared.placement }
             end
         end
         return result
@@ -1333,17 +1336,23 @@ do
     --The generated editor: every declared field of the document's class, top
     --to bottom, writing into the document and leaving the save to the shell.
     local function ActionButton(doc, entry, refresh)
+        local function Done(element)
+            --notify BEFORE the redraw: it orphans the control, and
+            --NotifyEdited walks up the tree from it.
+            CustomDocument.NotifyEdited(element)
+            if refresh ~= nil then
+                refresh()
+            end
+        end
+        if entry.action.create ~= nil then
+            return entry.action.create(doc, Done)
+        end
         return gui.Button{
             classes = { "sizeM" }, width = 260, height = 26, halign = "left", vmargin = 4,
             text = entry.text,
             click = function(element)
                 entry.action.run(doc, element, function()
-                    --notify BEFORE the redraw: it orphans this button, and
-                    --NotifyEdited walks up the tree from it.
-                    CustomDocument.NotifyEdited(element)
-                    if refresh ~= nil then
-                        refresh()
-                    end
+                    Done(element)
                 end)
             end,
         }
@@ -1352,6 +1361,13 @@ do
     --The generated editor's rows. `refresh` redraws them.
     local function FieldsEditChildren(doc, refresh)
         local children = {}
+        local actions = CustomDocument.ClassActions(doc, "edit")
+        for _, entry in ipairs(actions) do
+            if entry.placement == "top" then
+                children[#children + 1] = ActionButton(doc, entry, refresh)
+            end
+        end
+
         local section = nil
         for _, field in ipairs(CustomDocument.ClassFields(doc)) do
             if field.section ~= nil and field.section ~= section then
@@ -1361,8 +1377,10 @@ do
             children[#children + 1] = FieldEditor(doc, field)
         end
 
-        for _, entry in ipairs(CustomDocument.ClassActions(doc, "edit")) do
-            children[#children + 1] = ActionButton(doc, entry, refresh)
+        for _, entry in ipairs(actions) do
+            if entry.placement ~= "top" then
+                children[#children + 1] = ActionButton(doc, entry, refresh)
+            end
         end
 
         local exits = CustomDocument.ClassExits(doc)
