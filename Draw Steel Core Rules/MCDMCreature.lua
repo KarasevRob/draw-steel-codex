@@ -6070,7 +6070,9 @@ function creature.TakeDamage(self, amount, note, info)
         print("ATTACKER:: pusher:", info.pusher)
         local pusher = info.pusher or
         (info.ability ~= nil and info.ability.name == "Fall Damage" and rawget(self, "_tmp_lastpusher"))
-        if pusher ~= nil then
+        --Truthy test, not ~= nil: the fallback expression above yields false (not nil)
+        --when there is no pusher, which used to label all self-inflicted damage "push".
+        if pusher then
             if type(pusher) == "function" then
                 pusher = pusher("self")
             end

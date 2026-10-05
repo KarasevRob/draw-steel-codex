@@ -332,6 +332,10 @@ function Encounter.CloneForNumberOfHeroes(self, numHeroes)
         if group.minHeroes ~= nil and group.minHeroes > numHeroes then
             table.remove(encounter.groups, i)
         else
+            --a damaged group can lose its roster. Treat it as empty so one bad
+            --group can't blank the whole journal page (Q3R5F6UY).
+            group.monsters = group.monsters or {}
+
             --apply per-monster-type count adjustments configured for this number of heroes.
             local monsterids = {}
             for monsterid, _ in pairs(group.monsters) do
@@ -366,7 +370,7 @@ function Encounter.CountEDS(self)
     local EDSTotal = 0
 
     for i, group in ipairs(self.groups) do
-        for monsterid, quantity in pairs(group.monsters) do
+        for monsterid, quantity in pairs(group.monsters or {}) do
             local monster = assets.monsters[monsterid]
 
             if monster ~= nil then
@@ -1217,7 +1221,7 @@ function Encounter.CountNonMinionMonsters(self, numHeroes, org)
     local clone = self:CloneForNumberOfHeroes(numHeroes)
     local count = 0
     for _, group in ipairs(clone.groups) do
-        for monsterid, quantity in pairs(group.monsters) do
+        for monsterid, quantity in pairs(group.monsters or {}) do
             local monster = assets.monsters[monsterid]
             if monster ~= nil and not monster.properties.minion and
                 (org == nil or OrganizationKeyword(monster.properties) == org) then
@@ -1250,7 +1254,7 @@ function Encounter.Describe(self)
             bucket = startMonsters
         end
 
-        for monsterid, quantity in pairs(group.monsters) do
+        for monsterid, quantity in pairs(group.monsters or {}) do
             bucket[monsterid] = (bucket[monsterid] or 0) + quantity
         end
     end
@@ -1298,7 +1302,7 @@ function Encounter.TagWaveTokensFromSpawn(self, charids)
     for gidx,group in ipairs(self.groups) do
         if group.minHeroes == nil or numHeroes >= group.minHeroes then
             local slot = 1
-            for monsterid,quantity in pairs(group.monsters) do
+            for monsterid,quantity in pairs(group.monsters or {}) do
                 quantity = Encounter.AdjustedMonsterQuantity(group, monsterid, quantity, numHeroes)
                 for i=1,quantity do
                     local charid = charids[index]

@@ -11,6 +11,7 @@ MarkdownDocument.vscroll = false
 -- by Task 1, which hit the same constraint with parentId.)
 -- Auto-serialized; round-trips through document upload.
 MarkdownDocument.styleSheetId = false
+MarkdownDocument.acceptsRichTagDrops = true
 
 local g_markdownStyle = gui.MarkdownStyle {
     ["#  "] = "<size=200%><b>", ["/#  "] = "</b></size>",
@@ -1530,6 +1531,44 @@ function MarkdownDocument.IsLegalAnnotationKey(key)
         return false
     end
     return key:find("[%.%$#%[%]/]") == nil
+end
+
+--Add a ready-made tag (such as a dropped encounter) to this document under an
+--unused name, and return that name. The caller then writes "[[name]]" into
+--the text, and the page shows this tag there.
+--- @param richTag RichTag
+--- @param name string|nil Shown after the colon, e.g. the encounter's name. Characters that can't be saved are removed.
+--- @return string key The tag name to write between [[ and ]].
+function MarkdownDocument:AddRichTagAnnotation(richTag, name)
+    --remove characters that break the tag syntax (: and |) or can't be saved
+    --(see IsLegalAnnotationKey).
+    local clean = string.trim((string.gsub(name or "", "[%.%$#/%[%]|:\r\n]", "")))
+    if clean == "" then
+        clean = "Untitled"
+    end
+
+    local annotations = self:try_get("annotations")
+    if annotations == nil then
+        annotations = {}
+        self.annotations = annotations
+    end
+
+    --pick a name not already used in this document (adding 2, 3, ...) so the
+    --new tag can't pick up another tag's data.
+    local text = self:GetTextContent()
+    local suffix = clean
+    local index = 2
+    while annotations[richTag.tag .. ":" .. suffix] ~= nil
+        or string.find(text, "[[" .. richTag.tag .. ":" .. suffix .. "]]", 1, true) ~= nil do
+        suffix = string.format("%s %d", clean, index)
+        index = index + 1
+    end
+
+    local key = richTag.tag .. ":" .. suffix
+    richTag.identifier = suffix
+    richTag._tmp_document = self
+    annotations[key] = richTag
+    return key
 end
 
 --Page-aware widget palette: rich-tag widgets call this from refreshTag so
@@ -11253,6 +11292,21 @@ function MarkdownDocument:SeamlessEditPanel(args)
             if doc ~= nil then
                 m_doc = doc
             end
+        end,
+
+        --A tag dropped on the document while it is being edited: insert it at
+        --the cursor on its own line. Firing "edit" lets autosave pick it up.
+        insertRichTag = function(element, richTag, name)
+            local key = m_doc:AddRichTagAnnotation(richTag, name)
+            local text = editInput.text or ""
+            local caret = math.min(editInput.caretPosition or #text, #text)
+            local before = text:sub(1, caret)
+            local markup = string.format("[[%s]]\n", key)
+            if before ~= "" and before:sub(-1) ~= "\n" then
+                markup = "\n" .. markup
+            end
+            editInput:SetTextAndCaret(caret + #markup, before .. markup .. text:sub(caret + 1))
+            editInput:FireEvent("edit")
         end,
 
         toolbar,

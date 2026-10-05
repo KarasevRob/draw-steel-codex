@@ -2742,11 +2742,14 @@ local function CreateSceneStage()
 
     local function DelveChoiceButtons(m, t)
         local mine = IsMyTurn(m)
+        local delve = EncounterMontage.TurnDelve(t)
+        --an in-order delve (a story chain) presses on for free.
+        local ordered = delve ~= nil and delve.ordered == true
         ---@type Panel[]
         local children = {
             gui.Label{
                 classes = {"eotwSceneHint"},
-                text = cond(mine, "Press deeper, or turn back with what you have?", string.format("%s is deciding whether to press on...", t.heroName or "The hero")),
+                text = cond(mine, cond(ordered, "Press on, or turn back?", "Press deeper, or turn back with what you have?"), string.format("%s is deciding whether to press on...", t.heroName or "The hero")),
             },
         }
         if mine then
@@ -2775,9 +2778,11 @@ local function CreateSceneStage()
                 }
             end
             --pressing on costs a Recovery up front (EncounterMontage.CanPressDeeper).
-            local cost = EncounterMontage.DELVE_PRESS_ON_COST
+            local cost = EncounterMontage.DelvePressOnCost(delve)
             local costText = EncounterScript.Plural(cost, "Recovery", "Recoveries")
-            if EncounterMontage.CanPressDeeper(t.heroid) then
+            if ordered then
+                children[#children + 1] = Button("Press on", "delveOn", "Go on to what comes next.")
+            elseif EncounterMontage.CanPressDeeper(t.heroid, delve) then
                 children[#children + 1] = Button(string.format("Press deeper (lose %s)", costText), "delveOn",
                     string.format("Lose %s now and face another obstacle. There may be more treasure further in.", costText))
             else
@@ -3096,7 +3101,10 @@ local function BuildTurnChildren(m, beat)
         local last = logs[#logs]
         if last ~= nil and not last.consequence then
             Add(gui.Panel{ width = "60%", height = 1, bgimage = "panels/square.png", bgcolor = "#ffffff30", halign = "center", vmargin = 10 })
-            if last.delve then
+            if last.delve and last.ordered then
+                Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s took on %s: %d of %s.", last.heroName or "A hero", last.entryName or "",
+                    last.depth or 0, EncounterScript.Plural(last.steps or 0, "step")) })
+            elseif last.delve then
                 Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s delved into %s: %s met, %s opened.", last.heroName or "A hero", last.entryName or "",
                     EncounterScript.Plural(last.depth or 0, "obstacle"), EncounterScript.Plural(last.chests or 0, "chest")) })
             elseif last.passed then
@@ -3638,8 +3646,82 @@ end
 
 --- the stage ---------------------------------------------------------------------------
 
+--Is this image asset a video (a .webm/.mp4 scene)? Videos have to be
+--streamed with an engine loop flag, or the clip plays once and goes blank.
+local function IsVideoAsset(imageid)
+    local video = false
+    pcall(function()
+        local asset = assets.imagesTable[imageid]
+        video = asset ~= nil and asset.isVideo == true
+    end)
+    return video
+end
+
+--Fill the stage with art of the given aspect (height / width), cropping
+--the overflow, exactly like FullscreenDisplay does it.
+local function FitBackdrop(element, imageAspect)
+    if element.parent == nil or imageAspect == nil or imageAspect <= 0 then
+        return
+    end
+    local w = element.parent.renderedWidth
+    local h = element.parent.renderedHeight
+    if w == 0 or h == 0 then
+        return
+    end
+    local aspect = h / w
+    if aspect > imageAspect then
+        element.selfStyle.height = "100%"
+        element.selfStyle.width = string.format("%f%% height", 100 / imageAspect)
+    else
+        element.selfStyle.width = "100%"
+        element.selfStyle.height = string.format("%f%% width", 100 * imageAspect)
+    end
+end
+
+--The art credit for the scene on a backdrop: the creator's logo badge in
+--the stage's bottom-right corner (CreatorCredit), shown while the scene is
+--credited art (a [[scene]] with "Art by" set). A sibling of the backdrop,
+--not a child, because the backdrop overflows the stage when it crops.
+--Has no bgimage, so it only takes clicks on the badge itself.
+local function CreateCreditHolder()
+    return gui.Panel{
+        floating = true,
+        width = "100%",
+        height = "100%",
+        flow = "none",
+        data = { creator = nil },
+        setSceneCredit = function(element, scene)
+            local info = nil
+            if scene ~= nil then
+                info = CreatorCredit.ForArt(scene)
+            end
+            local creator = info ~= nil and info.id or nil
+            if creator == element.data.creator then
+                return
+            end
+            element.data.creator = creator
+            local badge = nil
+            if creator ~= nil then
+                badge = CreatorCredit.Badge{ creator = creator }
+            end
+            element.children = { badge }
+        end,
+    }
+end
+
+--The credit badge holder belonging to a backdrop (nil for no backdrop), for
+--the stage's children list.
+local function CreditOf(backdrop)
+    if backdrop == nil then
+        return nil
+    end
+    return backdrop.data.credit
+end
+
 --The scene art behind a stage, aspect-fit exactly like FullscreenDisplay
---does it. Shared by the montage and the narrative stage.
+--does it. Shared by the montage and the narrative stage. Set its art with
+--SetBackdropScene, which knows how to play a video scene. Its credit badge
+--(CreditOf) must be added to the stage after the dim.
 local function CreateBackdrop()
     return gui.Panel{
         floating = true,
@@ -3651,30 +3733,56 @@ local function CreateBackdrop()
         bgimage = "panels/square.png",
         bgcolor = "white",
         interactable = false,
+        data = { sceneId = nil, credit = CreateCreditHolder() },
         --aspect-fit the scene art exactly like FullscreenDisplay does.
         imageLoaded = function(element)
-            if element.bgsprite == nil then
+            if element.bgsprite ~= nil then
+                FitBackdrop(element, element.bgsprite.dimensions.y / element.bgsprite.dimensions.x)
                 return
             end
-            local w = element.parent.renderedWidth
-            local h = element.parent.renderedHeight
-            if w == 0 or h == 0 then
+            --a streamed video has no sprite to measure; ask for its size.
+            local sceneId = element.data.sceneId
+            if sceneId == nil then
                 return
             end
-            local aspect = h / w
-            local imageAspect = element.bgsprite.dimensions.y / element.bgsprite.dimensions.x
-            if aspect > imageAspect then
-                element.selfStyle.height = "100%"
-                element.selfStyle.width = string.format("%f%% height", 100 / imageAspect)
-            else
-                element.selfStyle.width = "100%"
-                element.selfStyle.height = string.format("%f%% width", 100 * imageAspect)
-            end
+            pcall(function()
+                gui.GetImageDimensionsCallback(sceneId, function(dims)
+                    if mod.unloaded or not element.valid or element.data.sceneId ~= sceneId then
+                        return
+                    end
+                    if dims ~= nil and (dims.width or 0) > 0 and (dims.height or 0) > 0 then
+                        FitBackdrop(element, dims.height / dims.width)
+                    end
+                end)
+            end)
         end,
         screenResized = function(element)
             element:ScheduleEvent("imageLoaded", 0.5)
         end,
     }
+end
+
+--Show a scene (an image or video asset id) on a backdrop, or hide it (nil).
+local function SetBackdropScene(backdrop, scene)
+    local credit = backdrop.data.credit
+    if credit ~= nil and credit.valid then
+        credit:FireEvent("setSceneCredit", scene)
+    end
+    if scene == nil then
+        backdrop.data.sceneId = nil
+        backdrop:SetClass("hidden", true)
+        return
+    end
+    backdrop.data.sceneId = scene
+    if IsVideoAsset(scene) then
+        --a private looping player (the "###" suffix), muted: the stage's
+        --own music and sound play over it.
+        backdrop.bgimageStreamed = scene .. "###LOOP" .. dmhub.GenerateGuid()
+    else
+        backdrop.bgimage = scene
+    end
+    backdrop:SetClass("hidden", false)
+    backdrop:ScheduleEvent("imageLoaded", 0.2)
 end
 
 local function CreateDim()
@@ -4011,20 +4119,15 @@ local function CreateStage(args)
             introLabel.text = beat.intro or ""
             introLabel:SetClass("collapsed", (beat.intro or "") == "")
             m_turnSignature = nil
-            if not embedded then
-                --backdrop is built whenever the stage is not embedded.
-                ---@cast backdrop -nil
-                local scene = EncounterMontage.SceneImage(script, beat)
-                if scene ~= m_scene then
-                    m_scene = scene
-                    if scene ~= nil then
-                        backdrop.bgimage = scene
-                        backdrop:SetClass("hidden", false)
-                        backdrop:ScheduleEvent("imageLoaded", 0.2)
-                    else
-                        backdrop:SetClass("hidden", true)
-                    end
-                end
+        end
+        if not embedded then
+            --backdrop is built whenever the stage is not embedded. A round
+            --may hang its own scene, so this is checked every refresh.
+            ---@cast backdrop -nil
+            local scene = EncounterMontage.MontageSceneImage(script, beat, m.round)
+            if scene ~= m_scene then
+                m_scene = scene
+                SetBackdropScene(backdrop, scene)
             end
         end
 
@@ -4075,7 +4178,7 @@ local function CreateStage(args)
         bgcolor = cond(embedded, "#00000000", "#05070a"),
         swallowPress = true,
 
-        children = Classes(backdrop, dim, header, body, heroRow, pools),
+        children = Classes(backdrop, dim, header, body, heroRow, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -4705,13 +4808,7 @@ local function CreateNarrativeStage(args)
                 local scene = EncounterNarrative.SceneImage(script, beat, section)
                 if scene ~= m_scene then
                     m_scene = scene
-                    if scene ~= nil then
-                        backdrop.bgimage = scene
-                        backdrop:SetClass("hidden", false)
-                        backdrop:ScheduleEvent("imageLoaded", 0.2)
-                    else
-                        backdrop:SetClass("hidden", true)
-                    end
+                    SetBackdropScene(backdrop, scene)
                 end
             end
         end
@@ -4770,7 +4867,7 @@ local function CreateNarrativeStage(args)
         bgcolor = cond(embedded, "#00000000", "#05070a"),
         swallowPress = true,
 
-        children = Classes(backdrop, dim, header, body, heroRow, pools),
+        children = Classes(backdrop, dim, header, body, heroRow, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -5233,7 +5330,7 @@ local function CreatePrepStage(args)
         bgcolor = cond(embedded, "#00000000", "#05070a"),
         swallowPress = true,
 
-        children = Classes(backdrop, dim, header, body, heroRow, pools),
+        children = Classes(backdrop, dim, header, body, heroRow, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -5337,7 +5434,7 @@ local function CurrentScriptBeat()
 end
 
 --The backdrop for whatever is on screen: a narrative section may override its
---beat's scene, a montage always uses the beat's.
+--beat's scene, and a montage round its beat's.
 local function CurrentSceneImage(beat, index, script)
     if beat == nil or script == nil then
         return nil
@@ -5370,6 +5467,18 @@ local function CurrentSceneImage(beat, index, script)
             end
         end
         return nil
+    end
+    if beat.kind == "montage" then
+        --a round may hang its own scene (day, then night); only trust the
+        --live state's round while it is this beat's.
+        local round = 1
+        pcall(function()
+            local m = EncounterMontage.GetState()
+            if m ~= nil and m.beatIndex == index then
+                round = m.round or 1
+            end
+        end)
+        return EncounterMontage.MontageSceneImage(script, beat, round)
     end
     return EncounterMontage.SceneImage(script, beat)
 end
@@ -5497,13 +5606,7 @@ local function CreateScriptStage(args)
         end
         if scene ~= m_scene then
             m_scene = scene
-            if scene ~= nil then
-                backdrop.bgimage = scene
-                backdrop:SetClass("hidden", false)
-                backdrop:ScheduleEvent("imageLoaded", 0.2)
-            else
-                backdrop:SetClass("hidden", true)
-            end
+            SetBackdropScene(backdrop, scene)
         end
     end
 
@@ -5525,7 +5628,7 @@ local function CreateScriptStage(args)
 
         --backdrop, dim and pools all float, so bodyHolder is the only child
         --in the flow and takes the whole surface.
-        children = Classes(backdrop, dim, bodyHolder, pools),
+        children = Classes(backdrop, dim, bodyHolder, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -5692,7 +5795,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
         bgimage = "panels/square.png",
         bgcolor = "#05070a",
         swallowPress = true,
-        children = Classes(backdrop, dim, body),
+        children = Classes(backdrop, dim, body, CreditOf(backdrop)),
 
         captureEscape = true,
         escape = function(element)
@@ -5701,9 +5804,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
 
         create = function(element)
             if scene ~= nil then
-                backdrop.bgimage = scene
-                backdrop:SetClass("hidden", false)
-                backdrop:ScheduleEvent("imageLoaded", 0.2)
+                SetBackdropScene(backdrop, scene)
             end
         end,
 

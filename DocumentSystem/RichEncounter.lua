@@ -15,6 +15,27 @@ function RichEncounter.Create()
     }
 end
 
+--Copy a saved encounter for use in a journal tag. Editing either one later
+--does not change the other.
+--- @param encounter Encounter
+--- @return Encounter
+function RichEncounter.CopyEncounter(encounter)
+    local copy = DeepCopy(encounter)
+    --drop the id so the copy can never be saved over the original.
+    rawset(copy, "id", nil)
+    return copy
+end
+
+--Make a journal encounter tag from a saved encounter. Used when an encounter
+--card is dropped onto a document.
+--- @param encounter Encounter
+--- @return RichEncounter
+function RichEncounter.FromEncounter(encounter)
+    return RichEncounter.new{
+        encounter = RichEncounter.CopyEncounter(encounter),
+    }
+end
+
 function RichEncounter.CreateDisplay(self)
 
     local resultPanel
@@ -926,7 +947,7 @@ function RichEncounter.CreateDisplay(self)
                 --tokens to despawn; skip them to keep the charid index aligned with spawn.
                 if group.wave == nil and (group.minHeroes == nil or numHeroes >= group.minHeroes) then
                     local spawnIndex = 1
-                    for monsterid,quantity in pairs(group.monsters) do
+                    for monsterid,quantity in pairs(group.monsters or {}) do
                         --match the adjusted count used at spawn time so token ids stay aligned.
                         quantity = Encounter.AdjustedMonsterQuantity(group, monsterid, quantity, numHeroes)
             print("SPAWN:: DESPAWNING monsterid =", monsterid, quantity)
@@ -1108,6 +1129,14 @@ function RichEncounter.CreateDisplay(self)
             element:FireEventTree("refreshTag")
         end,
 
+        --sent when this tag's encounter is changed from its editor card, so
+        --the page shows the change straight away.
+        richEncounterChanged = function(element, tag)
+            if rawequal(tag, self) then
+                element:FireEventTree("refreshTag")
+            end
+        end,
+
         headerPanel,
 
         gui.Panel{
@@ -1125,6 +1154,60 @@ end
 
 function RichEncounter.CreateEditor(self)
     local resultPanel
+
+    --Call after changing this tag's encounter. Autosave only notices typing,
+    --so we tell the document it was edited.
+    local function EncounterChanged()
+        resultPanel:FireEventTree("refreshEditor")
+        local documentPanel = resultPanel:FindParentWithClass("documentPanel")
+        if documentPanel ~= nil then
+            documentPanel:FireEventTree("richEncounterChanged", self)
+        end
+        CustomDocument.NotifyEdited(resultPanel)
+    end
+
+    --Dropdown entries for the saved encounters, sorted by name. Players get
+    --none: saved encounters are for the Director only.
+    local function SavedEncounterOptions()
+        local options = {}
+        if dmhub.isDM then
+            for id, encounter in unhidden_pairs(dmhub.GetTable(Encounter.tableName) or {}) do
+                options[#options + 1] = { id = id, text = encounter.name }
+            end
+            table.sort(options, function(a, b) return string.lower(a.text) < string.lower(b.text) end)
+        end
+        table.insert(options, 1, { id = "", text = "Load saved..." })
+        return options
+    end
+
+    local loadDropdown = gui.Dropdown{
+        classes = cond(dmhub.isDM, {}, {"collapsed"}),
+        width = "100%",
+        height = 18,
+        fontSize = 12,
+        vmargin = 2,
+        idChosen = "",
+        hasSearch = true,
+        --wider than the card so long encounter names fit.
+        menuWidth = 260,
+        menuAlign = "left",
+        options = SavedEncounterOptions(),
+        hover = gui.Tooltip("Replace this encounter with a copy of one saved in the Encounters panel."),
+        monitorAssets = true,
+        refreshAssets = function(element)
+            element.options = SavedEncounterOptions()
+        end,
+        change = function(element)
+            local chosen = element.idChosen
+            element.idChosen = ""
+            local saved = (dmhub.GetTable(Encounter.tableName) or {})[chosen]
+            if chosen == "" or saved == nil then
+                return
+            end
+            self.encounter = RichEncounter.CopyEncounter(saved)
+            EncounterChanged()
+        end,
+    }
 
     local titleLabel = gui.Label{
         width = "100%-54",
@@ -1173,7 +1256,7 @@ function RichEncounter.CreateEditor(self)
                     mode = "Save",
                     journal = true,
                     save = function()
-                        resultPanel:FireEventTree("refreshEditor")
+                        EncounterChanged()
                     end
                 }
             end,
@@ -1215,6 +1298,7 @@ function RichEncounter.CreateEditor(self)
             self = tag or self
         end,
         headerPanel,
+        loadDropdown,
         textPanel,
     }
 

@@ -29,6 +29,10 @@ CustomDocument.bookmarks = {}
 CustomDocument.vscroll = true
 CustomDocument.textStorage = false
 CustomDocument.ord = 0
+--True if open documents of this type accept tags dragged in from other
+--panels, such as encounter cards. A type that sets it must provide
+--AddRichTagAnnotation.
+CustomDocument.acceptsRichTagDrops = false
 
 CustomDocument.MaxLength = 8192*4
 
@@ -1225,8 +1229,10 @@ function CustomDocument:CreateInterface(args)
             if doc == nil then
                 return nil
             end
+            --textStorage defaults to false, not nil, on documents whose text
+            --has never been stored in sections.
             local ts = doc.textStorage
-            if ts == nil then
+            if not ts then
                 return nil
             end
             return ts.sections
@@ -2181,6 +2187,37 @@ function CustomDocument:CreateInterface(args)
         end,
     }
 
+    --Only documents you can edit accept drops. Drops are detected by overlap,
+    --so this panel needs no background to catch them.
+    local acceptsDrops = self.acceptsRichTagDrops and self:HaveEditPermissions()
+
+    --Outline shown while a card is dragged over the document. It never
+    --blocks clicks on the page.
+    local m_dropOutline = nil
+    if acceptsDrops then
+        m_dropOutline = gui.Panel {
+            classes = {"documentDropOutline"},
+            styles = ThemeEngine.MergeTokens({
+                {
+                    selectors = {"documentDropOutline"},
+                    bgcolor = "clear",
+                    borderWidth = 0,
+                },
+                {
+                    selectors = {"documentDropOutline", "parent:drag-target-hover"},
+                    borderWidth = 2,
+                    borderColor = "@accent",
+                    priority = 6,
+                },
+            }),
+            floating = true,
+            interactable = false,
+            width = "100%",
+            height = "100%",
+            bgimage = true,
+        }
+    end
+
     resultPanel = gui.Panel {
         classes = {"documentPanel"},
         monitorGame = monitorGame,
@@ -2189,6 +2226,37 @@ function CustomDocument:CreateInterface(args)
         halign = "left",
         valign = "top",
         flow = "vertical",
+        dragTarget = acceptsDrops,
+
+        --A card was dropped here with a tag to add. While editing it goes in
+        --at the cursor; otherwise it is added at the end and saved.
+        insertRichTag = function(element, richTag, name)
+            if not acceptsDrops then
+                return
+            end
+
+            if IsEditing() then
+                ---@cast writePanel -nil
+                writePanel:FireEventTree("insertRichTag", richTag, name)
+                return
+            end
+
+            --use the latest saved copy so we don't overwrite someone else's
+            --recent changes.
+            local doc = (dmhub.GetTable(CustomDocument.tableName) or {})[self.id] or self
+            ---@cast doc MarkdownDocument
+            local original = DeepCopy(doc)
+            local key = doc:AddRichTagAnnotation(richTag, name)
+            local text = doc:GetTextContent()
+            if text ~= "" and text:sub(-1) ~= "\n" then
+                text = text .. "\n"
+            end
+            doc:SetTextContent(text .. string.format("[[%s]]\n", key))
+            doc:Upload(original)
+            self = doc
+            element:FireEventTree("refreshDocument", doc)
+        end,
+
         closetab = function(element)
             local function doClose()
                 if args.close then
@@ -2322,6 +2390,8 @@ function CustomDocument:CreateInterface(args)
         m_topBar,
 
         m_bodyPanel,
+
+        m_dropOutline,
     }
 
     --Carry-the-term navigation: a search-result jump stores the term on the

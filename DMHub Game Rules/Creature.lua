@@ -2267,7 +2267,21 @@ function creature.InflictDamageInstance(self, amount, damageType, keywords, sour
 		ignoreImmunity = true
 	end
 
-	if symbols.attacker ~= nil and (symbols.attacker:CalculateNamedCustomAttribute(string.format("Ignore %s Immunity", damageType)) or 0) > 0 then
+    -- Damage a creature is credited with dealing itself (an ownerless zone's entry effect,
+    -- its own burning tick) has no attacker, so its own "Ignore X Immunity" or Relentless
+    -- penalty must not turn against it. Compared by token id too, in case the two
+    -- properties references differ.
+    local attacker = symbols ~= nil and symbols.attacker or nil
+    if attacker == self then
+        attacker = nil
+    elseif attacker ~= nil then
+        local selfId = dmhub.LookupTokenId(self)
+        if selfId ~= nil and dmhub.LookupTokenId(attacker) == selfId then
+            attacker = nil
+        end
+    end
+
+	if attacker ~= nil and (attacker:CalculateNamedCustomAttribute(string.format("Ignore %s Immunity", damageType)) or 0) > 0 then
         ignoreTypeSpecificOnly = true
     end
 
@@ -2335,10 +2349,10 @@ function creature.InflictDamageInstance(self, amount, damageType, keywords, sour
     -- the ATTACKER carrying the "Relentless Damage Penalty" custom attribute, so this whole block
     -- is a no-op for every creature that isn't under the Relentless Taunt effect. Applies to the
     -- already-resistance-reduced amount (like a victim immunity), floored at 0.
-    if symbols ~= nil and symbols.attacker ~= nil and amount > 0 then
-        local relentlessPenalty = symbols.attacker:CalculateNamedCustomAttribute("Relentless Damage Penalty") or 0
+    if attacker ~= nil and amount > 0 then
+        local relentlessPenalty = attacker:CalculateNamedCustomAttribute("Relentless Damage Penalty") or 0
         if relentlessPenalty > 0 then
-            local exemptToken = symbols.attacker:RelentlessDamageCaster()
+            local exemptToken = attacker:RelentlessDamageCaster()
             local selfToken = dmhub.LookupToken(self)
             local exemptId = exemptToken ~= nil and exemptToken.charid or nil
             if selfToken == nil or exemptId == nil or selfToken.charid ~= exemptId then
