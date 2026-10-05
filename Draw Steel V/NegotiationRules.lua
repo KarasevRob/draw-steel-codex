@@ -909,8 +909,10 @@ local g_lastSeed = { docid = false, text = "" }
 --
 --Seeding is where a page starts, so this belongs at the top of an editor.
 --It replaces every motivation and pitfall, so it asks first when there are
---any. onSeeded(element) runs after the page has changed, for the caller to
---save and redraw.
+--any. It leaves a descriptor the Director wrote alone unless told otherwise,
+--so it asks about that too, or a page re-seeded from the Guildmaster goes on
+--describing the Knight. onSeeded(element) runs after the page has changed,
+--for the caller to save and redraw.
 function NegotiationDocument:SeedControl(onSeeded)
     local doc = self
     local negotiators = dmhub.GetTable(Negotiator.tableName) or {}
@@ -969,17 +971,24 @@ function NegotiationDocument:SeedControl(onSeeded)
         return n
     end
 
-    local function Apply(element, id, replaced)
+    --descriptor: nil when the page's own descriptor is not in question,
+    --else "replaced" or "kept".
+    local function Apply(element, id, replaced, descriptor)
         local text
         if id == "" then
             doc.archetype = ""
             text = "No longer marked as seeded. The motivations and pitfalls are unchanged."
         else
             local negotiator = negotiators[id]
+            if descriptor == "replaced" then
+                --SeedFromArchetype only fills an empty descriptor.
+                doc.npcDesc = ""
+            end
             doc:SeedFromArchetype(negotiator)
-            text = string.format("Seeded from %s: impression %d, %d motivations and %d pitfalls %s.",
+            text = string.format("Seeded from %s: impression %d, %d motivations and %d pitfalls %s%s.",
                 negotiator.name or "", doc:try_get("impression", 1), Count("motivation"), Count("pitfall"),
-                replaced and "replaced" or "added")
+                replaced and "replaced" or "added",
+                descriptor ~= nil and string.format("; descriptor %s", descriptor) or "")
         end
         g_lastSeed = { docid = doc:try_get("id"), text = text }
         archetype = doc:try_get("archetype", "")
@@ -1008,29 +1017,75 @@ function NegotiationDocument:SeedControl(onSeeded)
                     if id == currentId or id == "@kept" then
                         return
                     end
-                    local existing = #doc:try_get("traits", {})
-                    if id ~= "" and existing > 0 then
-                        --show the old choice until the Director confirms, so
-                        --dismissing the question leaves the control truthful.
-                        element.idChosen = currentId
-                        gui.ModalMessage{
-                            title = "Replace Motivations and Pitfalls?",
-                            message = string.format(
-                                "This page has %d motivations and pitfalls. Seeding from %s replaces all of them.",
-                                existing, negotiators[id].name or ""),
-                            options = {
-                                { text = "Cancel" },
-                                {
-                                    text = "Replace",
-                                    execute = function()
-                                        Apply(element, id, true)
-                                    end,
-                                },
-                            },
-                        }
+                    if id == "" then
+                        Apply(element, id, false)
                         return
                     end
-                    Apply(element, id, false)
+
+                    local negotiator = negotiators[id]
+                    local name = negotiator.name or ""
+                    local existing = #doc:try_get("traits", {})
+                    --The descriptor on the page is one of three things. Empty
+                    --or already this negotiator's: nothing to decide. Still
+                    --the previous sample's untouched text: nobody wrote it,
+                    --so it goes with the sample. Anything else is the
+                    --Director's own, and they are asked.
+                    local theirs = negotiator:try_get("flavorText", "")
+                    local mine = doc:try_get("npcDesc", "")
+                    local previous = negotiators[currentId]
+                    local stale = mine ~= "" and mine ~= theirs and previous ~= nil
+                        and mine == previous:try_get("flavorText", "")
+                    local descriptorDiffers = mine ~= "" and theirs ~= "" and mine ~= theirs and not stale
+                    local unasked = (stale and theirs ~= "") and "replaced" or nil
+
+                    if existing == 0 and not descriptorDiffers then
+                        Apply(element, id, false, unasked)
+                        return
+                    end
+
+                    local title, message
+                    if existing > 0 then
+                        title = "Replace Motivations and Pitfalls?"
+                        message = string.format(
+                            "This page has %d motivations and pitfalls. Seeding from %s replaces all of them.",
+                            existing, name)
+                        if descriptorDiffers then
+                            message = message .. string.format(
+                                " It also has its own descriptor. Keep it, or use %s's?", name)
+                        end
+                    else
+                        title = "Replace the Descriptor?"
+                        message = string.format(
+                            "This page already has a descriptor. Keep it, or use %s's?", name)
+                    end
+
+                    local options = { { text = "Cancel" } }
+                    if descriptorDiffers then
+                        options[#options + 1] = {
+                            text = "Keep My Descriptor",
+                            execute = function()
+                                Apply(element, id, existing > 0, "kept")
+                            end,
+                        }
+                        options[#options + 1] = {
+                            text = "Replace It Too",
+                            execute = function()
+                                Apply(element, id, existing > 0, "replaced")
+                            end,
+                        }
+                    else
+                        options[#options + 1] = {
+                            text = "Replace",
+                            execute = function()
+                                Apply(element, id, true, unasked)
+                            end,
+                        }
+                    end
+
+                    --show the old choice until the Director answers, so
+                    --dismissing the question leaves the control truthful.
+                    element.idChosen = currentId
+                    gui.ModalMessage{ title = title, message = message, options = options }
                 end,
             },
         },
