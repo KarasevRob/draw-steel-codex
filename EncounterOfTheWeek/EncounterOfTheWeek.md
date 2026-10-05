@@ -995,6 +995,19 @@ DMHub Core UI codemod after `GuiUtils`, Firebase confirmed):
   image assets, light on transparent.
 - `CreatorCredit.RegisterArt(imageid, id)` tags a piece of art, so a
   backdrop of it finds its credit without being told.
+- **Scene "Art by"** (2026-10-04, user direction: per scene object, badge on
+  the montage stage, the narrative stage and the Director's full-screen
+  scenes). A `[[scene]]` tag's `RichScene.credit` (creator id or false) is set
+  from the settings button on its editor in the journal (dropdown from
+  `CreatorCredit.DropdownOptions()`). `EncounterMontage.SceneImage` calls
+  `CreatorCredit.TagSceneArt(image, tag:GetCredit())` as it resolves a scene,
+  and `ForArt` checks `art` then `sceneArt`. The stages' backdrops carry a
+  sibling credit holder (`CreateCreditHolder` / `CreditOf` in
+  `EncounterMontageStage.lua`, refreshed by `SetBackdropScene`), and
+  `FullscreenDisplay` badges `doc.data.coverartCredit` (written by the
+  scene's Show control; Game Controls' cover-art picker clears it). Set on
+  The Dwarvish Bandits (all four scenes) and Goblin Ambush (all three);
+  verified on screen in both authoring games.
 - `CreatorCredit.Badge{creator, width?, halign?, valign?, hmargin?,
   vmargin?}` is the logo as a floating badge, bottom-right by default. Hover
   shows "Art by <name>" and the site; click opens the url through
