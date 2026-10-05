@@ -821,14 +821,31 @@ do
         return result
     end
 
+    --The declarations that apply to a document: its class's, or none.
+    --
+    --None without dev:documentclasses. And none where a built-in type's
+    --declaration is written for one Lua type (declaredFor): negotiation
+    --declares NegotiationDocument's fields, but a plain page can carry
+    --docType "negotiation" too -- the Negotiation template makes them -- and it
+    --has none of those fields. Without this the page showed the negotiation
+    --form in place of its own text.
+    local g_noDeclarations = {}
+    local function Declarations(doc)
+        if not g_documentClassesSetting:Get() then
+            return g_noDeclarations
+        end
+        local info = CustomDocument.DocTypeInfo(doc)
+        if info.declaredFor ~= nil and not info.declaredFor(doc) then
+            return g_noDeclarations
+        end
+        return info
+    end
+
     --The fields declared for a document's class, in order. Empty without
     --dev:documentclasses, so a client with the flag off draws the page as its
     --base type and never touches the values.
     function CustomDocument.ClassFields(doc)
-        if not g_documentClassesSetting:Get() then
-            return {}
-        end
-        return CustomDocument.DocTypeInfo(doc).fields or {}
+        return Declarations(doc).fields or {}
     end
 
     --Actions (JOURNAL_PROGRAM.md Phase 5). Fields are data; "Begin
@@ -850,10 +867,7 @@ do
     --Empty without dev:documentclasses.
     function CustomDocument.ClassActions(doc, mode)
         local result = {}
-        if not g_documentClassesSetting:Get() then
-            return result
-        end
-        for _, declared in ipairs(CustomDocument.DocTypeInfo(doc).actions or {}) do
+        for _, declared in ipairs(Declarations(doc).actions or {}) do
             local action = CustomDocument.registeredActions[declared.verb]
             if action ~= nil and action.mode == mode and (dmhub.isDM or not action.directorOnly) then
                 result[#result + 1] = { text = action.text, action = action }
@@ -865,10 +879,7 @@ do
     --The exits declared for a document's class (JOURNAL_PROGRAM.md Phase 4).
     --Empty without dev:documentclasses, like the fields.
     function CustomDocument.ClassExits(doc)
-        if not g_documentClassesSetting:Get() then
-            return {}
-        end
-        return CustomDocument.DocTypeInfo(doc).exits or {}
+        return Declarations(doc).exits or {}
     end
 
     --What a declared exit writes to campaign state, in the [[exit]] tag's
@@ -1540,8 +1551,12 @@ do
             panel:SetClass("collapsed", false)
             panel.selfStyle.height = "100% available"
             panel.selfStyle.valign = "top"
-            children[#children + 1] = panel
+        else
+            --a fields-only class hides the page's own panel but still parents
+            --it: the shell built it and fires its events down this tree.
+            panel:SetClass("collapsed", true)
         end
+        children[#children + 1] = panel
         return gui.Panel{
             flow = "vertical", width = "100%", height = "100%",
             children = children,

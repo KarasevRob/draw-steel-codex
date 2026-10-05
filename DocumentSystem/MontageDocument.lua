@@ -429,6 +429,10 @@ end
 
 --Begin Montage as a registered action (see CustomDocument.RegisterAction).
 CustomDocument.docTypeInfo.montage.actions = { { id = "start", verb = "montage.start" } }
+--Only a real montage has Begin; a plain page typed "montage" does not.
+CustomDocument.docTypeInfo.montage.declaredFor = function(doc)
+    return doc.typeName == "MontageTest" or doc.typeName == "MontageDocument"
+end
 CustomDocument.RegisterAction{
     id = "montage.start",
     text = "Begin Montage",

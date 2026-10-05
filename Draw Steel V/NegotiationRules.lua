@@ -788,6 +788,11 @@ do
     local info = CustomDocument.docTypeInfo.negotiation
     info.body = "none"
     info.hiddenFromPlayers = true
+    --These are NegotiationDocument's fields. A plain page typed
+    --"negotiation" has none of them.
+    info.declaredFor = function(doc)
+        return doc.typeName == "NegotiationDocument"
+    end
 
     local offerKeys = {}
     for i = 0, NegotiationRules.MAX do
