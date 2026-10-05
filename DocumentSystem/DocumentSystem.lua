@@ -153,6 +153,62 @@ function CustomDocument.BackfillDocTypesFromSubtitles(onDone)
     step()
 end
 
+--One switch for the whole document-classes programme (JOURNAL_PROGRAM.md,
+--"Rollout"). Toggle with "/toggle dev:documentclasses" in chat.
+g_documentClassesSetting = setting{
+    id = "dev:documentclasses",
+    default = false,
+    storage = "preference",
+}
+
+--Fields that say which document this is or where it lives, so a template
+--copy leaves them alone. The two text fields are listed because text travels
+--through Get/SetTextContent; the legacy `content` must never be written.
+local g_templateIdentityFields = {
+    id = true, description = true, parentFolder = true, ownerid = true,
+    ord = true, ctime = true, mtime = true, updateid = true,
+    hidden = true, readonly = true,
+    content = true, textStorage = true,
+}
+
+local function IsTemplateField(key)
+    if type(key) ~= "string" or g_templateIdentityFields[key] or string.sub(key, 1, 1) == "_" then
+        return false
+    end
+    if key == "docType" then
+        return g_documentClassesSetting:Get()
+    end
+    return true
+end
+
+--Everything a template hands to a document created from it: its text and
+--every serialized field that is not identity or placement.
+--@return {text: string, fields: table}
+function CustomDocument:TemplateSnapshot()
+    local fields = {}
+    for k, v in pairs(self) do
+        if IsTemplateField(k) then
+            fields[k] = DeepCopy(v)
+        end
+    end
+    return { text = self:GetTextContent(), fields = fields }
+end
+
+--Make this document match a TemplateSnapshot. A field the snapshot lacks is
+--cleared back to its type default, so applying one template after another
+--leaves nothing of the first behind.
+function CustomDocument:ApplyTemplateSnapshot(snapshot)
+    for k, _ in pairs(self) do
+        if IsTemplateField(k) then
+            self[k] = nil
+        end
+    end
+    for k, v in pairs(snapshot.fields) do
+        self[k] = DeepCopy(v)
+    end
+    self:SetTextContent(snapshot.text)
+end
+
 local g_tabbedViewer = nil
 
 -- Tab system sizes

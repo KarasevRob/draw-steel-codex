@@ -2,8 +2,14 @@ local mod = dmhub.GetModLoading()
 
 function MarkdownDocument:ShowCreateDialog()
 
-    local m_originalContent = self:GetTextContent()
-    local m_originalAnnotations = self.annotations
+    local m_original = self:TemplateSnapshot()
+
+    local function ApplyTemplate(snapshot)
+        self:ApplyTemplateSnapshot(snapshot)
+        if self:try_get("annotations") == nil then
+            self.annotations = {}
+        end
+    end
 
     local dialogWidth = 1100
     local dialogHeight = 940
@@ -43,8 +49,7 @@ function MarkdownDocument:ShowCreateDialog()
                         child:SetClass("selected", child == element)
                     end
 
-                    self:SetTextContent(template:GetTextContent())
-                    self.annotations = DeepCopy(rawget(template, "annotations") or {})
+                    ApplyTemplate(template:TemplateSnapshot())
                     previewPanel:FireEvent("doc", self)
                 end,
             }
@@ -66,8 +71,7 @@ function MarkdownDocument:ShowCreateDialog()
                 child:SetClass("selected", child == element)
             end
             
-            self:SetTextContent(m_originalContent)
-            self.annotations = m_originalAnnotations
+            ApplyTemplate(m_original)
             previewPanel:FireEvent("doc", self)
         end,
     })
