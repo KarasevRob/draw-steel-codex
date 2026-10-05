@@ -60,7 +60,8 @@ CustomDocument.documentTypes = {}
 
 CustomDocument.docType = "narration"
 
---Fixed registry, keyed by type id. glyph = single-letter Flow badge.
+--The built-in types, keyed by type id, and the root every DocumentClass
+--inherits from. glyph = single-letter Flow badge; ord = menu order.
 --Icons are Phosphor line glyphs (monochrome masks): they render tinted @fg
 --through the tree/Run cascade and invert on hover, unlike the old full-colour
 --Icon_App art which was painted untinted. exploration and location now carry
@@ -91,7 +92,7 @@ CustomDocument.docTypeInfo = {
 function CustomDocument.DocTypeId(doc)
     local t = nil
     pcall(function() t = doc.docType end)
-    if t == nil or CustomDocument.docTypeInfo[t] == nil then
+    if t == nil or CustomDocument.DocTypeInfoById(t) == nil then
         return "narration"
     end
     return t
@@ -99,7 +100,7 @@ end
 
 --The registry entry for a document's semantic type (never nil).
 function CustomDocument.DocTypeInfo(doc)
-    return CustomDocument.docTypeInfo[CustomDocument.DocTypeId(doc)]
+    return CustomDocument.DocTypeInfoById(CustomDocument.DocTypeId(doc)) or CustomDocument.docTypeInfo.narration
 end
 
 --Convenience readers used by the read-sites (tree/Run/Flow).
@@ -155,11 +156,500 @@ end
 
 --One switch for the whole document-classes programme (JOURNAL_PROGRAM.md,
 --"Rollout"). Toggle with "/toggle dev:documentclasses" in chat.
-g_documentClassesSetting = setting{
-    id = "dev:documentclasses",
-    default = false,
-    storage = "preference",
-}
+do
+    local SyncDocumentClassesCompendium
+
+    g_documentClassesSetting = setting{
+        id = "dev:documentclasses",
+        default = false,
+        storage = "preference",
+        onchange = function()
+            SyncDocumentClassesCompendium()
+        end,
+    }
+
+    --A Director-authored document type: a compendium row that inherits from a
+    --built-in type or from another class and overrides only what it sets, the way
+    --a JournalStylesheet inherits its skin. The built-in docTypeInfo rows are the
+    --root every chain ends at. A document names its class in docType; a client
+    --without dev:documentclasses does not resolve classes, so it shows such a
+    --document as narration and leaves docType alone.
+    ---@class DocumentClass: GameType
+    --- @field new fun(o?: table): DocumentClass
+    --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+    --- @field name string
+    --- @field parentId string A built-in type id or another class's id.
+    --- @field icon false|string false inherits.
+    --- @field glyph false|string false inherits.
+    --- @field ord false|number false inherits.
+    --- @field beat "inherit"|boolean
+    --- @field showInNewMenu "inherit"|boolean
+    DocumentClass = RegisterGameType("DocumentClass")
+    DocumentClass.tableName = "documentClasses"
+    DocumentClass.name = "New Document Class"
+    DocumentClass.parentId = "note"
+    DocumentClass.icon = false
+    DocumentClass.glyph = false
+    DocumentClass.ord = false
+    DocumentClass.beat = "inherit"
+    DocumentClass.showInNewMenu = "inherit"
+
+    --Built-in types a class may inherit from. The functional types are left out:
+    --code finds montage, negotiation and heroic test pages by their exact type id.
+    DocumentClass.plainBuiltinIds = { "note", "narration", "exploration", "combat", "location", "npc" }
+
+    --Resolved classes, kept for one frame: long enough for a tree refresh that
+    --asks once per row, short enough that an edit shows on the next frame.
+    local g_classCache = {}
+    local g_classCacheFrame = -1
+
+    --The registry entry for a type id: a built-in row, or a class merged over its
+    --parent chain. nil for an id that is neither.
+    --@return nil|{text: string, icon: string, beat: boolean, glyph: string, ord: number, showInNewMenu: nil|boolean, custom: nil|boolean}
+    function CustomDocument.DocTypeInfoById(id)
+        local builtin = CustomDocument.docTypeInfo[id]
+        if builtin ~= nil then
+            return builtin
+        end
+        if type(id) ~= "string" or not g_documentClassesSetting:Get() then
+            return nil
+        end
+
+        local frame = dmhub.FrameCount()
+        if frame ~= g_classCacheFrame then
+            g_classCache = {}
+            g_classCacheFrame = frame
+        end
+        local cached = g_classCache[id]
+        if cached ~= nil then
+            return cached or nil
+        end
+
+        local classes = dmhub.GetTable(DocumentClass.tableName) or {}
+        local chain = {}
+        local visited = {}
+        local cur = id
+        while classes[cur] ~= nil and not visited[cur] and not classes[cur]:try_get("hidden", false) do
+            visited[cur] = true
+            chain[#chain + 1] = classes[cur]
+            cur = classes[cur].parentId
+        end
+        if #chain == 0 then
+            g_classCache[id] = false
+            return nil
+        end
+
+        --A missing parent, or a cycle, falls back to the plain page.
+        local root = CustomDocument.docTypeInfo[cur] or CustomDocument.docTypeInfo.note
+        local info = {
+            text = chain[1].name, icon = root.icon, beat = root.beat, glyph = root.glyph, ord = root.ord,
+            showInNewMenu = root.showInNewMenu ~= false, custom = true,
+        }
+        for i = #chain, 1, -1 do
+            local class = chain[i]
+            info.icon = class.icon or info.icon
+            info.glyph = class.glyph or info.glyph
+            info.ord = class.ord or info.ord
+            if class.beat ~= "inherit" then info.beat = class.beat == true end
+            if class.showInNewMenu ~= "inherit" then info.showInNewMenu = class.showInNewMenu == true end
+        end
+
+        g_classCache[id] = info
+        return info
+    end
+
+    local function CompareTypeEntries(a, b)
+        if a.ord ~= b.ord then
+            return a.ord < b.ord
+        end
+        return a.name < b.name
+    end
+
+    --Every class as {id, info}, for callers that list them beside the built-ins.
+    local function DocumentClasses()
+        local result = {}
+        if g_documentClassesSetting:Get() then
+            for id, _ in unhidden_pairs(dmhub.GetTable(DocumentClass.tableName) or {}) do
+                local info = CustomDocument.DocTypeInfoById(id)
+                if info ~= nil then
+                    result[#result + 1] = { id = id, info = info }
+                end
+            end
+        end
+        return result
+    end
+
+    --The types a plain page can be switched between: the plain built-ins plus
+    --every class, in menu order. Each entry is {id, name, ord}.
+    function CustomDocument.PlainDocTypes()
+        local result = {}
+        for _, id in ipairs(DocumentClass.plainBuiltinIds) do
+            local info = CustomDocument.docTypeInfo[id]
+            result[#result + 1] = { id = id, name = info.text, ord = info.ord }
+        end
+        for _, class in ipairs(DocumentClasses()) do
+            result[#result + 1] = { id = class.id, name = class.info.text, ord = class.info.ord }
+        end
+        if g_documentClassesSetting:Get() then
+            table.sort(result, CompareTypeEntries)
+        end
+        return result
+    end
+
+    --The types offered when creating a document, in menu order. Each entry has
+    --name (the bare type name), text ("New ..."), icon and create().
+    function CustomDocument.NewDocumentTypes()
+        local result = {}
+        if not g_documentClassesSetting:Get() then
+            for _, v in pairs(CustomDocument.documentTypes) do
+                result[#result + 1] = v
+            end
+            table.sort(result, function(a, b) return (a.text or "") < (b.text or "") end)
+            return result
+        end
+
+        local registered = {}
+        for _, v in pairs(CustomDocument.documentTypes) do
+            registered[v.docType or v.id] = v
+        end
+        for id, info in pairs(CustomDocument.docTypeInfo) do
+            local v = registered[id]
+            if v ~= nil and info.showInNewMenu ~= false then
+                result[#result + 1] = { id = id, name = info.text, text = v.text, icon = info.icon, ord = info.ord, create = v.create }
+            end
+        end
+        for _, class in ipairs(DocumentClasses()) do
+            local id, info = class.id, class.info
+            if info.showInNewMenu then
+                result[#result + 1] = {
+                    id = id, name = info.text, text = "New " .. info.text, icon = info.icon, ord = info.ord,
+                    create = function()
+                        return MarkdownDocument.new{ content = "", annotations = {}, docType = id }
+                    end,
+                }
+            end
+        end
+        table.sort(result, CompareTypeEntries)
+        return result
+    end
+
+    --Every document filed under the journal's Templates folder, sorted by name.
+    function CustomDocument.Templates()
+        local result = {}
+        local foldersTable = assets.documentFoldersTable
+        for _, template in unhidden_pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
+            local parentFolder = template.parentFolder
+            local maxcount = 0
+            while maxcount < 10 and parentFolder ~= nil and foldersTable[parentFolder] ~= nil do
+                if foldersTable[parentFolder].hidden then
+                    break
+                end
+                parentFolder = foldersTable[parentFolder].parentFolder
+                maxcount = maxcount + 1
+            end
+            if parentFolder == "templates" then
+                result[#result + 1] = template
+            end
+        end
+        table.sort(result, function(a, b) return a.description < b.description end)
+        return result
+    end
+
+    --A new, unsaved page copied from a template. The caller gives it an id, an
+    --owner and a folder.
+    function CustomDocument.CreateFromTemplate(template)
+        local doc = MarkdownDocument.new{ content = "", annotations = {}, description = template.description }
+        doc:ApplyTemplateSnapshot(template:TemplateSnapshot())
+        if doc:try_get("annotations") == nil then
+            doc.annotations = {}
+        end
+        return doc
+    end
+
+    ----------------------------------------------------------------------
+    -- Document Classes compendium section (only while dev:documentclasses is on)
+    ----------------------------------------------------------------------
+
+    local function UploadClass(class)
+        dmhub.SetAndUploadTableItem(DocumentClass.tableName, class)
+        g_classCache = {}
+    end
+
+    local function EditorRow(labelText, control)
+        return gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            vmargin = 6,
+            gui.Label{
+                classes = {"bold"},
+                text = labelText,
+                width = 200,
+                height = 22,
+                valign = "center",
+            },
+            control,
+        }
+    end
+
+    --A dropdown over an "inherit"|boolean field.
+    local function InheritDropdown(class, field, yesText, noText)
+        local value = class[field]
+        return gui.Dropdown{
+            width = 300,
+            height = 26,
+            valign = "center",
+            options = {
+                { id = "inherit", text = "Inherit" },
+                { id = "yes", text = yesText },
+                { id = "no", text = noText },
+            },
+            idChosen = value == "inherit" and "inherit" or (value and "yes" or "no"),
+            change = function(element)
+                ---@cast element Dropdown
+                local id = element.idChosen
+                class[field] = id == "inherit" and "inherit" or id == "yes"
+                UploadClass(class)
+            end,
+        }
+    end
+
+    --True if `id` is `ancestorId` or inherits from it.
+    local function ClassInheritsFrom(id, ancestorId)
+        local classes = dmhub.GetTable(DocumentClass.tableName) or {}
+        local visited = {}
+        while classes[id] ~= nil and not visited[id] do
+            if id == ancestorId then
+                return true
+            end
+            visited[id] = true
+            id = classes[id].parentId
+        end
+        return false
+    end
+
+    local function ParentOptions(key)
+        local options = {}
+        for _, id in ipairs(DocumentClass.plainBuiltinIds) do
+            options[#options + 1] = { id = id, text = CustomDocument.docTypeInfo[id].text }
+        end
+        local custom = {}
+        for id, class in unhidden_pairs(dmhub.GetTable(DocumentClass.tableName) or {}) do
+            if not ClassInheritsFrom(id, key) then
+                custom[#custom + 1] = { id = id, text = class.name }
+            end
+        end
+        table.sort(custom, function(a, b) return a.text < b.text end)
+        for _, option in ipairs(custom) do
+            options[#options + 1] = option
+        end
+        return options
+    end
+
+    local function IconOptions(class, search)
+        local options = { { id = "", text = "Inherit" } }
+        local seen = { [""] = true }
+        local function Add(path)
+            if not seen[path] then
+                seen[path] = true
+                options[#options + 1] = { id = path, text = (path:gsub("^phosphor/", ""):gsub("%.png$", "")) }
+            end
+        end
+        if class.icon then
+            Add(class.icon)
+        end
+        --pcall: engine builds that predate GetPhosphorIcons just offer no matches.
+        local ok, paths = pcall(function() return assets:GetPhosphorIcons(search, 60) end)
+        for _, path in ipairs(ok and paths or {}) do
+            Add(path)
+        end
+        return options
+    end
+
+    local function CreateDocumentClassEditor(key)
+        local class = (dmhub.GetTable(DocumentClass.tableName) or {})[key]
+        if class == nil then
+            return gui.Panel{ width = 900, height = "95%" }
+        end
+
+        local iconPreview = gui.Panel{
+            width = 22,
+            height = 22,
+            valign = "center",
+            hmargin = 8,
+            --An inline theme token paints the mask invisible here.
+            bgcolor = "white",
+        }
+        local function RefreshPreview()
+            local info = CustomDocument.DocTypeInfoById(key)
+            if info ~= nil then
+                iconPreview.bgimage = info.icon
+            end
+        end
+        RefreshPreview()
+
+        local iconDropdown = gui.Dropdown{
+            width = 240,
+            height = 26,
+            valign = "center",
+            options = IconOptions(class, ""),
+            idChosen = class.icon or "",
+            change = function(element)
+                ---@cast element Dropdown
+                local id = element.idChosen
+                class.icon = id ~= "" and id or false
+                UploadClass(class)
+                RefreshPreview()
+            end,
+        }
+
+        return gui.Panel{
+            width = 900,
+            height = "95%",
+            vscroll = true,
+            flow = "vertical",
+            gui.Input{
+                classes = {"sizeL"},
+                width = 400,
+                height = 26,
+                placeholderText = "Name",
+                text = class.name,
+                change = function(element)
+                    class.name = element.text
+                    UploadClass(class)
+                end,
+            },
+            EditorRow("Inherits From", gui.Dropdown{
+                width = 300,
+                height = 26,
+                valign = "center",
+                options = ParentOptions(key),
+                idChosen = class.parentId,
+                change = function(element)
+                    ---@cast element Dropdown
+                    class.parentId = element.idChosen --[[@as string]]
+                    UploadClass(class)
+                    RefreshPreview()
+                end,
+            }),
+            EditorRow("Icon", gui.Panel{
+                flow = "horizontal",
+                width = "auto",
+                height = "auto",
+                gui.Input{
+                    classes = {"sizeS"},
+                    width = 140,
+                    height = 22,
+                    valign = "center",
+                    placeholderText = "Search icons...",
+                    editlag = 0.3,
+                    edit = function(element)
+                        iconDropdown.options = IconOptions(class, element.text)
+                        iconDropdown.idChosen = class.icon or ""
+                    end,
+                },
+                iconDropdown,
+                iconPreview,
+            }),
+            EditorRow("Flow Glyph", gui.Input{
+                classes = {"sizeS"},
+                width = 60,
+                height = 22,
+                valign = "center",
+                characterLimit = 1,
+                placeholderText = "Inherit",
+                text = class.glyph or "",
+                change = function(element)
+                    local glyph = string.upper(element.text)
+                    class.glyph = glyph ~= "" and glyph or false
+                    element.text = class.glyph or ""
+                    UploadClass(class)
+                end,
+            }),
+            EditorRow("Scene Beat", InheritDropdown(class, "beat", "Beat: in Flow and the Run", "Reference: tree only")),
+            EditorRow("New Document Menu", InheritDropdown(class, "showInNewMenu", "Shown", "Hidden")),
+            EditorRow("Menu Order", gui.Input{
+                classes = {"sizeS"},
+                width = 60,
+                height = 22,
+                valign = "center",
+                placeholderText = "Inherit",
+                text = class.ord and tostring(class.ord) or "",
+                change = function(element)
+                    class.ord = tonumber(element.text) or false
+                    element.text = class.ord and tostring(class.ord) or ""
+                    UploadClass(class)
+                end,
+            }),
+        }
+    end
+
+    local function ShowDocumentClassesPanel(contentPanel)
+        local itemsListPanel
+        local leftPanel
+
+        itemsListPanel = gui.Panel{
+            classes = {"list-panel"},
+            vscroll = true,
+            monitorAssets = true,
+            refreshAssets = function(element)
+                local children = {}
+                for key, item in unhidden_pairs(dmhub.GetTable(DocumentClass.tableName) or {}) do
+                    local listItem = Compendium.CreateListItem{
+                        select = element.aliveTime > 0.2,
+                        tableName = DocumentClass.tableName,
+                        key = key,
+                        obliterateOnDelete = true,
+                        click = function()
+                            contentPanel.children = {leftPanel, CreateDocumentClassEditor(key)}
+                        end,
+                    }
+                    listItem.text = item.name
+                    children[#children + 1] = listItem
+                end
+                table.sort(children, function(a, b) return a.text < b.text end)
+                itemsListPanel.children = children
+            end,
+        }
+
+        itemsListPanel:FireEvent("refreshAssets")
+
+        leftPanel = gui.Panel{
+            selfStyle = {
+                flow = "vertical",
+                height = "100%",
+                width = "auto",
+            },
+            itemsListPanel,
+            Compendium.AddButton{
+                click = function()
+                    dmhub.SetAndUploadTableItem(DocumentClass.tableName, DocumentClass.new{ name = "New Document Class" })
+                end,
+            },
+        }
+
+        contentPanel.children = {leftPanel}
+    end
+
+    SyncDocumentClassesCompendium = function()
+        if g_documentClassesSetting:Get() then
+            Compendium.Register{
+                section = "Rules",
+                text = "Document Classes",
+                contentType = DocumentClass.tableName,
+                click = function(contentPanel)
+                    ShowDocumentClassesPanel(contentPanel)
+                end,
+            }
+        else
+            Compendium.Deregister("Document Classes")
+        end
+    end
+
+    if g_documentClassesSetting:Get() then
+        SyncDocumentClassesCompendium()
+    end
+end
 
 --Fields that say which document this is or where it lives, so a template
 --copy leaves them alone. The two text fields are listed because text travels
@@ -958,12 +1448,7 @@ local function buildJournalTree(currentDocId, dialogPanel, opts)
     local headerPanels = {}
     if opts ~= nil and opts.onNewDocument ~= nil then
         local typeRows = {}
-        local sortedTypes = {}
-        for _, v in pairs(CustomDocument.documentTypes) do
-            sortedTypes[#sortedTypes + 1] = v
-        end
-        table.sort(sortedTypes, function(a, b) return (a.text or "") < (b.text or "") end)
-        for _, v in ipairs(sortedTypes) do
+        for _, v in ipairs(CustomDocument.NewDocumentTypes()) do
             typeRows[#typeRows + 1] = gui.Panel {
                 classes = { "treeRow" },
                 press = function(element)
@@ -1701,11 +2186,10 @@ function CustomDocument:CreateInterface(args)
     --docs -- the functional subtypes (montage/negotiation) pin their type and
     --so never resolve to a plain id here -- and only to editors.
     do
-        local plainTypes = { "note", "narration", "exploration", "combat", "location", "npc" }
         local currentId = CustomDocument.DocTypeId(self)
         local isPlain = false
-        for _, t in ipairs(plainTypes) do
-            if t == currentId then isPlain = true break end
+        for _, t in ipairs(CustomDocument.PlainDocTypes()) do
+            if t.id == currentId then isPlain = true break end
         end
 
         if isPlain and (not args.presentationMode) and (dmhub.isDM or self:HaveEditPermissions()) then
@@ -1741,13 +2225,12 @@ function CustomDocument:CreateInterface(args)
                 end,
                 press = function(element)
                     local entries = {}
-                    for _, t in ipairs(plainTypes) do
-                        local info = CustomDocument.docTypeInfo[t]
+                    for _, t in ipairs(CustomDocument.PlainDocTypes()) do
                         entries[#entries + 1] = {
-                            text = info.text,
+                            text = t.name,
                             click = function()
                                 element.popup = nil
-                                self.docType = t
+                                self.docType = t.id
                                 self:Upload()
                                 SyncType()
                             end,

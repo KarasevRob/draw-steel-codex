@@ -3224,7 +3224,7 @@ local function FlowSceneType(doc)
         id = FLOW_SUBTITLE_TYPE[word] or "narration"
     end
 
-    local info = CustomDocument.docTypeInfo[id]
+    local info = CustomDocument.DocTypeInfoById(id) or CustomDocument.docTypeInfo.narration
     local tooltip = (italic ~= nil and italic ~= "") and italic or info.text
     return info.icon, tooltip
 end

@@ -27,38 +27,22 @@ function MarkdownDocument:ShowCreateDialog()
 
     local labels = {}
     
-    local foldersTable = assets.documentFoldersTable
-    for id,template in unhidden_pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
-        local parentFolder = template.parentFolder
-        local maxcount = 0
-        while maxcount < 10 and parentFolder ~= nil and foldersTable[parentFolder] ~= nil do
-            if foldersTable[parentFolder].hidden then
-                break
-            end
-            parentFolder = foldersTable[parentFolder].parentFolder
-            maxcount = maxcount + 1
-        end
-        if parentFolder == "templates" then
-            labels[#labels+1] = gui.Label{
-                data = {
-                    template = template,
-                },
-                text = template.description,
-                press = function(element)
-                    for _,child in ipairs(element.parent.children) do
-                        child:SetClass("selected", child == element)
-                    end
+    for _,template in ipairs(CustomDocument.Templates()) do
+        labels[#labels+1] = gui.Label{
+            data = {
+                template = template,
+            },
+            text = template.description,
+            press = function(element)
+                for _,child in ipairs(element.parent.children) do
+                    child:SetClass("selected", child == element)
+                end
 
-                    ApplyTemplate(template:TemplateSnapshot())
-                    previewPanel:FireEvent("doc", self)
-                end,
-            }
-        end
+                ApplyTemplate(template:TemplateSnapshot())
+                previewPanel:FireEvent("doc", self)
+            end,
+        }
     end
-
-    table.sort(labels, function(a, b)
-        return a.text < b.text
-    end)
 
     table.insert(labels, 1, gui.Label{
         text = "Blank Document",
