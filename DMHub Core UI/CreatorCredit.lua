@@ -34,6 +34,11 @@ CreatorCredit = {
     --- Image (or video) id -> creator id, for art tagged with RegisterArt.
     --- @type table<string, string>
     art = {},
+
+    --- Image (or video) id -> creator id, learned from the "Art by" setting
+    --- of [[scene]] tags as they are shown (TagSceneArt).
+    --- @type table<string, string>
+    sceneArt = {},
 }
 
 --- Adds (or replaces) a creator.
@@ -66,6 +71,23 @@ function CreatorCredit.Get(id)
     return CreatorCredit.creators[id]
 end
 
+--- Records (or, with nil, clears) the credit a [[scene]] tag's "Art by"
+--- setting gives its art. Code that shows a scene calls this as it resolves
+--- the scene's image, so anything drawing that image can find the credit
+--- with ForArt.
+--- @param imageid nil|string
+--- @param creatorid nil|string
+function CreatorCredit.TagSceneArt(imageid, creatorid)
+    if imageid == nil or imageid == "" then
+        return
+    end
+    if creatorid == nil or creatorid == "" or CreatorCredit.creators[creatorid] == nil then
+        CreatorCredit.sceneArt[imageid] = nil
+    else
+        CreatorCredit.sceneArt[imageid] = creatorid
+    end
+end
+
 --- The creator credited for a piece of art, if it was tagged.
 --- @param imageid nil|string
 --- @return nil|CreatorCreditInfo
@@ -73,7 +95,20 @@ function CreatorCredit.ForArt(imageid)
     if imageid == nil then
         return nil
     end
-    return CreatorCredit.Get(CreatorCredit.art[imageid])
+    return CreatorCredit.Get(CreatorCredit.art[imageid] or CreatorCredit.sceneArt[imageid])
+end
+
+--- Dropdown options for picking a creator: "None" (id "none") then every
+--- registered creator by name.
+--- @return {id: string, text: string}[]
+function CreatorCredit.DropdownOptions()
+    local result = {}
+    for id, info in pairs(CreatorCredit.creators) do
+        result[#result+1] = { id = id, text = info.name }
+    end
+    table.sort(result, function(a, b) return a.text < b.text end)
+    table.insert(result, 1, { id = "none", text = "None" })
+    return result
 end
 
 --"https://www.czepeku.com/" -> "czepeku.com", for the tooltip.

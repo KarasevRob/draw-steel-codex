@@ -547,6 +547,8 @@ function EncounterMontage.SceneImage(script, beat)
             local img = tag.image
             if type(img) == "string" and img ~= "" then
                 image = img
+                --the scene's "Art by" setting: the stage badges credited art.
+                CreatorCredit.TagSceneArt(img, tag:GetCredit())
             end
         end
     end)

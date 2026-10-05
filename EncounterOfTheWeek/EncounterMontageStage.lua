@@ -3678,9 +3678,50 @@ local function FitBackdrop(element, imageAspect)
     end
 end
 
+--The art credit for the scene on a backdrop: the creator's logo badge in
+--the stage's bottom-right corner (CreatorCredit), shown while the scene is
+--credited art (a [[scene]] with "Art by" set). A sibling of the backdrop,
+--not a child, because the backdrop overflows the stage when it crops.
+--Has no bgimage, so it only takes clicks on the badge itself.
+local function CreateCreditHolder()
+    return gui.Panel{
+        floating = true,
+        width = "100%",
+        height = "100%",
+        flow = "none",
+        data = { creator = nil },
+        setSceneCredit = function(element, scene)
+            local info = nil
+            if scene ~= nil then
+                info = CreatorCredit.ForArt(scene)
+            end
+            local creator = info ~= nil and info.id or nil
+            if creator == element.data.creator then
+                return
+            end
+            element.data.creator = creator
+            local badge = nil
+            if creator ~= nil then
+                badge = CreatorCredit.Badge{ creator = creator }
+            end
+            element.children = { badge }
+        end,
+    }
+end
+
+--The credit badge holder belonging to a backdrop (nil for no backdrop), for
+--the stage's children list.
+local function CreditOf(backdrop)
+    if backdrop == nil then
+        return nil
+    end
+    return backdrop.data.credit
+end
+
 --The scene art behind a stage, aspect-fit exactly like FullscreenDisplay
 --does it. Shared by the montage and the narrative stage. Set its art with
---SetBackdropScene, which knows how to play a video scene.
+--SetBackdropScene, which knows how to play a video scene. Its credit badge
+--(CreditOf) must be added to the stage after the dim.
 local function CreateBackdrop()
     return gui.Panel{
         floating = true,
@@ -3692,7 +3733,7 @@ local function CreateBackdrop()
         bgimage = "panels/square.png",
         bgcolor = "white",
         interactable = false,
-        data = { sceneId = nil },
+        data = { sceneId = nil, credit = CreateCreditHolder() },
         --aspect-fit the scene art exactly like FullscreenDisplay does.
         imageLoaded = function(element)
             if element.bgsprite ~= nil then
@@ -3723,6 +3764,10 @@ end
 
 --Show a scene (an image or video asset id) on a backdrop, or hide it (nil).
 local function SetBackdropScene(backdrop, scene)
+    local credit = backdrop.data.credit
+    if credit ~= nil and credit.valid then
+        credit:FireEvent("setSceneCredit", scene)
+    end
     if scene == nil then
         backdrop.data.sceneId = nil
         backdrop:SetClass("hidden", true)
@@ -4133,7 +4178,7 @@ local function CreateStage(args)
         bgcolor = cond(embedded, "#00000000", "#05070a"),
         swallowPress = true,
 
-        children = Classes(backdrop, dim, header, body, heroRow, pools),
+        children = Classes(backdrop, dim, header, body, heroRow, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -4822,7 +4867,7 @@ local function CreateNarrativeStage(args)
         bgcolor = cond(embedded, "#00000000", "#05070a"),
         swallowPress = true,
 
-        children = Classes(backdrop, dim, header, body, heroRow, pools),
+        children = Classes(backdrop, dim, header, body, heroRow, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -5285,7 +5330,7 @@ local function CreatePrepStage(args)
         bgcolor = cond(embedded, "#00000000", "#05070a"),
         swallowPress = true,
 
-        children = Classes(backdrop, dim, header, body, heroRow, pools),
+        children = Classes(backdrop, dim, header, body, heroRow, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -5583,7 +5628,7 @@ local function CreateScriptStage(args)
 
         --backdrop, dim and pools all float, so bodyHolder is the only child
         --in the flow and takes the whole surface.
-        children = Classes(backdrop, dim, bodyHolder, pools),
+        children = Classes(backdrop, dim, bodyHolder, pools, CreditOf(backdrop)),
 
         monitorGame = EncounterMontage.DocPath(),
         refreshGame = function(element)
@@ -5750,7 +5795,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
         bgimage = "panels/square.png",
         bgcolor = "#05070a",
         swallowPress = true,
-        children = Classes(backdrop, dim, body),
+        children = Classes(backdrop, dim, body, CreditOf(backdrop)),
 
         captureEscape = true,
         escape = function(element)
