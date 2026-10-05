@@ -1345,6 +1345,21 @@ function NegotiationDocument:EditPanel()
     end
 
     --Traits (motivations + pitfalls) with their voiced lines.
+    --
+    --A row's inputs must not write into the trait table they were built from.
+    --Once a save is echoed back, the engine has swapped a newly added row for
+    --a fresh copy inside the document, so a write into the old table is never
+    --saved: add a motivation, wait for the autosave, type its name, and the
+    --name was lost. Find the row by id at write time instead.
+    local function LiveTrait(trait)
+        for _, t in ipairs(doc:try_get("traits", {})) do
+            if t.id == trait.id then
+                return t
+            end
+        end
+        return trait
+    end
+
     local traitsPanel
     local function RebuildTraits()
         local children = {}
@@ -1364,7 +1379,7 @@ function NegotiationDocument:EditPanel()
                             classes = { "sizeS" }, width = 160, height = 24, valign = "top",
                             placeholderText = "Name", text = trait.name,
                             change = function(element)
-                                trait.name = element.text
+                                LiveTrait(trait).name = element.text
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },
@@ -1374,7 +1389,7 @@ function NegotiationDocument:EditPanel()
                             placeholderText = "What they say about it (their voice)",
                             text = trait.line,
                             change = function(element)
-                                trait.line = element.text
+                                LiveTrait(trait).line = element.text
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },

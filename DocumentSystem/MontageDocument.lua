@@ -566,6 +566,15 @@ function MontageDocument:ChallengesEditor()
             local children = {}
 
             for i, challenge in ipairs(self.challenges) do
+                --Write to the challenge at this index, not to the table the
+                --row was built from: once a save is echoed back, the engine
+                --has swapped a newly added challenge for a fresh copy inside
+                --the document, and a write into the old one is never saved.
+                --The index is stable, since adding or removing one rebuilds
+                --every row.
+                local function live()
+                    return self.challenges[i] or challenge
+                end
                 local panel = gui.Panel {
                     flow = "vertical",
                     width = 500,
@@ -577,7 +586,7 @@ function MontageDocument:ChallengesEditor()
                         text = challenge.name,
                         characterLimit = 64,
                         change = function(element)
-                            challenge.name = element.text
+                            live().name = element.text
                             CustomDocument.NotifyEdited(element)
                         end,
                         gui.Button {
@@ -605,7 +614,7 @@ function MontageDocument:ChallengesEditor()
                         textAlignment = "topleft",
                         text = challenge.details,
                         change = function(element)
-                            challenge.details = element.text
+                            live().details = element.text
                             CustomDocument.NotifyEdited(element)
                         end,
                     },
@@ -631,8 +640,9 @@ function MontageDocument:ChallengesEditor()
                             text = tostring(challenge.maximum),
                             characterLimit = 2,
                             change = function(element)
-                                challenge.maximum = math.max(1, tonumber(element.text) or challenge.maximum)
-                                element.text = tostring(challenge.maximum)
+                                local target = live()
+                                target.maximum = math.max(1, tonumber(element.text) or target.maximum)
+                                element.text = tostring(target.maximum)
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },
@@ -658,7 +668,7 @@ function MontageDocument:ChallengesEditor()
                             addItemText = "Add Characteristic...",
                             options = creature.attributeDropdownOptions,
                             change = function(element, val)
-                                challenge.characteristics = val
+                                live().characteristics = val
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },
@@ -671,7 +681,7 @@ function MontageDocument:ChallengesEditor()
                             addItemText = "Add Skill...",
                             options = Skill.skillsDropdownOptions,
                             change = function(element, val)
-                                challenge.skills = val
+                                live().skills = val
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },
