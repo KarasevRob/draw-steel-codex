@@ -190,10 +190,10 @@ ActivatedAbilityCast.helpSymbols = {
         type = "function",
         desc = "A function which will return true if this ability has the given creature as a target.",
     },
-    targetswithin = {
-        name = "TargetsWithin",
+    counttargetswithin = {
+        name = "CountTargetsWithin",
         type = "function",
-        desc = "Given a creature and a distance in squares, returns how many of this ability's targets are within that distance of the creature. Example: Cast.TargetsWithin(Self, 2) > 0",
+        desc = "Given a creature and a distance in squares, returns how many of this ability's targets are within that distance of the creature. Example: Cast.CountTargetsWithin(Self, 2) > 0",
     },
     withinarea = {
         name = "WithinArea",
@@ -435,7 +435,7 @@ ActivatedAbilityCast.lookupSymbols = {
     --Counts this cast's targets standing within `distance` squares of `creature`
     --(footprint-aware). Lets a trigger react once per ability rather than once per
     --target, e.g. a shield aura counting one absorption for an area attack.
-    targetswithin = function(c)
+    counttargetswithin = function(c)
         return function(creature, distance)
             if type(creature) == "function" then
                 creature = creature("self")
