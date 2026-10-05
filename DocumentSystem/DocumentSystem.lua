@@ -199,6 +199,9 @@ do
     --This class's own fields, added to the ones it inherits. The default is
     --one shared empty table: write through get_or_add, never into it.
     DocumentClass.fields = {}
+    --The exits a page of this class offers, added to the ones it inherits:
+    --{ id, label, victories, flag }. Same shared-default rule as fields.
+    DocumentClass.exits = {}
 
     --Built-in types a class may inherit from. The functional types are left out:
     --code finds montage, negotiation and heroic test pages by their exact type id.
@@ -251,18 +254,22 @@ do
             text = chain[1].name, icon = root.icon, beat = root.beat, glyph = root.glyph, ord = root.ord,
             showInNewMenu = root.showInNewMenu ~= false, custom = true,
             body = root.body or "markdown", hiddenFromPlayers = root.hiddenFromPlayers == true,
-            fields = {},
+            fields = {}, exits = {},
         }
-        local fieldIndex = {}
-        local function AddFields(fields)
-            for _, field in ipairs(fields or {}) do
-                --a field redeclared further down the chain replaces the inherited one in place.
-                local at = fieldIndex[field.id] or (#info.fields + 1)
-                fieldIndex[field.id] = at
-                info.fields[at] = field
+        --an entry redeclared further down the chain replaces the inherited one in place.
+        local function Adder(list)
+            local index = {}
+            return function(entries)
+                for _, entry in ipairs(entries or {}) do
+                    local at = index[entry.id] or (#list + 1)
+                    index[entry.id] = at
+                    list[at] = entry
+                end
             end
         end
+        local AddFields, AddExits = Adder(info.fields), Adder(info.exits)
         AddFields(root.fields)
+        AddExits(root.exits)
         for i = #chain, 1, -1 do
             local class = chain[i]
             info.icon = class.icon or info.icon
@@ -273,6 +280,7 @@ do
             if class.body ~= "inherit" then info.body = class.body end
             if class.hiddenFromPlayers ~= "inherit" then info.hiddenFromPlayers = class.hiddenFromPlayers == true end
             AddFields(class:try_get("fields"))
+            AddExits(class:try_get("exits"))
         end
 
         g_classCache[id] = info
@@ -633,6 +641,16 @@ do
             DocumentClass.CreateFieldsEditor(class, function()
                 UploadClass(class)
             end),
+            gui.Label{
+                classes = {"bold"},
+                text = "Exits",
+                width = "auto",
+                height = "auto",
+                vmargin = 8,
+            },
+            DocumentClass.CreateExitsEditor(class, function()
+                UploadClass(class)
+            end),
         }
     end
 
@@ -796,6 +814,69 @@ do
             return {}
         end
         return CustomDocument.DocTypeInfo(doc).fields or {}
+    end
+
+    --The exits declared for a document's class (JOURNAL_PROGRAM.md Phase 4).
+    --Empty without dev:documentclasses, like the fields.
+    function CustomDocument.ClassExits(doc)
+        if not g_documentClassesSetting:Get() then
+            return {}
+        end
+        return CustomDocument.DocTypeInfo(doc).exits or {}
+    end
+
+    --What a declared exit writes to campaign state, in the [[exit]] tag's
+    --vocabulary (see RichExit).
+    local function ExitWrites(exit)
+        local writes = {}
+        for _, write in ipairs(exit.writes or {}) do
+            writes[#writes + 1] = write
+        end
+        if (exit.victories or 0) > 0 then
+            writes[#writes + 1] = { kind = "victory", count = exit.victories, label = "Victory" }
+        end
+        if (exit.flag or "") ~= "" then
+            writes[#writes + 1] = { kind = "flag", key = exit.flag, value = true, label = exit.flag }
+        end
+        return writes
+    end
+
+    --A document's declared exits as [[exit]] tag data: { id, label, writes,
+    --nextDocid, nextLabel }. The class says what each exit is and writes; the
+    --page says where it leads (exitTargets). The id is unique to the page,
+    --because it keys the exit's taken state in campaign state.
+    function CustomDocument.DeclaredExits(doc)
+        local result = {}
+        local targets = doc:try_get("exitTargets") or {}
+        local documents = dmhub.GetTable(CustomDocument.tableName) or {}
+        for _, exit in ipairs(CustomDocument.ClassExits(doc)) do
+            local nextDocid = targets[exit.id]
+            local nextDoc = nextDocid ~= nil and documents[nextDocid] or nil
+            result[#result + 1] = {
+                id = tostring(doc:try_get("id", "")) .. ":" .. exit.id,
+                label = exit.label,
+                writes = ExitWrites(exit),
+                nextDocid = nextDoc ~= nil and nextDocid or false,
+                nextLabel = nextDoc ~= nil and nextDoc.description or false,
+            }
+        end
+        return result
+    end
+
+    --The scenes an exit can lead to: the other beats in the page's folder,
+    --which is as far as Flow draws an edge.
+    local function SceneOptions(doc)
+        local scenes = {}
+        local folder = doc:try_get("parentFolder")
+        local ownId = doc:try_get("id")
+        for id, other in unhidden_pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
+            if id ~= ownId and other:try_get("parentFolder") == folder and CustomDocument.DocTypeIsBeat(other) then
+                scenes[#scenes + 1] = { id = id, text = other.description or "Untitled" }
+            end
+        end
+        table.sort(scenes, function(a, b) return a.text < b.text end)
+        table.insert(scenes, 1, { id = "", text = "(nowhere yet)" })
+        return scenes
     end
 
     local function FieldOptions(field)
@@ -1206,6 +1287,25 @@ do
             children[#children + 1] = FieldEditor(doc, field)
         end
 
+        local exits = CustomDocument.ClassExits(doc)
+        if #exits > 0 then
+            children[#children + 1] = SectionHeader("Exits")
+            local scenes = SceneOptions(doc)
+            for _, exit in ipairs(exits) do
+                children[#children + 1] = LabelledRow(exit.label, gui.Dropdown{
+                    classes = { "sizeM" }, width = 300, height = 30, halign = "left",
+                    options = scenes,
+                    idChosen = (doc:try_get("exitTargets") or {})[exit.id] or "",
+                    change = function(element)
+                        ---@cast element Dropdown
+                        local id = element.idChosen
+                        doc:get_or_add("exitTargets", {})[exit.id] = id ~= "" and id or nil
+                        CustomDocument.NotifyEdited(element)
+                    end,
+                })
+            end
+        end
+
         if CustomDocument.DocTypeInfo(doc).hiddenFromPlayers then
             local warning = gui.Label{
                 classes = { "sizeS" },
@@ -1324,6 +1424,13 @@ do
         for _, field in ipairs(CustomDocument.ClassFields(self)) do
             children[#children + 1] = FieldDisplay(self, field)
         end
+        --exits are run furniture: the Director's, never the players'. RichExit
+        --loads after this file, hence rawget.
+        if dmhub.isDM and rawget(_G, "RichExit") ~= nil then
+            for _, exit in ipairs(CustomDocument.DeclaredExits(self)) do
+                children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
+            end
+        end
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
             children = children,
@@ -1363,9 +1470,13 @@ do
         }
     end
 
+    local function HasDeclaredForm(doc)
+        return #CustomDocument.ClassFields(doc) > 0 or #CustomDocument.ClassExits(doc) > 0
+    end
+
     --Wraps a document's read panel with its class's fields, if it has any.
     function CustomDocument.WithFieldsDisplay(doc, panel)
-        if #CustomDocument.ClassFields(doc) == 0 or HasOwnForm(doc) then
+        if not HasDeclaredForm(doc) or HasOwnForm(doc) then
             return panel
         end
         return StackFields(doc, doc:FieldsDisplayPanel(), panel)
@@ -1375,7 +1486,7 @@ do
     --own form gets a switch between the two, which is how the generated editor
     --is compared against the hand-written one it would replace.
     function CustomDocument.WithFieldsEditor(doc, panel)
-        if #CustomDocument.ClassFields(doc) == 0 then
+        if not HasDeclaredForm(doc) then
             return panel
         end
         if not HasOwnForm(doc) then
@@ -1464,6 +1575,83 @@ do
         recordList = "Column names, separated by commas",
         keyedList = "Row names, separated by commas",
     }
+
+    --The editor for a class's own exits. An exit is a name plus what taking
+    --it writes: Victories awarded, and a campaign flag to set.
+    function DocumentClass.CreateExitsEditor(class, onChange)
+        local listPanel
+        local Rebuild
+
+        local function ExitRow(exits, index)
+            local exit = exits[index]
+            return gui.Panel{
+                flow = "horizontal", width = "auto", height = "auto", vmargin = 2,
+                gui.Input{
+                    classes = { "sizeS" }, width = 260, height = 22, valign = "center",
+                    placeholderText = "Exit name",
+                    text = exit.label,
+                    change = function(element)
+                        exit.label = element.text
+                        onChange()
+                    end,
+                },
+                gui.Label{ width = "auto", height = "auto", valign = "center", lmargin = 10, text = "Victories" },
+                gui.Input{
+                    classes = { "sizeS" }, width = 40, height = 22, valign = "center", lmargin = 6,
+                    text = tostring(exit.victories or 0),
+                    change = function(element)
+                        exit.victories = math.max(0, math.floor(tonumber(element.text) or 0))
+                        element.text = tostring(exit.victories)
+                        onChange()
+                    end,
+                },
+                gui.Input{
+                    classes = { "sizeS" }, width = 220, height = 22, valign = "center", lmargin = 10,
+                    placeholderText = "Campaign flag to set (optional)",
+                    text = exit.flag or "",
+                    change = function(element)
+                        exit.flag = element.text
+                        onChange()
+                    end,
+                },
+                gui.Button{
+                    classes = { "sizeS" }, width = 70, height = 22, valign = "center", lmargin = 6,
+                    text = "Remove",
+                    click = function()
+                        table.remove(exits, index)
+                        onChange()
+                        Rebuild()
+                    end,
+                },
+            }
+        end
+
+        Rebuild = function()
+            local exits = class:try_get("exits") or {}
+            local children = {}
+            for i, _ in ipairs(exits) do
+                children[#children + 1] = ExitRow(exits, i)
+            end
+            children[#children + 1] = gui.Button{
+                classes = { "sizeS" }, width = 160, height = 24, halign = "left", vmargin = 4,
+                text = "+ Add Exit",
+                click = function()
+                    --get_or_add: the type default is one shared empty table.
+                    local own = class:get_or_add("exits", {})
+                    own[#own + 1] = { id = dmhub.GenerateGuid(), label = "New Exit", victories = 0, flag = "" }
+                    onChange()
+                    Rebuild()
+                end,
+            }
+            listPanel.children = children
+        end
+
+        listPanel = gui.Panel{
+            flow = "vertical", width = "auto", height = "auto",
+            create = function() Rebuild() end,
+        }
+        return listPanel
+    end
 
     --The editor for a class's own fields: one row per field, with add, remove
     --and reorder. `onChange` uploads the class.
