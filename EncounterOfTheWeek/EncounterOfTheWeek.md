@@ -892,7 +892,7 @@ map, so every panel over it is fully opaque (`ff`).
 - **Hero's Guild** (0.44, 0.42), the walled canal island; `phosphor/shield-star-fill.png`.
 - **Town Gate** (0.53, 0.135); `sword-fill`. Locked until the roster has
   been listed and holds at least one living hero.
-- **Graveyard** (0.31, 0.86); `cross-fill`.
+- **Graveyard** (0.31, 0.86); `hands-praying-fill`.
 
 **Working copies.** A town hero is a character in the per-player **lobby
 game** whose charid **is** its city heroid, tagged `properties.eotwHero`.
@@ -2637,6 +2637,10 @@ listed name, starts with "<name> ", or whose bestiary `monster_type` is it
 (`EncounterOfTheWeekGame.IsBystander`). With no initiative entry the Monster
 AI never picks them as strike/advance targets, and the burst planners count
 them as friends (they are unaffiliated monsters), so they are not hit either.
+They also make no opportunity attacks and provoke none: EotW wraps
+`creature:CanOpportunityAttack` (which both the `OnMove` dispatch and the
+token HUD's OA preview ask) to fail when either side is a bystander, in EotW
+games and authoring tests only.
 What happens to them is an Encounter Script's job (below).
 
 **Encounter Scripts in EotW.** Core Encounter Scripts (`MCDMEncounter.lua`,

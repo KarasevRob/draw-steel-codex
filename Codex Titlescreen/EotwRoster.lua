@@ -1032,7 +1032,7 @@ local function ModalFrame(args)
         --opaque: near-opaque alphas (f8) still let the town map show through.
         bgcolor = "#14110dff",
         borderWidth = 2,
-        borderColor = "#8c7a55",
+        borderColor = "#9b968a",
         cornerRadius = 10,
         flow = "vertical",
         styles = { Styles.Default },
@@ -1345,42 +1345,57 @@ local GUILD_STYLES = {
 }
 
 --One roster row: portrait, name, details, status, and the hero's actions.
+--The row persists across roster refreshes: GuildPanel fires "refreshRow"
+--with the hero's latest record instead of building a new row, so a video
+--portrait keeps playing rather than restarting on every change.
 local function GuildRow(hero, away, host)
     local heroid = hero.heroid
-    local summary = hero.summary or {}
-    local tok = dmhub.GetCharacterById(heroid)
-    local portrait = summary.portrait
-    local name = summary.name or "Hero"
-    local details = EotwRoster.FormatDetails(summary.level, summary.ancestry, summary.className)
-    if tok ~= nil then
-        pcall(function()
-            local p = tok.offTokenPortrait
-            if type(p) == "string" then
-                portrait = p
-            end
-        end)
-        local className, ancestry, level = EotwRoster.HeroDetails(tok)
-        details = EotwRoster.FormatDetails(level, ancestry, className)
-        if tok.name ~= nil and tok.name ~= "" then
-            name = tok.name
-        end
-    end
-
-    local status = {}
-    if hero.active == true then
-        status[#status+1] = "Active in town"
-    end
-    if away ~= nil then
-        status[#status+1] = string.format("Away: %s", away)
-    end
-    if tok == nil then
-        status[#status+1] = "Loading..."
-    end
-
     local confirmingDismiss = false
 
+    local portraitPanel = Portrait(nil, 72, 96)
+    local shownPortrait = nil
+
+    local nameLabel = gui.Label{
+        text = "",
+        fontSize = 24,
+        bold = true,
+        color = TEXT,
+        width = "100%",
+        height = "auto",
+        textWrap = false,
+        minFontSize = 12,
+    }
+    local detailsLabel = gui.Label{
+        text = "",
+        fontSize = 16,
+        color = DIM,
+        width = "100%",
+        height = "auto",
+    }
+    local statusLabel = gui.Label{
+        text = "",
+        fontSize = 15,
+        italics = true,
+        color = "#ffd66b",
+        width = "100%",
+        height = "auto",
+        tmargin = 4,
+    }
+    local activeIcon = gui.Panel{
+        classes = { "eotwGuildIcon" },
+        bgimage = "phosphor/star.png",
+        hoverCursor = "pressbutton",
+        linger = function(element)
+            gui.Tooltip(cond(hero.active == true, "Active: adventuring in town. Click to rest them.", string.format("Make active: up to %d heroes adventure in town at once.", EotwRoster.MAX_ACTIVE)))(element)
+        end,
+        press = function()
+            audio.FireSoundEvent("Mouse.Click")
+            EotwRoster.SetActive(heroid, hero.active ~= true)
+        end,
+    }
+
     return gui.Panel{
-        classes = { "eotwGuildRow", cond(hero.active == true, "active", nil) },
+        classes = { "eotwGuildRow" },
         width = "100%",
         height = 112,
         flow = "horizontal",
@@ -1390,7 +1405,64 @@ local function GuildRow(hero, away, host)
         borderBox = true,
         vmargin = 3,
 
-        Portrait(portrait, 72, 96),
+        create = function(element)
+            element:FireEvent("refreshRow", hero, away)
+        end,
+
+        refreshRow = function(element, newHero, newAway)
+            hero = newHero
+            away = newAway
+
+            local summary = hero.summary or {}
+            local tok = dmhub.GetCharacterById(heroid)
+            local portrait = summary.portrait
+            local name = summary.name or "Hero"
+            local details = EotwRoster.FormatDetails(summary.level, summary.ancestry, summary.className)
+            if tok ~= nil then
+                pcall(function()
+                    local p = tok.offTokenPortrait
+                    if type(p) == "string" then
+                        portrait = p
+                    end
+                end)
+                local className, ancestry, level = EotwRoster.HeroDetails(tok)
+                details = EotwRoster.FormatDetails(level, ancestry, className)
+                if tok.name ~= nil and tok.name ~= "" then
+                    name = tok.name
+                end
+            end
+
+            local status = {}
+            if hero.active == true then
+                status[#status+1] = "Active in town"
+            end
+            if away ~= nil then
+                status[#status+1] = string.format("Away: %s", away)
+            end
+            if tok == nil then
+                status[#status+1] = "Loading..."
+            end
+
+            element:SetClass("active", hero.active == true)
+            nameLabel.text = name
+            detailsLabel.text = details
+            statusLabel.text = table.concat(status, "  -  ")
+            activeIcon:SetClass("on", hero.active == true)
+            activeIcon.bgimage = cond(hero.active == true, "phosphor/star-fill.png", "phosphor/star.png")
+
+            --only touch the portrait when it actually changes: re-setting a
+            --video bgimage restarts it.
+            if type(portrait) ~= "string" or portrait == "" then
+                portrait = nil
+            end
+            if portrait ~= shownPortrait then
+                shownPortrait = portrait
+                portraitPanel.bgimage = portrait or "panels/square.png"
+                portraitPanel.selfStyle.bgcolor = cond(portrait ~= nil, "white", "#ffffff10")
+            end
+        end,
+
+        portraitPanel,
 
         gui.Panel{
             width = "100%-330",
@@ -1398,32 +1470,9 @@ local function GuildRow(hero, away, host)
             flow = "vertical",
             valign = "center",
             lmargin = 14,
-            gui.Label{
-                text = name,
-                fontSize = 24,
-                bold = true,
-                color = TEXT,
-                width = "100%",
-                height = "auto",
-                textWrap = false,
-                minFontSize = 12,
-            },
-            gui.Label{
-                text = details,
-                fontSize = 16,
-                color = DIM,
-                width = "100%",
-                height = "auto",
-            },
-            gui.Label{
-                text = table.concat(status, "  -  "),
-                fontSize = 15,
-                italics = true,
-                color = "#ffd66b",
-                width = "100%",
-                height = "auto",
-                tmargin = 4,
-            },
+            nameLabel,
+            detailsLabel,
+            statusLabel,
         },
 
         gui.Panel{
@@ -1432,18 +1481,7 @@ local function GuildRow(hero, away, host)
             halign = "right",
             flow = "horizontal",
 
-            gui.Panel{
-                classes = { "eotwGuildIcon", cond(hero.active == true, "on", nil) },
-                bgimage = cond(hero.active == true, "phosphor/star-fill.png", "phosphor/star.png"),
-                hoverCursor = "pressbutton",
-                linger = function(element)
-                    gui.Tooltip(cond(hero.active == true, "Active: adventuring in town. Click to rest them.", string.format("Make active: up to %d heroes adventure in town at once.", EotwRoster.MAX_ACTIVE)))(element)
-                end,
-                press = function()
-                    audio.FireSoundEvent("Mouse.Click")
-                    EotwRoster.SetActive(heroid, hero.active ~= true)
-                end,
-            },
+            activeIcon,
             gui.Panel{
                 classes = { "eotwGuildIcon" },
                 bgimage = "phosphor/pencil-simple.png",
@@ -1505,6 +1543,7 @@ function EotwRoster.GuildPanel(host)
     local recruitButton = nil
     local discardButton = nil
     local confirmingDiscard = false
+    local rowsById = {} --heroid -> that hero's GuildRow panel
 
     local Rebuild = function()
         if listPanel == nil or not listPanel.valid then
@@ -1518,9 +1557,19 @@ function EotwRoster.GuildPanel(host)
         elseif #heroes == 0 then
             rows[1] = gui.Label{ text = "Your roster is empty. Create a hero of your own, or recruit one of the adventurers looking for work.", fontSize = 18, color = DIM, width = "80%", height = "auto", halign = "center", textAlignment = "center", vmargin = 30 }
         else
+            --reuse each hero's existing row so its portrait is not recreated.
+            local nextRowsById = {}
             for _,hero in ipairs(heroes) do
-                rows[#rows+1] = GuildRow(hero, away[hero.heroid], host)
+                local row = rowsById[hero.heroid]
+                if row ~= nil and row.valid then
+                    row:FireEvent("refreshRow", hero, away[hero.heroid])
+                else
+                    row = GuildRow(hero, away[hero.heroid], host)
+                end
+                nextRowsById[hero.heroid] = row
+                rows[#rows+1] = row
             end
+            rowsById = nextRowsById
         end
         listPanel.children = rows
 

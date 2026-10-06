@@ -2594,6 +2594,35 @@ function EncounterOfTheWeekGame.IsBystander(token, names)
     return false
 end
 
+--Bystanders stand outside the fight: they make no opportunity attacks and
+--provoke none. Both the movement dispatch (creature:OnMove) and the token
+--HUD's opportunity-attack preview ask creature:CanOpportunityAttack, so
+--failing it here covers both. Only EotW games and authoring tests pay for
+--the lookup (it scans the map's documents); the names are cached per game
+--update because the dispatch asks once per observer per step.
+local m_oaBystanderNames = nil
+local m_oaBystanderUpdate = nil
+local g_baseCanOpportunityAttack = creature.CanOpportunityAttack
+function creature:CanOpportunityAttack(observerToken, moverToken)
+    if not g_baseCanOpportunityAttack(self, observerToken, moverToken) then
+        return false
+    end
+
+    if not (EncounterOfTheWeekGame.IsEotwGame() or EncounterOfTheWeekGame.IsTestRunning()) then
+        return true
+    end
+
+    if m_oaBystanderNames == nil or m_oaBystanderUpdate ~= dmhub.ngameupdate then
+        m_oaBystanderNames = BystanderNames()
+        m_oaBystanderUpdate = dmhub.ngameupdate
+    end
+    if EncounterOfTheWeekGame.IsBystander(observerToken, m_oaBystanderNames)
+        or EncounterOfTheWeekGame.IsBystander(moverToken, m_oaBystanderNames) then
+        return false
+    end
+    return true
+end
+
 --Everything on the map sorted into sides for the initiative roll: heroes
 --(IsHero) vs monsters. Returns nil while either side is empty -- the caller
 --retries on a later tick rather than burning its run-once. Bystanders the

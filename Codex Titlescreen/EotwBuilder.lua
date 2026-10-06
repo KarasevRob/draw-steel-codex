@@ -1459,14 +1459,15 @@ function EotwBuilder.Open(args)
             children = { previewFrame },
         }
 
-        local function SetPortraitTo(art, missingMessage)
+        --auto: back to the default, so the portrait follows later class changes.
+        local function SetPortraitTo(art, missingMessage, auto)
             local t = Tok()
             if t == nil or art == nil or art == "" then
                 state.message = missingMessage
                 Refresh(false)
                 return
             end
-            EotwBuild.SetPortrait(t, art)
+            EotwBuild.SetPortrait(t, art, auto)
             Refresh(false)
         end
 
@@ -1501,7 +1502,7 @@ function EotwBuilder.Open(args)
                                     click = function()
                                         local t = Tok()
                                         local classItem = t and (t.properties --[[@as character]]):GetClass() or nil
-                                        SetPortraitTo(classItem and classItem:try_get("portraitid", "") or nil, "Choose a class first: its art is the default portrait.")
+                                        SetPortraitTo(classItem and classItem:try_get("portraitid", "") or nil, "Choose a class first: its art is the default portrait.", true)
                                     end,
                                 },
                                 gui.Button{
@@ -1952,18 +1953,6 @@ function EotwBuilder.Open(args)
             gui.Label{ classes = { "eotwbText" }, text = "Skills & Languages", fontSize = 18, bold = true, color = "#bfe0f0ff" },
             Text(table.concat(lines, "\n"), { "eotwbText" }, { fontSize = 15, vmargin = 4 }),
         }
-        if #grants.pools > 0 then
-            children[#children+1] = gui.Button{
-                text = "Pick These on Skills & Languages",
-                fontSize = 16,
-                width = 320,
-                height = 38,
-                tmargin = 4,
-                click = function()
-                    GoTo("skills")
-                end,
-            }
-        end
         return gui.Panel{
             classes = { "eotwbInfo" },
             bgimage = "panels/square.png",

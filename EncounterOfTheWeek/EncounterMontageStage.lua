@@ -5978,6 +5978,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
     button = gui.Button{
         text = args.buttonText or "Return to Blackbottom",
         halign = "center",
+        valign = "top",
         tmargin = 18,
         width = 280,
         height = 48,
@@ -5998,6 +5999,8 @@ function EncounterMontageStage.ShowStoryScreen(args)
             classes = {"eotwStageRound"},
             text = cond(defeat, "Defeat", "Victory"),
             halign = "center",
+            valign = "top",
+            tmargin = 48,
             color = cond(defeat, "#e04545", "#ffd66b"),
             uppercase = true,
         },
@@ -6005,6 +6008,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
             classes = {"eotwStageTitle", cond(args.title == nil or args.title == "", "collapsed", nil)},
             text = args.title or "",
             halign = "center",
+            valign = "top",
             bmargin = 14,
         },
         gui.Panel{
@@ -6015,6 +6019,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
             maxHeight = "60%",
             flow = "vertical",
             halign = "center",
+            valign = "top",
             bgimage = "panels/square.png",
             pad = 24,
             borderBox = true,
