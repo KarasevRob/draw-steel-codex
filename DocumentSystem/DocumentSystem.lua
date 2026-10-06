@@ -60,7 +60,8 @@ CustomDocument.documentTypes = {}
 
 CustomDocument.docType = "narration"
 
---Fixed registry, keyed by type id. glyph = single-letter Flow badge.
+--The built-in types, keyed by type id, and the root every DocumentClass
+--inherits from. glyph = single-letter Flow badge; ord = menu order.
 --Icons are Phosphor line glyphs (monochrome masks): they render tinted @fg
 --through the tree/Run cascade and invert on hover, unlike the old full-colour
 --Icon_App art which was painted untinted. exploration and location now carry
@@ -91,7 +92,7 @@ CustomDocument.docTypeInfo = {
 function CustomDocument.DocTypeId(doc)
     local t = nil
     pcall(function() t = doc.docType end)
-    if t == nil or CustomDocument.docTypeInfo[t] == nil then
+    if t == nil or CustomDocument.DocTypeInfoById(t) == nil then
         return "narration"
     end
     return t
@@ -99,7 +100,7 @@ end
 
 --The registry entry for a document's semantic type (never nil).
 function CustomDocument.DocTypeInfo(doc)
-    return CustomDocument.docTypeInfo[CustomDocument.DocTypeId(doc)]
+    return CustomDocument.DocTypeInfoById(CustomDocument.DocTypeId(doc)) or CustomDocument.docTypeInfo.narration
 end
 
 --Convenience readers used by the read-sites (tree/Run/Flow).
@@ -151,6 +152,1821 @@ function CustomDocument.BackfillDocTypesFromSubtitles(onDone)
         dmhub.Schedule(0.05, step)
     end
     step()
+end
+
+--One switch for the whole document-classes programme (JOURNAL_PROGRAM.md,
+--"Rollout"). Toggle with "/toggle dev:documentclasses" in chat.
+do
+    local SyncDocumentClassesCompendium
+
+    g_documentClassesSetting = setting{
+        id = "dev:documentclasses",
+        default = false,
+        storage = "preference",
+        onchange = function()
+            SyncDocumentClassesCompendium()
+        end,
+    }
+
+    --A Director-authored document type: a compendium row that inherits from a
+    --built-in type or from another class and overrides only what it sets, the way
+    --a JournalStylesheet inherits its skin. The built-in docTypeInfo rows are the
+    --root every chain ends at. A document names its class in docType; a client
+    --without dev:documentclasses does not resolve classes, so it shows such a
+    --document as narration and leaves docType alone.
+    ---@class DocumentClass: GameType
+    --- @field new fun(o?: table): DocumentClass
+    --- @field id string Key of this row in its data table; SetAndUploadTableItem sets it.
+    --- @field name string
+    --- @field parentId string A built-in type id or another class's id.
+    --- @field icon false|string false inherits.
+    --- @field glyph false|string false inherits.
+    --- @field ord false|number false inherits.
+    --- @field beat "inherit"|boolean
+    --- @field showInNewMenu "inherit"|boolean
+    DocumentClass = RegisterGameType("DocumentClass")
+    DocumentClass.tableName = "documentClasses"
+    DocumentClass.name = "New Document Class"
+    DocumentClass.parentId = "note"
+    DocumentClass.icon = false
+    DocumentClass.glyph = false
+    DocumentClass.ord = false
+    DocumentClass.beat = "inherit"
+    DocumentClass.showInNewMenu = "inherit"
+    --"markdown" puts the prose page under the fields; "none" is a form only.
+    DocumentClass.body = "inherit"
+    DocumentClass.hiddenFromPlayers = "inherit"
+    --This class's own fields, added to the ones it inherits. The default is
+    --one shared empty table: write through get_or_add, never into it.
+    DocumentClass.fields = {}
+    --The exits a page of this class offers, added to the ones it inherits:
+    --{ id, label, victories, flag }. Same shared-default rule as fields.
+    DocumentClass.exits = {}
+    --The actions a page of this class offers, added to the ones it inherits:
+    --{ id, verb }, where verb names a registered action. Same shared-default rule.
+    DocumentClass.actions = {}
+
+    --Built-in types a class may inherit from. The functional types are left out:
+    --code finds montage, negotiation and heroic test pages by their exact type id.
+    DocumentClass.plainBuiltinIds = { "note", "narration", "exploration", "combat", "location", "npc" }
+
+    --Resolved classes, kept for one frame: long enough for a tree refresh that
+    --asks once per row, short enough that an edit shows on the next frame.
+    local g_classCache = {}
+    local g_classCacheFrame = -1
+
+    --The registry entry for a type id: a built-in row, or a class merged over its
+    --parent chain. nil for an id that is neither.
+    --@return nil|{text: string, icon: string, beat: boolean, glyph: string, ord: number, showInNewMenu: nil|boolean, custom: nil|boolean}
+    function CustomDocument.DocTypeInfoById(id)
+        local builtin = CustomDocument.docTypeInfo[id]
+        if builtin ~= nil then
+            return builtin
+        end
+        if type(id) ~= "string" or not g_documentClassesSetting:Get() then
+            return nil
+        end
+
+        local frame = dmhub.FrameCount()
+        if frame ~= g_classCacheFrame then
+            g_classCache = {}
+            g_classCacheFrame = frame
+        end
+        local cached = g_classCache[id]
+        if cached ~= nil then
+            return cached or nil
+        end
+
+        local classes = dmhub.GetTable(DocumentClass.tableName) or {}
+        local chain = {}
+        local visited = {}
+        local cur = id
+        while classes[cur] ~= nil and not visited[cur] and not classes[cur]:try_get("hidden", false) do
+            visited[cur] = true
+            chain[#chain + 1] = classes[cur]
+            cur = classes[cur].parentId
+        end
+        if #chain == 0 then
+            g_classCache[id] = false
+            return nil
+        end
+
+        --A missing parent, or a cycle, falls back to the plain page.
+        local root = CustomDocument.docTypeInfo[cur] or CustomDocument.docTypeInfo.note
+        local info = {
+            text = chain[1].name, icon = root.icon, beat = root.beat, glyph = root.glyph, ord = root.ord,
+            showInNewMenu = root.showInNewMenu ~= false, custom = true,
+            body = root.body or "markdown", hiddenFromPlayers = root.hiddenFromPlayers == true,
+            fields = {}, exits = {}, actions = {},
+        }
+        --an entry redeclared further down the chain replaces the inherited one in place.
+        local function Adder(list)
+            local index = {}
+            return function(entries)
+                for _, entry in ipairs(entries or {}) do
+                    local at = index[entry.id] or (#list + 1)
+                    index[entry.id] = at
+                    list[at] = entry
+                end
+            end
+        end
+        local AddFields, AddExits, AddActions = Adder(info.fields), Adder(info.exits), Adder(info.actions)
+        AddFields(root.fields)
+        AddExits(root.exits)
+        AddActions(root.actions)
+        for i = #chain, 1, -1 do
+            local class = chain[i]
+            info.icon = class.icon or info.icon
+            info.glyph = class.glyph or info.glyph
+            info.ord = class.ord or info.ord
+            if class.beat ~= "inherit" then info.beat = class.beat == true end
+            if class.showInNewMenu ~= "inherit" then info.showInNewMenu = class.showInNewMenu == true end
+            if class.body ~= "inherit" then info.body = class.body end
+            if class.hiddenFromPlayers ~= "inherit" then info.hiddenFromPlayers = class.hiddenFromPlayers == true end
+            AddFields(class:try_get("fields"))
+            AddExits(class:try_get("exits"))
+            AddActions(class:try_get("actions"))
+        end
+
+        g_classCache[id] = info
+        return info
+    end
+
+    local function CompareTypeEntries(a, b)
+        if a.ord ~= b.ord then
+            return a.ord < b.ord
+        end
+        return a.name < b.name
+    end
+
+    --Every class as {id, info}, for callers that list them beside the built-ins.
+    local function DocumentClasses()
+        local result = {}
+        if g_documentClassesSetting:Get() then
+            for id, _ in unhidden_pairs(dmhub.GetTable(DocumentClass.tableName) or {}) do
+                local info = CustomDocument.DocTypeInfoById(id)
+                if info ~= nil then
+                    result[#result + 1] = { id = id, info = info }
+                end
+            end
+        end
+        return result
+    end
+
+    --The types a plain page can be switched between: the plain built-ins plus
+    --every class, in menu order. Each entry is {id, name, ord}.
+    function CustomDocument.PlainDocTypes()
+        local result = {}
+        for _, id in ipairs(DocumentClass.plainBuiltinIds) do
+            local info = CustomDocument.docTypeInfo[id]
+            result[#result + 1] = { id = id, name = info.text, ord = info.ord }
+        end
+        for _, class in ipairs(DocumentClasses()) do
+            result[#result + 1] = { id = class.id, name = class.info.text, ord = class.info.ord }
+        end
+        if g_documentClassesSetting:Get() then
+            table.sort(result, CompareTypeEntries)
+        end
+        return result
+    end
+
+    --The types offered when creating a document, in menu order. Each entry has
+    --name (the bare type name), text ("New ..."), icon and create().
+    function CustomDocument.NewDocumentTypes()
+        local result = {}
+        if not g_documentClassesSetting:Get() then
+            for _, v in pairs(CustomDocument.documentTypes) do
+                result[#result + 1] = v
+            end
+            table.sort(result, function(a, b) return (a.text or "") < (b.text or "") end)
+            return result
+        end
+
+        local registered = {}
+        for _, v in pairs(CustomDocument.documentTypes) do
+            registered[v.docType or v.id] = v
+        end
+        for id, info in pairs(CustomDocument.docTypeInfo) do
+            local v = registered[id]
+            if v ~= nil and info.showInNewMenu ~= false then
+                result[#result + 1] = { id = id, name = info.text, text = v.text, icon = info.icon, ord = info.ord, create = v.create }
+            end
+        end
+        for _, class in ipairs(DocumentClasses()) do
+            local id, info = class.id, class.info
+            if info.showInNewMenu then
+                result[#result + 1] = {
+                    id = id, name = info.text, text = "New " .. info.text, icon = info.icon, ord = info.ord,
+                    create = function()
+                        local doc = MarkdownDocument.new{ content = "", annotations = {}, docType = id }
+                        if info.hiddenFromPlayers then
+                            doc.hiddenFromPlayers = true
+                        end
+                        return doc
+                    end,
+                }
+            end
+        end
+        table.sort(result, CompareTypeEntries)
+        return result
+    end
+
+    --Every document filed under the journal's Templates folder, sorted by name.
+    function CustomDocument.Templates()
+        local result = {}
+        local foldersTable = assets.documentFoldersTable
+        for _, template in unhidden_pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
+            local parentFolder = template.parentFolder
+            local maxcount = 0
+            while maxcount < 10 and parentFolder ~= nil and foldersTable[parentFolder] ~= nil do
+                if foldersTable[parentFolder].hidden then
+                    break
+                end
+                parentFolder = foldersTable[parentFolder].parentFolder
+                maxcount = maxcount + 1
+            end
+            if parentFolder == "templates" then
+                result[#result + 1] = template
+            end
+        end
+        table.sort(result, function(a, b) return a.description < b.description end)
+        return result
+    end
+
+    --A new, unsaved page copied from a template. The caller gives it an id, an
+    --owner and a folder.
+    function CustomDocument.CreateFromTemplate(template)
+        local doc = MarkdownDocument.new{ content = "", annotations = {}, description = template.description }
+        doc:ApplyTemplateSnapshot(template:TemplateSnapshot())
+        if doc:try_get("annotations") == nil then
+            doc.annotations = {}
+        end
+        return doc
+    end
+
+    ----------------------------------------------------------------------
+    -- Document Classes compendium section (only while dev:documentclasses is on)
+    ----------------------------------------------------------------------
+
+    local function UploadClass(class)
+        dmhub.SetAndUploadTableItem(DocumentClass.tableName, class)
+        g_classCache = {}
+    end
+
+    local function EditorRow(labelText, control)
+        return gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            vmargin = 6,
+            gui.Label{
+                classes = {"bold"},
+                text = labelText,
+                width = 200,
+                height = 22,
+                valign = "center",
+            },
+            control,
+        }
+    end
+
+    --A dropdown over an "inherit"|boolean field.
+    local function InheritDropdown(class, field, yesText, noText)
+        local value = class[field]
+        return gui.Dropdown{
+            width = 300,
+            height = 26,
+            valign = "center",
+            options = {
+                { id = "inherit", text = "Inherit" },
+                { id = "yes", text = yesText },
+                { id = "no", text = noText },
+            },
+            idChosen = value == "inherit" and "inherit" or (value and "yes" or "no"),
+            change = function(element)
+                ---@cast element Dropdown
+                local id = element.idChosen
+                class[field] = id == "inherit" and "inherit" or id == "yes"
+                UploadClass(class)
+            end,
+        }
+    end
+
+    --True if `id` is `ancestorId` or inherits from it.
+    local function ClassInheritsFrom(id, ancestorId)
+        local classes = dmhub.GetTable(DocumentClass.tableName) or {}
+        local visited = {}
+        while classes[id] ~= nil and not visited[id] do
+            if id == ancestorId then
+                return true
+            end
+            visited[id] = true
+            id = classes[id].parentId
+        end
+        return false
+    end
+
+    local function ParentOptions(key)
+        local options = {}
+        for _, id in ipairs(DocumentClass.plainBuiltinIds) do
+            options[#options + 1] = { id = id, text = CustomDocument.docTypeInfo[id].text }
+        end
+        local custom = {}
+        for id, class in unhidden_pairs(dmhub.GetTable(DocumentClass.tableName) or {}) do
+            if not ClassInheritsFrom(id, key) then
+                custom[#custom + 1] = { id = id, text = class.name }
+            end
+        end
+        table.sort(custom, function(a, b) return a.text < b.text end)
+        for _, option in ipairs(custom) do
+            options[#options + 1] = option
+        end
+        return options
+    end
+
+    local function IconOptions(class, search)
+        local options = { { id = "", text = "Inherit" } }
+        local seen = { [""] = true }
+        local function Add(path)
+            if not seen[path] then
+                seen[path] = true
+                options[#options + 1] = { id = path, text = (path:gsub("^phosphor/", ""):gsub("%.png$", "")) }
+            end
+        end
+        if class.icon then
+            Add(class.icon)
+        end
+        --pcall: engine builds that predate GetPhosphorIcons just offer no matches.
+        local ok, paths = pcall(function() return assets:GetPhosphorIcons(search, 60) end)
+        for _, path in ipairs(ok and paths or {}) do
+            Add(path)
+        end
+        return options
+    end
+
+    local function CreateDocumentClassEditor(key)
+        local class = (dmhub.GetTable(DocumentClass.tableName) or {})[key]
+        if class == nil then
+            return gui.Panel{ width = 900, height = "95%" }
+        end
+
+        local iconPreview = gui.Panel{
+            width = 22,
+            height = 22,
+            valign = "center",
+            hmargin = 8,
+            --An inline theme token paints the mask invisible here.
+            bgcolor = "white",
+        }
+        local function RefreshPreview()
+            local info = CustomDocument.DocTypeInfoById(key)
+            if info ~= nil then
+                iconPreview.bgimage = info.icon
+            end
+        end
+        RefreshPreview()
+
+        local iconDropdown = gui.Dropdown{
+            width = 240,
+            height = 26,
+            valign = "center",
+            options = IconOptions(class, ""),
+            idChosen = class.icon or "",
+            change = function(element)
+                ---@cast element Dropdown
+                local id = element.idChosen
+                class.icon = id ~= "" and id or false
+                UploadClass(class)
+                RefreshPreview()
+            end,
+        }
+
+        return gui.Panel{
+            width = 900,
+            height = "95%",
+            vscroll = true,
+            flow = "vertical",
+            gui.Input{
+                classes = {"sizeL"},
+                width = 400,
+                height = 26,
+                placeholderText = "Name",
+                text = class.name,
+                change = function(element)
+                    class.name = element.text
+                    UploadClass(class)
+                end,
+            },
+            EditorRow("Inherits From", gui.Dropdown{
+                width = 300,
+                height = 26,
+                valign = "center",
+                options = ParentOptions(key),
+                idChosen = class.parentId,
+                change = function(element)
+                    ---@cast element Dropdown
+                    class.parentId = element.idChosen --[[@as string]]
+                    UploadClass(class)
+                    RefreshPreview()
+                end,
+            }),
+            EditorRow("Icon", gui.Panel{
+                flow = "horizontal",
+                width = "auto",
+                height = "auto",
+                gui.Input{
+                    classes = {"sizeS"},
+                    width = 140,
+                    height = 22,
+                    valign = "center",
+                    placeholderText = "Search icons...",
+                    editlag = 0.3,
+                    edit = function(element)
+                        iconDropdown.options = IconOptions(class, element.text)
+                        iconDropdown.idChosen = class.icon or ""
+                    end,
+                },
+                iconDropdown,
+                iconPreview,
+            }),
+            EditorRow("Flow Glyph", gui.Input{
+                classes = {"sizeS"},
+                width = 60,
+                height = 22,
+                valign = "center",
+                characterLimit = 1,
+                placeholderText = "Inherit",
+                text = class.glyph or "",
+                change = function(element)
+                    local glyph = string.upper(element.text)
+                    class.glyph = glyph ~= "" and glyph or false
+                    element.text = class.glyph or ""
+                    UploadClass(class)
+                end,
+            }),
+            EditorRow("Scene Beat", InheritDropdown(class, "beat", "Beat: in Flow and the Run", "Reference: tree only")),
+            EditorRow("New Document Menu", InheritDropdown(class, "showInNewMenu", "Shown", "Hidden")),
+            EditorRow("Menu Order", gui.Input{
+                classes = {"sizeS"},
+                width = 60,
+                height = 22,
+                valign = "center",
+                placeholderText = "Inherit",
+                text = class.ord and tostring(class.ord) or "",
+                change = function(element)
+                    class.ord = tonumber(element.text) or false
+                    element.text = class.ord and tostring(class.ord) or ""
+                    UploadClass(class)
+                end,
+            }),
+            EditorRow("Page Body", gui.Dropdown{
+                width = 300,
+                height = 26,
+                valign = "center",
+                options = {
+                    { id = "inherit", text = "Inherit" },
+                    { id = "markdown", text = "Prose below the fields" },
+                    { id = "none", text = "Fields only" },
+                },
+                idChosen = class.body,
+                change = function(element)
+                    ---@cast element Dropdown
+                    class.body = element.idChosen --[[@as string]]
+                    UploadClass(class)
+                end,
+            }),
+            EditorRow("New Pages", InheritDropdown(class, "hiddenFromPlayers", "Hidden from players", "Visible to players")),
+            gui.Label{
+                classes = {"bold"},
+                text = "Fields",
+                width = "auto",
+                height = "auto",
+                vmargin = 8,
+            },
+            DocumentClass.CreateFieldsEditor(class, function()
+                UploadClass(class)
+            end),
+            gui.Label{
+                classes = {"bold"},
+                text = "Exits",
+                width = "auto",
+                height = "auto",
+                vmargin = 8,
+            },
+            DocumentClass.CreateExitsEditor(class, function()
+                UploadClass(class)
+            end),
+            gui.Label{
+                classes = {"bold"},
+                text = "Actions",
+                width = "auto",
+                height = "auto",
+                vmargin = 8,
+            },
+            DocumentClass.CreateActionsEditor(class, function()
+                UploadClass(class)
+            end),
+        }
+    end
+
+    local function ShowDocumentClassesPanel(contentPanel)
+        local itemsListPanel
+        local leftPanel
+
+        itemsListPanel = gui.Panel{
+            classes = {"list-panel"},
+            vscroll = true,
+            monitorAssets = true,
+            refreshAssets = function(element)
+                local children = {}
+                for key, item in unhidden_pairs(dmhub.GetTable(DocumentClass.tableName) or {}) do
+                    local listItem = Compendium.CreateListItem{
+                        select = element.aliveTime > 0.2,
+                        tableName = DocumentClass.tableName,
+                        key = key,
+                        obliterateOnDelete = true,
+                        click = function()
+                            contentPanel.children = {leftPanel, CreateDocumentClassEditor(key)}
+                        end,
+                    }
+                    listItem.text = item.name
+                    children[#children + 1] = listItem
+                end
+                table.sort(children, function(a, b) return a.text < b.text end)
+                itemsListPanel.children = children
+            end,
+        }
+
+        itemsListPanel:FireEvent("refreshAssets")
+
+        leftPanel = gui.Panel{
+            selfStyle = {
+                flow = "vertical",
+                height = "100%",
+                width = "auto",
+            },
+            itemsListPanel,
+            Compendium.AddButton{
+                click = function()
+                    dmhub.SetAndUploadTableItem(DocumentClass.tableName, DocumentClass.new{ name = "New Document Class" })
+                end,
+            },
+        }
+
+        contentPanel.children = {leftPanel}
+    end
+
+    SyncDocumentClassesCompendium = function()
+        if g_documentClassesSetting:Get() then
+            Compendium.Register{
+                section = "Rules",
+                text = "Document Classes",
+                contentType = DocumentClass.tableName,
+                click = function(contentPanel)
+                    ShowDocumentClassesPanel(contentPanel)
+                end,
+            }
+        else
+            Compendium.Deregister("Document Classes")
+        end
+    end
+
+    if g_documentClassesSetting:Get() then
+        SyncDocumentClassesCompendium()
+    end
+end
+
+--Fields that say which document this is or where it lives, so a template
+--copy leaves them alone. The two text fields are listed because text travels
+--through Get/SetTextContent; the legacy `content` must never be written.
+local g_templateIdentityFields = {
+    id = true, description = true, parentFolder = true, ownerid = true,
+    ord = true, ctime = true, mtime = true, updateid = true,
+    hidden = true, readonly = true,
+    content = true, textStorage = true,
+}
+
+local function IsTemplateField(key)
+    if type(key) ~= "string" or g_templateIdentityFields[key] or string.sub(key, 1, 1) == "_" then
+        return false
+    end
+    if key == "docType" then
+        return g_documentClassesSetting:Get()
+    end
+    return true
+end
+
+--Everything a template hands to a document created from it: its text and
+--every serialized field that is not identity or placement.
+--@return {text: string, fields: table}
+function CustomDocument:TemplateSnapshot()
+    local fields = {}
+    for k, v in pairs(self) do
+        if IsTemplateField(k) then
+            fields[k] = DeepCopy(v)
+        end
+    end
+    return { text = self:GetTextContent(), fields = fields }
+end
+
+--Make this document match a TemplateSnapshot. A field the snapshot lacks is
+--cleared back to its type default, so applying one template after another
+--leaves nothing of the first behind.
+function CustomDocument:ApplyTemplateSnapshot(snapshot)
+    for k, _ in pairs(self) do
+        if IsTemplateField(k) then
+            self[k] = nil
+        end
+    end
+    for k, v in pairs(snapshot.fields) do
+        self[k] = DeepCopy(v)
+    end
+    self:SetTextContent(snapshot.text)
+end
+
+----------------------------------------------------------------------
+-- Declared fields (JOURNAL_PROGRAM.md Phase 3)
+-- ---------------
+-- A class declares fields; a page of that class gets an editor and a read
+-- view generated from the declaration. Built-in types can declare fields too
+-- (docTypeInfo[id].fields, see NegotiationRules.lua), which is how the
+-- generated editor is held up against a hand-written one.
+--
+-- A field is { id, label, kind, ... }. Its value lives in the document's
+-- fieldValues map, or -- for a built-in declaration with storage =
+-- "document" -- in the document field of the same name, so a declaration can
+-- describe a type that already exists.
+----------------------------------------------------------------------
+do
+    DocumentClass.fieldKinds = {
+        { id = "string", text = "Text, one line" },
+        { id = "text", text = "Text, several lines" },
+        { id = "number", text = "Number" },
+        { id = "bool", text = "Checkbox" },
+        { id = "enum", text = "Dropdown" },
+        { id = "image", text = "Image" },
+        { id = "recordList", text = "List of rows" },
+        { id = "keyedList", text = "Fixed rows" },
+        { id = "stringList", text = "Read-only list" },
+        { id = "label", text = "Read-only label" },
+    }
+
+    local g_listKinds = { recordList = true, keyedList = true, stringList = true }
+
+    local function Reversed(list)
+        local result = {}
+        for i = #list, 1, -1 do
+            result[#result + 1] = list[i]
+        end
+        return result
+    end
+
+    --The declarations that apply to a document: its class's, or none.
+    --
+    --None without dev:documentclasses. And none where a built-in type's
+    --declaration is written for one Lua type (declaredFor): negotiation
+    --declares NegotiationDocument's fields, but a plain page can carry
+    --docType "negotiation" too -- the Negotiation template makes them -- and it
+    --has none of those fields. Without this the page showed the negotiation
+    --form in place of its own text.
+    local g_noDeclarations = {}
+    local function Declarations(doc)
+        if not g_documentClassesSetting:Get() then
+            return g_noDeclarations
+        end
+        local info = CustomDocument.DocTypeInfo(doc)
+        if info.declaredFor ~= nil and not info.declaredFor(doc) then
+            return g_noDeclarations
+        end
+        return info
+    end
+
+    --The fields declared for a document's class, in order. Empty without
+    --dev:documentclasses, so a client with the flag off draws the page as its
+    --base type and never touches the values.
+    function CustomDocument.ClassFields(doc)
+        return Declarations(doc).fields or {}
+    end
+
+    --Actions (JOURNAL_PROGRAM.md Phase 5). Fields are data; "Begin
+    --Negotiation" is code. So code registers an action under a name, and a
+    --class -- or a built-in type's docTypeInfo row -- lists the names it wants
+    --as buttons. A class never carries code.
+    CustomDocument.registeredActions = {}
+
+    --@param args {id: string, text: string, mode: "read"|"edit", run?: fun(doc: CustomDocument, element: Panel, done: fun()), create?: fun(doc: CustomDocument, done: fun(element: Panel)): Panel, directorOnly?: boolean, anyPage?: boolean}
+    --mode says which view shows the button. An "edit" action that changes the
+    --document calls done() afterwards, so the editor saves and redraws.
+    --An action that is more than a button gives create instead of run: it
+    --returns its own control, and calls done(element) with one of its panels.
+    --Where a class lists the action, placement = "top" puts it above the fields.
+    --anyPage marks an action that works on any page, which is what lets a
+    --Director-made class offer it.
+    function CustomDocument.RegisterAction(args)
+        CustomDocument.registeredActions[args.id] = args
+    end
+
+    --The buttons a document's class asks for in one view, as { text, action }.
+    --Empty without dev:documentclasses.
+    function CustomDocument.ClassActions(doc, mode)
+        local result = {}
+        for _, declared in ipairs(Declarations(doc).actions or {}) do
+            local action = CustomDocument.registeredActions[declared.verb]
+            if action ~= nil and action.mode == mode and (dmhub.isDM or not action.directorOnly) then
+                result[#result + 1] = { text = action.text, action = action, placement = declared.placement }
+            end
+        end
+        return result
+    end
+
+    --The exits declared for a document's class (JOURNAL_PROGRAM.md Phase 4).
+    --Empty without dev:documentclasses, like the fields.
+    function CustomDocument.ClassExits(doc)
+        return Declarations(doc).exits or {}
+    end
+
+    --What a declared exit writes to campaign state, in the [[exit]] tag's
+    --vocabulary (see RichExit).
+    local function ExitWrites(exit)
+        local writes = {}
+        for _, write in ipairs(exit.writes or {}) do
+            writes[#writes + 1] = write
+        end
+        if (exit.victories or 0) > 0 then
+            writes[#writes + 1] = { kind = "victory", count = exit.victories, label = "Victory" }
+        end
+        if (exit.flag or "") ~= "" then
+            writes[#writes + 1] = { kind = "flag", key = exit.flag, value = true, label = exit.flag }
+        end
+        return writes
+    end
+
+    --A document's declared exits as [[exit]] tag data: { id, label, writes,
+    --nextDocid, nextLabel }. The class says what each exit is and writes; the
+    --page says where it leads (exitTargets). The id is unique to the page,
+    --because it keys the exit's taken state in campaign state.
+    function CustomDocument.DeclaredExits(doc)
+        local result = {}
+        local targets = doc:try_get("exitTargets") or {}
+        local documents = dmhub.GetTable(CustomDocument.tableName) or {}
+        for _, exit in ipairs(CustomDocument.ClassExits(doc)) do
+            local nextDocid = targets[exit.id]
+            local nextDoc = nextDocid ~= nil and documents[nextDocid] or nil
+            result[#result + 1] = {
+                id = tostring(doc:try_get("id", "")) .. ":" .. exit.id,
+                label = exit.label,
+                writes = ExitWrites(exit),
+                nextDocid = nextDoc ~= nil and nextDocid or false,
+                nextLabel = nextDoc ~= nil and nextDoc.description or false,
+            }
+        end
+        return result
+    end
+
+    --The scenes an exit can lead to: the other beats in the page's folder,
+    --which is as far as Flow draws an edge.
+    local function SceneOptions(doc)
+        local scenes = {}
+        local folder = doc:try_get("parentFolder")
+        local ownId = doc:try_get("id")
+        for id, other in unhidden_pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
+            if id ~= ownId and other:try_get("parentFolder") == folder and CustomDocument.DocTypeIsBeat(other) then
+                scenes[#scenes + 1] = { id = id, text = other.description or "Untitled" }
+            end
+        end
+        table.sort(scenes, function(a, b) return a.text < b.text end)
+        table.insert(scenes, 1, { id = "", text = "(nowhere yet)" })
+        return scenes
+    end
+
+    local function FieldOptions(field)
+        local options = field.options
+        if type(options) == "function" then
+            options = options()
+        end
+        return options or {}
+    end
+
+    local function FieldDefault(field)
+        if field.default ~= nil then
+            return DeepCopy(field.default)
+        end
+        if g_listKinds[field.kind] then
+            return {}
+        elseif field.kind == "number" then
+            return 0
+        elseif field.kind == "bool" then
+            return false
+        elseif field.kind == "enum" then
+            local first = FieldOptions(field)[1]
+            return first ~= nil and first.id or ""
+        end
+        return ""
+    end
+
+    function CustomDocument:GetFieldValue(field)
+        local value
+        if field.storage == "document" then
+            value = self:try_get(field.id)
+        else
+            value = (self:try_get("fieldValues") or {})[field.id]
+        end
+        if value == nil then
+            return FieldDefault(field)
+        end
+        return value
+    end
+
+    function CustomDocument:SetFieldValue(field, value)
+        if field.storage == "document" then
+            self[field.id] = value
+        else
+            self:get_or_add("fieldValues", {})[field.id] = value
+        end
+    end
+
+    --A list field's table, stored on the document so rows can be edited in place.
+    local function FieldList(doc, field)
+        local list = doc:GetFieldValue(field)
+        doc:SetFieldValue(field, list)
+        return list
+    end
+
+    local function ColumnDefault(column)
+        if column.kind == "enum" then
+            local first = FieldOptions(column)[1]
+            return first ~= nil and first.id or ""
+        end
+        return ""
+    end
+
+    local function SectionHeader(text)
+        return gui.Label{
+            classes = { "bold", "sizeM" },
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            vmargin = 6,
+            text = text,
+        }
+    end
+
+    local function LabelledRow(labelText, control)
+        return gui.Panel{
+            flow = "horizontal",
+            width = "94%",
+            height = "auto",
+            halign = "left",
+            vmargin = 2,
+            gui.Label{
+                classes = { "bold" },
+                width = 150,
+                height = "auto",
+                minHeight = 24,
+                halign = "left",
+                valign = "top",
+                textWrap = true,
+                text = labelText,
+            },
+            control,
+        }
+    end
+
+    --One cell of a list row. `row` is the row as it was when the cell was
+    --built; `liveRow` returns the row to write to. They differ: once a save
+    --is echoed back, the engine has swapped a newly added row for a fresh
+    --copy, and a write into the table the cell was built from goes nowhere.
+    local function ColumnInput(row, liveRow, column, width)
+        local function Write(element, value)
+            local target = liveRow()
+            if target ~= nil then
+                target[column.id] = value
+                CustomDocument.NotifyEdited(element)
+            end
+        end
+        if column.kind == "enum" then
+            return gui.Dropdown{
+                classes = { "sizeS" }, width = width, height = 24, valign = "top", lmargin = 6,
+                options = FieldOptions(column),
+                idChosen = row[column.id] or ColumnDefault(column),
+                change = function(element)
+                    ---@cast element Dropdown
+                    Write(element, element.idChosen)
+                end,
+            }
+        end
+        return gui.Input{
+            classes = { "sizeS" }, width = width, height = column.kind == "text" and "auto" or 24,
+            valign = "top", lmargin = 6, multiline = column.kind == "text",
+            placeholderText = column.placeholder or column.label,
+            text = row[column.id] or "",
+            change = function(element)
+                Write(element, element.text)
+            end,
+        }
+    end
+
+    local function ColumnWidth(column)
+        return column.width or (column.kind == "text" and 420 or 160)
+    end
+
+    local function RecordListEditor(doc, field)
+        local columns = field.columns or {}
+        local groupColumn = nil
+        for _, column in ipairs(columns) do
+            if column.id == field.groupBy then
+                groupColumn = column
+            end
+        end
+
+        local listPanel
+        local Rebuild
+
+        --The row in the document now, found by id (see ColumnInput), and its
+        --position. A row without an id can only be the table it was built from.
+        local function LiveRow(row)
+            for i, other in ipairs(doc:GetFieldValue(field)) do
+                if other == row or (row.id ~= nil and other.id == row.id) then
+                    return other, i
+                end
+            end
+            return nil
+        end
+
+        local function RowPanel(row)
+            local function liveRow()
+                return (LiveRow(row))
+            end
+            local cells = {}
+            for _, column in ipairs(columns) do
+                if column ~= groupColumn then
+                    cells[#cells + 1] = ColumnInput(row, liveRow, column, ColumnWidth(column))
+                end
+            end
+            cells[#cells + 1] = gui.Button{
+                classes = { "sizeS" }, width = 70, height = 24, lmargin = 6, valign = "top",
+                text = "Remove",
+                click = function(element)
+                    local _, index = LiveRow(row)
+                    if index ~= nil then
+                        table.remove(FieldList(doc, field), index)
+                    end
+                    --notify BEFORE the rebuild: Rebuild orphans this button,
+                    --and NotifyEdited walks up the tree from it.
+                    CustomDocument.NotifyEdited(element)
+                    Rebuild()
+                end,
+            }
+            return gui.Panel{
+                flow = "horizontal", width = "94%", height = "auto", halign = "left", vmargin = 2,
+                children = cells,
+            }
+        end
+
+        local function AddButton(text, groupId)
+            return gui.Button{
+                classes = { "sizeS" }, width = 200, height = 24, halign = "left", vmargin = 3,
+                text = text,
+                click = function(element)
+                    local list = FieldList(doc, field)
+                    local row = { id = dmhub.GenerateGuid() }
+                    for _, column in ipairs(columns) do
+                        row[column.id] = ColumnDefault(column)
+                    end
+                    if groupColumn ~= nil then
+                        row[groupColumn.id] = groupId
+                    end
+                    list[#list + 1] = row
+                    CustomDocument.NotifyEdited(element)
+                    Rebuild()
+                end,
+            }
+        end
+
+        Rebuild = function()
+            local list = doc:GetFieldValue(field)
+            local children = {}
+            if groupColumn == nil then
+                for _, row in ipairs(list) do
+                    children[#children + 1] = RowPanel(row)
+                end
+                children[#children + 1] = AddButton("+ Add " .. (field.itemLabel or "Row"))
+            else
+                for _, group in ipairs(FieldOptions(groupColumn)) do
+                    children[#children + 1] = gui.Label{
+                        classes = { "bold" },
+                        width = "auto", height = "auto", halign = "left", vmargin = 4,
+                        text = group.heading or group.text,
+                    }
+                    for _, row in ipairs(list) do
+                        if row[groupColumn.id] == group.id then
+                            children[#children + 1] = RowPanel(row)
+                        end
+                    end
+                    children[#children + 1] = AddButton("+ Add " .. group.text, group.id)
+                end
+            end
+            listPanel.children = children
+        end
+
+        listPanel = gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            create = function() Rebuild() end,
+        }
+        return listPanel
+    end
+
+    local function KeyedListEditor(doc, field)
+        local columns = field.columns or {}
+        local keys = field.keys or {}
+        local rows = {}
+        for _, key in ipairs(field.displayReversed and Reversed(keys) or keys) do
+            local cells = {
+                gui.Label{ width = 150, height = 24, valign = "top", text = key.label },
+            }
+            for _, column in ipairs(columns) do
+                local current = doc:GetFieldValue(field)[key.index] or {}
+                cells[#cells + 1] = gui.Input{
+                    classes = { "sizeS" }, width = column.width or 460, height = column.kind == "text" and "auto" or 24,
+                    multiline = column.kind == "text", valign = "top",
+                    placeholderText = column.placeholder or column.label,
+                    text = current[column.id] or "",
+                    change = function(element)
+                        local list = FieldList(doc, field)
+                        --the array must stay contiguous or it serializes badly.
+                        for _, other in ipairs(keys) do
+                            if list[other.index] == nil then
+                                local blank = {}
+                                for _, c in ipairs(columns) do
+                                    blank[c.id] = ""
+                                end
+                                list[other.index] = blank
+                            end
+                        end
+                        list[key.index][column.id] = element.text
+                        CustomDocument.NotifyEdited(element)
+                    end,
+                }
+            end
+            rows[#rows + 1] = gui.Panel{
+                flow = "horizontal", width = "94%", height = "auto", halign = "left", vmargin = 2,
+                children = cells,
+            }
+        end
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            children = rows,
+        }
+    end
+
+    local function ReadOnlyText(text)
+        return gui.Label{
+            classes = { "sizeS" },
+            width = "94%", height = "auto", halign = "left", vmargin = 3,
+            textWrap = true,
+            text = text,
+        }
+    end
+
+    --The editing control for one field, or nil for a kind with nothing to show.
+    local function FieldEditor(doc, field)
+        local kind = field.kind
+        if kind == "string" or kind == "text" then
+            return LabelledRow(field.label, gui.Input{
+                classes = { "sizeM" },
+                width = "100%-156",
+                height = kind == "text" and 60 or 26,
+                halign = "left",
+                multiline = kind == "text",
+                placeholderText = field.placeholder or "",
+                text = doc:GetFieldValue(field),
+                change = function(element)
+                    doc:SetFieldValue(field, element.text)
+                    CustomDocument.NotifyEdited(element)
+                end,
+            })
+        elseif kind == "number" then
+            return LabelledRow(field.label, gui.Input{
+                classes = { "sizeM" },
+                width = 80,
+                height = 26,
+                halign = "left",
+                text = tostring(doc:GetFieldValue(field)),
+                change = function(element)
+                    local n = tonumber(element.text)
+                    if n ~= nil then
+                        doc:SetFieldValue(field, n)
+                        CustomDocument.NotifyEdited(element)
+                    end
+                    element.text = tostring(doc:GetFieldValue(field))
+                end,
+            })
+        elseif kind == "bool" then
+            return gui.Check{
+                classes = { "sizeS" },
+                width = "94%", height = 24, minWidth = 0, halign = "left",
+                text = field.label,
+                value = doc:GetFieldValue(field) == true,
+                change = function(element)
+                    doc:SetFieldValue(field, element.value)
+                    CustomDocument.NotifyEdited(element)
+                end,
+            }
+        elseif kind == "enum" then
+            return LabelledRow(field.label, gui.Dropdown{
+                classes = { "sizeM" }, width = 300, height = 30, halign = "left",
+                options = FieldOptions(field),
+                idChosen = doc:GetFieldValue(field),
+                change = function(element)
+                    ---@cast element Dropdown
+                    doc:SetFieldValue(field, element.idChosen)
+                    CustomDocument.NotifyEdited(element)
+                end,
+            })
+        elseif kind == "image" then
+            return LabelledRow(field.label, gui.IconEditor{
+                library = field.library or "journal",
+                width = field.width or 96,
+                height = field.height or 96,
+                halign = "left",
+                valign = "top",
+                bgcolor = "white",
+                allowNone = true,
+                value = doc:GetFieldValue(field),
+                change = function(element)
+                    doc:SetFieldValue(field, element.value or "")
+                    CustomDocument.NotifyEdited(element)
+                end,
+            })
+        elseif kind == "recordList" then
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left",
+                SectionHeader(field.label),
+                RecordListEditor(doc, field),
+            }
+        elseif kind == "keyedList" then
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left",
+                SectionHeader(field.label),
+                KeyedListEditor(doc, field),
+            }
+        elseif kind == "stringList" then
+            local list = doc:GetFieldValue(field)
+            if #list == 0 then
+                return nil
+            end
+            local children = { SectionHeader(field.label) }
+            for _, entry in ipairs(list) do
+                children[#children + 1] = ReadOnlyText(tostring(entry))
+            end
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left",
+                children = children,
+            }
+        elseif kind == "label" then
+            local value = tostring(doc:GetFieldValue(field))
+            if value == "" then
+                return nil
+            end
+            return ReadOnlyText(field.label .. ": " .. value)
+        end
+        return nil
+    end
+
+    --The generated editor: every declared field of the document's class, top
+    --to bottom, writing into the document and leaving the save to the shell.
+    local function ActionButton(doc, entry, refresh)
+        local function Done(element)
+            --notify BEFORE the redraw: it orphans the control, and
+            --NotifyEdited walks up the tree from it.
+            CustomDocument.NotifyEdited(element)
+            if refresh ~= nil then
+                refresh()
+            end
+        end
+        if entry.action.create ~= nil then
+            return entry.action.create(doc, Done)
+        end
+        return gui.Button{
+            classes = { "sizeM" }, width = 260, height = 26, halign = "left", vmargin = 4,
+            text = entry.text,
+            click = function(element)
+                entry.action.run(doc, element, function()
+                    Done(element)
+                end)
+            end,
+        }
+    end
+
+    --The generated editor's rows. `refresh` redraws them.
+    local function FieldsEditChildren(doc, refresh)
+        local children = {}
+        local actions = CustomDocument.ClassActions(doc, "edit")
+        for _, entry in ipairs(actions) do
+            if entry.placement == "top" then
+                children[#children + 1] = ActionButton(doc, entry, refresh)
+            end
+        end
+
+        local section = nil
+        for _, field in ipairs(CustomDocument.ClassFields(doc)) do
+            if field.section ~= nil and field.section ~= section then
+                section = field.section
+                children[#children + 1] = SectionHeader(section)
+            end
+            children[#children + 1] = FieldEditor(doc, field)
+        end
+
+        for _, entry in ipairs(actions) do
+            if entry.placement ~= "top" then
+                children[#children + 1] = ActionButton(doc, entry, refresh)
+            end
+        end
+
+        local exits = CustomDocument.ClassExits(doc)
+        if #exits > 0 then
+            children[#children + 1] = SectionHeader("Exits")
+            local scenes = SceneOptions(doc)
+            for _, exit in ipairs(exits) do
+                children[#children + 1] = LabelledRow(exit.label, gui.Dropdown{
+                    classes = { "sizeM" }, width = 300, height = 30, halign = "left",
+                    options = scenes,
+                    idChosen = (doc:try_get("exitTargets") or {})[exit.id] or "",
+                    change = function(element)
+                        ---@cast element Dropdown
+                        local id = element.idChosen
+                        doc:get_or_add("exitTargets", {})[exit.id] = id ~= "" and id or nil
+                        CustomDocument.NotifyEdited(element)
+                    end,
+                })
+            end
+        end
+
+        if CustomDocument.DocTypeInfo(doc).hiddenFromPlayers then
+            local warning = gui.Label{
+                classes = { "sizeS" },
+                width = "94%", height = "auto", halign = "left", vmargin = 2,
+                textWrap = true,
+                text = "",
+            }
+            local function RefreshWarning()
+                warning.text = doc:try_get("hiddenFromPlayers", false) and ""
+                    or "Players can open this page and read everything on it."
+            end
+            RefreshWarning()
+            children[#children + 1] = SectionHeader("Who can read this page")
+            children[#children + 1] = gui.Check{
+                classes = { "sizeS" },
+                width = "94%", height = 24, minWidth = 0, halign = "left",
+                text = "Share this page with players",
+                value = not doc:try_get("hiddenFromPlayers", false),
+                change = function(element)
+                    doc.hiddenFromPlayers = not element.value
+                    CustomDocument.NotifyEdited(element)
+                    RefreshWarning()
+                end,
+            }
+            children[#children + 1] = warning
+        end
+
+        return children
+    end
+
+    function CustomDocument:FieldsEditPanel()
+        local doc = self
+        local panel
+        local function refresh()
+            panel.children = FieldsEditChildren(doc, refresh)
+        end
+        panel = gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            children = FieldsEditChildren(doc, refresh),
+        }
+        return panel
+    end
+
+    local function OptionText(field, id)
+        for _, option in ipairs(FieldOptions(field)) do
+            if option.id == id then
+                return option.text
+            end
+        end
+        return tostring(id)
+    end
+
+    --The read view of one field, or nil when it has nothing to show.
+    local function FieldDisplay(doc, field)
+        local kind = field.kind
+        local value = doc:GetFieldValue(field)
+        if kind == "bool" then
+            if value ~= true then
+                return nil
+            end
+            return ReadOnlyText(field.label)
+        elseif kind == "image" then
+            if value == "" then
+                return nil
+            end
+            return LabelledRow(field.label, gui.Panel{
+                width = field.width or 96, height = field.height or 96, halign = "left",
+                bgimage = value, bgcolor = "white",
+            })
+        elseif kind == "recordList" or kind == "keyedList" then
+            local lines = {}
+            if kind == "keyedList" then
+                for _, key in ipairs(field.displayReversed and Reversed(field.keys or {}) or field.keys or {}) do
+                    local parts = {}
+                    for _, column in ipairs(field.columns or {}) do
+                        local cell = (value[key.index] or {})[column.id]
+                        if cell ~= nil and cell ~= "" then
+                            parts[#parts + 1] = tostring(cell)
+                        end
+                    end
+                    if #parts > 0 then
+                        lines[#lines + 1] = key.label .. ": " .. table.concat(parts, " - ")
+                    end
+                end
+            else
+                for _, row in ipairs(value) do
+                    local parts = {}
+                    for _, column in ipairs(field.columns or {}) do
+                        local cell = row[column.id]
+                        if cell ~= nil and cell ~= "" then
+                            parts[#parts + 1] = column.kind == "enum" and OptionText(column, cell) or tostring(cell)
+                        end
+                    end
+                    if #parts > 0 then
+                        lines[#lines + 1] = table.concat(parts, " - ")
+                    end
+                end
+            end
+            if #lines == 0 then
+                return nil
+            end
+            local children = { SectionHeader(field.label) }
+            for _, line in ipairs(lines) do
+                children[#children + 1] = ReadOnlyText(line)
+            end
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left",
+                children = children,
+            }
+        elseif kind == "stringList" then
+            return FieldEditor(doc, field)
+        end
+
+        local text = kind == "enum" and OptionText(field, value) or tostring(value)
+        if text == "" then
+            return nil
+        end
+        return LabelledRow(field.label, gui.Label{
+            width = "100%-156", height = "auto", halign = "left", textWrap = true, text = text,
+        })
+    end
+
+    --The generated read view: every field that has a value.
+    function CustomDocument:FieldsDisplayPanel()
+        local children = {}
+        for _, field in ipairs(CustomDocument.ClassFields(self)) do
+            children[#children + 1] = FieldDisplay(self, field)
+        end
+        --exits are run furniture: the Director's, never the players'. RichExit
+        --loads after this file, hence rawget.
+        if dmhub.isDM and rawget(_G, "RichExit") ~= nil then
+            for _, exit in ipairs(CustomDocument.DeclaredExits(self)) do
+                children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
+            end
+        end
+        for _, entry in ipairs(CustomDocument.ClassActions(self, "read")) do
+            children[#children + 1] = ActionButton(self, entry, nil)
+        end
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            children = children,
+        }
+    end
+
+    --A type with its own form (negotiation, montage, heroic test) rather than
+    --a prose page the fields can sit above.
+    --Asked of the type, not of nodeType: a montage page is nodeType "custom"
+    --too, and would otherwise get the generated view stacked on its own.
+    local function HasOwnForm(doc)
+        return doc.typeName ~= "MarkdownDocument"
+    end
+
+    --Fields above, the page's own panel below. `panel` keeps the height the
+    --fields leave; a fields-only class drops it.
+    local function StackFields(doc, fieldsPanel, panel)
+        local children = {
+            gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", maxHeight = "50%",
+                valign = "top", vscroll = true, bmargin = 8,
+                fieldsPanel,
+            },
+        }
+        if CustomDocument.DocTypeInfo(doc).body ~= "none" then
+            --an edit panel is built collapsed; the wrapper carries that state now.
+            panel:SetClass("collapsed", false)
+            panel.selfStyle.height = "100% available"
+            panel.selfStyle.valign = "top"
+        else
+            --a fields-only class hides the page's own panel but still parents
+            --it: the shell built it and fires its events down this tree.
+            panel:SetClass("collapsed", true)
+        end
+        children[#children + 1] = panel
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "100%",
+            children = children,
+            --the shell fires this at the read panel directly.
+            glossaryMute = function(element, muted)
+                panel:FireEvent("glossaryMute", muted)
+            end,
+        }
+    end
+
+    local function HasDeclaredForm(doc)
+        return #CustomDocument.ClassFields(doc) > 0 or #CustomDocument.ClassExits(doc) > 0
+            or #CustomDocument.ClassActions(doc, "read") > 0 or #CustomDocument.ClassActions(doc, "edit") > 0
+    end
+
+    --Wraps a document's read panel with its class's fields, if it has any.
+    function CustomDocument.WithFieldsDisplay(doc, panel)
+        if not HasDeclaredForm(doc) or HasOwnForm(doc) then
+            return panel
+        end
+        return StackFields(doc, doc:FieldsDisplayPanel(), panel)
+    end
+
+    --Wraps a document's edit panel with the generated editor. A type with its
+    --own form gets a switch between the two, which is how the generated editor
+    --is compared against the hand-written one it would replace.
+    function CustomDocument.WithFieldsEditor(doc, panel)
+        if not HasDeclaredForm(doc) then
+            return panel
+        end
+        if not HasOwnForm(doc) then
+            return StackFields(doc, doc:FieldsEditPanel(), panel)
+        end
+        if #CustomDocument.ClassFields(doc) == 0 then
+            --nothing to compare the type's own form against.
+            return panel
+        end
+
+        local generated = nil
+        local host
+        local function Show(useGenerated)
+            if useGenerated and generated == nil then
+                generated = gui.Panel{
+                    width = "100%", height = "100% available", flow = "vertical", vscroll = true,
+                    doc:FieldsEditPanel(),
+                }
+                local children = host.children
+                children[#children + 1] = generated
+                host.children = children
+            end
+            panel:SetClass("collapsed", useGenerated)
+            if generated ~= nil then
+                generated:SetClass("collapsed", not useGenerated)
+            end
+        end
+
+        panel:SetClass("collapsed", false)
+        panel.selfStyle.height = "100% available"
+        host = gui.Panel{
+            flow = "vertical", width = "100%", height = "100%",
+            gui.Check{
+                classes = { "sizeS" },
+                width = "94%", height = 24, minWidth = 0, halign = "left",
+                text = "Generated editor (dev:documentclasses)",
+                value = false,
+                change = function(element)
+                    Show(element.value)
+                end,
+            },
+            panel,
+        }
+        return host
+    end
+
+    ------------------------------------------------------------------
+    -- Authoring a class's fields (the compendium class editor)
+    ------------------------------------------------------------------
+
+    local function SplitList(text)
+        local result = {}
+        for part in string.gmatch(text or "", "[^,]+") do
+            local trimmed = (part:gsub("^%s+", ""):gsub("%s+$", ""))
+            if trimmed ~= "" then
+                result[#result + 1] = trimmed
+            end
+        end
+        return result
+    end
+
+    local function JoinLabels(list, key)
+        local labels = {}
+        for i, entry in ipairs(list or {}) do
+            labels[i] = entry[key]
+        end
+        return table.concat(labels, ", ")
+    end
+
+    --Rebuilds a list of {id, <key>} entries from typed labels, keeping the id
+    --of any entry whose label is unchanged so stored values stay attached.
+    local function RelabelEntries(existing, labels, key, extra)
+        local byLabel = {}
+        for _, entry in ipairs(existing or {}) do
+            byLabel[entry[key]] = entry
+        end
+        local result = {}
+        for i, label in ipairs(labels) do
+            local entry = byLabel[label] or { id = dmhub.GenerateGuid(), [key] = label }
+            if extra ~= nil then
+                extra(entry, i, #labels)
+            end
+            result[i] = entry
+        end
+        return result
+    end
+
+    local g_detailHelp = {
+        enum = "Choices, separated by commas",
+        recordList = "Column names, separated by commas",
+        keyedList = "Row names, separated by commas",
+    }
+
+    --The editor for a class's own actions: each row picks one of the
+    --registered actions that work on any page.
+    function DocumentClass.CreateActionsEditor(class, onChange)
+        local listPanel
+        local Rebuild
+
+        local function Options()
+            local options = {}
+            for id, action in pairs(CustomDocument.registeredActions) do
+                if action.anyPage then
+                    options[#options + 1] = { id = id, text = action.text }
+                end
+            end
+            table.sort(options, function(a, b) return a.text < b.text end)
+            return options
+        end
+
+        Rebuild = function()
+            local actions = class:try_get("actions") or {}
+            local options = Options()
+            local children = {}
+            for i, declared in ipairs(actions) do
+                children[#children + 1] = gui.Panel{
+                    flow = "horizontal", width = "auto", height = "auto", vmargin = 2,
+                    gui.Dropdown{
+                        width = 260, height = 24, valign = "center",
+                        options = options,
+                        idChosen = declared.verb,
+                        change = function(element)
+                            ---@cast element Dropdown
+                            declared.verb = element.idChosen
+                            onChange()
+                        end,
+                    },
+                    gui.Button{
+                        classes = { "sizeS" }, width = 70, height = 22, valign = "center", lmargin = 6,
+                        text = "Remove",
+                        click = function()
+                            table.remove(actions, i)
+                            onChange()
+                            Rebuild()
+                        end,
+                    },
+                }
+            end
+            if #options > 0 then
+                children[#children + 1] = gui.Button{
+                    classes = { "sizeS" }, width = 160, height = 24, halign = "left", vmargin = 4,
+                    text = "+ Add Action",
+                    click = function()
+                        --get_or_add: the type default is one shared empty table.
+                        local own = class:get_or_add("actions", {})
+                        own[#own + 1] = { id = dmhub.GenerateGuid(), verb = options[1].id }
+                        onChange()
+                        Rebuild()
+                    end,
+                }
+            end
+            listPanel.children = children
+        end
+
+        listPanel = gui.Panel{
+            flow = "vertical", width = "auto", height = "auto",
+            create = function() Rebuild() end,
+        }
+        return listPanel
+    end
+
+    --The editor for a class's own exits. An exit is a name plus what taking
+    --it writes: Victories awarded, and a campaign flag to set.
+    function DocumentClass.CreateExitsEditor(class, onChange)
+        local listPanel
+        local Rebuild
+
+        local function ExitRow(exits, index)
+            local exit = exits[index]
+            return gui.Panel{
+                flow = "horizontal", width = "auto", height = "auto", vmargin = 2,
+                gui.Input{
+                    classes = { "sizeS" }, width = 260, height = 22, valign = "center",
+                    placeholderText = "Exit name",
+                    text = exit.label,
+                    change = function(element)
+                        exit.label = element.text
+                        onChange()
+                    end,
+                },
+                gui.Label{ width = "auto", height = "auto", valign = "center", lmargin = 10, text = "Victories" },
+                gui.Input{
+                    classes = { "sizeS" }, width = 40, height = 22, valign = "center", lmargin = 6,
+                    text = tostring(exit.victories or 0),
+                    change = function(element)
+                        exit.victories = math.max(0, math.floor(tonumber(element.text) or 0))
+                        element.text = tostring(exit.victories)
+                        onChange()
+                    end,
+                },
+                gui.Input{
+                    classes = { "sizeS" }, width = 220, height = 22, valign = "center", lmargin = 10,
+                    placeholderText = "Campaign flag to set (optional)",
+                    text = exit.flag or "",
+                    change = function(element)
+                        exit.flag = element.text
+                        onChange()
+                    end,
+                },
+                gui.Button{
+                    classes = { "sizeS" }, width = 70, height = 22, valign = "center", lmargin = 6,
+                    text = "Remove",
+                    click = function()
+                        table.remove(exits, index)
+                        onChange()
+                        Rebuild()
+                    end,
+                },
+            }
+        end
+
+        Rebuild = function()
+            local exits = class:try_get("exits") or {}
+            local children = {}
+            for i, _ in ipairs(exits) do
+                children[#children + 1] = ExitRow(exits, i)
+            end
+            children[#children + 1] = gui.Button{
+                classes = { "sizeS" }, width = 160, height = 24, halign = "left", vmargin = 4,
+                text = "+ Add Exit",
+                click = function()
+                    --get_or_add: the type default is one shared empty table.
+                    local own = class:get_or_add("exits", {})
+                    own[#own + 1] = { id = dmhub.GenerateGuid(), label = "New Exit", victories = 0, flag = "" }
+                    onChange()
+                    Rebuild()
+                end,
+            }
+            listPanel.children = children
+        end
+
+        listPanel = gui.Panel{
+            flow = "vertical", width = "auto", height = "auto",
+            create = function() Rebuild() end,
+        }
+        return listPanel
+    end
+
+    --The editor for a class's own fields: one row per field, with add, remove
+    --and reorder. `onChange` uploads the class.
+    function DocumentClass.CreateFieldsEditor(class, onChange)
+        local listPanel
+        local Rebuild
+
+        local function DetailText(field)
+            if field.kind == "enum" then
+                return JoinLabels(field.options, "text")
+            elseif field.kind == "recordList" then
+                return JoinLabels(field.columns, "label")
+            elseif field.kind == "keyedList" then
+                return JoinLabels(field.keys, "label")
+            end
+            return ""
+        end
+
+        local function SetDetail(field, text)
+            local labels = SplitList(text)
+            if field.kind == "enum" then
+                field.options = RelabelEntries(field.options, labels, "text")
+            elseif field.kind == "recordList" then
+                --the last of several columns is the long one.
+                field.columns = RelabelEntries(field.columns, labels, "label", function(column, i, n)
+                    column.kind = (n > 1 and i == n) and "text" or "string"
+                end)
+            elseif field.kind == "keyedList" then
+                field.keys = RelabelEntries(field.keys, labels, "label", function(key, i)
+                    key.index = i
+                end)
+                field.columns = field.columns or { { id = "text", label = "Text", kind = "text" } }
+            end
+        end
+
+        local function FieldRow(fields, index)
+            local field = fields[index]
+            local function Move(delta)
+                local other = index + delta
+                if other >= 1 and other <= #fields then
+                    fields[index], fields[other] = fields[other], fields[index]
+                    onChange()
+                    Rebuild()
+                end
+            end
+            return gui.Panel{
+                flow = "horizontal", width = "auto", height = "auto", vmargin = 2,
+                gui.Input{
+                    classes = { "sizeS" }, width = 160, height = 22, valign = "center",
+                    placeholderText = "Field name",
+                    text = field.label,
+                    change = function(element)
+                        field.label = element.text
+                        onChange()
+                    end,
+                },
+                gui.Dropdown{
+                    width = 170, height = 24, valign = "center", lmargin = 6,
+                    options = DocumentClass.fieldKinds,
+                    idChosen = field.kind,
+                    change = function(element)
+                        ---@cast element Dropdown
+                        field.kind = element.idChosen
+                        SetDetail(field, DetailText(field))
+                        onChange()
+                        Rebuild()
+                    end,
+                },
+                gui.Input{
+                    classes = { "sizeS", g_detailHelp[field.kind] == nil and "collapsed" or nil },
+                    width = 300, height = 22, valign = "center", lmargin = 6,
+                    placeholderText = g_detailHelp[field.kind] or "",
+                    text = DetailText(field),
+                    change = function(element)
+                        SetDetail(field, element.text)
+                        element.text = DetailText(field)
+                        onChange()
+                    end,
+                },
+                gui.Button{
+                    classes = { "sizeS" }, width = 30, height = 22, valign = "center", lmargin = 6,
+                    text = "Up",
+                    click = function() Move(-1) end,
+                },
+                gui.Button{
+                    classes = { "sizeS" }, width = 44, height = 22, valign = "center", lmargin = 4,
+                    text = "Down",
+                    click = function() Move(1) end,
+                },
+                gui.Button{
+                    classes = { "sizeS" }, width = 70, height = 22, valign = "center", lmargin = 6,
+                    text = "Remove",
+                    click = function()
+                        table.remove(fields, index)
+                        onChange()
+                        Rebuild()
+                    end,
+                },
+            }
+        end
+
+        Rebuild = function()
+            local fields = class:try_get("fields") or {}
+            local children = {}
+            for i, _ in ipairs(fields) do
+                children[#children + 1] = FieldRow(fields, i)
+            end
+            children[#children + 1] = gui.Button{
+                classes = { "sizeS" }, width = 160, height = 24, halign = "left", vmargin = 4,
+                text = "+ Add Field",
+                click = function()
+                    --get_or_add: the type default is one shared empty table.
+                    local own = class:get_or_add("fields", {})
+                    own[#own + 1] = { id = dmhub.GenerateGuid(), label = "New Field", kind = "string" }
+                    onChange()
+                    Rebuild()
+                end,
+            }
+            listPanel.children = children
+        end
+
+        listPanel = gui.Panel{
+            flow = "vertical", width = "auto", height = "auto",
+            create = function() Rebuild() end,
+        }
+        return listPanel
+    end
 end
 
 local g_tabbedViewer = nil
@@ -902,12 +2718,7 @@ local function buildJournalTree(currentDocId, dialogPanel, opts)
     local headerPanels = {}
     if opts ~= nil and opts.onNewDocument ~= nil then
         local typeRows = {}
-        local sortedTypes = {}
-        for _, v in pairs(CustomDocument.documentTypes) do
-            sortedTypes[#sortedTypes + 1] = v
-        end
-        table.sort(sortedTypes, function(a, b) return (a.text or "") < (b.text or "") end)
-        for _, v in ipairs(sortedTypes) do
+        for _, v in ipairs(CustomDocument.NewDocumentTypes()) do
             typeRows[#typeRows + 1] = gui.Panel {
                 classes = { "treeRow" },
                 press = function(element)
@@ -1027,7 +2838,7 @@ function CustomDocument:CreateInterface(args)
     local buttonSize = 20
 
     args = args or {}
-    local readPanel = self:DisplayPanel{ relatedFooter = true }
+    local readPanel = CustomDocument.WithFieldsDisplay(self, self:DisplayPanel{ relatedFooter = true })
 
     --The edit panel is the most expensive part of opening a document and most
     --opens never edit, so it is built lazily on first entry into edit mode.
@@ -1040,7 +2851,7 @@ function CustomDocument:CreateInterface(args)
         if writePanel ~= nil and writePanel.valid then
             return writePanel
         end
-        writePanel = self:EditPanel(args)
+        writePanel = CustomDocument.WithFieldsEditor(self, self:EditPanel(args))
         writePanel:SetClass("collapsed", true)
         --splice ahead of readPanel: the font-size monitor on m_bodyPanel
         --replaces the LAST child assuming it is readPanel.
@@ -1307,8 +3118,10 @@ function CustomDocument:CreateInterface(args)
         --includes everything from this one.
         resultPanel.data.pendingOriginal = DeepCopy(self)
 
-        --a new attempt supersedes any previously displayed save error.
-        resultPanel:SetClassTree("saveError", false)
+        --drives the editor's "Saving..." status. A save error already showing stays
+        --up until a save is actually confirmed (refreshGame): clearing it on every
+        --retry hid it for most of a session whose saves kept failing.
+        resultPanel:SetClassTree("savePending", true)
 
         if writePanel ~= nil and writePanel.valid then
             writePanel:FireEventTree("checkChanges", resultPanel.data.pendingOriginal)
@@ -1430,6 +3243,10 @@ function CustomDocument:CreateInterface(args)
                     resultPanel.data.originalUpdateId = self.updateid
                     resultPanel.data.pendingOriginal = nil
                     resultPanel.data.pendingUpload = nil
+                    --fresh baseline, nothing in flight: the save status starts clean
+                    --(a save left in flight by the last session is never confirmed here).
+                    resultPanel:SetClassTree("savePending", false)
+                    resultPanel:SetClassTree("saveError", false)
                 end
                 GetOrCreateWritePanel()
                 ---@cast writePanel -nil
@@ -1645,11 +3462,10 @@ function CustomDocument:CreateInterface(args)
     --docs -- the functional subtypes (montage/negotiation) pin their type and
     --so never resolve to a plain id here -- and only to editors.
     do
-        local plainTypes = { "note", "narration", "exploration", "combat", "location", "npc" }
         local currentId = CustomDocument.DocTypeId(self)
         local isPlain = false
-        for _, t in ipairs(plainTypes) do
-            if t == currentId then isPlain = true break end
+        for _, t in ipairs(CustomDocument.PlainDocTypes()) do
+            if t.id == currentId then isPlain = true break end
         end
 
         if isPlain and (not args.presentationMode) and (dmhub.isDM or self:HaveEditPermissions()) then
@@ -1685,13 +3501,12 @@ function CustomDocument:CreateInterface(args)
                 end,
                 press = function(element)
                     local entries = {}
-                    for _, t in ipairs(plainTypes) do
-                        local info = CustomDocument.docTypeInfo[t]
+                    for _, t in ipairs(CustomDocument.PlainDocTypes()) do
                         entries[#entries + 1] = {
-                            text = info.text,
+                            text = t.name,
                             click = function()
                                 element.popup = nil
-                                self.docType = t
+                                self.docType = t.id
                                 self:Upload()
                                 SyncType()
                             end,
@@ -2160,7 +3975,7 @@ function CustomDocument:CreateInterface(args)
         multimonitor = { "journal:fontsize" },
         monitor = function(element)
             g_scale = nil
-            local newReadPanel = self:DisplayPanel{ relatedFooter = true }
+            local newReadPanel = CustomDocument.WithFieldsDisplay(self, self:DisplayPanel{ relatedFooter = true })
             newReadPanel:SetClass("collapsed", readPanel:HasClass("collapsed"))
             readPanel = newReadPanel
 
@@ -2298,6 +4113,7 @@ function CustomDocument:CreateInterface(args)
                     resultPanel.data.saveConfirmed = true
                     --a confirmation (even a late one, after the connection recovered)
                     --clears any save error we may have surfaced in the meantime.
+                    resultPanel:SetClassTree("savePending", false)
                     resultPanel:SetClassTree("saveError", false)
                     element:FireEventTree("saveConfirmed")
                 end
@@ -2348,9 +4164,7 @@ function CustomDocument:CreateInterface(args)
             if resultPanel.data.firstEditTime ~= nil and IsEditing() then
                 local now = dmhub.Time()
                 if (now - resultPanel.data.editTime) >= AUTOSAVE_IDLE_DELAY or (now - resultPanel.data.firstEditTime) >= AUTOSAVE_MAX_DELAY then
-                    if BeginSaveAttempt(false) then
-                        resultPanel:SetClassTree("savePending", true)
-                    else
+                    if not BeginSaveAttempt(false) then
                         resultPanel.data.firstEditTime = nil
                         resultPanel.data.editTime = nil
                     end

@@ -296,6 +296,35 @@ end
 
 --defined with the coming-home write-back below.
 local ApplyPendingOutcomes
+local PromoteRosterHeroes
+--heroids whose slow-start promotion is being pushed to the city right now.
+local m_promoting = {}
+
+--Town heroes are always full level 1 or above. Module pregens are authored on
+--the Delian Tomb "slow start" (extraLevelInfo.encounter = 1..4), whose early
+--rungs leave out level-1 features such as the heroic abilities; clearing
+--.encounter promotes the hero to a full level 1, as the character builder's
+--level dropdown does. Only mutates the working copy -- the caller pushes it.
+--Returns true if the hero was changed.
+local function PromoteSlowStart(tok)
+    local props = tok.properties
+    if props == nil or props:ExtraLevelInfo().encounter == nil then
+        return false
+    end
+    tok:ModifyProperties{
+        description = "Encounter of the Week: full level 1",
+        undoable = false,
+        execute = function()
+            --the field exists (encounter was set), so this is the stored table,
+            --not try_get's default; write it back so the clear persists.
+            local info = props:ExtraLevelInfo()
+            info.encounter = nil
+            props.extraLevelInfo = info
+        end,
+    }
+    printf("EotW town: %s promoted from the slow start to full level 1", tostring(tok.name))
+    return true
+end
 
 --Import one hero's record from the city into its working copy.
 local function FetchAndImport(hero)
@@ -328,6 +357,7 @@ local function FetchAndImport(hero)
             --resolves a moment after it is written.
             dmhub.Schedule(1, function()
                 if not mod.unloaded then
+                    PromoteRosterHeroes()
                     ApplyPendingOutcomes()
                 end
             end)
@@ -510,9 +540,46 @@ ApplyPendingOutcomes = function()
             else
                 local tok = dmhub.GetCharacterById(entry.heroid)
                 local hero = EotwRoster.FindHero(entry.heroid)
-                if tok ~= nil and hero ~= nil and revs[entry.heroid] == hero.rev and not m_importing[entry.heroid] then
+                if tok ~= nil and hero ~= nil and revs[entry.heroid] == hero.rev and not m_importing[entry.heroid] and not m_promoting[entry.heroid] then
                     ApplyOutcome(key, entry, tok)
                 end
+            end
+        end
+    end
+end
+
+--Promote roster heroes recruited before PromoteSlowStart ran at recruit
+--time, then push them. Only copies in step with the city (an import in flight
+--would overwrite the change). A hero with an outcome still to push is changed
+--but not pushed here: that outcome's push carries it, and two pushes from the
+--same base revision would collide.
+PromoteRosterHeroes = function()
+    if m_heroes == nil or m_conn == nil then
+        return
+    end
+    local revs = GetRevs()
+    local outcomeWillPush = {}
+    local _, pending = LoadPendingOutcomes()
+    for _, entry in pairs(pending) do
+        if type(entry) == "table" and type(entry.heroid) == "string" and entry.stage ~= "pushed" then
+            outcomeWillPush[entry.heroid] = true
+        end
+    end
+    for _, hero in ipairs(m_heroes) do
+        local heroid = hero.heroid
+        local tok = dmhub.GetCharacterById(heroid)
+        if tok ~= nil and revs[heroid] == hero.rev and not m_importing[heroid] and not m_promoting[heroid] and PromoteSlowStart(tok) then
+            if not outcomeWillPush[heroid] then
+                m_promoting[heroid] = true
+                --as in JoinRoster: let the write land before the export.
+                dmhub.Schedule(0.3, function()
+                    if mod.unloaded then
+                        return
+                    end
+                    EotwRoster.PushHero(heroid, function()
+                        m_promoting[heroid] = nil
+                    end)
+                end)
             end
         end
     end
@@ -562,6 +629,7 @@ local function SyncWorkingCopies()
         Bump()
     end
 
+    PromoteRosterHeroes()
     --encounters won since the last visit: Victories onto the heroes.
     ApplyPendingOutcomes()
 end
@@ -686,6 +754,8 @@ local function JoinRoster(tok, onDone)
             tok.properties.mtime = ServerTimestamp()
         end,
     }
+    --a recruited pregen arrives on the slow start.
+    PromoteSlowStart(tok)
     --the property write applies locally at once; give it a beat so the
     --export carries it, then push.
     dmhub.Schedule(0.3, function()
@@ -962,7 +1032,7 @@ local function ModalFrame(args)
         --opaque: near-opaque alphas (f8) still let the town map show through.
         bgcolor = "#14110dff",
         borderWidth = 2,
-        borderColor = "#8c7a55",
+        borderColor = "#9b968a",
         cornerRadius = 10,
         flow = "vertical",
         styles = { Styles.Default },
@@ -1052,7 +1122,19 @@ end
 
 --- the Hero's Guild ---------------------------------------------------------
 
---The name prompt for a recruit: prefilled with the pregen's own name.
+--A fresh name for a recruit from its ancestry's name generator, or the
+--pregen's own name when the ancestry has none.
+local function RecruitName(pregen)
+    local tok = EncounterOfTheWeek.GetPregenToken(pregen.id)
+    local name = nil
+    if tok ~= nil then
+        name = EotwBuild.GenerateName(tok.properties --[[@as character]])
+    end
+    return name or pregen.name or ""
+end
+
+--The name prompt for a recruit: prefilled with a name rolled from its
+--ancestry's name table.
 local function ShowRecruitNamePrompt(host, pregen, onDone)
     local nameInput = nil
     local dlg
@@ -1098,7 +1180,7 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
                 placeholderText = "Hero name...",
                 create = function(element)
                     nameInput = element
-                    element.text = pregen.name or ""
+                    element.text = RecruitName(pregen)
                     element.hasInputFocus = true
                 end,
                 submit = function(element)
@@ -1263,42 +1345,57 @@ local GUILD_STYLES = {
 }
 
 --One roster row: portrait, name, details, status, and the hero's actions.
+--The row persists across roster refreshes: GuildPanel fires "refreshRow"
+--with the hero's latest record instead of building a new row, so a video
+--portrait keeps playing rather than restarting on every change.
 local function GuildRow(hero, away, host)
     local heroid = hero.heroid
-    local summary = hero.summary or {}
-    local tok = dmhub.GetCharacterById(heroid)
-    local portrait = summary.portrait
-    local name = summary.name or "Hero"
-    local details = EotwRoster.FormatDetails(summary.level, summary.ancestry, summary.className)
-    if tok ~= nil then
-        pcall(function()
-            local p = tok.offTokenPortrait
-            if type(p) == "string" then
-                portrait = p
-            end
-        end)
-        local className, ancestry, level = EotwRoster.HeroDetails(tok)
-        details = EotwRoster.FormatDetails(level, ancestry, className)
-        if tok.name ~= nil and tok.name ~= "" then
-            name = tok.name
-        end
-    end
-
-    local status = {}
-    if hero.active == true then
-        status[#status+1] = "Active in town"
-    end
-    if away ~= nil then
-        status[#status+1] = string.format("Away: %s", away)
-    end
-    if tok == nil then
-        status[#status+1] = "Loading..."
-    end
-
     local confirmingDismiss = false
 
+    local portraitPanel = Portrait(nil, 72, 96)
+    local shownPortrait = nil
+
+    local nameLabel = gui.Label{
+        text = "",
+        fontSize = 24,
+        bold = true,
+        color = TEXT,
+        width = "100%",
+        height = "auto",
+        textWrap = false,
+        minFontSize = 12,
+    }
+    local detailsLabel = gui.Label{
+        text = "",
+        fontSize = 16,
+        color = DIM,
+        width = "100%",
+        height = "auto",
+    }
+    local statusLabel = gui.Label{
+        text = "",
+        fontSize = 15,
+        italics = true,
+        color = "#ffd66b",
+        width = "100%",
+        height = "auto",
+        tmargin = 4,
+    }
+    local activeIcon = gui.Panel{
+        classes = { "eotwGuildIcon" },
+        bgimage = "phosphor/star.png",
+        hoverCursor = "pressbutton",
+        linger = function(element)
+            gui.Tooltip(cond(hero.active == true, "Active: adventuring in town. Click to rest them.", string.format("Make active: up to %d heroes adventure in town at once.", EotwRoster.MAX_ACTIVE)))(element)
+        end,
+        press = function()
+            audio.FireSoundEvent("Mouse.Click")
+            EotwRoster.SetActive(heroid, hero.active ~= true)
+        end,
+    }
+
     return gui.Panel{
-        classes = { "eotwGuildRow", cond(hero.active == true, "active", nil) },
+        classes = { "eotwGuildRow" },
         width = "100%",
         height = 112,
         flow = "horizontal",
@@ -1308,7 +1405,64 @@ local function GuildRow(hero, away, host)
         borderBox = true,
         vmargin = 3,
 
-        Portrait(portrait, 72, 96),
+        create = function(element)
+            element:FireEvent("refreshRow", hero, away)
+        end,
+
+        refreshRow = function(element, newHero, newAway)
+            hero = newHero
+            away = newAway
+
+            local summary = hero.summary or {}
+            local tok = dmhub.GetCharacterById(heroid)
+            local portrait = summary.portrait
+            local name = summary.name or "Hero"
+            local details = EotwRoster.FormatDetails(summary.level, summary.ancestry, summary.className)
+            if tok ~= nil then
+                pcall(function()
+                    local p = tok.offTokenPortrait
+                    if type(p) == "string" then
+                        portrait = p
+                    end
+                end)
+                local className, ancestry, level = EotwRoster.HeroDetails(tok)
+                details = EotwRoster.FormatDetails(level, ancestry, className)
+                if tok.name ~= nil and tok.name ~= "" then
+                    name = tok.name
+                end
+            end
+
+            local status = {}
+            if hero.active == true then
+                status[#status+1] = "Active in town"
+            end
+            if away ~= nil then
+                status[#status+1] = string.format("Away: %s", away)
+            end
+            if tok == nil then
+                status[#status+1] = "Loading..."
+            end
+
+            element:SetClass("active", hero.active == true)
+            nameLabel.text = name
+            detailsLabel.text = details
+            statusLabel.text = table.concat(status, "  -  ")
+            activeIcon:SetClass("on", hero.active == true)
+            activeIcon.bgimage = cond(hero.active == true, "phosphor/star-fill.png", "phosphor/star.png")
+
+            --only touch the portrait when it actually changes: re-setting a
+            --video bgimage restarts it.
+            if type(portrait) ~= "string" or portrait == "" then
+                portrait = nil
+            end
+            if portrait ~= shownPortrait then
+                shownPortrait = portrait
+                portraitPanel.bgimage = portrait or "panels/square.png"
+                portraitPanel.selfStyle.bgcolor = cond(portrait ~= nil, "white", "#ffffff10")
+            end
+        end,
+
+        portraitPanel,
 
         gui.Panel{
             width = "100%-330",
@@ -1316,32 +1470,9 @@ local function GuildRow(hero, away, host)
             flow = "vertical",
             valign = "center",
             lmargin = 14,
-            gui.Label{
-                text = name,
-                fontSize = 24,
-                bold = true,
-                color = TEXT,
-                width = "100%",
-                height = "auto",
-                textWrap = false,
-                minFontSize = 12,
-            },
-            gui.Label{
-                text = details,
-                fontSize = 16,
-                color = DIM,
-                width = "100%",
-                height = "auto",
-            },
-            gui.Label{
-                text = table.concat(status, "  -  "),
-                fontSize = 15,
-                italics = true,
-                color = "#ffd66b",
-                width = "100%",
-                height = "auto",
-                tmargin = 4,
-            },
+            nameLabel,
+            detailsLabel,
+            statusLabel,
         },
 
         gui.Panel{
@@ -1350,18 +1481,7 @@ local function GuildRow(hero, away, host)
             halign = "right",
             flow = "horizontal",
 
-            gui.Panel{
-                classes = { "eotwGuildIcon", cond(hero.active == true, "on", nil) },
-                bgimage = cond(hero.active == true, "phosphor/star-fill.png", "phosphor/star.png"),
-                hoverCursor = "pressbutton",
-                linger = function(element)
-                    gui.Tooltip(cond(hero.active == true, "Active: adventuring in town. Click to rest them.", string.format("Make active: up to %d heroes adventure in town at once.", EotwRoster.MAX_ACTIVE)))(element)
-                end,
-                press = function()
-                    audio.FireSoundEvent("Mouse.Click")
-                    EotwRoster.SetActive(heroid, hero.active ~= true)
-                end,
-            },
+            activeIcon,
             gui.Panel{
                 classes = { "eotwGuildIcon" },
                 bgimage = "phosphor/pencil-simple.png",
@@ -1423,6 +1543,7 @@ function EotwRoster.GuildPanel(host)
     local recruitButton = nil
     local discardButton = nil
     local confirmingDiscard = false
+    local rowsById = {} --heroid -> that hero's GuildRow panel
 
     local Rebuild = function()
         if listPanel == nil or not listPanel.valid then
@@ -1436,9 +1557,19 @@ function EotwRoster.GuildPanel(host)
         elseif #heroes == 0 then
             rows[1] = gui.Label{ text = "Your roster is empty. Create a hero of your own, or recruit one of the adventurers looking for work.", fontSize = 18, color = DIM, width = "80%", height = "auto", halign = "center", textAlignment = "center", vmargin = 30 }
         else
+            --reuse each hero's existing row so its portrait is not recreated.
+            local nextRowsById = {}
             for _,hero in ipairs(heroes) do
-                rows[#rows+1] = GuildRow(hero, away[hero.heroid], host)
+                local row = rowsById[hero.heroid]
+                if row ~= nil and row.valid then
+                    row:FireEvent("refreshRow", hero, away[hero.heroid])
+                else
+                    row = GuildRow(hero, away[hero.heroid], host)
+                end
+                nextRowsById[hero.heroid] = row
+                rows[#rows+1] = row
             end
+            rowsById = nextRowsById
         end
         listPanel.children = rows
 

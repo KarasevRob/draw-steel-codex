@@ -3,7 +3,10 @@ local mod = dmhub.GetModLoading()
 
 local g_directlyLaunchingGame = false
 
-local g_titlescreen = nil
+--The titlescreen is only built on the first load (TitlescreenVersion guard
+--below), but this file re-runs when the codex reloads on entering the lobby
+--game. Adopt the existing root so TitlescreenHeroes.Edit/Create keep working.
+local g_titlescreen = rawget(_G, "CodexTitlescreenRoot")
 
 for _, str in ipairs(dmhub.commandLineArguments) do
     if str == "--gameid" then
@@ -247,8 +250,54 @@ local g_devStorePreviewSetting = setting{
 local g_selectionCardsBannerWidth = 1133 --500+500 cards + 133 gap (2/3 of the normal 200)
 local g_selectionCardsBannerScale = 0.92
 local g_selectionCardsBannerY = -86
+
+--Selection-screen layout when Encounter of the Week is enabled: a third card
+--(EotW) joins Director and Player, all three the same 500x700 card, evenly
+--spaced in one row. The whole row is scaled down a little to fit, and the
+--store banner (when shown) widens to match the row's scaled width, so its edges
+--line up with the outer cards. In the banner layout the row sits so its gap
+--above the banner equals the (scaled) gap between the cards. The container's
+--scale pivots on its top edge (measured live), so its bottom edge lands at
+--(1080 - 700) / 2 + y + 700 * scale; the banner's top is 1080 - bmargin 60 -
+--height 200.
+local g_eotwRowGap = 120
+local g_eotwRowWidth = 500 * 3 + g_eotwRowGap * 2
+local g_eotwRowScale = 0.8
+local g_eotwRowBannerY = (1080 - 60 - 200) - g_eotwRowGap * g_eotwRowScale - 700 * g_eotwRowScale - (1080 - 700) / 2
+
+--Whether the Encounter of the Week card (and so the three-card row) is shown.
+--rawget rather than a bare global read: globals are strict here, so a plain
+--read would raise if load order ever put this file first.
+local function EotwCardEnabled()
+    local eotw = rawget(_G, "EncounterOfTheWeek")
+    return eotw ~= nil and eotw.Enabled()
+end
+
+--The EotW card shows a centred, unstretched slice of the Custom Campaign art
+--(1920x1275): crop the width to the card's 500x700 aspect ratio.
+local g_eotwCardArtAspect = 1920 / 1275
+local g_eotwCardCrop = (500 / 700) / g_eotwCardArtAspect
+local g_eotwCardX1 = (1 - g_eotwCardCrop) / 2
+local g_eotwCardX2 = 1 - g_eotwCardX1
 local g_selectionBannerWidth = math.floor(g_selectionCardsBannerWidth * g_selectionCardsBannerScale + 0.5)
 local g_selectionBannerHeight = 200
+local g_selectionBannerEotwWidth = math.floor(g_eotwRowWidth * g_eotwRowScale + 0.5)
+
+--The banner art (1044x202) is drawn for the two-card banner. The wider
+--three-card banner shows a centred horizontal band of it instead of stretching
+--it: yFrac is the fraction of the art's height that fits, and the Hover rect
+--is the same band zoomed in 2%, matching the other cards' hover zoom.
+local g_storeBannerEotwYFrac = (1044 / 202) / (g_selectionBannerEotwWidth / g_selectionBannerHeight)
+local g_storeBannerEotwRect = {
+    x1 = 0, x2 = 1,
+    y1 = (1 - g_storeBannerEotwYFrac) / 2,
+    y2 = 1 - (1 - g_storeBannerEotwYFrac) / 2,
+}
+local g_storeBannerEotwHoverRect = {
+    x1 = 0.02, x2 = 0.98,
+    y1 = g_storeBannerEotwRect.y1 + 0.02 * g_storeBannerEotwYFrac,
+    y2 = g_storeBannerEotwRect.y2 - 0.02 * g_storeBannerEotwYFrac,
+}
 
 --Dice sets showcased in the store banner's mini dice preview (assetids from
 --the shop's Dice items). Each is rendered as its own idle-spinning preview die
@@ -7131,6 +7180,10 @@ function CreateTitlescreen(dialog, options)
 
     local m_currentSearch = nil
 
+    --the campaigns page the list was on when a search began, restored when
+    --the search is cleared (a search always shows its own first page).
+    local m_pageBeforeSearch = nil
+
     local m_states = { "starting-screen", "selection-screen", "games-screen" }
     local function SetTitlescreenState(state)
         for _, s in ipairs(m_states) do
@@ -7142,7 +7195,11 @@ function CreateTitlescreen(dialog, options)
         --its real 3D resting die on this).
         titlescreen:FireEventTree("titlescreenStateChanged", state)
 
+        if m_currentSearch ~= nil and m_pageBeforeSearch ~= nil then
+            g_gamePageSetting:Set(m_pageBeforeSearch)
+        end
         m_currentSearch = nil
+        m_pageBeforeSearch = nil
 
         --first arrival at the Director/Player cards is where we make the
         --Patreon/email offer, if there is anything left to offer.
@@ -7166,10 +7223,24 @@ function CreateTitlescreen(dialog, options)
         titlescreen.data.searchHandler = nil
         if state == "games-screen" then
             titlescreen.data.searchHandler = TopBar.InstallSearchHandler(function(text)
-                m_currentSearch = text
-                if m_currentSearch == "" then
-                    m_currentSearch = nil
+                local search = text
+                if search == "" then
+                    search = nil
                 end
+                if search ~= m_currentSearch then
+                    --the page setting persists, so without this a search
+                    --opened on whatever page the full list was last left on.
+                    if m_currentSearch == nil then
+                        m_pageBeforeSearch = g_gamePageSetting:Get()
+                    end
+                    if search == nil then
+                        g_gamePageSetting:Set(m_pageBeforeSearch or 1)
+                        m_pageBeforeSearch = nil
+                    else
+                        g_gamePageSetting:Set(1)
+                    end
+                end
+                m_currentSearch = search
                 titlescreen:FireEventTree("refreshLobby")
             end)
         else
@@ -7186,9 +7257,14 @@ function CreateTitlescreen(dialog, options)
         return math.ceil(#m_games / 4)
     end
 
+    --the stored page clamped to the pages that exist now: the setting
+    --persists and can be past the end of a shorter (e.g. filtered) list.
+    local function CurrentPage()
+        return clamp(round(g_gamePageSetting:Get()), 1, math.max(1, GetNumPages()))
+    end
+
     local function PageBaseIndex()
-        local npage = clamp(round(g_gamePageSetting:Get()), 1, GetNumPages())
-        return (npage - 1) * 4
+        return (CurrentPage() - 1) * 4
     end
 
     local RefreshAllPanels
@@ -7807,43 +7883,6 @@ function CreateTitlescreen(dialog, options)
                 end,
             },
 
-            gui.Button {
-                -- Encounter of the Week entry point. Dev-gated behind
-                -- dev:encounteroftheweek (toggle via chat: /toggle
-                -- dev:encounteroftheweek); shown once past the starting
-                -- screen. Everything else about the mode lives in
-                -- EncounterOfTheWeek.lua in this module -- this link just
-                -- opens its screen. rawget rather than a bare global read:
-                -- globals are strict here, so a plain read would raise if
-                -- load order ever put this file first. The 'collapsed' cond
-                -- is listed last so a nil (setting on) cannot truncate the
-                -- classes array.
-                id = "eotwTitlescreenLink",
-                styles = ThemeEngine.GetStyles("default", "default"),
-                classes = { "hideOnStartingScreen", cond(rawget(_G, "EncounterOfTheWeek") ~= nil and EncounterOfTheWeek.Enabled(), nil, "collapsed") },
-                halign = "right",
-                valign = "top",
-                floating = true,
-                text = "Encounter of the Week",
-                width = "auto",
-                height = "auto",
-                pad = 6,
-                borderBox = true,
-                hmargin = 8,
-                vmargin = 24,
-                multimonitor = { "dev:encounteroftheweek" },
-                monitor = function(element)
-                    local eotw = rawget(_G, "EncounterOfTheWeek")
-                    element:SetClass("collapsed", eotw == nil or not eotw.Enabled())
-                end,
-                press = function(element)
-                    local eotw = rawget(_G, "EncounterOfTheWeek")
-                    if eotw ~= nil then
-                        eotw.ShowScreen()
-                    end
-                end,
-            },
-
             --top king panel
             gui.Panel {
 
@@ -8115,7 +8154,11 @@ function CreateTitlescreen(dialog, options)
 
             gui.Panel {
 
-                classes = { 'king-panel', cond(g_devStorePreviewSetting:Get(), "makeRoomForShopBanner") },
+                --eotwRow is also set on the children (SetClassTree below) so
+                --the Player card can re-align itself for the three-card row.
+                --Its cond never yields nil ("twoCardRow" is a placeholder) so
+                --it cannot truncate the array before the banner class.
+                classes = { 'king-panel', cond(EotwCardEnabled(), "eotwRow", "twoCardRow"), cond(g_devStorePreviewSetting:Get(), "makeRoomForShopBanner") },
 
                 bgimage = true,
                 --bgcolor = "white",
@@ -8133,9 +8176,10 @@ function CreateTitlescreen(dialog, options)
                 --When the store banner is shown at the bottom of the screen,
                 --pull the Director/Player cards closer together, shrink them
                 --a little, and shift them to make room for it.
-                multimonitor = { "dev:storepreview" },
+                multimonitor = { "dev:storepreview", "dev:encounteroftheweek" },
                 monitor = function(element)
                     element:SetClass("makeRoomForShopBanner", g_devStorePreviewSetting:Get())
+                    element:SetClassTree("eotwRow", EotwCardEnabled())
                 end,
 
                 styles = {
@@ -8156,6 +8200,21 @@ function CreateTitlescreen(dialog, options)
                         width = g_selectionCardsBannerWidth,
                         scale = g_selectionCardsBannerScale,
                         y = g_selectionCardsBannerY,
+                    },
+
+                    --Three-card row (Encounter of the Week enabled). Listed
+                    --after the banner variant so it wins over it.
+                    {
+                        classes = { 'king-panel', 'eotwRow' },
+                        width = g_eotwRowWidth,
+                        scale = g_eotwRowScale,
+                    },
+
+                    {
+                        classes = { 'king-panel', 'eotwRow', 'makeRoomForShopBanner' },
+                        width = g_eotwRowWidth,
+                        scale = g_eotwRowScale,
+                        y = g_eotwRowBannerY,
                     },
 
 
@@ -8267,7 +8326,7 @@ function CreateTitlescreen(dialog, options)
 
                     floating = true,
 
-                    halign = "right",
+                    --halign lives in styles: centred in the three-card row.
                     valign = "center",
 
 
@@ -8290,8 +8349,16 @@ function CreateTitlescreen(dialog, options)
 
                     flow = "vertical",
 
-                    classes = { "playersselectparent" },
+                    classes = { "playersselectparent", cond(EotwCardEnabled(), "eotwRow") },
                     styles = {
+                        {
+                            selectors = { "playersselectparent" },
+                            halign = "right",
+                        },
+                        {
+                            selectors = { "playersselectparent", "eotwRow" },
+                            halign = "center",
+                        },
                         {
                             selectors = { "playersselectparent", "hover" },
                             --scale = 1.015,
@@ -8350,8 +8417,120 @@ function CreateTitlescreen(dialog, options)
 
 
 
-                }
+                },
 
+
+                --Encounter of the Week card: the third card of the row,
+                --matching Director and Player. Shown only when EotW is enabled
+                --(dev:encounteroftheweek; toggle via chat: /toggle
+                --dev:encounteroftheweek). Everything else about the mode lives
+                --in EncounterOfTheWeek.lua -- this card just opens its screen.
+                --The 'collapsed' cond is listed last so a nil (setting on)
+                --cannot truncate the classes array.
+                gui.Panel {
+
+                    id = "eotwTitlescreenLink",
+
+                    bgimage = g_customCampaignOption.coverart,
+                    bgcolor = "white",
+                    width = 500,
+                    height = 700,
+
+                    floating = true,
+
+                    halign = "right",
+                    valign = "center",
+
+                    border = 1.5,
+                    borderColor = "white",
+                    cornerRadius = 2,
+
+                    flow = "vertical",
+
+                    classes = { "eotwselectparent", cond(EotwCardEnabled(), nil, "collapsed") },
+                    --imageRect lives in styles (not inline) so the hover
+                    --zoom can override it; inline properties beat styles.
+                    styles = {
+                        {
+                            selectors = { "eotwselectparent" },
+                            imageRect = { x1 = g_eotwCardX1, x2 = g_eotwCardX2, y1 = 0, y2 = 1 },
+                        },
+                        {
+                            selectors = { "eotwselectparent", "hover" },
+                            transitionTime = 0.12,
+                            imageRect = {
+                                x1 = g_eotwCardX1 + 0.02 * g_eotwCardCrop,
+                                x2 = g_eotwCardX2 - 0.02 * g_eotwCardCrop,
+                                y1 = 0.02,
+                                y2 = 0.98,
+                            },
+                        },
+                    },
+
+                    multimonitor = { "dev:encounteroftheweek" },
+                    monitor = function(element)
+                        element:SetClass("collapsed", not EotwCardEnabled())
+                    end,
+
+                    hover = function()
+                        audio.FireSoundEvent("Mouse.Hover")
+                    end,
+
+                    click = function(element)
+                        audio.FireSoundEvent("Mouse.Click")
+                        local eotw = rawget(_G, "EncounterOfTheWeek")
+                        if eotw ~= nil then
+                            eotw.ShowScreen()
+                        end
+                    end,
+
+                    gui.Panel {
+
+                        bgimage = true,
+
+                        height = "85%",
+                        width = "100%",
+
+                    },
+
+                    gui.Panel {
+
+                        bgimage = true,
+
+                        height = "15%",
+                        width = "100%",
+
+                        gui.Panel {
+
+                            bgimage = "panels/titlescreen/button.png",
+                            bgcolor = "white",
+
+                            height = 131 * 0.6,
+                            width = 632 * 0.6,
+
+                            halign = "center",
+                            valign = "bottom",
+
+                            bmargin = 3,
+
+                            gui.Label {
+
+                                text = "ENCOUNTER OF THE WEEK",
+                                fontSize = 30,
+                                fontFace = "newzald",
+                                color = "white",
+                                width = "auto",
+                                halign = "center",
+                                valign = "center",
+                                textAlignment = "center",
+                                y = 5,
+                            }
+
+                        }
+
+                    }
+
+                },
             },
 
             --Store banner across the bottom of the selection screen. Plain
@@ -8363,8 +8542,9 @@ function CreateTitlescreen(dialog, options)
 
                 --'storeBannerZoom' drives the hover zoom below; it is listed
                 --before the cond so a nil (storepreview on) can't truncate the
-                --array and drop it.
-                classes = { 'king-panel', 'shop-banner', 'storeBannerZoom', cond(g_devStorePreviewSetting:Get(), nil, "collapsed") },
+                --array and drop it. eotwRow (three-card row: wider banner) never
+                --yields nil, so it can sit before the collapsed cond.
+                classes = { 'king-panel', 'shop-banner', 'storeBannerZoom', cond(EotwCardEnabled(), "eotwRow", "twoCardRow"), cond(g_devStorePreviewSetting:Get(), nil, "collapsed") },
 
                 bgimage = g_storeBannerDefaultArt,
                 bgcolor = "white",
@@ -8395,7 +8575,8 @@ function CreateTitlescreen(dialog, options)
                 borderColor = "white",
 
 
-                width = g_selectionBannerWidth,
+                --width lives in the styles below so the three-card row can
+                --widen it; inline properties always override styles.
                 height = g_selectionBannerHeight,
 
                 floating = true,
@@ -8404,9 +8585,12 @@ function CreateTitlescreen(dialog, options)
                 valign = "bottom",
                 bmargin = 60,
 
-                multimonitor = { "dev:storepreview" },
+                --eotwRow is set on the whole tree so the cross-fade art layer
+                --crops the same way as the banner's own art.
+                multimonitor = { "dev:storepreview", "dev:encounteroftheweek" },
                 monitor = function(element)
                     element:SetClass("collapsed", not g_devStorePreviewSetting:Get())
+                    element:SetClassTree("eotwRow", EotwCardEnabled())
                 end,
 
                 --The whole banner is a button into the store. A click anywhere on
@@ -8447,6 +8631,21 @@ function CreateTitlescreen(dialog, options)
                         selectors = { "storeBannerZoom", "hover" },
                         transitionTime = 0.12,
                         imageRect = { x1 = 0.02, x2 = 0.98, y1 = 0.02, y2 = 0.98 },
+                    },
+
+                    { selectors = { "shop-banner" }, width = g_selectionBannerWidth },
+
+                    --Three-card row: as wide as the row, art cropped (not
+                    --stretched) to the wider shape.
+                    {
+                        selectors = { "shop-banner", "eotwRow" },
+                        width = g_selectionBannerEotwWidth,
+                        imageRect = g_storeBannerEotwRect,
+                    },
+                    {
+                        selectors = { "storeBannerZoom", "eotwRow", "hover" },
+                        transitionTime = 0.12,
+                        imageRect = g_storeBannerEotwHoverRect,
                     },
                 },
 
@@ -8491,6 +8690,16 @@ function CreateTitlescreen(dialog, options)
                             selectors = { "storeBannerFadeLayer", "parent:hover" },
                             transitionTime = 0.12,
                             imageRect = { x1 = 0.02, x2 = 0.98, y1 = 0.02, y2 = 0.98 },
+                        },
+                        --Three-card row: the same crop as the banner's own art.
+                        {
+                            selectors = { "storeBannerFadeLayer", "eotwRow" },
+                            imageRect = g_storeBannerEotwRect,
+                        },
+                        {
+                            selectors = { "storeBannerFadeLayer", "eotwRow", "parent:hover" },
+                            transitionTime = 0.12,
+                            imageRect = g_storeBannerEotwHoverRect,
                         },
                     },
 
@@ -9191,7 +9400,7 @@ function CreateTitlescreen(dialog, options)
                                 element:SetClass("hidden", npage <= 1)
                             end,
                             press = function(element)
-                                g_gamePageSetting:Set(g_gamePageSetting:Get() - 1)
+                                g_gamePageSetting:Set(CurrentPage() - 1)
                                 element.root:FireEventTree("refreshGames", m_games, PageBaseIndex())
                             end,
                         },
@@ -9222,7 +9431,7 @@ function CreateTitlescreen(dialog, options)
                                 element:SetClass("hidden", npage >= numPages)
                             end,
                             press = function(element)
-                                g_gamePageSetting:Set(g_gamePageSetting:Get() + 1)
+                                g_gamePageSetting:Set(CurrentPage() + 1)
                                 element.root:FireEventTree("refreshGames", m_games, PageBaseIndex())
                             end,
                         },

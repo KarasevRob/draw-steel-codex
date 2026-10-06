@@ -453,6 +453,47 @@ function ActivatedAbilityRemoveCreatureBehavior.EndTurnIfEntryEmptied(removedIni
     end)
 end
 
+--Deleting a creature by hand (the Director's Delete key or the token context
+--menu) goes through the engine's DeleteCharacters, which calls OnDelete -- or
+--OnDespawn, for a player's hero -- on the deleting client just before the
+--token leaves. Route those through the check above so deleting the creature
+--whose turn it is ends that turn instead of stranding the initiative queue.
+--One delete can remove several creatures in a row, so their ids are batched
+--into a single check.
+local g_pendingRemovedInitiativeIds = nil
+
+local function NoteCreatureLeavingMap(creatureProps)
+    local initiativeid = InitiativeQueue.GetInitiativeId(dmhub.LookupToken(creatureProps))
+    if initiativeid == nil then
+        return
+    end
+
+    local ids = g_pendingRemovedInitiativeIds
+    if ids == nil then
+        ids = {}
+        g_pendingRemovedInitiativeIds = ids
+        dmhub.Schedule(0.01, function()
+            g_pendingRemovedInitiativeIds = nil
+            if mod.unloaded then
+                return
+            end
+            ActivatedAbilityRemoveCreatureBehavior.EndTurnIfEntryEmptied(ids)
+        end)
+    end
+    ids[initiativeid] = true
+end
+
+--Aura.lua (loaded earlier in this mod) defines OnDelete; chain onto it.
+local g_baseOnDelete = creature.OnDelete
+function creature:OnDelete()
+    g_baseOnDelete(self)
+    NoteCreatureLeavingMap(self)
+end
+
+function creature:OnDespawn()
+    NoteCreatureLeavingMap(self)
+end
+
 
 
 function ActivatedAbilityRemoveCreatureBehavior:EditorItems(parentPanel)

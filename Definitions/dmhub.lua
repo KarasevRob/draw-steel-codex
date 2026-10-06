@@ -140,8 +140,10 @@
 --- @field isDM boolean (read-only) true if the current user has GM status in the game.
 --- @field isDMOrPlayerHost boolean (read-only) true if the current user has GM status in the game OR is a player host (see dmhub.playerHostMode). Read this instead of dmhub.isDM at sites that need hosting capability (running game setup, the Monster AI, host-only writes) rather than the Director experience.
 --- @field directorlessGame boolean (read-only) true if this game is directorless -- nobody plays the Director. A property of the GAME (set when it is created), so it is the same for every client and is already true when the game loads. In such a game the host's machine keeps real hosting authority (dmhub.isDMOrPlayerHost) while their user is presented and treated as a player (see dmhub.playerHostMode).
---- @field playerHostMode boolean (read-only) Player-host mode: true when this is a directorless game AND this client has real hosting status. dmhub.isDM reads false here (player vision, rules enforcement, player UI) while dmhub.isDMOrPlayerHost keeps reporting the real hosting status. Derived from the game record, so it is correct from load with no arming step -- set GameInfo.directorless at creation (lobby:CreateGame{directorless = true}) rather than switching it on in-session. To let one client act as Director anyway for debugging, see dmhub.playerHostModeSuppressed.
+--- @field playerHostMode boolean (read-only) Player-host mode: true when this is a directorless game AND this client has real hosting status. dmhub.isDM reads false here (player vision, rules enforcement, player UI) while dmhub.isDMOrPlayerHost keeps reporting the real hosting status. Derived from the game record, so it is correct from load with no arming step -- set GameInfo.directorless at creation (lobby:CreateGame{directorless = true}) rather than switching it on in-session. To let one client act as Director anyway for debugging, see dmhub.playerHostModeSuppressed; to make a Director play as a player host in an ordinary game, see dmhub.playerHostModeForced.
 --- @field playerHostModeSuppressed boolean Debug/recovery escape hatch: while true, THIS client acts as the Director in a directorless game instead of as a player host. Client-only and session-scoped -- it does not touch the game record, so no other player is affected. Changing it flips dmhub.isDM, which forces the same full view-as-player refresh the Director's 'view as player' command uses, so expect the game to reload; it is a debugging action, not a normal-play one. Setting it has no effect (and causes no refresh) in a game that is not directorless. Starts true when the app was launched with the `--director` command-line flag (a debug Director window into a directorless game, e.g. New Director Window on a player host), so such a client is the Director from its first frame with no refresh.
+--- @field playerHostModeForced boolean Testing switch: while true, THIS client plays as a player host (see dmhub.playerHostMode) even in a game that is not directorless -- the Director keeps real hosting authority (dmhub.isDMOrPlayerHost, the map-script election, host-permission elevation) but dmhub.isDM reads false, so they get player vision, player UI and rules enforcement. The Encounter of the Week authoring test uses it to play an encounter the way its players will. Client-only and session-scoped: it does not touch the game record, it survives the refresh it causes, and it resets when the game is left or the app restarts. Changing it forces the same full refresh as view-as-player when it changes dmhub.isDM (no refresh for a client without hosting status). dmhub.playerHostModeSuppressed still wins over it.
+--- @field directorlessPlay boolean (read-only) true when this client is playing with nobody in the Director's chair: a directorless game (dmhub.directorlessGame), or one this client forced into player-host mode (dmhub.playerHostModeForced). For automation that would otherwise wait on a Director.
 --- @field inGame boolean (read-only) true if we are currently in-game
 --- @field isLobbyGame boolean (read-only) true if in lobby
 --- @field currentUserStatusMessage nil|string (Undocumented: engine-internal, not part of the modding API.)
@@ -1109,6 +1111,20 @@ function dmhub.EndPerfWindow(key) end
 --- @param msg? string
 function dmhub.Log(msg) end
 
+--- Downloads a cloud image into memory only -- it is never written to any disk cache -- and returns a '#transient:N' key usable as a bgimage once loaded. Poll dmhub.GetTransientImageStatus for progress, and call dmhub.ReleaseTransientImage when finished; an image that is neither displayed nor polled for 30 seconds is released automatically. For previewing gated content without leaving the file behind.
+--- @param imageid string A content-addressed cloud image id (an R2 URL id or a bare md5), without any md5: prefix.
+--- @return string
+function dmhub.LoadTransientImage(imageid) end
+
+--- The state of a dmhub.LoadTransientImage download: status, download progress (0-1), the decoded size once ready (0 before), and an error message when it failed. Returns nil for an unknown or released key. Polling keeps the image referenced.
+--- @param key string A key returned by dmhub.LoadTransientImage.
+--- @return nil|{status: "downloading"|"decoding"|"ready"|"failed", progress: number, width: number, height: number, error: nil|string}
+function dmhub.GetTransientImageStatus(key) end
+
+--- Frees a dmhub.LoadTransientImage image (cancelling its download if still running). Safe to call more than once.
+--- @param key string A key returned by dmhub.LoadTransientImage.
+function dmhub.ReleaseTransientImage(key) end
+
 --- LoadLocalImage
 --- (Undocumented: engine-internal, not part of the modding API.)
 --- @param imageid? string
@@ -1476,7 +1492,7 @@ function dmhub.GetSettingValue(settingid) end
 --- @param token? any
 function dmhub.CopyTokenToClipboard(token) end
 
---- Pastes a token from the clipboard at the given location. Returns the token id of the pasted token, or nil if nothing was pasted.
+--- Pastes a token from the clipboard at the given location, standing on the surface under it (the loc's altitude only picks which surface: the highest at or below it). Returns the token id of the pasted token, or nil if nothing was pasted.
 --- @param loc nil|Loc The location to paste the token at.
 --- @return nil|string
 function dmhub.PasteTokenFromClipboard(loc) end
@@ -1485,7 +1501,7 @@ function dmhub.PasteTokenFromClipboard(loc) end
 --- @param tokens CharacterToken[] The tokens to copy.
 function dmhub.CopyTokensToClipboard(tokens) end
 
---- Pastes every token on the clipboard at once, fanning out from the given location. Returns the list of pasted token ids in the order they were copied; empty if the clipboard is empty.
+--- Pastes every token on the clipboard at once, fanning out from the given location, each standing on the surface under its own tile (the loc's altitude only picks which surface: the highest at or below it). Returns the list of pasted token ids in the order they were copied; empty if the clipboard is empty.
 --- @param loc nil|Loc The anchor location to paste the tokens around.
 --- @return string[]
 function dmhub.PasteTokensFromClipboard(loc) end

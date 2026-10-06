@@ -27,10 +27,14 @@ local REMOTE_EVENT = "condemnedCollar"
 --shared document: exploded[charid] = where a blown-up hero was, for char marks and Restore.
 local DOC_ID = "condemnedCollars"
 
-local SOUND_LOCK = "DiceImp.Hard_MetalShield"
-local SOUND_UNLOCK = "DiceImp.Mild_MetalTiny"
-local SOUND_BEEP = "Notify.Ping"
-local SOUND_EXPLOSION = "Dice.Numglow_Crucible_Explo"
+--sound events defined in Draw Steel Audio/AudioMain.lua.
+local SOUND_LOCK = "Ability.Collar_Attach"
+local SOUND_UNLOCK = "Ability.Collar_Remove"
+local SOUND_BEEP = "Ability.Collar_DetonateBeep"
+local SOUND_EXPLOSION = "Ability.Explosion_Medium_Short"
+--multiplies the explosion event's own volume, so the collar's boom is louder without
+--changing the shared sound's mix.
+local EXPLOSION_VOLUME = 1.5
 
 local EXPLOSION_EFFECT = "Explosion 1"
 local EXPLOSION_SCALE = 1.25
@@ -43,10 +47,11 @@ local RELEASE_DELAY = 0.15
 local BLINK_PERIOD = 1.0
 --how long the light stays lit for each blink; it switches hard on and off.
 local BLINK_ON_TIME = 0.15
-local ALARM_ON_TIME = 0.15
---the detonation: three warning blinks this far apart, then the explosion, then the
---hero vanishes once the fireball covers the token.
-local ALARM_INTERVAL = 0.3
+local ALARM_ON_TIME = 0.3
+--the detonation: three warning blinks, each with a beep, this far apart, then the
+--explosion, then the hero vanishes once the fireball covers the token. A second apart,
+--the beeps line up with the Explode countdown's "3, 2, 1".
+local ALARM_INTERVAL = 1.0
 --during the Explode countdown the light gives one longer red blink a second.
 local COUNTDOWN_ON_TIME = 0.3
 local ALARM_BLINKS = 3
@@ -470,7 +475,7 @@ local function CreateLed(token)
             element:FireEvent("rest")
         end,
 
-        --the detonation: rapid red blinks with beeps.
+        --the detonation: ALARM_BLINKS red blinks, each with a beep.
         alarm = function(element)
             local d = element.data
             d.alarm = true
@@ -726,7 +731,7 @@ local function PlayDetonation(info)
         if mod.unloaded or g_defused[info.seed] then
             return
         end
-        audio.FireSoundEvent(SOUND_EXPLOSION)
+        audio.FireSoundEvent(SOUND_EXPLOSION, { volume = EXPLOSION_VOLUME })
         dmhub.PlayEffect{
             id = EXPLOSION_EFFECT,
             loc = core.Loc{ x = info.x, y = info.y, floorIndex = info.floor },
@@ -898,8 +903,9 @@ local STRIKE_INTERVAL_START = 0.55
 local STRIKE_INTERVAL_FULL = 0.07
 --how long each strike's lightning and negative stay up (capped by the interval).
 local STRIKE_TIME = 0.12
---sound and floor flash are capped to this rate, so a fast buzz does not stack them.
-local STRIKE_SOUND_GAP = 0.14
+--the floor flash is capped to this rate, so a fast buzz does not stack them. The zap
+--sound plays on every strike.
+local STRIKE_LIGHT_GAP = 0.14
 --how far the portrait shakes inside the collar, as a fraction of the image shown:
 --at the start of a shock and when the bar is full.
 local SHAKE_START = 0.006
@@ -1321,9 +1327,9 @@ local function CreateShockRig(token)
                         bolt:SetClass("on", i <= live)
                     end
 
+                    audio.FireSoundEvent(SOUND_SHOCK)
                     if now >= d.nextSound then
-                        d.nextSound = now + STRIKE_SOUND_GAP
-                        audio.FireSoundEvent(SOUND_SHOCK)
+                        d.nextSound = now + STRIKE_LIGHT_GAP
                         local tok = dmhub.GetTokenById(charid)
                         if tok ~= nil then
                             pcall(function()
@@ -1454,7 +1460,8 @@ local function ApplyShockDamage(charid, held)
     tok:ModifyProperties{
         description = "Loyalty Collar shock",
         execute = function()
-            tok.properties:TakeDamage(amount, SHOCK_DAMAGE_NOTE)
+            --typed damage, so lightning immunity and weakness apply.
+            tok.properties:InflictDamageInstance(amount, "lightning", {}, SHOCK_DAMAGE_NOTE, {})
         end,
     }
 end
@@ -1603,6 +1610,381 @@ local function SetCollar(token, attach)
 end
 
 --------------------------------------------------------------------------------
+-- Explosives on the map (the Emperor Busts)
+--------------------------------------------------------------------------------
+
+--Map objects lined with explosives, listed in the collar panel under "Explosives on
+--Map". Each is an instance of an explosive object asset whose Appearance shows image
+--0 intact and 1 ruined. A bust goes off from the panel's Detonate button, or from its
+--own aura when a creature comes within 1 square (the aura's Lua Script calls
+--CondemnedExplosives.TriggerNear). The object's Appearance is the shared record of
+--whether it has gone off, so explosives need no document of their own.
+local EXPLOSIVE_ASSETS = {
+    --Emperor Bust, in the game's Abbey object folder.
+    ["92ade2e0-b2fd-4c22-8638-91c6f6e11d0c"] = true,
+}
+local EXPLOSIVE_EVENT = "condemnedExplosive"
+local EXPLOSIVE_DAMAGE = 10
+--creatures within this many squares of the explosive take the damage.
+local EXPLOSIVE_RADIUS = 1
+
+---@param obj LuaObjectInstance
+---@return LuaObjectComponentField|nil
+local function ImageNumberField(obj)
+    local app = obj:GetComponent("Appearance")
+    if app == nil then
+        return nil
+    end
+    for _, field in ipairs(app.fields) do
+        if field.id == "imageNumber" then
+            return field
+        end
+    end
+    return nil
+end
+
+---@param obj LuaObjectInstance
+---@return boolean
+local function IsDetonated(obj)
+    local field = ImageNumberField(obj)
+    return field ~= nil and field:GetValue(1) ~= 0
+end
+
+--Every explosive on the current map, sorted by name.
+---@return {objid: string, floorid: string, name: string, obj: LuaObjectInstance}[]
+local function CollectExplosives()
+    local result = {}
+    local map = game.currentMap
+    if map == nil then
+        return result
+    end
+    for _, floor in ipairs(map.floors) do
+        --a floor listed before its details arrive (entering the game) has no objects yet.
+        for objid, obj in pairs(floor.valid and floor.objects or {}) do
+            if EXPLOSIVE_ASSETS[obj.assetid] then
+                result[#result + 1] = { objid = objid, floorid = obj.floorid, name = tostring(obj.name or "Explosive"), obj = obj }
+            end
+        end
+    end
+    table.sort(result, function(a, b)
+        if a.name ~= b.name then
+            return a.name < b.name
+        end
+        return a.objid < b.objid
+    end)
+    return result
+end
+
+---@param floorid string
+---@param objid string
+---@return LuaObjectInstance|nil
+local function GetExplosive(floorid, objid)
+    local floor = game.GetFloor(floorid)
+    if floor == nil then
+        return nil
+    end
+    return floor.objects[objid]
+end
+
+--The square an explosive sits on. Objects are positioned by their centre, in the same
+--space as token locs.
+---@param obj LuaObjectInstance
+---@return integer, integer
+local function ExplosiveSquare(obj)
+    return math.floor(obj.x + 0.5), math.floor(obj.y + 0.5)
+end
+
+--Tokens live on a floor's primary layer; an object may sit on one of its layers.
+---@param floorid string
+---@return string
+local function TokenFloorId(floorid)
+    local floor = game.GetFloor(floorid)
+    if floor ~= nil and floor.parentFloor ~= nil and floor.parentFloor ~= "" then
+        return floor.parentFloor
+    end
+    return floorid
+end
+
+--True if any square the token occupies is within EXPLOSIVE_RADIUS of (x, y).
+---@param token CharacterToken
+---@param x integer
+---@param y integer
+---@return boolean
+local function InBlast(token, x, y)
+    for _, loc in ipairs(token.locsOccupying or { token.loc }) do
+        if math.abs(loc.x - x) <= EXPLOSIVE_RADIUS and math.abs(loc.y - y) <= EXPLOSIVE_RADIUS then
+            return true
+        end
+    end
+    return false
+end
+
+---@param objid string
+---@return string
+local function ExplosiveMarkKey(objid)
+    return "explosive:" .. objid
+end
+
+--objid -> floorid of the char marks this client has drawn around explosives.
+local g_explosiveMarks = {}
+local g_explosiveMarksMapId = nil
+--objid -> time this client drew marks from a blast, before the object's ruined state
+--arrives; until then the marks are not cleared for the bust still looking intact.
+local g_explosiveMarksPending = {}
+
+---@param objid string
+local function ClearExplosiveMarks(objid)
+    g_explosiveMarksPending[objid] = nil
+    local floorid = g_explosiveMarks[objid]
+    g_explosiveMarks[objid] = nil
+    local floor = floorid and game.GetFloor(floorid)
+    if floor ~= nil then
+        floor:ClearBloodSpatter(CharTag(ExplosiveMarkKey(objid)))
+    end
+end
+
+--Brings this client's char marks in line with which explosives have gone off. The
+--marks are seeded by the object id, so every client draws the same burn.
+local function SyncExplosiveMarks()
+    local mapid = game.currentMapId
+    if mapid ~= g_explosiveMarksMapId then
+        g_explosiveMarks = {}
+        g_explosiveMarksMapId = mapid
+    end
+
+    local detonated = {}
+    for _, e in ipairs(CollectExplosives()) do
+        if IsDetonated(e.obj) then
+            detonated[e.objid] = true
+            g_explosiveMarksPending[e.objid] = nil
+            if g_explosiveMarks[e.objid] == nil then
+                g_explosiveMarks[e.objid] = e.floorid
+                DrawCharMarks{ charid = ExplosiveMarkKey(e.objid), floorid = e.floorid, px = e.obj.x, py = e.obj.y, seed = e.objid }
+            end
+        end
+    end
+
+    for objid, _ in pairs(g_explosiveMarks) do
+        local pending = g_explosiveMarksPending[objid]
+        if pending ~= nil and dmhub.Time() - pending > PENDING_MARKS_GRACE then
+            pending = nil
+        end
+        if not detonated[objid] and pending == nil then
+            ClearExplosiveMarks(objid)
+        end
+    end
+end
+
+--Every client: the collars' explosion and boom at the explosive, then the char marks
+--once the fireball covers it. info = {objid, x, y, floor, floorid, px, py, mapid}.
+local function PlayExplosiveBlast(info)
+    if info.mapid ~= game.currentMapId then
+        return
+    end
+    audio.FireSoundEvent(SOUND_EXPLOSION, { volume = EXPLOSION_VOLUME })
+    dmhub.PlayEffect{
+        id = EXPLOSION_EFFECT,
+        loc = core.Loc{ x = info.x, y = info.y, floorIndex = info.floor },
+        scale = EXPLOSION_SCALE,
+    }
+    dmhub.Schedule(VANISH_DELAY, function()
+        if mod.unloaded or info.mapid ~= game.currentMapId then
+            return
+        end
+        g_explosiveMarksPending[info.objid] = dmhub.Time()
+        g_explosiveMarks[info.objid] = info.floorid
+        DrawCharMarks{ charid = ExplosiveMarkKey(info.objid), floorid = info.floorid, px = info.px, py = info.py, seed = info.objid }
+    end)
+end
+
+--objid -> true while this (Director's) client is setting that explosive off.
+local g_explosiveBusy = {}
+
+--Director: blows the explosive up. Every creature within 1 square takes the damage,
+--the object turns to its ruined art and goes inactive (which switches its aura off).
+---@param floorid string
+---@param objid string
+local function DetonateExplosive(floorid, objid)
+    local obj = GetExplosive(floorid, objid)
+    if obj == nil or g_explosiveBusy[objid] or IsDetonated(obj) or ImageNumberField(obj) == nil then
+        return
+    end
+    g_explosiveBusy[objid] = true
+
+    local x, y = ExplosiveSquare(obj)
+    local name = tostring(obj.name or "Explosive")
+    local info = {
+        kind = "detonate",
+        objid = objid,
+        x = x,
+        y = y,
+        floor = obj.floorIndex,
+        floorid = floorid,
+        px = obj.x,
+        py = obj.y,
+        mapid = game.currentMapId,
+    }
+    dmhub.BroadcastRemoteEvent(EXPLOSIVE_EVENT, dmhub.GenerateGuid(), info, true)
+    PlayExplosiveBlast(info)
+
+    --the bust breaks and the blast lands as the fireball covers it.
+    dmhub.Schedule(VANISH_DELAY, function()
+        g_explosiveBusy[objid] = nil
+        if mod.unloaded then
+            return
+        end
+        local o = GetExplosive(floorid, objid)
+        local field = o and ImageNumberField(o)
+        if o == nil or field == nil then
+            return
+        end
+        field:SetValue(1, 1)
+        field:Upload()
+        o.inactive = true
+        o:Upload()
+
+        local tokenFloorId = TokenFloorId(floorid)
+        for _, tok in ipairs(dmhub.allTokens) do
+            if tok.valid and tok.floorid == tokenFloorId and InBlast(tok, x, y) then
+                local props = tok.properties
+                local dead = false
+                pcall(function() dead = props:IsDead() end)
+                if not dead then
+                    tok:ModifyProperties{
+                        description = name .. " explodes",
+                        execute = function()
+                            props:TakeDamage(EXPLOSIVE_DAMAGE, name .. " explodes", {})
+                        end,
+                    }
+                end
+            end
+        end
+    end)
+end
+
+--Director: puts a blown-up explosive back, intact and armed.
+---@param floorid string
+---@param objid string
+local function RestoreExplosive(floorid, objid)
+    local obj = GetExplosive(floorid, objid)
+    local field = obj and ImageNumberField(obj)
+    if obj == nil or field == nil or g_explosiveBusy[objid] then
+        return
+    end
+    field:SetValue(0, 1)
+    field:Upload()
+    obj.inactive = false
+    obj:Upload()
+
+    local info = { kind = "restore", objid = objid, mapid = game.currentMapId }
+    dmhub.BroadcastRemoteEvent(EXPLOSIVE_EVENT, dmhub.GenerateGuid(), info, true)
+    ClearExplosiveMarks(objid)
+end
+
+dmhub.RegisterRemoteEvent(EXPLOSIVE_EVENT, function(info)
+    if mod.unloaded or type(info) ~= "table" or info.objid == nil then
+        return
+    end
+    if info.kind == "detonate" then
+        PlayExplosiveBlast(info)
+    elseif info.kind == "restore" then
+        ClearExplosiveMarks(info.objid)
+    elseif info.kind == "request" and dmhub.isDM and info.mapid == game.currentMapId then
+        --an aura went off on a player's client; the Director's client does the work.
+        DetonateExplosive(info.floorid, info.objid)
+    end
+end)
+
+--The aura fires when a move is committed, while the token is still at the start of its
+--path; the blast waits until the token is seen to reach the explosive. A token that
+--stops short (or never starts moving) sets it off once it has stood still this long.
+local ARRIVAL_IDLE_TIME = 0.75
+local ARRIVAL_TIMEOUT = 15
+local ARRIVAL_POLL = 0.05
+
+--objid -> true while a triggered explosive waits for its token to arrive.
+local g_explosiveArming = {}
+
+--Calls back once the token's on-screen position is next to square (x, y).
+---@param token CharacterToken
+---@param x integer
+---@param y integer
+---@param callback fun()
+local function WhenTokenArrives(token, x, y, callback)
+    local charid = token.charid
+    --a big token's centre stands further out when it is next to the explosive.
+    local squares = #(token.locsOccupying or { token.loc })
+    local reach = EXPLOSIVE_RADIUS + (math.sqrt(squares) - 1) / 2 + 0.1
+    local deadline = dmhub.Time() + ARRIVAL_TIMEOUT
+    local idleSince = nil
+
+    local function Check()
+        if mod.unloaded then
+            return
+        end
+        local tok = dmhub.GetTokenById(charid)
+        if tok == nil or dmhub.Time() > deadline then
+            callback()
+            return
+        end
+
+        local pos = tok.pos
+        if math.abs(pos.x - x) <= reach and math.abs(pos.y - y) <= reach then
+            callback()
+            return
+        end
+
+        if tok.isMoving then
+            idleSince = nil
+        elseif idleSince == nil then
+            idleSince = dmhub.Time()
+        elseif dmhub.Time() - idleSince >= ARRIVAL_IDLE_TIME then
+            callback()
+            return
+        end
+        dmhub.Schedule(ARRIVAL_POLL, Check)
+    end
+    Check()
+end
+
+--Called from an explosive's aura script with the creature that just came within 1
+--square. Sets off the intact explosive next to it once the creature gets there; any
+--client may call it.
+CondemnedExplosives = {
+    ---@param token CharacterToken
+    TriggerNear = function(token)
+        if mod.unloaded or token == nil or not token.valid then
+            return
+        end
+        for _, e in ipairs(CollectExplosives()) do
+            if TokenFloorId(e.floorid) == token.floorid and not IsDetonated(e.obj) then
+                local x, y = ExplosiveSquare(e.obj)
+                if InBlast(token, x, y) then
+                    if g_explosiveArming[e.objid] then
+                        return
+                    end
+                    g_explosiveArming[e.objid] = true
+                    local floorid, objid, mapid = e.floorid, e.objid, game.currentMapId
+                    WhenTokenArrives(token, x, y, function()
+                        g_explosiveArming[objid] = nil
+                        if mapid ~= game.currentMapId then
+                            return
+                        end
+                        if dmhub.isDM then
+                            DetonateExplosive(floorid, objid)
+                        else
+                            local info = { kind = "request", objid = objid, floorid = floorid, mapid = mapid }
+                            dmhub.BroadcastRemoteEvent(EXPLOSIVE_EVENT, dmhub.GenerateGuid(), info, true)
+                        end
+                    end)
+                    return
+                end
+            end
+        end
+    end,
+}
+
+--------------------------------------------------------------------------------
 -- Per-client upkeep: lights on collared tokens, char marks, old collar art
 --------------------------------------------------------------------------------
 
@@ -1670,6 +2052,16 @@ local function Upkeep()
     end
 
     SyncCharMarks()
+
+    --an explosive can go off with no collar on the map, so it warms the explosion too.
+    if g_explosionWarmMap ~= game.currentMapId then
+        local explosives = CollectExplosives()
+        if #explosives > 0 then
+            g_explosionWarmMap = game.currentMapId
+            WarmExplosion(explosives[1].obj.floorIndex)
+        end
+    end
+    SyncExplosiveMarks()
 end
 
 dmhub.Coroutine(function()
@@ -1752,10 +2144,14 @@ local function StartCountdown(charid)
 
     local countdown = { id = dmhub.GenerateGuid(), endsAt = dmhub.Time() + COUNTDOWN_SECONDS, firing = false, detonation = nil }
     g_countdowns[charid] = countdown
-    SendCountdownLight(charid, "countdown", countdown.id)
+    --the light only needs its own red countdown blink when the countdown outlasts the
+    --detonation alarm; otherwise the alarm's blinks would double up with it.
+    if COUNTDOWN_SECONDS > EXPLODE_TIME then
+        SendCountdownLight(charid, "countdown", countdown.id)
+    end
 
-    --the detonation's alarm beeps play in the last second, so the explosion lands as
-    --the countdown reaches zero. It can still be cancelled (defused) until then.
+    --the detonation's alarm beeps play at the end, so the explosion lands as the
+    --countdown reaches zero. It can still be cancelled (defused) until then.
     dmhub.Schedule(COUNTDOWN_SECONDS - EXPLODE_TIME, function()
         if mod.unloaded or g_countdowns[charid] ~= countdown then
             return
@@ -2046,6 +2442,146 @@ local function CreateHeroRow(token, fallbackName)
     }
 end
 
+--One row per explosive on the map: its art, name (click to look at it), status, and
+--Detonate or Restore. Like the hero rows, rows follow state on their own.
+---@param entry {objid: string, floorid: string, name: string, obj: LuaObjectInstance}
+---@return Panel
+local function CreateExplosiveRow(entry)
+    local objid = entry.objid
+    local floorid = entry.floorid
+
+    local statusLabel = gui.Label{
+        classes = {"sizeS"},
+        width = STATUS_WIDTH,
+        height = "auto",
+        valign = "center",
+        text = "",
+    }
+
+    local detonateButton = gui.Button{
+        classes = {"sizeS", "condemnedExplode"},
+        width = MAIN_BUTTON_WIDTH,
+        valign = "center",
+        text = "Detonate",
+        click = function(element)
+            if not dmhub.isDM or element:HasClass("disabled") then
+                return
+            end
+            DetonateExplosive(floorid, objid)
+        end,
+    }
+
+    local restoreButton = gui.Button{
+        classes = {"sizeS", "collapsed"},
+        width = MAIN_BUTTON_WIDTH,
+        valign = "center",
+        text = "Restore",
+        click = function(element)
+            if not dmhub.isDM or element:HasClass("disabled") then
+                return
+            end
+            RestoreExplosive(floorid, objid)
+        end,
+    }
+
+    local floor = game.GetFloor(floorid)
+    local floorName = floor and tostring(floor.description or "") or ""
+
+    return gui.Panel{
+        width = "100%",
+        height = 52,
+        flow = "horizontal",
+        thinkTime = 0.25,
+        styles = g_rowStyles,
+        data = {
+            detonated = nil,
+        },
+
+        create = function(element)
+            element:FireEvent("think")
+        end,
+
+        --outline the explosive on the map while its row is hovered (buttons included:
+        --they do not take the hover away from the row).
+        hover = function(element)
+            local obj = GetExplosive(floorid, objid)
+            if obj ~= nil then
+                obj.editorFocus = true
+            end
+        end,
+
+        dehover = function(element)
+            local obj = GetExplosive(floorid, objid)
+            if obj ~= nil then
+                obj.editorFocus = false
+            end
+        end,
+
+        --closing the popup under the mouse must not leave the outline behind.
+        destroy = function(element)
+            local obj = GetExplosive(floorid, objid)
+            if obj ~= nil and obj.editorFocus then
+                obj.editorFocus = false
+            end
+        end,
+
+        think = function(element)
+            local obj = GetExplosive(floorid, objid)
+            local detonated = obj ~= nil and IsDetonated(obj)
+            local busy = obj == nil or g_explosiveBusy[objid] == true
+            detonateButton:SetClass("disabled", busy)
+            restoreButton:SetClass("disabled", busy)
+            if detonated ~= element.data.detonated then
+                element.data.detonated = detonated
+                statusLabel.text = cond(detonated, "Exploded", "Armed")
+                detonateButton:SetClass("collapsed", detonated)
+                restoreButton:SetClass("collapsed", not detonated)
+            end
+        end,
+
+        children = {
+            gui.Panel{
+                width = 44,
+                height = 44,
+                valign = "center",
+                bgimage = entry.obj.displayImageId,
+                bgcolor = "white",
+            },
+            gui.Panel{
+                width = 160,
+                height = "auto",
+                valign = "center",
+                lmargin = 8,
+                flow = "vertical",
+                children = {
+                    gui.Label{
+                        classes = {"sizeS"},
+                        width = "100%",
+                        height = "auto",
+                        text = entry.name,
+                        hover = gui.Tooltip("Show on the map"),
+                        click = function(element)
+                            local obj = GetExplosive(floorid, objid)
+                            if obj ~= nil then
+                                obj:CenterCamera{smooth = true}
+                            end
+                        end,
+                    },
+                    gui.Label{
+                        classes = {"sizeXs"},
+                        width = "100%",
+                        height = "auto",
+                        text = floorName,
+                    },
+                },
+            },
+            statusLabel,
+            detonateButton,
+            restoreButton,
+        },
+    }
+end
+
 local function CreateCollarPanel()
     --keeps one row per listed hero, in name order, adding and removing rows as heroes
     --arrive, leave or are blown up. Existing rows are reused so they keep their state.
@@ -2151,6 +2687,80 @@ local function CreateCollarPanel()
         },
     }
 
+    --"Explosives on Map": shown only while the current map has explosives on it. Rows
+    --are kept per object, the same way as the hero list.
+    local explosiveList = gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "vertical",
+        data = {
+            rows = {},
+        },
+    }
+
+    --the title collapses rather than the section: a collapsed panel stops thinking, and
+    --the section's think is what notices explosives arriving on the map.
+    local explosivesTitle = gui.Label{
+        classes = {"sizeL", "bold", "collapsed"},
+        width = "auto",
+        height = "auto",
+        tmargin = 10,
+        bmargin = 6,
+        text = "Explosives on Map",
+    }
+
+    local explosivesSection = gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "vertical",
+        thinkTime = 0.25,
+        data = {
+            key = nil,
+        },
+
+        create = function(element)
+            element:FireEvent("think")
+        end,
+
+        think = function(element)
+            local entries = CollectExplosives()
+            local ids = {}
+            for i, e in ipairs(entries) do
+                ids[i] = e.objid
+            end
+            local key = table.concat(ids, ",")
+            if key == element.data.key then
+                return
+            end
+            element.data.key = key
+
+            local rows = explosiveList.data.rows
+            local children = {}
+            local keep = {}
+            for _, e in ipairs(entries) do
+                local row = rows[e.objid]
+                if row == nil or not row.valid then
+                    row = CreateExplosiveRow(e)
+                    rows[e.objid] = row
+                end
+                keep[e.objid] = true
+                children[#children + 1] = row
+            end
+            for objid, _ in pairs(rows) do
+                if not keep[objid] then
+                    rows[objid] = nil
+                end
+            end
+            explosiveList.children = children
+            explosivesTitle:SetClass("collapsed", #children == 0)
+        end,
+
+        children = {
+            explosivesTitle,
+            explosiveList,
+        },
+    }
+
     --the map button bar does not pass a themed cascade to its popups, so the popup
     --roots its own. A panel's styles only reach its descendants, so the framed
     --surface is a child of the styled root.
@@ -2179,6 +2789,7 @@ local function CreateCollarPanel()
                     },
                     ledModeRow,
                     listPanel,
+                    explosivesSection,
                 },
             },
         },
@@ -2200,3 +2811,664 @@ if mapButtons ~= nil then
         end,
     })
 end
+
+--------------------------------------------------------------------------------
+-- The Cauldron's security doors
+--------------------------------------------------------------------------------
+
+--a function of its own: the file's main chunk is at Lua's 200-local limit, and a
+--do block would not help (its locals still count against the main chunk).
+;(function()
+
+    --The Cauldron prison map has an energy door on every cell: a force field across the
+    --doorway and a lit power conduit running to it from the spider lock in the middle of
+    --the room. Each part is its own map object, keyworded "cauldron-doors" and "cellNN"
+    --(NN = 01-16, clockwise from the north wall). A door is open when its objects are
+    --disabled (inactive): players no longer see them and the field stops blocking.
+    --The Security Doors map button appears only on a map that has these objects.
+
+    local DOORS_KEYWORD = "cauldron-doors"
+    local DOORS_BUTTON_ID = "condemned:cauldron-doors"
+
+    --display names; any other number is shown as "Cell NN".
+    local DOOR_NAMES = {
+        ["01"] = "North Conduit",
+        ["02"] = "Large Cell NE",
+        ["09"] = "Main Gate",
+        ["16"] = "Large Cell NW",
+    }
+
+    --the panel is a schematic of the room: rows of {left, centre, right} door numbers
+    --(nil leaves the slot empty), top of the map first.
+    local DOOR_LAYOUT = {
+        { "16", "01", "02" },
+        { "15", nil, "03" },
+        { "14", nil, "04" },
+        { "13", nil, "05" },
+        { "12", nil, "06" },
+        { "11", nil, "07" },
+        { "10", nil, "08" },
+        { nil, "09", nil },
+    }
+
+    local DOOR_TILE_WIDTH = 180
+    local DOOR_TILE_HEIGHT = 44
+    local DOOR_TILE_GAP = 8
+
+    local g_doorStyles = {
+        {
+            selectors = {"condemnedDoorTile"},
+            bgcolor = "#14181c",
+            borderColor = "#3a4248",
+            borderWidth = 1,
+            cornerRadius = 4,
+        },
+        {
+            selectors = {"condemnedDoorTile", "sealed"},
+            bgcolor = "#0d2a31",
+            borderColor = "#36d6f0",
+        },
+        {
+            selectors = {"condemnedDoorTile", "partial"},
+            borderColor = "#d9a640",
+        },
+        {
+            selectors = {"condemnedDoorTile", "hover"},
+            borderColor = "#c8f6ff",
+        },
+        {
+            selectors = {"condemnedDoorLight"},
+            bgcolor = "#3a4248",
+            cornerRadius = 7,
+        },
+        {
+            selectors = {"condemnedDoorLight", "parent:sealed"},
+            bgcolor = "#5ff0ff",
+        },
+        {
+            selectors = {"condemnedDoorLight", "parent:partial"},
+            bgcolor = "#d9a640",
+        },
+    }
+
+    ---@alias CauldronDoorRef {floorid: string, objid: string, kind: string}
+    ---@alias CauldronDoor {n: string, refs: CauldronDoorRef[]}
+
+    --Every door on the current map, keyed by its two-digit number. Each door lists the
+    --objects that make it up, by floor and object id (looked up fresh when used), and
+    --whether each is the "line" (conduit) or the "field".
+    ---@return table<string, CauldronDoor>
+    local function CollectCauldronDoors()
+        local doors = {}
+        local map = game.currentMap
+        if map == nil then
+            return doors
+        end
+        for _, floor in ipairs(map.floors) do
+            --a floor listed before its details arrive (entering the game) has no objects yet.
+            for objid, obj in pairs(floor.valid and floor.objects or {}) do
+                local keywords = obj.keywords
+                if type(keywords) == "table" and keywords[DOORS_KEYWORD] then
+                    for word, _ in pairs(keywords) do
+                        local n = string.match(tostring(word), "^cell(%d%d)$")
+                        if n ~= nil then
+                            local door = doors[n]
+                            if door == nil then
+                                door = { n = n, refs = {} }
+                                doors[n] = door
+                            end
+                            door.refs[#door.refs + 1] = {
+                                floorid = floor.floorid,
+                                objid = objid,
+                                kind = cond(keywords["cauldron-fields"], "field", "line"),
+                            }
+                        end
+                    end
+                end
+            end
+        end
+        return doors
+    end
+
+    ---@param ref CauldronDoorRef
+    ---@return LuaObjectInstance|nil
+    local function DoorObject(ref)
+        local floor = game.GetFloor(ref.floorid)
+        if floor == nil then
+            return nil
+        end
+        return floor.objects[ref.objid]
+    end
+
+    --"sealed" when every part is active, "open" when every part is disabled, else "partial".
+    ---@param door CauldronDoor
+    ---@return string
+    local function DoorState(door)
+        local active, inactive = 0, 0
+        for _, ref in ipairs(door.refs) do
+            local obj = DoorObject(ref)
+            if obj ~= nil then
+                if obj.inactive then
+                    inactive = inactive + 1
+                else
+                    active = active + 1
+                end
+            end
+        end
+        if inactive == 0 then
+            return "sealed"
+        elseif active == 0 then
+            return "open"
+        end
+        return "partial"
+    end
+
+    --Doors fade rather than snap. Every client plays the fade locally by setting the
+    --object's Appearance opacity and brightness without uploading them; only the
+    --Director's client changes the saved state (inactive).
+    local DOOR_EVENT = "condemnedDoors"
+    local DOOR_FADE_TIME = 0.9
+    --brightness multiplier at the peak of the power-down flare (the Appearance max is 2).
+    local DOOR_FLARE = 1.9
+    --the share of the fade spent flaring up before the light drains away.
+    local DOOR_FLARE_SHARE = 0.3
+    --the field follows its conduit by this much, and each door in Seal All / Open All
+    --follows the one before by DOOR_RIPPLE.
+    local DOOR_STAGGER = 0.25
+    local DOOR_RIPPLE = 0.06
+    --sealing: the objects are enabled first (at opacity 0) and fade in after this long,
+    --so the enable has reached every client before the fade starts.
+    local DOOR_SEAL_LEAD = 0.25
+    --the Director sees a disabled object at 40% opacity, so its fade ends there.
+    local DIRECTOR_GHOST_OPACITY = 0.4
+
+    --objid -> id of the fade currently driving that object; a newer fade takes over.
+    local g_doorFades = {}
+    --door number -> "down" or "up" while a click's fade is running, so it cannot be
+    --clicked again and its tile can say what it is doing.
+    local g_doorBusy = {}
+
+    local function EaseOutCubic(t)
+        return 1 - (1 - t) ^ 3
+    end
+
+    --The look of a door at u (0 = fully on, 1 = fully off) on the way off; sealing plays
+    --it backwards. Brightness surges to the flare, then the light drains as it settles.
+    ---@param u number
+    ---@param floorOpacity number
+    ---@return number opacity, number brightness
+    local function DoorFadeCurve(u, floorOpacity)
+        if u < DOOR_FLARE_SHARE then
+            local k = EaseOutCubic(u / DOOR_FLARE_SHARE)
+            return 1, 1 + (DOOR_FLARE - 1) * k
+        end
+        local k = (u - DOOR_FLARE_SHARE) / (1 - DOOR_FLARE_SHARE)
+        local brightness = DOOR_FLARE - (DOOR_FLARE - 1) * EaseOutCubic(k)
+        local opacity = 1 - (1 - floorOpacity) * (k * k)
+        return opacity, brightness
+    end
+
+    ---@param obj LuaObjectInstance
+    ---@return LuaObjectComponentField|nil opacity, LuaObjectComponentField|nil brightness
+    local function AppearanceFields(obj)
+        local app = obj:GetComponent("Appearance")
+        if app == nil then
+            return nil, nil
+        end
+        local opacity, brightness = nil, nil
+        for _, field in ipairs(app.fields) do
+            if field.id == "opacity" then
+                opacity = field
+            elseif field.id == "brightness" then
+                brightness = field
+            end
+        end
+        return opacity, brightness
+    end
+
+    --The fade needs an Appearance component on every part. The Director adds any that
+    --are missing (when the panel opens, so they have synced before the first click).
+    ---@param doors table<string, CauldronDoor>
+    local function EnsureDoorAppearance(doors)
+        if not dmhub.isDM then
+            return
+        end
+        for _, door in pairs(doors) do
+            for _, ref in ipairs(door.refs) do
+                local obj = DoorObject(ref)
+                if obj ~= nil and obj:GetComponent("Appearance") == nil then
+                    obj:AddComponentFromJson(dmhub.GenerateGuid(), {
+                        ["@class"] = "ObjectComponentAppearance",
+                        opacity = 1,
+                        brightness = 1,
+                    })
+                    obj:Upload()
+                end
+            end
+        end
+    end
+
+    --Plays one object's fade on this client. open = fading out. A fade out holds at the
+    --end until the object is actually disabled, so it never pops back to full before the
+    --Director's change arrives; then the saved look is restored.
+    ---@param ref CauldronDoorRef
+    ---@param open boolean
+    ---@param delay number
+    local function FadeDoorObject(ref, open, delay)
+        local id = dmhub.GenerateGuid()
+        g_doorFades[ref.objid] = id
+        local floorOpacity = cond(dmhub.isDM, DIRECTOR_GHOST_OPACITY, 0)
+
+        dmhub.Coroutine(function()
+            local function current()
+                return not mod.unloaded and g_doorFades[ref.objid] == id
+            end
+
+            local obj = DoorObject(ref)
+            if obj == nil then
+                return
+            end
+            local opacity, brightness = AppearanceFields(obj)
+            if opacity == nil or brightness == nil then
+                return
+            end
+
+            --sealing: stay invisible until this part's turn.
+            if not open then
+                opacity:SetValue(floorOpacity)
+                brightness:SetValue(1)
+            end
+            if delay > 0 then
+                coroutine.yield(delay)
+            end
+
+            local start = dmhub.Time()
+            while current() do
+                local u = math.min(1, (dmhub.Time() - start) / DOOR_FADE_TIME)
+                local o, b = DoorFadeCurve(cond(open, u, 1 - u), floorOpacity)
+                opacity:SetValue(o)
+                brightness:SetValue(b)
+                if u >= 1 then
+                    break
+                end
+                coroutine.yield(0.01)
+            end
+
+            if open then
+                local waitUntil = dmhub.Time() + 3
+                while current() and dmhub.Time() < waitUntil do
+                    obj = DoorObject(ref)
+                    if obj == nil or obj.inactive then
+                        break
+                    end
+                    coroutine.yield(0.05)
+                end
+            end
+
+            if current() then
+                opacity:SetValue(1)
+                brightness:SetValue(1)
+                g_doorFades[ref.objid] = nil
+            end
+        end)
+    end
+
+    --info = { mapid, open, parts = { {floorid, objid, kind, delay}, ... } }
+    ---@param info table
+    local function PlayDoorFade(info)
+        if info.mapid ~= game.currentMapId or type(info.parts) ~= "table" then
+            return
+        end
+        for _, part in ipairs(info.parts) do
+            FadeDoorObject(part, info.open == true, tonumber(part.delay) or 0)
+        end
+    end
+
+    dmhub.RegisterRemoteEvent(DOOR_EVENT, function(info)
+        if mod.unloaded or type(info) ~= "table" then
+            return
+        end
+        PlayDoorFade(info)
+    end)
+
+    --Opens (fades out, then disables) or seals (enables, then fades in) every part of a
+    --door, conduit first. Director only. Setting inactive saves and syncs by itself.
+    ---@param door CauldronDoor
+    ---@param open boolean
+    ---@param ripple number extra delay before this door starts, for Seal All / Open All
+    local function SetDoorOpen(door, open, ripple)
+        if not dmhub.isDM or g_doorBusy[door.n] then
+            return
+        end
+
+        local parts = {}
+        for _, ref in ipairs(door.refs) do
+            local obj = DoorObject(ref)
+            if obj ~= nil and obj.inactive ~= open then
+                local delay = ripple + cond(ref.kind == "field", DOOR_STAGGER, 0) + cond(open, 0, DOOR_SEAL_LEAD)
+                parts[#parts + 1] = { floorid = ref.floorid, objid = ref.objid, kind = ref.kind, delay = delay }
+            end
+        end
+        if #parts == 0 then
+            return
+        end
+
+        g_doorBusy[door.n] = cond(open, "down", "up")
+        local info = { mapid = game.currentMapId, open = open, parts = parts }
+        dmhub.BroadcastRemoteEvent(DOOR_EVENT, dmhub.GenerateGuid(), info, true)
+        PlayDoorFade(info)
+
+        local finish = 0
+        for _, part in ipairs(parts) do
+            --opening disables a part once its fade has finished; sealing enables it
+            --straight away (it is held invisible until its fade begins).
+            local at = cond(open, part.delay + DOOR_FADE_TIME, ripple)
+            finish = math.max(finish, part.delay + DOOR_FADE_TIME)
+            dmhub.Schedule(at, function()
+                if mod.unloaded then
+                    return
+                end
+                local obj = DoorObject(part)
+                if obj ~= nil and obj.inactive ~= open then
+                    obj.inactive = open
+                end
+            end)
+        end
+        dmhub.Schedule(finish, function()
+            g_doorBusy[door.n] = nil
+        end)
+    end
+
+    ---@param door CauldronDoor
+    ---@param focus boolean
+    local function FocusDoor(door, focus)
+        for _, ref in ipairs(door.refs) do
+            local obj = DoorObject(ref)
+            if obj ~= nil and obj.editorFocus ~= focus then
+                obj.editorFocus = focus
+            end
+        end
+    end
+
+    --One door in the schematic. Click to open or seal it; hovering outlines its field and
+    --conduit on the map.
+    ---@param door CauldronDoor
+    ---@param lmargin number
+    local function CreateDoorTile(door, lmargin)
+        local stateLabel = gui.Label{
+            classes = {"sizeXs"},
+            width = "100%",
+            height = "auto",
+            text = "",
+        }
+
+        return gui.Panel{
+            classes = {"condemnedDoorTile"},
+            bgimage = true,
+            width = DOOR_TILE_WIDTH,
+            height = DOOR_TILE_HEIGHT,
+            lmargin = lmargin,
+            flow = "horizontal",
+            hpad = 10,
+            borderBox = true,
+            thinkTime = 0.25,
+            data = {
+                state = nil,
+            },
+            linger = gui.Tooltip("Click to open or seal this door and its power conduit."),
+
+            create = function(element)
+                element:FireEvent("think")
+            end,
+
+            think = function(element)
+                local state = DoorState(door)
+                local busy = g_doorBusy[door.n]
+                local key = state .. "/" .. tostring(busy)
+                if key == element.data.state then
+                    return
+                end
+                element.data.state = key
+                element:SetClass("sealed", state == "sealed")
+                element:SetClass("partial", state == "partial")
+                if busy == "down" then
+                    stateLabel.text = "Powering down..."
+                elseif busy == "up" then
+                    stateLabel.text = "Powering up..."
+                elseif state == "sealed" then
+                    stateLabel.text = "Sealed - powered"
+                elseif state == "open" then
+                    stateLabel.text = "Open - no power"
+                else
+                    stateLabel.text = "Partly open"
+                end
+            end,
+
+            click = function(element)
+                if not dmhub.isDM then
+                    return
+                end
+                --a partly open door is sealed first, so one click always fixes it.
+                SetDoorOpen(door, DoorState(door) == "sealed", 0)
+                element:FireEvent("think")
+            end,
+
+            hover = function(element)
+                FocusDoor(door, true)
+            end,
+
+            dehover = function(element)
+                FocusDoor(door, false)
+            end,
+
+            --closing the popup under the mouse must not leave the outline behind.
+            destroy = function(element)
+                FocusDoor(door, false)
+            end,
+
+            children = {
+                gui.Panel{
+                    classes = {"condemnedDoorLight"},
+                    bgimage = true,
+                    width = 14,
+                    height = 14,
+                    valign = "center",
+                    rmargin = 10,
+                    interactable = false,
+                },
+                gui.Panel{
+                    width = DOOR_TILE_WIDTH - 50,
+                    height = "auto",
+                    valign = "center",
+                    flow = "vertical",
+                    interactable = false,
+                    children = {
+                        gui.Label{
+                            classes = {"sizeS", "bold"},
+                            width = "100%",
+                            height = "auto",
+                            text = DOOR_NAMES[door.n] or ("Cell " .. door.n),
+                        },
+                        stateLabel,
+                    },
+                },
+            },
+        }
+    end
+
+    local function CreateDoorsPanel()
+        local doors = CollectCauldronDoors()
+        EnsureDoorAppearance(doors)
+
+        local rows = {}
+        for _, layout in ipairs(DOOR_LAYOUT) do
+            local slots = {}
+            for i = 1, 3 do
+                local door = doors[layout[i] or ""]
+                local lmargin = cond(i > 1, DOOR_TILE_GAP, 0)
+                if door ~= nil then
+                    slots[#slots + 1] = CreateDoorTile(door, lmargin)
+                else
+                    slots[#slots + 1] = gui.Panel{
+                        width = DOOR_TILE_WIDTH,
+                        height = DOOR_TILE_HEIGHT,
+                        lmargin = lmargin,
+                    }
+                end
+            end
+            rows[#rows + 1] = gui.Panel{
+                width = "auto",
+                height = "auto",
+                flow = "horizontal",
+                bmargin = DOOR_TILE_GAP,
+                children = slots,
+            }
+        end
+
+        local summary = gui.Label{
+            classes = {"sizeS"},
+            width = "auto",
+            height = "auto",
+            bmargin = 8,
+            thinkTime = 0.5,
+            text = "",
+            create = function(element)
+                element:FireEvent("think")
+            end,
+            think = function(element)
+                local total, open = 0, 0
+                for _, door in pairs(doors) do
+                    total = total + 1
+                    if DoorState(door) ~= "sealed" then
+                        open = open + 1
+                    end
+                end
+                element.text = string.format("%d of %d doors open", open, total)
+            end,
+        }
+
+        --doors that change go one after another, clockwise from the north wall.
+        local function SetAll(open)
+            local numbers = {}
+            for n, _ in pairs(doors) do
+                numbers[#numbers + 1] = n
+            end
+            table.sort(numbers)
+            local ripple = 0
+            for _, n in ipairs(numbers) do
+                local door = doors[n]
+                local state = DoorState(door)
+                if state ~= cond(open, "open", "sealed") then
+                    SetDoorOpen(door, open, ripple)
+                    ripple = ripple + DOOR_RIPPLE
+                end
+            end
+        end
+
+        --the map button bar does not pass a themed cascade to its popups, so the popup
+        --roots its own (see CreateCollarPanel).
+        return gui.Panel{
+            styles = ThemeEngine.GetStyles(),
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            valign = "bottom",
+            children = {
+                gui.Panel{
+                    classes = {"framedPanel"},
+                    --exactly the three-tile schematic plus the side padding.
+                    width = 3 * DOOR_TILE_WIDTH + 2 * DOOR_TILE_GAP + 2 * 12,
+                    height = "auto",
+                    flow = "vertical",
+                    borderBox = true,
+                    hpad = 12,
+                    vpad = 10,
+                    styles = g_doorStyles,
+                    children = {
+                        gui.Label{
+                            classes = {"sizeL", "bold"},
+                            width = "auto",
+                            height = "auto",
+                            text = "Cauldron Security Doors",
+                        },
+                        summary,
+                        gui.Panel{
+                            width = "auto",
+                            height = "auto",
+                            flow = "vertical",
+                            children = rows,
+                        },
+                        gui.Panel{
+                            width = "auto",
+                            height = "auto",
+                            flow = "horizontal",
+                            tmargin = 4,
+                            children = {
+                                gui.Button{
+                                    classes = {"sizeS"},
+                                    width = 120,
+                                    text = "Seal All",
+                                    click = function(element)
+                                        SetAll(false)
+                                    end,
+                                },
+                                gui.Button{
+                                    classes = {"sizeS"},
+                                    width = 120,
+                                    lmargin = DOOR_TILE_GAP,
+                                    text = "Open All",
+                                    click = function(element)
+                                        SetAll(true)
+                                    end,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+    end
+
+    --The button is registered only while the current map has security doors. The map
+    --button registry outlives a reload of this file, so drop any registration left by
+    --the previous load before the watcher decides afresh.
+    if mapButtons ~= nil then
+        mapButtons.Unregister(DOORS_BUTTON_ID)
+
+        dmhub.Coroutine(function()
+            local shown = false
+            local lastMap = nil
+            local lastCheck = -1000
+            while not mod.unloaded do
+                --rescan on a map change, and every few seconds for doors added or removed.
+                local mapid = game.currentMapId
+                if mapid ~= lastMap or dmhub.Time() - lastCheck > 3 then
+                    lastMap = mapid
+                    lastCheck = dmhub.Time()
+                    local ok, doors = pcall(CollectCauldronDoors)
+                    local has = ok and next(doors) ~= nil
+                    if has ~= shown then
+                        shown = has
+                        if has then
+                            mapButtons.Register(DOORS_BUTTON_ID, {
+                                name = "Security Doors",
+                                icon = "phosphor/lightning.png",
+                                tooltip = "Security Doors",
+                                directorOnly = true,
+                                click = function(element)
+                                    if mod.unloaded then
+                                        return
+                                    end
+                                    element.popup = CreateDoorsPanel()
+                                end,
+                            })
+                        else
+                            mapButtons.Unregister(DOORS_BUTTON_ID)
+                        end
+                    end
+                end
+                coroutine.yield(0.5)
+            end
+        end)
+    end
+end)()

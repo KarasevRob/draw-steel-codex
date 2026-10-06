@@ -3705,6 +3705,14 @@ local function CreateSearchBar()
             -- Only treat the blur as a dismissal when the pointer is OUTSIDE
             -- the popup (mousePoint is normalized 0..1 inside a panel). The
             -- engine already closes the popup itself on outside clicks.
+            --
+            -- An installed screen search (the title screen's campaign filter)
+            -- has no popup to dismiss: its text IS the filter, so blurring --
+            -- e.g. clicking the campaign list's page arrows -- must keep it.
+            -- UninstallSearchHandler clears it when the screen goes away.
+            if TopBar.HasCustomSearch() then
+                return
+            end
             local popup = element.popup
             if popup ~= nil and popup.valid then
                 local mp = popup.mousePoint
@@ -4263,11 +4271,18 @@ TopBar.UninstallSearchHandler = function(guid)
     print("SearchHandler: Uninstall", guid)
     g_searchHandlers[guid] = nil
 
+    local wasActive = g_searchStack[#g_searchStack] == guid
     for i=#g_searchStack,1,-1 do
         if g_searchStack[i] == guid then
             table.remove(g_searchStack, i)
             break
         end
+    end
+
+    --the box's text was this handler's filter (blur keeps it while a handler
+    --is installed); don't leave it showing over a screen it no longer filters.
+    if wasActive and g_searchBar ~= nil and g_searchBar.valid then
+        g_searchBar.text = ""
     end
 
     if #g_searchStack == 0 then

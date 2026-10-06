@@ -194,6 +194,11 @@ function MapFloorLua:BreakWallSegment(segLocVal, segDirVal, rubbleKeywordVal) en
 --- @return any
 function MapFloorLua:GetWallVoxelsAt(locVal) end
 
+--- The altitude (tiles above floor zero) of the ground the wall-voxel column on the given tile stands on. A column rises from the ground under it, so its cubes span [base, base + count) and its top is at base + count.
+--- @param locVal? any
+--- @return number
+function MapFloorLua:GetWallVoxelColumnBase(locVal) end
+
 --- Reconcile the wall-voxel column on the given tile with its solid building operation. Call after spawning wall-voxel objects locally (SpawnObjectLocal) and BEFORE uploading them: this assigns stack ordering to new voxels, snaps them to the tile center, and rewrites the column's map operation. Also safe to call any time to repair a desynced column.
 --- @param locVal? any
 function MapFloorLua:SyncWallVoxelColumn(locVal) end

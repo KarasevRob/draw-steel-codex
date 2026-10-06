@@ -6280,6 +6280,12 @@ function creature.TakeDamage(self, amount, note, info)
             local minionsAfter = math.max(0, math.ceil((minionKillHpBefore - amount) / minionKillHealthSingle))
             local minionsKilled = minionsBefore - minionsAfter
             if minionsKilled > 0 then
+                --Cast.Kills / Cast.Killed: credit the cast now, so behaviors
+                --later in the same ability see the kill.
+                if info.cast ~= nil then
+                    info.cast:RecordKill(self, minionsKilled)
+                end
+
                 if eventArg.attacker ~= nil then
                     local killerToken = dmhub.LookupToken(eventArg.attacker)
                     if killerToken ~= nil then
@@ -6575,6 +6581,12 @@ function creature.TakeDamage(self, amount, note, info)
 
     --if this caused us to start dying we should set dying status.
     if (not isDeadAtStart) and self:IsDead() then
+        --Cast.Kills / Cast.Killed: the same alive -> dead transition that fires
+        --the "kill" event below (a hero going dying does not reach here).
+        if info.cast ~= nil then
+            info.cast:RecordKill(self, 1)
+        end
+
         if self:IsDead() then
             self:RemoveAurasOnDeath()
 

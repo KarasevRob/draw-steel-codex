@@ -38,7 +38,7 @@ write-ups, superseded designs, old module versions) was removed on
 
 ---
 
-# Where things stand (2026-10-02)
+# Where things stand (2026-10-05)
 
 **Everything in the flow above is built**, from the lobby server to the
 victory screen, and most of it has been played in real EotW games at some
@@ -81,6 +81,7 @@ handovers on a non-host screen.
 
 | Change | Files | State |
 |---|---|---|
+| **Knacks** (2026-10-05, user direction; see "Knacks" below and `KNACKS_REFERENCE.md` in this folder): secret options (an `Allow` line now HIDES the option from heroes who do not meet it), options with no roll, `#### If <requirement>` knack versions (no roll or a better table), a capability vocabulary of author intents (`you can teleport` = a teleport speed OR an ability that teleports), many new requirement kinds (perk, complication, career, culture, kit, deity, domain, item, immunity, weakness, size, Wealth/Renown/Level/characteristics), scene conditions on the same vocabulary, real perk rules (Brawny, Lucky Dog, Put Your Back Into It!, Team Leader, Teamwork, Ritualist, Born Tracker, Polymath, Handy, Power Player, Mighty Leaps), skill-scoped feature edges now apply in montage rolls, and a validator Knack coverage report. Both montages re-authored to the standard (Dwarvish Bandits docs in game `1e3c159e`; Goblin Ambush docs in `e96656f3` / `C:\dev\eotw`) | core `DMHub Game Rules/TestRiders.lua`; `EncounterScript.lua`, `EncounterMontage.lua`, `EncounterMontageStage.lua`, `EncounterScriptValidator.lua`; `tests/encounter_script_test.lua` (877 checks); docs `KNACKS_REFERENCE.md`, `.claude/skills/eotw/` | luac + parser tests + typing clean. VERIFIED 2026-10-05 single-client in `1e3c159e` (Heroes() pointed at six pregens for the session): Team Leader spends a token and lends Lift/Jump/Climb/Endurance; a Polder Shadow sees "Find another crossing (no roll)" via Black Ash Teleport and resolves it (tier 0, log "Knack: ..."); Wealth-3 secret hidden; a Dwarf sees the Dwarf-only secret; a faked failed Might roll offers Brawny + Put Your Back Into It!, Brawny costs 1d6+1 and lifts tier 1 to 2; the Ritualist blessing and a knack edge land as roll-dialog chips (Skilled in Sneak + edge + double edge). NOT seen: multi-client, Teamwork, Lucky Dog, Power Player, Born Tracker, a rolled knack version, delve knacks. Modules NOT republished. UNCOMMITTED |
 | **Outcome icons** on entry cards and option buttons (see "Outcome icons") | `EncounterScript.lua`, `EncounterMontageStage.lua`, `tests/encounter_script_test.lua` (461 checks) | Verified live in the authoring game, except the red "?" on a threat (only Goblin Scouts, a Round 2 threat, has one) |
 | **Party size 4-6** (was 3-7) | `Codex Titlescreen/EncounterOfTheWeek.lua` (`MIN_HEROES`/`MAX_HEROES`), `EncounterOfTheWeek.lua` (comment only); server `cloudflare-game-server/src/lobby-core.ts` + tests (280/280) | Worker DEPLOYED to staging 2026-10-02 (it rode along with the City deploy; `lobby-smoke.ts` passes there); Lua NOT deployed, untested live |
 | **No cancelling a montage roll once thrown**: a failed test could be retried via the roll card's X / ESC | `EncounterMontage.lua` (`noCancelOnceThrown = true`); core `DMHub Utils/Utils.lua` (`RollDialogCancelOffered`), `Draw Steel UI/DSRollDialog.lua`, `Timeline/EmbeddedRollDialog.lua` | Untested |
@@ -93,8 +94,10 @@ handovers on a non-host screen.
 | **Location scenes + creator credits** (2026-10-03; see "The town client" -> "Locations take over the screen" and "Creator credits") | NEW `DMHub Core UI/CreatorCredit.lua` (registered, Firebase confirmed); `Codex Titlescreen/EncounterOfTheWeek.lua` (scenes, Gate card, Escape fix); `Codex Titlescreen/EotwRoster.lua` (`GuildPanel` replaces `ShowGuild`; ModalFrame escape priority). Art + logo uploaded as core image assets | luac + typing clean; verified live on one client: both scenes, the logo's tooltip, Back, Escape, the recruit picker and Form a Party dialog over the scenes. Party view at 1240 wide and the video path not seen. NOT deployed to the cloud codemods; the new core file needs an app restart wherever it lands |
 | **Community encounter modules + the encounter pool** (2026-10-03; see "Community encounter modules and the encounter pool") | `DMHub Core Panels/ModShare.lua` (`eotw` module type, `CheckEncounterModule`, `available`/`publishingProperties`/`include` hooks); `Codex Titlescreen/EncounterOfTheWeek.lua` (the pool, encounter keys, grouped Form a Party dropdown + credit line, admin "Encounter Pool..." dialog); `Codex Titlescreen/EotwRoster.lua` (epitaph name); `EncounterOfTheWeek/EncounterOfTheWeek.lua` (`ParseEncounterKey`, `EnsureEncounterModule`, `encounterMapId`/`encounterModule` stamps); `EncounterOfTheWeek/EncounterMontage.lua` (`ScriptForMap`) | luac + typing clean; no engine or server change; needs an app restart; UNTESTED |
 | **No targeting without line of effect** (2026-10-03; see "Strict rules and forced settings"): a hero could pick a strike target the arrow marked "No Line of Effect" | `DrawSteelActionBar/DrawSteelActionBar.lua` (`DrawSteelActionBar.LineOfEffectFailReason`; the check in `CalculateSpellTargetFocusing`; the arrow labels use the same helper). The file also holds older unrelated uncommitted changes | luac clean; the live map's line-of-effect results probed over MCP; needs an app restart; the click block itself is UNTESTED |
-| **Arrange your heroes** (2026-10-04; see "Start-zone confinement": "Arranging the heroes") | Core `Draw Steel UI/DSInitiativeRoll.lua` (`holdBeforeQueue`, `CreateCombatQueue`); `EncounterOfTheWeek.lua` (`HoldForArrangement`, `ArrangeHostTick`, the panel); `EncounterMontage.lua` (reset) | luac + typing clean; VERIFIED 2026-10-04 in the authoring game with /eotwencounter (single client): the banner then the panel, Ready -> queue with the heroes first, confinement to Start + an unlocked Start2. The lost-`begin` fallback and a multi-client Ready are untested |
+| **Arrange your heroes** (2026-10-04; see "Start-zone confinement": "Arranging the heroes") | Core `Draw Steel UI/DSInitiativeRoll.lua` (`holdBeforeQueue`, `CreateCombatQueue`); `EncounterOfTheWeek.lua` (`HoldForArrangement`, `ArrangeHostTick`, the panel); `EncounterMontage.lua` (reset) | luac + typing clean; VERIFIED 2026-10-04 in the authoring game with /eotwencounter (single client): the banner then the panel, Ready -> queue with the heroes first, confinement to Start + an unlocked Start2. The lost-`begin` fallback and a multi-client Ready are untested. 2026-10-05: the phase is now no-roll only (a rolled initiative passes no `holdBeforeQueue`; the heroes arrange before rolling) -- UT |
 | **Dwarvish Bandits script features** (2026-10-04; see "Script features added for The Dwarvish Bandits") | Core: `DMHub Game Rules/TestRiders.lua` (movement/wealth requirements, `(Round N)` riders), `Draw Steel UI/DSVictoryScreen.lua` (`RegisterHeroCardNote`), `Codex Titlescreen/EotwRoster.lua` (treasure home). EotW: `EncounterScript.lua` (new clauses, entry dice tables, round scenes, bystander setup line) + `tests/encounter_script_test.lua` (503), `EncounterMontage.lua` (effects, `MontageSceneImage`, round in `HeroFacts`), `EncounterMontageStage.lua` (`SetBackdropScene`: video loop, round scenes), `EncounterZones.lua` (object reveals, `UnlockedStartZones`), `EncounterOfTheWeek.lua` (extra start zones, bystanders out of initiative, arrival item snapshot, `TreasureGained`, treasure on the outcome + victory card) | luac + parser tests (503) + typing clean. VERIFIED 2026-10-04 by an MCP-driven single-client playtest in game `1e3c159e` (via `codex-eotwauthor`): day video backdrop playing, night backdrop in round 2, Zaliac speech/branch, the Zaliac edge chip, a tier-3 double table roll, Start2 + 2 hero tokens, chest reveal, a lost consumable with and without consumables (silent recovery), the max-Stamina curse, the rolled-damage boon (a live power modifier), recovery value +2, the locked mother -> trail -> cave chain (+3 tokens), the Wolf ally, a party-wide damage boon, all three end-of-montage consequences, Civilians out of initiative, freed on contact, walking 4 per hero turn, the scripted victory (2/2) and "Treasure: Bastion Belt" on the victory card. NOT seen: the Wealth / climb-fly edges with a qualifying hero (none of the pregens qualifies; unit-tested), the treasure reaching the town, a multi-client run |
+| **The authoring test** (2026-10-05; see "The authoring test"): Game menu rows to play the map's encounter as a player host from the start, the montage or the combat, with a pregen picker and End Test | Engine: `GameController.cs` (`playerHostModeForced`, `directorlessPlay`), `LuaInterface.cs` (`dmhub.playerHostModeForced`, `dmhub.directorlessPlay`), `GameHarness.cs` (carried across the refresh), `LevelObject.cs` (trap freeze); stub `Definitions/dmhub.lua`. Codex: `EncounterOfTheWeek.lua` (`IsTestPlayer` in `IsEotwGame`, "the authoring test" section, conclusion + proceed + host-tick gates), NEW `EncounterTest.lua` (registered in the EncounterOfTheWeek codemod after `EncounterMontageStage.lua`, Firebase confirmed), `EncounterMontageStage.lua` (`ShowStoryScreen` `buttonText`/`busyText`) | C# NEEDS BUILD; luac + typing clean; needs an app restart; UNTESTED |
+| **Reinforcements + clear-the-map victory** (2026-10-05, user direction; see "Reinforcements and the clear-the-map victory"): `## Reinforcements: <Name>` sections (`Arrive:` / `Enter:` / `Shout:` + islands that take turns) and `Victory: every Dwarf on the map is defeated`. Applied to The Dwarvish Bandits in game `1e3c159e` | NEW `EncounterReinforcements.lua` (registered in the EncounterOfTheWeek codemod after `EncounterZones.lua`, Firebase confirmed); `EncounterScript.lua` (grammar), `EncounterOfTheWeek.lua` (host tick + victory OR), `EncounterZones.lua` (victory setup entry), `EncounterMontage.lua` (reset), `EncounterScriptValidator.lua` (rows; bystander lines no longer reported as unrecognized); core `DMHub Game Rules/Creature.lua` (`eotwReinforcement` field annotation); `tests/encounter_script_test.lua` (909); skill `script-reference.md` | luac + parser tests + typing clean; the live document parsed offline with the new parser (no warnings; gunners round 2, trappers round 3, alternating). NOT run in the app: needs an app RESTART (new codemod file), then the authoring test (Combat) to see a wave arrive, the shout, the clear-map win. UNCOMMITTED |
 | This document | | |
 
 The codex working copy also holds plenty of unrelated uncommitted work, so
@@ -212,6 +215,26 @@ In a real EotW game with **at least two clients** and the current week:
    code must also reach players: republish `mcdm-encounteroftheweek` (and
    `codex-eotwauthor`) once the code is committed and deployed.
 
+11. **The authoring test** (BUILT 2026-10-05, untested; see "The authoring
+   test"). Build the engine (`playerHostModeForced`), restart, then in an
+   authoring game with pregens installed: Game menu > Test Encounter:
+   Montage with 4 pregens -> the refresh lands on the montage stage as a
+   player (EotW HUD, test bar); play into combat; win; the Conclusion screen's
+   End Test -> back to the Director with the map as authored (no copies,
+   spawns or allies; settings and hero tokens restored). Then Combat (straight
+   to the spawn and Draw Steel), From the Start, End Test mid-montage and
+   mid-combat, and RESUME after an app restart mid-test.
+
+12. **Reinforcements** (BUILT 2026-10-05, untested live; see "Reinforcements
+   and the clear-the-map victory"). Restart the app (new codemod file), open
+   The Dwarvish Bandits (`1e3c159e`) and run Test Encounter: Combat. Check:
+   `/eotwreinforce` lists the section; at the start of round 2 four to eight
+   Dwarf Hunters and a Gunner appear on the stairs (tiles x 4-7 around y -5,
+   zone `Reinforcements`), take turns that round and one shouts; round 3
+   brings the Trappers; killing every Dwarf present wins even with the
+   hostages still bound; End Test removes the arrivals. Tune the numbers with
+   the user afterwards.
+
    Progression is Phase 11, after its own design pass. **Note:** the EotW
    screen now IS the town, and its games live in the City's roster instead
    of the old `eotw` lobby, so steps 1-2 above run through the town.
@@ -229,7 +252,7 @@ In a real EotW game with **at least two clients** and the current week:
 | Hero card (town strip + montage HUD) | `Codex Titlescreen/EotwHeroCard.lua` (global `EotwHeroCard`) |
 | City DO (the town's server) | `cloudflare-game-server/src/city-core.ts` (pure logic), `src/city.ts` (`CityObject`), tests `test/city-core.test.ts`, `test/city-smoke.ts` |
 | Character export/import | `dmhub.ExportCharacter` / `dmhub.ImportCharacter` in `Assets/Scripts/LuaInterface.cs` -> `GameController.ExportCharacter` / `ImportCharacter` |
-| Game-side mod (codemod `cdc19d98-...`, `EncounterOfTheWeek_1428`, ships in the module) | `EncounterOfTheWeek/`: `EncounterOfTheWeek.lua` (setup, map script, beat machine, combat glue), `EncounterScript.lua` (pure parser), `EncounterZones.lua` (traps/zones), `EncounterScriptValidator.lua` (dev panel), `EncounterMontage.lua` (montage runtime + shared effect application), `EncounterNarrative.lua`, `EncounterOfTheWeekHud.lua` (custom interface), `EncounterPrep.lua` (Tactical Preparation), `EncounterMontageStage.lua` (all stage UI) -- that is the codemod's file order |
+| Game-side mod (codemod `cdc19d98-...`, `EncounterOfTheWeek_1428`, ships in the module) | `EncounterOfTheWeek/`: `EncounterOfTheWeek.lua` (setup, map script, beat machine, combat glue), `EncounterScript.lua` (pure parser), `EncounterZones.lua` (traps/zones), `EncounterReinforcements.lua` (reinforcements, the clear-the-map victory), `EncounterScriptValidator.lua` (dev panel), `EncounterMontage.lua` (montage runtime + shared effect application), `EncounterNarrative.lua`, `EncounterOfTheWeekHud.lua` (custom interface), `EncounterPrep.lua` (Tactical Preparation), `EncounterMontageStage.lua` (all stage UI), `EncounterTest.lua` (the authoring test's menu rows, hero picker and test bar) -- that is the codemod's file order |
 | Parser unit tests | `tests/encounter_script_test.lua` (run with `../dependencies/lua/bin/lua.exe` from the codex root) |
 | Test riders (core, also used by the journal) | `DMHub Game Rules/TestRiders.lua` |
 | Lobby server | `cloudflare-game-server/src/lobby-core.ts` (pure logic), `src/lobby.ts` (`LobbyObject` DO), tests `test/lobby-core.test.ts`, `test/lobby-smoke.ts` |
@@ -869,7 +892,7 @@ map, so every panel over it is fully opaque (`ff`).
 - **Hero's Guild** (0.44, 0.42), the walled canal island; `phosphor/shield-star-fill.png`.
 - **Town Gate** (0.53, 0.135); `sword-fill`. Locked until the roster has
   been listed and holds at least one living hero.
-- **Graveyard** (0.31, 0.86); `cross-fill`.
+- **Graveyard** (0.31, 0.86); `hands-praying-fill`.
 
 **Working copies.** A town hero is a character in the per-player **lobby
 game** whose charid **is** its city heroid, tagged `properties.eotwHero`.
@@ -1869,8 +1892,10 @@ When something works for a Director but not for a player host, look for an
   with it. The child is a full Director from its first frame while the parent
   stays a player host. Nothing stops the debug window from being elected as
   the map-script host.
-- `/toggle eotw:forcecustomui`: shows the EotW interface in any game, for
-  iterating without a real EotW game.
+- (`/toggle eotw:forcecustomui`, which forced the EotW interface on in any
+  game, was retired 2026-10-05: the authoring game always shows the Director
+  interface, and the authoring test is how to see the EotW one there. See
+  "The authoring test".)
 
 ## Strict rules and forced settings
 
@@ -1974,7 +1999,8 @@ Core Rules reload.
    instructions, then the monster spawn, then pending zone reveals, then
    dismisses the stage, then starts combat;
 4. while combat is live: keep the AI running, pay banked surges
-   (`ApplyPendingCombatBoons`), stamp `combatStarted`, and check the outcome.
+   (`ApplyPendingCombatBoons`), stamp `combatStarted`, check the outcome, and
+   (while no outcome is pending) bring in the round's reinforcements.
 
 A document with no `#` beats but an `[[encounter]]` island is one implicit
 encounter beat, so a week without a script plays as a plain fight.
@@ -1991,6 +2017,74 @@ numHeroes, anchor)` on raw groups (skipping waves and zero-count groups),
 which handles banked positions, a fallback grid, minion squads, balancing and
 initiative grouping. Spawned ids go on `richEncounter.spawns` (also the
 double-spawn guard).
+
+Islands under a `## Reinforcements: <Name>` section of the encounter beat are
+not the opening fight (the parser keeps them off `beat.encounterTag`); they
+arrive later, see "Reinforcements and the clear-the-map victory".
+
+## Reinforcements and the clear-the-map victory (BUILT 2026-10-05, untested live)
+
+User direction (2026-10-05, for The Dwarvish Bandits): fewer monsters at the
+start, a new group (a squad and its captain) entering from the stairs every
+round, alternating types, more for a bigger party; the heroes should really
+have to work to get the hostages out. And when the heroes kill every Dwarf on
+the map, they win. Decisions taken:
+
+- **Authored in the document**, not in the encounter builder's waves. Core
+  `Encounter.waves` exist (Director-deployed from the initiative bar's
+  Reinforcements strip) but have no "every other round" and no Director to
+  click them in EotW. A `## Reinforcements: <Name>` section under `# Encounter`
+  carries `Arrive:` (schedule), `Enter:` (a zone type), `Shout:` lines and one
+  or more `[[encounter]]` islands. Grammar: the /eotw skill's
+  `script-reference.md`.
+- **Alternation = several islands in one section**, taken in turn by arrival
+  number (`EncounterScript.ScheduleOrdinal`). Separate sections with offset
+  schedules (`every other round from round 2` / `... from round 3`) also work.
+- **Party-size scaling** is each island's own (encounter builder `Appears:`
+  gates and per-size balancing), through `Encounter.SpawnGroupForReal`, like
+  the opening fight.
+- **Arrival timing**: at the START of each scheduled round; the new groups go
+  into the initiative with `SetInitiative(groupid, 0, 0)` (entry round = the
+  current round, so they act this round), and `RecordOnsetMonsterGroups` gives
+  them victory-screen cards.
+- **Placement**: the zone's free tiles in random order (each tile once, then
+  repeated; the spawn's `fitLocation` nudges overflow onto a free neighbour).
+  A group copy is spawned with `spawnlocs` replaced and `placementid` dropped,
+  so the island's own record and its Save and Remove tags are untouched. No
+  `Enter:` = the island's saved positions.
+- **Shouts**: one arriving non-minion (else any) says a random `Shout:` line
+  through `creature:CharacterSpeech` (no language, so everyone reads it).
+- **`Victory: every <kind> on the map is defeated`** (a setup line, `{kind =
+  "victory", condition = "clearmap", who}`) is an OR on top of the encounter's
+  own victory (`live:CheckVictory()`, which an Encounter Script replaces):
+  `EncounterReinforcements.ClearMapVictory()` = no living, uncontrolled,
+  non-bystander monster of that keyword / bestiary-type word on the map.
+  Minions count (unlike core `CountLiveCombatants`). Reinforcements still to
+  come do not count -- the user's "kill all Dwarves PRESENT on the map".
+- **A won fight is never snatched back**: the host runs the reinforcement tick
+  after `CheckEncounterOutcome` and only while `m_outcomeMetTime` is nil and no
+  outcome is awarded, so a map cleared just before a round boundary still
+  wins.
+
+Runtime (`EncounterReinforcements.lua`, codemod order after
+`EncounterZones.lua`, registered 2026-10-05, Firebase confirmed):
+`HostTick(queue, live)` from `MapScriptHostThink` while combat is live;
+idempotent per `<sectionId>-r<round>` in `eotwscript.data.reinforcements =
+{arrived = {key = {round, at, island, count}}, spawned = {charid...}}`,
+stamped BEFORE spawning so a failed spawn never doubles. Spawned tokens carry
+`properties.eotwReinforcement = <sectionId>`; `EncounterMontage.ResetTest`
+(and so `/eotwmontage reset` and End Test) deletes them and clears the state.
+Islands resolve like scenes: `parse.sources[line]` gives the document, and
+`EncounterScript.AnnotationKey` the journal key (`encounter-1`,
+`encounter-2`, ...). The validator panel lists each section; `/eotwscript`
+dumps them.
+
+**Gaps**: the HUD's objective strip still shows only the script's victory
+text ("Rescue the Hostages"), so players learn of the clear-the-map win from
+the narrative text; reinforcements do not run under the `/eotwencounter`
+dev driver (it has no host tick) -- use the authoring test or
+`/eotwreinforce arrive <n>`; the publisher does not yet check that an
+`Enter:` zone keyword ships with the module.
 
 ## Combat entry
 
@@ -2034,10 +2128,14 @@ confinement and its outline grow (the cache key includes the unlocked list);
 Heroes are placed long before the montage, so the extra area matters in the
 arrangement phase (below), when a winning party may move into it.
 
-**Arranging the heroes (BUILT 2026-10-04, untested).** When the heroes win
-the initiative -- the die, or a montage outcome that hands it to them ("you
-win initiative", "you surprise the enemy") -- the Draw Steel banner still
-announces it, but the initiative queue is not created yet. Core hook:
+**Arranging the heroes (BUILT 2026-10-04, untested).** The phase only
+happens when there is **no initiative roll**: a montage outcome hands the
+heroes the initiative ("you win initiative", "you surprise the enemy"). When
+the die is rolled there is no phase: the banner waits for a player to roll, and
+the heroes arrange themselves (inside the start area) before rolling.
+`StartEncounterCombat` passes `holdBeforeQueue` only when `immediateResult ==
+"heroes"` (decided 2026-10-05). In the no-roll case the Draw Steel banner still
+announces the win, but the initiative queue is not created yet. Core hook:
 `Encounter.StartCombatWithTokens{ holdBeforeQueue = fn(heroesWin, begin) }`
 (`DSInitiativeRoll.lua`; the banner's queue creation is now the local
 `CreateCombatQueue(heroesWin)`, and `begin()` runs it once). EotW passes
@@ -2059,7 +2157,8 @@ true })`. `/eotwmontage reset` clears `arrange` and `arrivalItems`.
 ## Victory, defeat and leaving
 
 - **Detection** (host tick, while the queue is live and nothing is awarded):
-  victory = `live:CheckVictory()`; defeat = `live:CheckDefeat()` or every
+  victory = `live:CheckVictory()` or the script's `Victory:` clear-the-map
+  line (`EncounterReinforcements.ClearMapVictory`); defeat = `live:CheckDefeat()` or every
   hero **dead** (`CountLivingHeroes`, `not IsDead()` -- dying heroes still
   count). The award sets `victoryAwarded`/`defeatAwarded` and uploads the
   queue; `DSVictoryScreen` shows on every client.
@@ -2225,7 +2324,8 @@ the title bar, dockable/launchable panel registries, search buckets, and the
 character panel's access level.
 
 The EotW provider (`EncounterOfTheWeekHud.lua`), active in an EotW game
-(unless `eotw:showdirectorui`) or with `eotw:forcecustomui`:
+(unless `eotw:showdirectorui`) or for the tester during an authoring test
+(both via `IsEotwGame()`):
 
 - No side rails, no Panels menu, no Compendium (menus, toolbar and search).
   The title bar's Codex menu stays.
@@ -2254,8 +2354,8 @@ auto-width label, so wrap long text yourself.
 
 # Encounter scripts
 
-**Author-facing copy:** the `/eotw` Claude skill (`.claude/skills/eotw/` at the
-repo root: `SKILL.md` workflow, `script-reference.md` grammar,
+**Author-facing copy:** the `/eotw` Claude skill (`.claude/skills/eotw/` in this
+codex repo: `SKILL.md` workflow, `script-reference.md` grammar,
 `lua-toolkit.md` MCP checks) guides an author from map to published module.
 When the grammar below changes, update `script-reference.md` too.
 
@@ -2268,6 +2368,26 @@ the bundled interpreter. The runtime (`EncounterMontage`, `EncounterNarrative`,
 `EncounterPrep`, `EncounterZones`) and the stage (`EncounterMontageStage`) sit
 on top. A Director-run montage in a normal game could reuse the parser and
 runtime later; only the hero row and HUD wiring are EotW-specific.
+
+## Knacks (BUILT 2026-10-05)
+
+User direction 2026-10-05: montages should reward what makes each hero
+different -- languages, movement, immunities, perks, complications, class and
+ancestry features, abilities such as Black Ash Teleport. The reference (grammar,
+the capability vocabulary, the perks played by their real rules, the authoring
+STANDARD) is `EncounterOfTheWeek/KNACKS_REFERENCE.md`; the analysis that led
+to it is `EOTW_MONTAGE_KNACKS.md` at the dmhub repo root. Decisions:
+
+- `Allow` riders make an option SECRET (hidden, not locked). Spectators see a
+  secret option exactly when the choosing player does (everyone watches the hero
+  at the entry). Journal rolls keep the locked display.
+- Authors write INTENT; `TestRiders.CAPABILITIES` maps it to every source.
+  Pregens are a breadth test (validator Knack coverage), never named in code.
+- A knack can remove the roll or replace the power table (`#### If ...`).
+- Real perk rules are implemented in the montage wherever possible.
+- The host fixes the version a hero takes at `choose` (`t.knackIndex`);
+  `EncounterMontage.TurnOption` is the one way runtime code reads the turn's
+  option. A free version resolves as tier 0.
 
 ## The document, discovery and sub-documents
 
@@ -2517,6 +2637,10 @@ listed name, starts with "<name> ", or whose bestiary `monster_type` is it
 (`EncounterOfTheWeekGame.IsBystander`). With no initiative entry the Monster
 AI never picks them as strike/advance targets, and the burst planners count
 them as friends (they are unaffiliated monsters), so they are not hit either.
+They also make no opportunity attacks and provoke none: EotW wraps
+`creature:CanOpportunityAttack` (which both the `OnMove` dispatch and the
+token HUD's OA preview ask) to fail when either side is a bystander, in EotW
+games and authoring tests only.
 What happens to them is an Encounter Script's job (below).
 
 **Encounter Scripts in EotW.** Core Encounter Scripts (`MCDMEncounter.lua`,
@@ -2626,6 +2750,8 @@ items     = { [heroCharid] = { {itemid, name, qty}, ... } }   -- the montage hau
 initiative, surprised = {party, enemy}, noSurprise, surges = { [heroCharid] = n }
 zoneSetup, revealZones, zonesRevealed, unlocked, intelligence, intelligenceLog,
 chestSeen, stageDismissAt
+reinforcements = { arrived = { ["<sectionId>-r<round>"] = {round, at, island, count} },
+                   spawned = { charid, ... } }
 ```
 
 - **Host-arbitrated, single writer.** Players stamp
@@ -2810,6 +2936,135 @@ UI facts learned here that apply elsewhere:
   direct children's text.
 - `selfStyle` is write-mostly: reading a key it never set raises.
 
+## The authoring test (BUILT 2026-10-05, untested; needs an engine build)
+
+User direction (2026-10-05): testing an encounter in the authoring game
+should be quick, through menu options rather than the dev drivers: pick heroes
+from the pregens installed in the game, launch into the montage or straight
+into the combat, get the full EotW interface, and have an easy way back to the
+normal Director UI. This is what `codex-eotwauthor` authors use; the dev
+drivers below remain for single-beat poking.
+
+**Decisions taken with the user (2026-10-05):**
+- **True player view.** The Director plays the test as a *player host*:
+  player vision, player UI, the strict rules binding them, the same as the
+  host of a real EotW game. Accepted cost: entering and leaving refresh the
+  game (as view-as-player does).
+- **A test plays on from where it starts**, through every later beat, to
+  combat and its outcome, like a real game. Three starts: **From the Start**
+  (beat 1, opening narratives included), **Montage** (the first `# Montage`
+  beat), **Combat** (the `# Encounter` beat).
+- **End Test puts the map back as authored**: combat ended with no victory
+  screen, the hero copies, allies and spawns deleted, traps/zones/revealed
+  objects restored, script state cleared, and every game setting the test
+  overrode (and the hero-token pool) restored.
+
+**Engine: `dmhub.playerHostModeForced`** (`GameController.playerHostModeForced`,
+`LuaInterface.cs`; stub hand-added to `Definitions/dmhub.lua`). Player-host
+mode used to exist only in a directorless game. The new client-only,
+session-scoped switch makes `playerHostMode` true in an ordinary game for a
+client with hosting status; `playerHostModeSuppressed` still wins. Its setter
+forces the view-as-player hard refresh when `isDM` changes, and
+`GameHarness.RefreshGame` carries it across that refresh (like the
+suppression). `dmhub.directorlessPlay` (= directorless game OR forced) now
+gates the pressure-plate game freeze in `LevelObject.cs`, so a trap does not
+freeze a test with nobody to unfreeze it. NEEDS BUILD.
+
+**The flow** (`EncounterOfTheWeek.lua`, "the authoring test"; UI in
+`EncounterTest.lua`):
+1. **Game menu** rows `Test Encounter: From the Start / Montage / Combat`
+   (plus `/eotwtest start|montage|combat`) show for the Director while the
+   current map's script has that beat, no test exists and combat is not live
+   (`CanStartTest`). They are registered without `dmonly` (that is decided at
+   load, and a test reloads the file as a player) and hide via `filtered`.
+2. **The hero picker** (`EncounterTest.ShowDialog`): every hero character in
+   the game that is not on the current map (`TestCandidates`, via
+   `dmhub.GetAllCharacters`), module pregens first
+   (`module.IsCharacterAvailableInModule`), then "Other heroes in this game";
+   a Start-at dropdown; 1-6 heroes; the last pick is remembered
+   (`eotw:testheroes` preference). Heroes already standing on the map are
+   named, because the montage and combat take every hero on the map.
+3. **StartTest** parks `{gameid, mode, heroes, at}` in `_G.EotwPendingTest`
+   and sets `dmhub.playerHostModeForced = true`; the game refreshes.
+   `playerHostMode` reads true the instant the switch is set, before the
+   refresh, so the request stays parked until a live instance's
+   `RunTestSetup` has waited out the reload (2s, `gameLoadingProgress`, map
+   + hud up, and every setting it saves registered: `TestSettingsRegistered`);
+   only a copy of the file loaded after StartTest takes it (`m_loadedAt`; the
+   pre-refresh copy once ran the setup mid-reload and touched
+   `permission:playersinitiative` before `MCDMInitiativeBar.lua` registered
+   it -- "Could not find setting"), unless no reload comes within 15s; a
+   request whose switch never took is dropped after 30s.
+4. **TestArrival** (host, player-host mode): `EncounterMontage.ResetTest()`
+   for a clean slate; the record `eotwstate.test = {phase = "setup", mode,
+   by, startedAt, mapid, heroes, saved = {settings, heroTokens}}` with every
+   overridden setting saved (`numheroes`, `permission:playersinitiative`, all
+   of `g_forcedGameSettings`); `PlaceMyHeroes` pastes copies of the chosen
+   heroes into the Start zone as this user's own heroes (the real pregen
+   path: level 1, detached); `numheroes` = party size clamped 3..7, Hero
+   Tokens = party size, players-run-initiative, forced strict settings;
+   `expectedUsers`/`arrived` = this user; the chosen beat is begun
+   (montage/narrative `Begin`) and stamped; the map script attached; phase
+   `running`.
+5. **While running**, `IsEotwGame()` is true on the tester's client
+   (`IsTestPlayer()`: running AND `dmhub.playerHostMode`; never cached), so
+   the EotW HUD, the start-zone confinement, the arrangement panel, the
+   strict rules and the paused trigger timers all behave as in a real game.
+   `MapScriptHostThink` and `EnsureMapScriptRunning` accept
+   `IsTestRunning()` too, so the host tick runs wherever it is elected.
+   Real-game-only pieces stay off: no `RecordPendingOutcomes` (no town), no
+   lobby `leave-game`, no `eotw:concludedgame`, no `LeaveGame`, and the
+   Director-UI hatch preference is ignored. Everyone else in the authoring
+   game keeps their normal view (though they would see the presented stage).
+6. **The title-bar item** (`EncounterTest.CreateTitlebarItem`, supplied by
+   the EotW interface's `titlebarPanels` hook while `IsTestPlayer()`, so it
+   sits in the title bar's status area and never covers the initiative bar
+   or the stage; a floating bar did, and was replaced 2026-10-05):
+   "Encounter Test: <mode>" and END TEST. After an app restart mid-test the
+   client is a Director again with no EotW interface: Game menu > Resume
+   Encounter Test / End Encounter Test cover it (also `/eotwtest end`).
+7. **The outcome**: the victory/defeat screen as usual (Victories are
+   awarded to the copies); the host's Proceed ends combat through
+   `EndTestCombat` (no battle log, no analytics) instead of the default
+   teardown; then the `# Conclusion` / `# Defeat` story screen with an
+   **End Test** button (`ShowStoryScreen{buttonText, busyText}`), or straight
+   to End Test when the script has none.
+8. **EndTest**: phase `ending` (the host tick stops), the AI stopped,
+   `EndTestCombat`, `ResetTest()` (state, allies, spawns, traps, zones,
+   objects, malice, map script detached), the hero copies deleted (from
+   `test.placed` and `placedHeroes`), every corpse/loot object the test's
+   deaths left destroyed (objects from the `corpse` keyword's blueprint not
+   in `saved.corpses`, the ids noted at the start, so authored corpses stay),
+   every token that was on the map at the start written back exactly
+   (`RestoreMapTokens`: `dmhub.ImportCharacter{record, charid}` from the
+   `eotwtestsnapshot` document, which `SnapshotMapTokens` filled with
+   `dmhub.ExportCharacter` records after the start's clean-slate reset --
+   position, conditions, stamina, re-created if deleted; this is what puts a
+   hostage script's freed and moved Civilians back), saved settings and hero
+   tokens restored, the arrival keys and the record cleared, then
+   `playerHostModeForced = false`, refreshing back to the Director.
+
+**Fixed after the first live try (2026-10-05, UNTESTED):** the New Player
+Welcome document opened over the test (the refresh re-enters as a player
+with no character; `DocumentNewUser.lua`'s EotW check now also counts a
+parked `_G.EotwPendingTest` or a test on the record); heroes floated over a
+sunken Start zone (-4): `GameController.PasteCharacters` (engine, NEEDS
+BUILD) now stands every pasted token on the surface under its footprint
+(`GetAltitudeMax`, which settles on the highest surface at or below the
+loc), and `UnstackPlacedHeroes` moves heroes to `dest.withGroundAltitude`.
+Monsters and allies had the same float: `game.SpawnTokenFromBestiaryLocally`
+gained an `onGround` option (engine, NEEDS BUILD) that settles the token on
+the surface in either direction instead of only raising it; the three
+encounter fallback grids (`Encounter.SpawnGroupForReal`, the second grid in
+`EncounterPanel.lua`, `LiveEncounter:DeployWave`) and the montage's
+`SpawnAlly` pass it. Saved spawn positions keep their height (fliers).
+
+**Known gaps:** a second Director in the authoring game could win the
+map-script election (the host tick still runs there, since it accepts
+`IsTestRunning()`, but that client does not see the test); a hero
+already on the map joins the test (it is restored at the end, but
+the start's reset heals it first, so the snapshot holds it healed).
+
 ## Dev tools
 
 | Command | What it does |
@@ -2820,10 +3075,12 @@ UI facts learned here that apply elsewhere:
 | `/eotwnarrative start\|stop\|state\|force\|reset` | the same for narratives; `force` resolves on the choices in |
 | `/eotwprep start\|stop\|state\|force\|reset\|unlock\|intelligence <n>` | Tactical Preparation |
 | `/eotwzones setup\|reveal <zone>\|apply\|state\|reset` | traps and zones alone |
+| `/eotwreinforce [state \| arrive <n>]` | list the script's reinforcement sections, its `Victory:` line (with how many such enemies stand now) and what has arrived; `arrive <n>` brings section n's next group in now (combat must be live) |
 | `/eotwencounter start\|stop\|state` | the encounter beat outside an EotW game (`DevEncounterStart`): setup instructions, the spawn for `numheroes`, pending zone + object reveals, then `StartEncounterCombat` -- the montage's initiative outcome, bystanders and the arrangement pause (it stands in for the host tick's `ArrangeHostTick` until the queue exists; `m_devEncounter` lets the panel show). The Director plays both sides. `stop` abandons a held arrangement |
 | `EncounterOfTheWeekGame.EnsureArrivalItems()` | the arrival item snapshot; `/eotwnarrative start` and `/eotwmontage start` take it too, so a playtest's treasure is tracked |
 | `EncounterOfTheWeekGame.DebugGetState()` | the `eotwstate` doc |
 | Codex menu > New Player Window (titlescreen, town open, admin) | a second window as the secondary account, opened into the town; see "Debug New Player Window" |
+| Game menu > Test Encounter: From the Start / Montage / Combat, End Encounter Test; `/eotwtest start\|montage\|combat\|end\|state` | the authoring test: play the map's encounter as a player host with copies of chosen pregens; see "The authoring test" |
 
 **Dev-driver trap**: outside an EotW game nothing stamps `doc.data.beat`, and
 the stage chooses its body from it, so set it to the beat you are testing.
@@ -2845,10 +3102,22 @@ one option enters the in-order delve `The Lost Boy`: Where Did He Go? ->
 Down the Gully -> The Sinkhole Cave, one hero's turn, +3 hero tokens at the
 end; it replaced a chain of `(Locked)` entries 2026-10-04), Mysterious Dwarvish Runes (rolled-damage / recovery-value
 blessings, max-Stamina curse), The Caged Wolf; threats Golden Hand Lookouts,
-Bitter Night Chill. The fight: level-1 gold-tier dwarves on the ledge (two
-Gunner squads with Axethrowers / Hunters, a Trapper with Catchpoles, a lone
-Trapper, two Reel Winches; EV 45 / 39 / 33 for 6 / 5 / 4 heroes, all Hard),
-the two Civilians as bystanders, and the inline Hostage Rescue script. The
+Bitter Night Chill. The fight (reworked 2026-10-05, user direction: fewer
+at the start, a wave every round): level-1 gold-tier dwarves on the ledge at
+the start -- the Crates Gunner squad (Axethrowers), the Pens Trapper squad
+(Catchpoles) and the Reel Winches (1 at 5 heroes, 2 at 6); EV 30 / 24 / 18
+for 6 / 5 / 4 heroes (was 45 / 39 / 33 with the South Ledge gunners and the
+lone Lookout trapper, both removed). `## Reinforcements: The Golden Hand`:
+every round from round 2, from the `Reinforcements` zone painted on the
+stairs that climb west off the ledge up to the ruins (tiles (7,-5) (6,-5)
+(5,-5) (4,-5) (4,-4) (4,-3), keyword `f5f0517b`, map-scoped like Start2),
+alternating the islands `Golden Hand Gunners` (Gunner + Hunters) and `Golden
+Hand Trappers` (Trapper + Catchpoles): 4 minions + captain at 4 heroes, 6 at
+5, 8 at 6 (balancing +2 / +4), EV 9 each; five shouts ("Don't let them get
+away!" ...). `Victory: The heroes also win once every Dwarf on the map is
+defeated.` The hideout narrative now warns the party about the stairs and the
+way to buy time. The two Civilians stay bystanders under the inline Hostage
+Rescue script. The
 Treasure Chest (inactive, loot = Bastion Belt) is revealed by the Wanderers.
 The map's info bubble (`79776ab1`, hidden from players: `map:playerinfobubbles`
 is off) links to the master `Encounter` document; the empty `Room 1` document
@@ -2981,14 +3250,24 @@ a playtest write-back and the authoring game edit the same files.
 ## Community encounter modules and the encounter pool (BUILT 2026-10-03, untested)
 
 **Authoring module `codex-eotwauthor`** (created 2026-10-04 by the user in
-the app): a code-only module carrying just the EncounterOfTheWeek
-(`cdc19d98`) and Monster AI (`263594e2`) codemods. Authors install it in their
-authoring game instead of `mcdm-encounteroftheweek`, which would drag the
-official week's maps and pregens in. It has no compendium content on purpose:
-community modules never take a dependency on it, so it can never put a second
-(older) copy of the EotW code into a real game, whose code comes from the
-official starting module. The Start zone type is the author's own (matched by
-name). Its pinned code snapshot must be republished when the EotW code
+the app): the EncounterOfTheWeek (`cdc19d98`) and Monster AI (`263594e2`)
+codemods. Authors install it in their authoring game instead of
+`mcdm-encounteroftheweek`, which would drag the official week's maps and
+pregens in. It was code-only at first, so that community modules never take a
+dependency on it and can never put a second (older) copy of the EotW code
+into a real game, whose code comes from the official starting module.
+**v2 (2026-10-05, user direction)** also carries the two rows a real EotW
+game has that an authoring test needs: the **Hero Death (Encounter of the
+Week)** global rule and the **Trap** zone type, under the SAME ids as the
+official module's (`a011c97a`, `9b16ee37`), the Trap made a full keyword
+(the official one is scoped to the official map). Without Hero Death a hero
+who died in an authoring test stayed on the map. Same ids mean a community
+map's Trap zones match a real game's Trap, and if a community module ever
+picks the rows up as a dependency it is the same row, not a second one (not
+verified whether the publisher pulls them in). The Start zone type is still
+the author's own (matched by name). Published by script from game
+`1e3c159e`; the rows were copied from `C:\dev\eotw\objectTables`. Keep both
+copies in step when either rule changes. Its pinned code snapshot must be republished when the EotW code
 changes (a dev machine's git folder overrides the pin anyway). The /eotw
 skill preflight and ModShare's "cannot check scripts" error point at it.
 
@@ -3229,7 +3508,9 @@ tuning untested), [~] 52 sub-documents (montage on the split document
 unplayed), [x] party-size scaling, locked / temporary entries, standing
 edges, fair roll, test riders, teasers, hidden clauses, script validator,
 haul strip + hand-over, stage cursors (engine), [~] outcome icons
-(uncommitted).
+(uncommitted), [~] 79 the authoring test: Game menu test from the start /
+montage / combat as a forced player host, pregen picker, End Test clean-up
+(built 2026-10-05; engine NEEDS BUILD; untested).
 
 **Phase 8 -- narrative beats.** [x] 40 parser, [x] 41 runtime, [x] 42 stage,
 [x] 43 beat machine, [ ] 44 two-client live test (genuine disagreement), [ ] 45
@@ -3310,6 +3591,15 @@ the encounter pool + encounter keys at the Town Gate, [~] 76 host installs
 the community module at setup (`EnsureEncounterModule`), [~] 77 admin
 Encounter Pool dialog (pull/restore). All untested live. [ ] 78 per-encounter
 loading art (module cover art), Start-zone check at publish.
+
+**Phase 14 -- reinforcements (built 2026-10-05).** [x] 79 grammar
+(`## Reinforcements:` with `Arrive:` / `Enter:` / `Shout:` and islands that
+take turns; `Victory: every <kind> on the map is defeated`), parser + tests;
+[~] 80 host runtime (`EncounterReinforcements.lua`: arrivals, shouts,
+initiative, the clear-the-map OR, reset cleanup) -- needs a restart and a live
+run; [~] 81 The Dwarvish Bandits reworked to use it (in game `1e3c159e`);
+[ ] 82 show the extra victory on the objective strip; [ ] 83 publisher check
+that `Enter:` zone keywords ship.
 
 **Launch readiness (not started).** [ ] lobby on the release worker and games on
 release DOs, [ ] non-owner module access verified, [ ] disconnected-player

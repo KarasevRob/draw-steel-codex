@@ -779,6 +779,79 @@ NegotiationDocument.offers = {}
 --summaries: array of appended run records (strings).
 NegotiationDocument.summaries = {}
 
+--The same page as a field declaration (JOURNAL_PROGRAM.md Phase 3), so the
+--generated editor can be held up against EditPanel below. storage =
+--"document" binds each field to the document field of the same name, so both
+--editors read and write the same data. Used only while dev:documentclasses
+--is on; nothing here changes how a negotiation runs.
+do
+    local info = CustomDocument.docTypeInfo.negotiation
+    info.body = "none"
+    info.hiddenFromPlayers = true
+    --These are NegotiationDocument's fields. A plain page typed
+    --"negotiation" has none of them.
+    info.declaredFor = function(doc)
+        return doc.typeName == "NegotiationDocument"
+    end
+
+    local offerKeys = {}
+    for i = 0, NegotiationRules.MAX do
+        offerKeys[#offerKeys + 1] = {
+            index = NegotiationRules.OfferIndex(i),
+            label = string.format("%d  \"%s\"", i, NegotiationRules.offerLabels[i]),
+        }
+    end
+
+    info.actions = {
+        { id = "start", verb = "negotiation.start" },
+        { id = "seed", verb = "negotiation.seed", placement = "top" },
+    }
+
+    info.fields = {
+        { id = "npcName", label = "NPC Name", kind = "string", storage = "document", section = "The NPC",
+            placeholder = "As the players hear it" },
+        { id = "npcDesc", label = "Who They Are", kind = "string", storage = "document",
+            placeholder = "In a line (e.g. Town reeve - holds the gate keys)" },
+        { id = "portrait", label = "Portrait", kind = "image", storage = "document",
+            library = "Avatar", width = 96, height = 120 },
+        { id = "hideName", label = "Start unnamed (\"???\" until revealed)", kind = "bool", storage = "document" },
+        { id = "sceneImage", label = "Scene", kind = "image", storage = "document", section = "The scene",
+            library = "journal", width = 240, height = 135 },
+        { id = "impression", label = "Impression", kind = "number", storage = "document", default = 1 },
+        { id = "attitude", label = "Attitude", kind = "enum", storage = "document", section = "Starting attitude",
+            options = function()
+                local options = {}
+                for _, a in ipairs(NegotiationRules.attitudes) do
+                    options[#options + 1] = {
+                        id = a.id,
+                        text = string.format("%s  (Interest %d, Patience %d)", a.name, a.interest, a.patience),
+                    }
+                end
+                return options
+            end },
+        { id = "opening", label = "Opening", kind = "text", storage = "document", section = "The opening",
+            placeholder = "How they enter, and their first line. The NPC speaks first." },
+        { id = "traits", label = "Motivations & Pitfalls", kind = "recordList", storage = "document", groupBy = "kind",
+            columns = {
+                { id = "kind", label = "Kind", kind = "enum", options = {
+                    { id = "motivation", text = "Motivation", heading = "What they want (motivations)" },
+                    { id = "pitfall", text = "Pitfall", heading = "Never touch (pitfalls)" },
+                } },
+                { id = "name", label = "Name", kind = "string" },
+                { id = "line", label = "Line", kind = "text", placeholder = "What they say about it (their voice)" },
+            } },
+        { id = "offers", label = "What they offer, by interest", kind = "keyedList", storage = "document",
+            displayReversed = true, keys = offerKeys,
+            columns = {
+                { id = "terms", label = "Terms", kind = "text",
+                    placeholder = "What he offers (leave blank to use the book's line)" },
+            } },
+        { id = "stakes", label = "Stakes", kind = "text", storage = "document", section = "Stakes",
+            placeholder = "What happens on a deal - and on no deal." },
+        { id = "summaries", label = "Run records", kind = "stringList", storage = "document" },
+    }
+end
+
 function NegotiationDocument.CreateNew(args)
     local doc = NegotiationDocument.new{
         description = "New Negotiation",
@@ -824,6 +897,200 @@ function NegotiationDocument:SeedFromArchetype(negotiator)
             name = p.name or "", line = p.description or "" }
     end
     self.traits = traits
+end
+
+--What the last seed did, kept so a control rebuilt straight after it (the
+--generated editor redraws its whole form) can still say so.
+local g_lastSeed = { docid = false, text = "" }
+
+--The "Sample negotiator" control: a dropdown that shows which Sample
+--Negotiator this page was seeded from and seeds it from another, with a line
+--underneath saying what that did.
+--
+--Seeding is where a page starts, so this belongs at the top of an editor.
+--It replaces every motivation and pitfall, so it asks first when there are
+--any. It leaves a descriptor the Director wrote alone unless told otherwise,
+--so it asks about that too, or a page re-seeded from the Guildmaster goes on
+--describing the Knight. onSeeded(element) runs after the page has changed,
+--for the caller to save and redraw.
+function NegotiationDocument:SeedControl(onSeeded)
+    local doc = self
+    local negotiators = dmhub.GetTable(Negotiator.tableName) or {}
+
+    local list = {}
+    for id, neg in unhidden_pairs(negotiators) do
+        list[#list + 1] = { id = id, name = neg.name or "", impression = neg:try_get("impressionScore", 1) }
+    end
+    table.sort(list, function(a, b)
+        if a.impression ~= b.impression then
+            return a.impression < b.impression
+        end
+        return a.name < b.name
+    end)
+
+    --archetype is the negotiator's NAME: a provenance label, not a link.
+    local archetype = doc:try_get("archetype", "")
+    local options = { { id = "", text = "None (built from scratch)" } }
+    local currentId = ""
+    for _, entry in ipairs(list) do
+        options[#options + 1] = { id = entry.id, text = string.format("%d  %s", entry.impression, entry.name) }
+        if currentId == "" and archetype ~= "" and entry.name == archetype then
+            currentId = entry.id
+        end
+    end
+    if archetype ~= "" and currentId == "" then
+        --seeded from one that has since been renamed or removed.
+        currentId = "@kept"
+        options[#options + 1] = { id = "@kept", text = archetype .. " (no longer a sample negotiator)" }
+    end
+
+    local function StatusText()
+        if g_lastSeed.docid == doc:try_get("id") then
+            return g_lastSeed.text
+        end
+        if archetype ~= "" then
+            return string.format("Copied from %s. The motivations and pitfalls below are yours to edit.", archetype)
+        end
+        return "Pick one to fill in the impression, motivations and pitfalls."
+    end
+
+    local status = gui.Label{
+        classes = { "sizeS" },
+        width = "94%", height = "auto", halign = "left", vmargin = 3,
+        textWrap = true,
+        text = StatusText(),
+    }
+
+    local function Count(kind)
+        local n = 0
+        for _, t in ipairs(doc:try_get("traits", {})) do
+            if t.kind == kind then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
+    --descriptor: nil when the page's own descriptor is not in question,
+    --else "replaced" or "kept".
+    local function Apply(element, id, replaced, descriptor)
+        local text
+        if id == "" then
+            doc.archetype = ""
+            text = "No longer marked as seeded. The motivations and pitfalls are unchanged."
+        else
+            local negotiator = negotiators[id]
+            if descriptor == "replaced" then
+                --SeedFromArchetype only fills an empty descriptor.
+                doc.npcDesc = ""
+            end
+            doc:SeedFromArchetype(negotiator)
+            text = string.format("Seeded from %s: impression %d, %d motivations and %d pitfalls %s%s.",
+                negotiator.name or "", doc:try_get("impression", 1), Count("motivation"), Count("pitfall"),
+                replaced and "replaced" or "added",
+                descriptor ~= nil and string.format("; descriptor %s", descriptor) or "")
+        end
+        g_lastSeed = { docid = doc:try_get("id"), text = text }
+        archetype = doc:try_get("archetype", "")
+        currentId = id
+        status.text = text
+        element.idChosen = id
+        onSeeded(element)
+    end
+
+    return gui.Panel{
+        flow = "vertical", width = "100%", height = "auto", halign = "left",
+        gui.Panel{
+            flow = "horizontal", width = "94%", height = "auto", halign = "left", vmargin = 2,
+            gui.Label{
+                classes = { "bold" },
+                width = 150, height = "auto", minHeight = 24, halign = "left", valign = "center",
+                text = "Sample negotiator",
+            },
+            gui.Dropdown{
+                classes = { "sizeM" }, width = 300, height = 30, halign = "left",
+                options = options,
+                idChosen = currentId,
+                change = function(element)
+                    ---@cast element Dropdown
+                    local id = element.idChosen --[[@as string]]
+                    if id == currentId or id == "@kept" then
+                        return
+                    end
+                    if id == "" then
+                        Apply(element, id, false)
+                        return
+                    end
+
+                    local negotiator = negotiators[id]
+                    local name = negotiator.name or ""
+                    local existing = #doc:try_get("traits", {})
+                    --The descriptor on the page is one of three things. Empty
+                    --or already this negotiator's: nothing to decide. Still
+                    --the previous sample's untouched text: nobody wrote it,
+                    --so it goes with the sample. Anything else is the
+                    --Director's own, and they are asked.
+                    local theirs = negotiator:try_get("flavorText", "")
+                    local mine = doc:try_get("npcDesc", "")
+                    local previous = negotiators[currentId]
+                    local stale = mine ~= "" and mine ~= theirs and previous ~= nil
+                        and mine == previous:try_get("flavorText", "")
+                    local descriptorDiffers = mine ~= "" and theirs ~= "" and mine ~= theirs and not stale
+                    local unasked = (stale and theirs ~= "") and "replaced" or nil
+
+                    if existing == 0 and not descriptorDiffers then
+                        Apply(element, id, false, unasked)
+                        return
+                    end
+
+                    local title, message
+                    if existing > 0 then
+                        title = "Replace Motivations and Pitfalls?"
+                        message = string.format(
+                            "This page has %d motivations and pitfalls. Seeding from %s replaces all of them.",
+                            existing, name)
+                        if descriptorDiffers then
+                            message = message .. string.format(
+                                " It also has its own descriptor. Keep it, or use %s's?", name)
+                        end
+                    else
+                        title = "Replace the Descriptor?"
+                        message = string.format(
+                            "This page already has a descriptor. Keep it, or use %s's?", name)
+                    end
+
+                    local options = { { text = "Cancel" } }
+                    if descriptorDiffers then
+                        options[#options + 1] = {
+                            text = "Keep My Descriptor",
+                            execute = function()
+                                Apply(element, id, existing > 0, "kept")
+                            end,
+                        }
+                        options[#options + 1] = {
+                            text = "Replace It Too",
+                            execute = function()
+                                Apply(element, id, existing > 0, "replaced")
+                            end,
+                        }
+                    else
+                        options[#options + 1] = {
+                            text = "Replace",
+                            execute = function()
+                                Apply(element, id, true, unasked)
+                            end,
+                        }
+                    end
+
+                    --show the old choice until the Director answers, so
+                    --dismissing the question leaves the control truthful.
+                    element.idChosen = currentId
+                    gui.ModalMessage{ title = title, message = message, options = options }
+                end,
+            },
+        },
+        status,
+    }
 end
 
 --Resolve the starting interest/patience (explicit override or attitude table).
@@ -1240,25 +1507,6 @@ end
 function NegotiationDocument:EditPanel()
     local doc = self
 
-    --provenance: which Sample Negotiator this was seeded from. The seed is a
-    --copy, so this is a label, not a link - but it is the only thing that tells
-    --the Director (and later the rail) what kind of negotiator he is running.
-    local seedNote
-    local function SeedNoteText()
-        local a = doc:try_get("archetype", "")
-        if a == "" then
-            return ""
-        end
-        return string.format("Seeded from %s (impression %d). The traits are yours to edit - this is a copy.",
-            a, doc:try_get("impression", 1))
-    end
-    seedNote = gui.Label{
-        classes = { "sizeS" },
-        width = "94%", height = "auto", halign = "left", vmargin = 3,
-        fontSize = 12, color = "#7a7468", textWrap = true,
-        text = SeedNoteText(),
-    }
-
     --Change handlers write into the document object and notify the hosting
     --journal shell (CustomDocument.NotifyEdited), which owns the actual
     --uploads: debounced autosave, write verification with retry, and the
@@ -1281,6 +1529,21 @@ function NegotiationDocument:EditPanel()
     end
 
     --Traits (motivations + pitfalls) with their voiced lines.
+    --
+    --A row's inputs must not write into the trait table they were built from.
+    --Once a save is echoed back, the engine has swapped a newly added row for
+    --a fresh copy inside the document, so a write into the old table is never
+    --saved: add a motivation, wait for the autosave, type its name, and the
+    --name was lost. Find the row by id at write time instead.
+    local function LiveTrait(trait)
+        for _, t in ipairs(doc:try_get("traits", {})) do
+            if t.id == trait.id then
+                return t
+            end
+        end
+        return trait
+    end
+
     local traitsPanel
     local function RebuildTraits()
         local children = {}
@@ -1300,7 +1563,7 @@ function NegotiationDocument:EditPanel()
                             classes = { "sizeS" }, width = 160, height = 24, valign = "top",
                             placeholderText = "Name", text = trait.name,
                             change = function(element)
-                                trait.name = element.text
+                                LiveTrait(trait).name = element.text
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },
@@ -1310,7 +1573,7 @@ function NegotiationDocument:EditPanel()
                             placeholderText = "What they say about it (their voice)",
                             text = trait.line,
                             change = function(element)
-                                trait.line = element.text
+                                LiveTrait(trait).line = element.text
                                 CustomDocument.NotifyEdited(element)
                             end,
                         },
@@ -1426,8 +1689,18 @@ function NegotiationDocument:EditPanel()
         visibilityWarning,
     }
 
+    --built ahead of the form: seeding fills an empty descriptor, and the
+    --input has to show it.
+    local npcDescInput = textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)")
+
     return gui.Panel{
         width = "100%", height = "100%", flow = "vertical", vscroll = true,
+
+        doc:SeedControl(function(element)
+            CustomDocument.NotifyEdited(element)
+            npcDescInput.text = doc:try_get("npcDesc", "")
+            RebuildTraits()
+        end),
 
         SectionHeader("The NPC"),
         gui.Panel{
@@ -1457,7 +1730,7 @@ function NegotiationDocument:EditPanel()
                     end,
                 },
                 textInput("npcName", "NPC name (as the players hear it)"),
-                textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)"),
+                npcDescInput,
                 gui.Check{
                     classes = { "sizeS" },
                     width = "100%", height = 24, minWidth = 0,
@@ -1487,39 +1760,6 @@ function NegotiationDocument:EditPanel()
                 CustomDocument.NotifyEdited(element)
             end,
         },
-
-        SectionHeader("Seed from an archetype"),
-        gui.Button{
-            classes = { "sizeM" }, width = 260, height = 26, halign = "left",
-            text = "Seed from a Sample Negotiator...",
-            click = function(element)
-                local entries = {}
-                local list = {}
-                for id, neg in unhidden_pairs(dmhub.GetTable(Negotiator.tableName) or {}) do
-                    list[#list + 1] = neg
-                end
-                table.sort(list, function(a, b)
-                    return (a:try_get("impressionScore", 1)) < (b:try_get("impressionScore", 1))
-                end)
-                for _, neg in ipairs(list) do
-                    local negotiator = neg
-                    entries[#entries + 1] = {
-                        text = string.format("%d  %s", negotiator:try_get("impressionScore", 1), negotiator.name),
-                        click = function()
-                            element.popup = nil
-                            doc:SeedFromArchetype(negotiator)
-                            --element is the seed button (a closure upvalue),
-                            --which survives RebuildTraits, so order is free.
-                            CustomDocument.NotifyEdited(element)
-                            seedNote.text = SeedNoteText()
-                            RebuildTraits()
-                        end,
-                    }
-                end
-                element.popup = gui.ContextMenu{ entries = entries }
-            end,
-        },
-        seedNote,
 
         SectionHeader("Starting attitude"),
         gui.Dropdown{
@@ -1607,18 +1847,44 @@ function NegotiationDocument:DisplayPanel()
         summaryChildren[#summaryChildren + 1] = md(s)
     end
 
+    --The face and the room, when the Director has set them, at the sizes the
+    --editor's pickers use. Without these a picture chosen in the editor was
+    --only ever seen on the stage.
+    local portrait = doc:try_get("portrait", "")
+    local sceneImage = doc:try_get("sceneImage", "")
+
     local body = gui.Panel{
         width = "100%", height = "100%-50", flow = "vertical", valign = "top", vscroll = true,
 
-        gui.Label{
-            classes = { "bold", "sizeXl" },
-            width = "auto", height = "auto", halign = "left", vmargin = 4,
-            text = doc.description,
+        gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            (portrait ~= "") and gui.Panel{
+                classes = { "image" },
+                width = 96, height = 120, valign = "top", rmargin = 12,
+                bgcolor = "white",
+                bgimage = portrait,
+            } or nil,
+            gui.Panel{
+                flow = "vertical", height = "auto", valign = "top",
+                width = (portrait ~= "") and "100%-108" or "100%",
+                gui.Label{
+                    classes = { "bold", "sizeXl" },
+                    width = "auto", height = "auto", halign = "left", vmargin = 4,
+                    text = doc.description,
+                },
+                md(string.format("%s%s",
+                    doc:try_get("npcDesc", "") ~= "" and (doc.npcDesc .. "\n\n") or "",
+                    string.format("**%s** - starts at **Interest %d**, **Patience %d**.  Impression **%d**.",
+                        att.name, interest, patience, doc:try_get("impression", 1)))),
+            },
         },
-        md(string.format("%s%s",
-            doc:try_get("npcDesc", "") ~= "" and (doc.npcDesc .. "\n\n") or "",
-            string.format("**%s** - starts at **Interest %d**, **Patience %d**.  Impression **%d**.",
-                att.name, interest, patience, doc:try_get("impression", 1)))),
+
+        (sceneImage ~= "") and gui.Panel{
+            classes = { "image" },
+            width = 240, height = 135, halign = "left", vmargin = 6,
+            bgcolor = "white",
+            bgimage = sceneImage,
+        } or nil,
 
         TraitGroup("motivation", "What they want"),
         TraitGroup("pitfall", "Never touch"),
@@ -1662,17 +1928,45 @@ function NegotiationDocument:DisplayPanel()
             valign = "bottom", halign = "center",
             text = "Begin Negotiation",
             click = function(element)
-                NegotiationRun.Begin(doc, resultPanel)
-                local framed = element:FindParentWithClass("framedPanel")
-                if framed ~= nil then
-                    framed:DestroySelf()
-                end
+                doc:BeginFromPage(element, resultPanel)
             end,
         } or nil,
     }
 
     return resultPanel
 end
+
+--Begin Negotiation as the page's button does it: present the stage, then
+--close the journal window the button sits in. hostPanel is any panel in the
+--HUD; it defaults to the button.
+function NegotiationDocument:BeginFromPage(element, hostPanel)
+    NegotiationRun.Begin(self, hostPanel or element)
+    local framed = element:FindParentWithClass("framedPanel")
+    if framed ~= nil then
+        framed:DestroySelf()
+    end
+end
+
+--The page's two buttons as registered actions (see CustomDocument.RegisterAction).
+CustomDocument.RegisterAction{
+    id = "negotiation.start",
+    text = "Begin Negotiation",
+    mode = "read",
+    directorOnly = true,
+    run = function(doc, element)
+        doc:BeginFromPage(element)
+    end,
+}
+
+CustomDocument.RegisterAction{
+    id = "negotiation.seed",
+    text = "Sample negotiator",
+    mode = "edit",
+    directorOnly = true,
+    create = function(doc, done)
+        return doc:SeedControl(done)
+    end,
+}
 
 --NegotiationPanelSetting is declared in Negotiation.lua, which main.lua loads
 --first (the flag has to exist before the OLD dialog decides whether to

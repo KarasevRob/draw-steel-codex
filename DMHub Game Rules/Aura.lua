@@ -191,6 +191,7 @@ end
 --- @field time table|nil Time-stamp object used to compute rounds elapsed.
 --- @field object table|nil Reference to the placed object {floorid, objid}.
 --- @field hiddenFromPlayers boolean|nil True for a Map Markup zone not marked player-visible: only the Director sees it on the map, and the movement cross-section hides it from everyone else too. Set only by MapMarkupZoneRuntime; read with try_get.
+--- @field hideFromAuraLists boolean|nil True for an aura that is pure map plumbing (Map Markup footstep regions): it still applies, but aura-listing UI (character panel chips, action bar, Companion) skips it. Set only by MapMarkupZoneRuntime; read via IsHiddenFromAuraLists.
 --- @field tokenAttached? boolean True for an aura attached to (and following) its caster token, e.g. one granted by a modifier.
 --- @field casterPartyId? string Party id of the caster token when cast ("" if none).
 --- @field spellcastingFeature? SpellcastingFeature Spellcasting feature of the ability that cast it, copied onto triggered abilities.
@@ -1735,6 +1736,11 @@ end
 --unset, map markup zones set them from their Environmental Keyword.
 function AuraInstance:GetWater()
     return self.aura:try_get("water", false)
+end
+
+--Whether aura-listing UI should skip this aura (see hideFromAuraLists).
+function AuraInstance:IsHiddenFromAuraLists()
+    return self:try_get("hideFromAuraLists", false) == true
 end
 
 --The footstep sound family (AudioSurfaceTypes index) tiles in this aura use,

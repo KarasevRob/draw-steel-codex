@@ -139,7 +139,7 @@ local CITY_LOCATIONS = {
     {
         id = "graveyard",
         label = "Graveyard",
-        icon = "phosphor/cross-fill.png",
+        icon = "phosphor/hands-praying-fill.png",
         x = 0.31,
         y = 0.86,
         open = function(ctx) ctx.OpenGraveyard() end,
@@ -1189,8 +1189,8 @@ local function CreateLoadingVeil(root)
             --to render, since that is what makes its textures stream, and
             --a live panel takes clicks whatever its opacity. So cap it
             --with a transparent blocker -- added last, so it sits above
-            --everything in the screen including the floating close button
-            --(which lands under the titlescreen link that opened us). The
+            --everything in the screen, including the back button (which
+            --lands under the titlescreen link that opened us). The
             --reveal drops it; the self-destruct is the safety net for a
             --reveal that never comes.
             element.data.blocker = gui.Panel{
@@ -1574,7 +1574,7 @@ CreateScreen = function(args)
             --opaque, matching the guild dialogs: these float over the town map.
             bgcolor = "#14110dff",
             borderWidth = 2,
-            borderColor = "#8c7a55",
+            borderColor = "#9b968a",
             cornerRadius = 10,
         },
     }
@@ -1666,13 +1666,13 @@ CreateScreen = function(args)
         end
     end
 
-    --A small gold heading over a group of rows in a location's card.
+    --A small cream heading over a group of rows in a location's card.
     local ListSectionTitle = function(text)
         return gui.Label{
             text = string.upper(text),
             fontSize = 17,
             bold = true,
-            color = "#d9b56a",
+            color = "#e6dcc6",
             width = "100%",
             height = "auto",
             tmargin = 14,
@@ -2264,7 +2264,7 @@ CreateScreen = function(args)
         {
             selectors = { "heroCard" },
             borderWidth = 2,
-            borderColor = "#88775faa",
+            borderColor = "#8f8a7faa",
             cornerRadius = 8,
             transitionTime = 0.15,
         },
@@ -2500,7 +2500,6 @@ CreateScreen = function(args)
             bgcolor = frameColor,
             styles = heroCardStyles,
             data = { bornTime = 0 },
-            hoverCursor = cond(params.click ~= nil, "pressbutton", nil),
 
             hover = function(element)
                 audio.FireSoundEvent("Mouse.Hover")
@@ -2608,7 +2607,6 @@ CreateScreen = function(args)
                 height = 26,
                 bgimage = "phosphor/trash-fill.png",
                 bgcolor = "#ff9999",
-                hoverCursor = "pressbutton",
                 linger = function(element)
                     gui.Tooltip("Remove from the lineup")(element)
                 end,
@@ -2635,7 +2633,6 @@ CreateScreen = function(args)
                 height = 26,
                 bgimage = "phosphor/user-minus-fill.png",
                 bgcolor = "#ff9999",
-                hoverCursor = "pressbutton",
                 linger = function(element)
                     gui.Tooltip(string.format("Kick %s from the game (removes all their heroes)", params.ownerName or "this player"))(element)
                 end,
@@ -2681,7 +2678,6 @@ CreateScreen = function(args)
             bgimage = "panels/square.png",
             bgcolor = "#ffffff08",
             styles = heroCardStyles,
-            hoverCursor = "pressbutton",
 
             hover = function(element)
                 audio.FireSoundEvent("Mouse.Hover")
@@ -4041,7 +4037,6 @@ CreateScreen = function(args)
             bgimage = "panels/square.png",
             bgcolor = "clear",
             swallowPress = true,
-            hoverCursor = "pressbutton",
             data = { lockedReason = nil },
             thinkTime = 0.5,
             think = function(element)
@@ -4104,13 +4099,13 @@ CreateScreen = function(args)
             bgimage = "panels/square.png",
             bgcolor = "#1b140cee",
             borderWidth = 3,
-            borderColor = "#d9b56a",
+            borderColor = "#e6dcc6",
             transitionTime = 0.15,
         },
         {
             selectors = { "eotwTownNodeIcon", "parent:hover" },
             scale = 1.12,
-            borderColor = "#ffe9b0",
+            borderColor = "#ffffff",
             brightness = 1.2,
         },
         {
@@ -4119,7 +4114,7 @@ CreateScreen = function(args)
             height = 34,
             halign = "center",
             valign = "center",
-            bgcolor = "#f3dfae",
+            bgcolor = "#f6efe0",
         },
         {
             selectors = { "eotwTownNodeLabel" },
@@ -4148,7 +4143,7 @@ CreateScreen = function(args)
             bgcolor = "#120d08e0",
             cornerRadius = 10,
             borderWidth = 2,
-            borderColor = "#8c7a55",
+            borderColor = "#9b968a",
             pad = 14,
             borderBox = true,
         },
@@ -4157,7 +4152,7 @@ CreateScreen = function(args)
     ---- locations: full-screen scenes over the map ----
 
     --The card holding a location's controls sits on the right, clear of the
-    --close button above it and the creator credit + chat button below it.
+    --creator credit + chat button below it.
     local SCENE_CARD_TOP = 76
     local SCENE_CARD_BOTTOM = 104
     local SCENE_CARD_MARGIN = 40
@@ -4172,7 +4167,7 @@ CreateScreen = function(args)
             --translucent on purpose: the art should read through the card.
             bgcolor = "#0e0b08dc",
             borderWidth = 1,
-            borderColor = "#d9b56a55",
+            borderColor = "#e6dcc655",
             cornerRadius = 12,
         },
         {
@@ -4180,27 +4175,68 @@ CreateScreen = function(args)
             bgimage = "panels/square.png",
             bgcolor = "#0b0907b0",
             borderWidth = 1,
-            borderColor = "#d9b56a66",
+            borderColor = "#e6dcc666",
             cornerRadius = 20,
             transitionTime = 0.12,
         },
         {
             selectors = { "eotwSceneBack", "hover" },
-            bgcolor = "#3a2e1ad0",
-            borderColor = "#d9b56a",
+            bgcolor = "#34312bd0",
+            borderColor = "#e6dcc6",
         },
         {
             selectors = { "eotwSceneBackIcon" },
-            bgcolor = "#d9b56a",
+            bgcolor = "#e6dcc6",
         },
         {
             selectors = { "eotwSceneBackIcon", "parent:hover" },
-            bgcolor = "#ffe9b0",
+            bgcolor = "#ffffff",
         },
     }
 
+    --A cream-edged "<- text" pill: the way back out of a scene, and out of
+    --the town itself. Carries sceneStyles' eotwSceneBack rules, so it can
+    --sit outside a scene panel.
+    local BackButton = function(text, press)
+        return gui.Panel{
+            classes = { "eotwSceneBack" },
+            styles = sceneStyles,
+            width = "auto",
+            height = 40,
+            hpad = 16,
+            borderBox = true,
+            flow = "horizontal",
+            hover = function(element)
+                audio.FireSoundEvent("Mouse.Hover")
+            end,
+            press = function(element)
+                audio.FireSoundEvent("Mouse.Click")
+                press(element)
+            end,
+            gui.Panel{
+                classes = { "eotwSceneBackIcon" },
+                interactable = false,
+                bgimage = "phosphor/arrow-left-bold.png",
+                width = 18,
+                height = 18,
+                valign = "center",
+                rmargin = 10,
+            },
+            gui.Label{
+                interactable = false,
+                text = text,
+                fontSize = 17,
+                bold = true,
+                color = "#f6ead0",
+                width = "auto",
+                height = "auto",
+                valign = "center",
+            },
+        }
+    end
+
     --The top-left of a scene: the way back to the map, then the place's
-    --name over a gold rule and a line about it.
+    --name over a cream rule and a line about it.
     local SceneHeader = function(scene)
         return gui.Panel{
             floating = true,
@@ -4212,47 +4248,15 @@ CreateScreen = function(args)
             height = "auto",
             flow = "vertical",
 
-            gui.Panel{
-                classes = { "eotwSceneBack" },
-                width = "auto",
-                height = 40,
-                hpad = 16,
-                borderBox = true,
-                flow = "horizontal",
-                hoverCursor = "pressbutton",
-                hover = function(element)
-                    audio.FireSoundEvent("Mouse.Hover")
-                end,
-                press = function(element)
-                    audio.FireSoundEvent("Mouse.Click")
-                    CloseLocation()
-                end,
-                gui.Panel{
-                    classes = { "eotwSceneBackIcon" },
-                    interactable = false,
-                    bgimage = "phosphor/arrow-left-bold.png",
-                    width = 18,
-                    height = 18,
-                    valign = "center",
-                    rmargin = 10,
-                },
-                gui.Label{
-                    interactable = false,
-                    text = "Back to Town",
-                    fontSize = 17,
-                    bold = true,
-                    color = "#f6ead0",
-                    width = "auto",
-                    height = "auto",
-                    valign = "center",
-                },
-            },
+            BackButton("Back to Town", function()
+                CloseLocation()
+            end),
 
             gui.Label{
                 text = "<cspace=0.3em>BLACKBOTTOM</cspace>",
                 fontSize = 15,
                 bold = true,
-                color = "#d9b56a",
+                color = "#e6dcc6",
                 width = "auto",
                 height = "auto",
                 tmargin = 34,
@@ -4265,13 +4269,13 @@ CreateScreen = function(args)
                 width = "auto",
                 height = "auto",
             },
-            --a gold rule, fading out to the right.
+            --a cream rule, fading out to the right.
             gui.Panel{
                 width = 340,
                 height = 2,
                 tmargin = 6,
                 bgimage = "panels/square.png",
-                bgcolor = "#d9b56a",
+                bgcolor = "#e6dcc6",
                 gradient = gui.Gradient{
                     point_a = { x = 0, y = 0.5 },
                     point_b = { x = 1, y = 0.5 },
@@ -4405,6 +4409,13 @@ CreateScreen = function(args)
                                 click = function()
                                     EotwRoster.EditHero(heroid)
                                 end,
+                                --back to the guild: inactive, not deleted.
+                                dismiss = {
+                                    tooltip = "Dismiss Hero: send them back to the guild.",
+                                    click = function()
+                                        EotwRoster.SetActive(heroid, false)
+                                    end,
+                                },
                             }),
                         }
                     end
@@ -4693,9 +4704,7 @@ CreateScreen = function(args)
         captureEscape = true,
         --Above the titlescreen's own escape (3) and below the hero builder
         --(5, see EotwBuilder.lua), which mounts over this screen. The town's
-        --dialogs sit at EXIT_MODAL_DIALOG. The close button does NOT take
-        --escape: at its default EXIT_DIALOG it would close the whole town
-        --from inside a location, a dialog, or the builder.
+        --dialogs sit at EXIT_MODAL_DIALOG.
         escapePriority = 4,
         escape = function(element)
             --close the topmost town panel first: the chat drawer, then
@@ -4815,6 +4824,9 @@ CreateScreen = function(args)
             draggable = true,
             dragMove = false,
             dragThreshold = 4,
+            --Keep the normal cursor while draggable so panning doesn't show the
+            --"forbidden" drag cursor (a draggable panel with no drop target).
+            hoverCursor = "default",
             styles = townStyles,
             create = function(element)
                 townViewport = element
@@ -4865,75 +4877,88 @@ CreateScreen = function(args)
             },
         },
 
-        --the town's name plaque, who is here, and the connection state.
+        --top-left: the way back to the titlescreen, then the town's name
+        --plaque, who is here, and the connection state. Collapsed together
+        --while a scene (with its own back button) is up.
         gui.Panel{
-            classes = { "eotwPlaque" },
             floating = true,
             halign = "left",
             valign = "top",
             hmargin = 20,
             vmargin = 20,
             width = 440,
+            height = "auto",
+            flow = "vertical",
             create = function(element)
                 townPlaque = element
             end,
-            height = "auto",
-            flow = "vertical",
-            styles = townStyles,
-            gui.Label{
-                text = "Blackbottom",
-                fontSize = 40,
-                bold = true,
-                color = "#f6ead0",
-                width = "auto",
+
+            BackButton("Back to Title Screen", function(element)
+                element:FireEventOnParents("closeEncounterOfTheWeek")
+            end),
+
+            gui.Panel{
+                classes = { "eotwPlaque" },
+                tmargin = 12,
+                width = 440,
                 height = "auto",
-            },
-            gui.Label{
-                text = "Encounter of the Week",
-                fontSize = 18,
-                italics = true,
-                color = "#c9bfa9",
-                width = "auto",
-                height = "auto",
-            },
-            gui.Label{
-                fontSize = 16,
-                color = "#c9bfa9",
-                width = "100%",
-                height = "auto",
-                tmargin = 6,
-                text = "",
-                data = { seen = nil },
-                thinkTime = 1,
-                think = function(element)
-                    if m_conn == nil then
-                        return
-                    end
-                    local presence = m_conn:GetPath("/presence")
-                    local n = 0
-                    for _,_ in pairs(presence or {}) do
-                        n = n + 1
-                    end
-                    element.text = string.format("%d adventurer%s in town", n, cond(n == 1, "", "s"))
-                end,
-            },
-            --connection status line (blank while healthy).
-            gui.Label{
-                fontSize = 16,
-                color = "#ffcc66",
-                width = "100%",
-                height = "auto",
-                create = function(element)
-                    statusLabel = element
-                    RefreshStatus()
-                end,
+                flow = "vertical",
+                styles = townStyles,
+                gui.Label{
+                    text = "Blackbottom",
+                    fontSize = 40,
+                    bold = true,
+                    color = "#f6ead0",
+                    width = "auto",
+                    height = "auto",
+                },
+                gui.Label{
+                    text = "Encounter of the Week",
+                    fontSize = 18,
+                    italics = true,
+                    color = "#c9bfa9",
+                    width = "auto",
+                    height = "auto",
+                },
+                gui.Label{
+                    fontSize = 16,
+                    color = "#c9bfa9",
+                    width = "100%",
+                    height = "auto",
+                    tmargin = 6,
+                    text = "",
+                    data = { seen = nil },
+                    thinkTime = 1,
+                    think = function(element)
+                        if m_conn == nil then
+                            return
+                        end
+                        local presence = m_conn:GetPath("/presence")
+                        local n = 0
+                        for _,_ in pairs(presence or {}) do
+                            n = n + 1
+                        end
+                        element.text = string.format("%d adventurer%s in town", n, cond(n == 1, "", "s"))
+                    end,
+                },
+                --connection status line (blank while healthy).
+                gui.Label{
+                    fontSize = 16,
+                    color = "#ffcc66",
+                    width = "100%",
+                    height = "auto",
+                    create = function(element)
+                        statusLabel = element
+                        RefreshStatus()
+                    end,
+                },
             },
         },
 
         heroStrip,
 
         --the open location's full-screen scene, over the town and under the
-        --chat and the close button (see OpenLocation).
+        --chat (see OpenLocation).
         gui.Panel{
             floating = true,
             width = "100%",
@@ -4966,18 +4991,6 @@ CreateScreen = function(args)
         },
 
         chatPanel,
-
-        gui.CloseButton{
-            floating = true,
-            halign = "right",
-            valign = "top",
-            hmargin = 12,
-            vmargin = 12,
-            escapeActivates = false,
-            click = function(element)
-                element:FireEventOnParents("closeEncounterOfTheWeek")
-            end,
-        },
     }
 
     --Watch the lobby document + connection state. Handlers are dropped by

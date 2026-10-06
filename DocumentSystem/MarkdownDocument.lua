@@ -7370,6 +7370,8 @@ local MarkdownReferenceTooltip
 --  OnToggleRaw() (optional) - hosts with a raw markdown mode (the seamless
 --                             editor) get a right-side Raw toggle button;
 --                             GetRawMode() supplies its pressed state.
+--  statusPanel (optional)   - panel placed at the right end of the stylesheet
+--                             row (the seamless editor's save status).
 local function CreateMarkdownToolbar(opts)
     --caretOverride: hosts that had to reactivate an editor pass the intended
     --caret explicitly, because SetTextAndCaret defers actual caret placement
@@ -7989,6 +7991,8 @@ local function CreateMarkdownToolbar(opts)
                 opts.OnStylesheetChanged(element.idChosen)
             end,
         },
+
+        opts.statusPanel,
     }
 
     local function ToolbarHairline()
@@ -11193,9 +11197,98 @@ function MarkdownDocument:SeamlessEditPanel(args)
         },
     }
 
+    --Save status, so the user can see their work is stored. Driven entirely by
+    --classes the document shell (DocumentSystem.lua) sets on the panel tree:
+    --  changes     - the text differs from the last save (re-checked every second)
+    --  savePending - a save is uploading and the server has not confirmed it yet
+    --  saveError   - the server never confirmed a save; stays until one confirms
+    local function SaveDocumentNow(element)
+        local documentPanel = element:FindParentWithClass("documentPanel")
+        if documentPanel ~= nil then
+            documentPanel:FireEvent("saveDocument")
+        end
+    end
+
+    local function StatusLabel(classes, text, styles)
+        return gui.Label{
+            classes = classes,
+            styles = styles,
+            text = text,
+            fontSize = 14,
+            width = "auto",
+            height = "auto",
+            valign = "center",
+            hmargin = 4,
+        }
+    end
+
+    local saveStatusPanel = gui.Panel{
+        flow = "horizontal",
+        width = "auto",
+        height = "auto",
+        halign = "right",
+        valign = "center",
+
+        StatusLabel({ "fgMuted" }, "All changes saved", {
+            { selectors = { "changes" }, collapsed = 1 },
+            { selectors = { "savePending" }, collapsed = 1 },
+            { selectors = { "saveError" }, collapsed = 1 },
+        }),
+
+        StatusLabel({ "fgMuted" }, "Saving...", {
+            { selectors = { "~savePending" }, collapsed = 1 },
+            { selectors = { "changes" }, collapsed = 1 },
+            { selectors = { "saveError" }, collapsed = 1 },
+        }),
+
+        StatusLabel({}, "Unsaved changes", {
+            { selectors = { "~changes" }, collapsed = 1 },
+            { selectors = { "saveError" }, collapsed = 1 },
+        }),
+
+        gui.Label{
+            classes = { "danger" },
+            styles = {
+                { selectors = { "~saveError" }, collapsed = 1 },
+            },
+            text = "Save failed!",
+            fontSize = 14,
+            width = "auto",
+            height = "auto",
+            valign = "center",
+            hmargin = 4,
+            hover = function(element)
+                gui.Tooltip("The server did not confirm your save, so your latest changes may not be stored. Keep this document open -- saving retries automatically and this message clears once a save goes through. You can also press Save (Ctrl+S) to retry now.")(element)
+            end,
+        },
+
+        --Ctrl+S saves whenever this editor is open, not only while the button
+        --shows: the changes class lags typing by up to a second, and a save
+        --with nothing new is a no-op.
+        gui.Button{
+            styles = {
+                { selectors = { "~changes", "~saveError" }, collapsed = 1 },
+            },
+            inputEvents = { "save" },
+            text = "Save",
+            width = 56,
+            height = 26,
+            fontSize = 13,
+            valign = "center",
+            hmargin = 4,
+            save = function(element)
+                SaveDocumentNow(element)
+            end,
+            press = function(element)
+                SaveDocumentNow(element)
+            end,
+        },
+    }
+
     --formatting toolbar, shared with the other editors. The single input never
     --needs the live editor's reactivation dance.
     local toolbar = CreateMarkdownToolbar{
+        statusPanel = saveStatusPanel,
         GetInput = function()
             return editInput
         end,

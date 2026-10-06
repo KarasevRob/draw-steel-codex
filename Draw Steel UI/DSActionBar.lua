@@ -6278,7 +6278,9 @@ function GameHud:CreateReactionBar(dialog, tokenInfo)
 
 			auras = {}
 			for _,aura in ipairs(aurasTouching) do
-				auras[#auras+1] = aura.auraInstance
+				if not aura.auraInstance:IsHiddenFromAuraLists() then
+					auras[#auras+1] = aura.auraInstance
+				end
 			end
 
 			for i,_ in ipairs(auras) do

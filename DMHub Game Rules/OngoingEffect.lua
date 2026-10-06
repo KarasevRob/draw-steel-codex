@@ -7,6 +7,7 @@ local mod = dmhub.GetModLoading()
 --- @field display table Icon display settings {bgcolor, hueshift, saturation, brightness, blend?}; bgcolor is a string or Color.
 --- @field custom? boolean True for effects created from an ability's editor (attached to that ability).
 --- @field recoverySharing? boolean With casterTracking "bond": the bonded creatures share recoveries.
+--- @field bondSaveEndsAll? boolean With casterTracking "bond": one bonded creature passing its save ends the effect for every creature in the bond (e.g. Net Trap).
 CharacterOngoingEffect = RegisterGameType("CharacterOngoingEffect", "CharacterFeature")
 CharacterOngoingEffect.tableName = "characterOngoingEffects"
 CharacterOngoingEffect.stackable = false

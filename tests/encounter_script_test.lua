@@ -1607,10 +1607,10 @@ do
     local effect, req, round = EncounterScript.ParseRiderLine("|Edge (Round 1): you can climb or fly")
     check(effect == "edge" and round == 1 and req == "you can climb or fly", "round-limited rider line")
     local r = EncounterScript.ParseRequirement(req)
-    check(#r.alternatives == 2 and r.alternatives[1].kind == "movement" and r.alternatives[2].kind == "movement"
+    check(#r.alternatives == 2 and r.alternatives[1].kind == "capability" and r.alternatives[2].kind == "capability"
         and r.alternatives[2].name == "fly", "climb or fly")
     r = EncounterScript.ParseRequirement("your Wealth is 2 or higher")
-    check(#r.alternatives == 1 and r.alternatives[1].kind == "wealth" and r.alternatives[1].name == "2", "wealth threshold")
+    check(#r.alternatives == 1 and r.alternatives[1].kind == "stat" and r.alternatives[1].name == "wealth" and r.alternatives[1].min == 2, "wealth threshold")
     check(EncounterScript.RequirementMet(r, { wealth = 3 }) and not EncounterScript.RequirementMet(r, { wealth = 1 }), "wealth compares")
     local riders = { { effect = "edge", round = 1, requirement = EncounterScript.ParseRequirement("you can fly") } }
     check(EncounterScript.EvaluateRiders(riders, { movement = { fly = true }, round = 1 }).boons == 1, "round rider applies in its round")
@@ -1678,5 +1678,273 @@ do
     end
     check(warned, "rolling on a missing table warns")
 end
+
+--- knacks: secret options, free options, knack versions, the vocabulary ------
+--(a function, not a do block: the main chunk is near Lua's 200-local limit)
+;(function()
+    local KNACKS = table.concat({
+        "# Montage",
+        "## Round 1",
+        "## Threat: Treacherous Ravine",
+        "A ravine.",
+        "Consequence: Each party member loses 5 stamina.",
+        "---",
+        "PC: No way around it.",
+        "### Climb Down and Across",
+        "PC: We go down.",
+        "|Climbing Test: Might or Agility (Climb, Endurance)",
+        "|You lose a recovery.",
+        "|You lose a recovery. The threat is vanquished.",
+        "|The threat is vanquished.",
+        "|Edge: you can climb",
+        "if tier1 then",
+        "    PC is scared",
+        "end",
+        "#### If you can fly",
+        "PC spreads their wings.",
+        "|You fly a line across. The threat is vanquished.",
+        "PC: Easy.",
+        "#### Instead, if you are a Dwarf:",
+        "|Bridging Test: Reason (Mechanics)",
+        "|You lose a recovery. The threat is vanquished.",
+        "|The threat is vanquished.",
+        "|The threat is vanquished. +1 hero token",
+        "### Teleport across",
+        "|Allow: you can teleport",
+        "|You blink across with a rope. The threat is vanquished.",
+        "PC: See you on the other side.",
+        "### Note it down",
+        "|Note: the ravine is deep",
+        "|Allow: you have the Lucky Dog perk",
+        "#### Knack: you can frobnicate",
+        "|The threat is vanquished.",
+        "# Encounter",
+        "[[encounter]]",
+    }, "\n")
+    local kp = EncounterScript.Parse(KNACKS)
+    local ravine = kp.beats[1].rounds[1].entries[1]
+    local climb, teleport, note = ravine.options[1], ravine.options[2], ravine.options[3]
+    check(climb.roll ~= nil and #climb.roll.riders == 1 and #climb.knacks == 2, "a rolled option with two knacks")
+    local fly, dwarf = climb.knacks[1], climb.knacks[2]
+    check(fly.requirementText == "you can fly" and fly.requirement.alternatives[1].kind == "capability", "#### If you can fly is a capability knack")
+    check(fly.roll == nil and fly.free ~= nil and fly.free.effects[#fly.free.effects].kind == "vanquish", "a free knack applies its clauses")
+    check(fly.preScene ~= nil and #fly.preScene == 1 and fly.postScene ~= nil and #fly.postScene == 1, "a knack's lines split around its rules")
+    check(dwarf.requirementText == "you are a Dwarf" and dwarf.roll ~= nil and #dwarf.roll.tiers == 3, "'Instead, if ...:' knack with its own table")
+    check(climb.postScene ~= nil and #climb.postScene == 1, "the option's own outcome lines end at the knack heading")
+    check(not EncounterScript.OptionIsSecret(climb), "an option with only edge riders is not secret")
+    check(teleport.roll == nil and teleport.free ~= nil and #teleport.riders == 1 and teleport.riders[1].effect == "allow", "a free option with an Allow line")
+    check(EncounterScript.OptionIsSecret(teleport), "an Allow rider makes the option secret")
+    check(note.free ~= nil and string.find(note.free.text, "Note: the ravine is deep", 1, true) ~= nil, "'|Note: x' with no characteristic is a rule, not a roll")
+    check(EncounterScript.OptionTakeable(teleport) and EncounterScript.OptionTakeable(note), "free options are takeable")
+    local unknownWarned, noRollWarned = false, false
+    for _, w in ipairs(kp.warnings) do
+        if string.find(w, "frobnicate", 1, true) and string.find(w, "not a known capability", 1, true) then
+            unknownWarned = true
+        end
+        if string.find(w, "has no power roll", 1, true) then
+            noRollWarned = true
+        end
+    end
+    check(unknownWarned, "an unknown capability warns with the vocabulary")
+    check(not noRollWarned, "free options are not 'no power roll'")
+
+    --versions
+    local v = EncounterScript.OptionVersion(climb, 1)
+    check(v ~= climb and v.roll == nil and v.free == fly.free and v.knack == fly and v.name == climb.name, "OptionVersion swaps in the knack")
+    check(#v.preScene == #(climb.preScene or {}) + 1, "the option's lines play before the knack's")
+    check(v.postScene == fly.postScene, "a knack's own outcome lines")
+    local v2 = EncounterScript.OptionVersion(climb, 2)
+    check(v2.roll == dwarf.roll and v2.postScene == climb.postScene, "a rolled knack with no outcome lines reuses the option's")
+    check(EncounterScript.OptionVersion(climb, nil) == climb and EncounterScript.OptionVersion(climb, 9) == climb, "no knack = the option")
+    check(#EncounterScript.VersionRiders(climb, climb) == 1 and #EncounterScript.VersionRiders(climb, v2) == 0, "a knack's roll does not inherit the base roll's edges")
+    check(#EncounterScript.VersionRiders(teleport, teleport) == 1, "a free option's Allow line is in its riders")
+    --icons: the secret option's outcomes stay off the shared entry card
+    local entryOutcomes = EncounterScript.EntryOutcomes({ kind = "opportunity", options = { teleport } }, kp)
+    check(#entryOutcomes == 0, "secret options do not show on the entry card")
+
+    --vocabulary
+    local function Req(text)
+        return EncounterScript.ParseRequirement(text)
+    end
+    local function Met(text, facts)
+        return (EncounterScript.RequirementMet(Req(text), facts))
+    end
+    local function Kind(text)
+        return Req(text).alternatives[1].kind, Req(text).alternatives[1].name
+    end
+    check(Kind("you can speak with animals") == "capability", "speak with animals is a capability")
+    check(select(2, Kind("you can talk to the dead")) == "talk to the dead", "talk to the dead")
+    check(select(2, Kind("you are able to read minds")) == "use telepathy", "a phrase alias resolves to its key")
+    check(Kind("you can use Black Ash Teleport") == "ability", "you can use <not a capability> is an ability")
+    check(Kind("you have the Lucky Dog perk") == "perk", "perk")
+    check(Kind("you have the Frostheart complication") == "complication", "complication")
+    check(Kind("you were a Farmer") == "career", "career")
+    check(select(2, Kind("you were raised in a Wilderness culture")) == "wilderness", "culture aspect")
+    check(Kind("you worship Grole the One-Handed") == "deity", "deity")
+    check(select(2, Kind("you serve the Life domain")) == "life", "domain")
+    check(Kind("your kit is Mountain") == "kit", "kit")
+    check(Kind("you carry a Healing Potion") == "item", "item")
+    check(Kind("you hold the Knight title") == "title", "title")
+    check(Kind("you have Black Ash Teleport") == "has", "you have <anything>")
+    check(Kind("you have the Magic skill") == "skill", "you have the X skill is still a skill")
+    check(Kind("you are skilled in Magic") == "skill", "skilled")
+    check(select(2, Kind("you are immune to fire")) == "fire" and Kind("you have fire immunity") == "immunity", "immunity")
+    check(Kind("you have fire weakness") == "weakness", "weakness")
+    check(select(2, Kind("you cannot be surprised")) == "surprised", "condition immunity")
+    local s = Req("your Renown is 2 or higher").alternatives[1]
+    check(s.kind == "stat" and s.name == "renown" and s.min == 2, "renown threshold")
+    s = Req("your Might is 1 or lower").alternatives[1]
+    check(s.kind == "stat" and s.name == "might" and s.max == 1 and s.min == nil, "or lower")
+    s = Req("you are small").alternatives[1]
+    check(s.kind == "stat" and s.name == "size" and s.max == 2, "small = 1S or smaller")
+    s = Req("your size is 1L or larger").alternatives[1]
+    check(s.kind == "stat" and s.name == "size" and s.min == 4, "size 1L or larger")
+    s = Req("you have 3 or more victories").alternatives[1]
+    check(s.kind == "stat" and s.name == "victories" and s.min == 3, "victories")
+    s = Req("you are level 2 or higher").alternatives[1]
+    check(s.kind == "stat" and s.name == "level" and s.min == 2, "level")
+    local list = Req("you have the Ritualist perk, Lucky Dog or Brawny")
+    check(#list.alternatives == 3 and list.alternatives[3].kind == "perk" and list.alternatives[3].text == "you have the Brawny perk", "bare names inherit the perk kind")
+    check(not Req("you can climb or fly").unrecognized, "climb or fly is understood")
+
+    --facts: capabilities come from every source that grants them
+    local shadow = { kindred = { shadow = true, ["college of black ash"] = true, polder = true }, abilityTag = { teleport = "Black Ash Teleport" },
+        ability = { ["black ash teleport"] = true }, perk = { ["lucky dog"] = true }, career = { criminal = true },
+        stat = { size = 2, wealth = 1 }, trait = { shadowmeld = true } }
+    check(Met("you can teleport", shadow), "a teleport ability is 'you can teleport'")
+    local okTeleport, whyTeleport = EncounterScript.RequirementMet(Req("you can teleport"), shadow)
+    check(okTeleport and whyTeleport == "you can teleport (Black Ash Teleport)", "the source is named: " .. tostring(whyTeleport))
+    check(Met("you can go unnoticed", shadow), "Shadowmeld and the Shadow class: go unnoticed")
+    check(Met("you have the Lucky Dog perk", shadow) and Met("you have Lucky Dog", shadow), "perk by kind and by bare name")
+    check(Met("you were a Criminal", shadow) and Met("you are a Criminal", shadow) == false, "career (kindred holds it only via CreatureFacts)")
+    check(Met("you are small", shadow) and not Met("you are large", shadow), "size words")
+    check(not Met("your Wealth is 2 or higher", shadow), "wealth below threshold")
+    check(not Met("you can fly", shadow), "no fly")
+    local revenant = { kindred = { revenant = true }, immunity = { cold = 1, poison = 1 }, weakness = { fire = 5 } }
+    check(Met("you are immune to cold", revenant) and Met("you can endure the cold", revenant), "immunity and its capability")
+    check(Met("you have fire weakness", revenant) and not Met("you are immune to fire", revenant), "weakness")
+    local talent = { language = { mindspeech = true }, trait = {} }
+    check(Met("you can read minds", talent), "Mindspeech reads minds")
+    local green = { kindred = { elementalist = true, green = true } }
+    check(Met("you can speak with animals", green) and Met("you can talk to plants", green), "kindred: sources (the Green subclass)")
+    local fury = { perk = { ["danger sense"] = true } }
+    check(Met("you cannot be surprised", fury), "Danger Sense: cannot be surprised")
+    local walker = { movement = { fly = true } }
+    check(Met("you can fly", walker) and Met("you can fall safely", walker), "a fly speed")
+    local packer = { item = { ["healing potion"] = true } }
+    check(Met("you carry a Healing Potion", packer) and Met("you carry Healing Potions", packer), "items, singular or plural")
+    local conduit = { kindred = { conduit = true, ["life domain"] = true, ["sun domain"] = true }, deity = { ["grole the one-handed"] = true } }
+    check(Met("you serve the Life domain", conduit) and Met("you can make light", conduit), "a subclass domain counts as a domain and grants light")
+    check(Met("you worship Grole the One-Handed", conduit), "deity")
+    check(EncounterScript.ParseKnackHeading("If PC can fly") == "you can fly", "'If PC ...' reads as 'you'")
+    check(EncounterScript.ParseKnackHeading("A heading") == nil, "a plain #### heading is not a knack")
+
+    --a requirement splits on "or", so no capability may contain the word
+    for _, cap in ipairs(TestRiders.CAPABILITIES) do
+        for _, phrase in ipairs(cap.phrases) do
+            check(not string.find(" " .. phrase .. " ", " or ", 1, true), "capability phrase without 'or': " .. phrase)
+            check(not Req("you can " .. phrase).unrecognized, "every capability phrase parses: " .. phrase)
+        end
+    end
+
+    --scene conditions take the vocabulary too
+    local c1 = EncounterScript.ParseCondition("PC can fly")
+    check(c1 ~= nil and c1.op == "req" and c1.text == "you can fly", "if PC can fly")
+    local c2 = EncounterScript.ParseCondition("PC is skilled in Magic")
+    check(c2 ~= nil and c2.op == "skilled", "PC is skilled in X")
+    local c3 = EncounterScript.ParseCondition("PC was a Farmer or PC carries a lantern")
+    check(c3 ~= nil and c3.op == "or" and c3.a.op == "req" and c3.a.text == "you were a farmer" and c3.b.text == "you carry a lantern", "was a / carries")
+end)()
+
+--- reinforcements and the clear-the-map victory -----------------------------
+;(function()
+    local S = EncounterScript.ParseReinforcementSchedule
+    local s = S("every round from round 2")
+    check(s ~= nil and s.every == 1 and s.from == 2 and s.to == nil, "every round from round 2")
+    check(not EncounterScript.ScheduleIncludes(s, 1) and EncounterScript.ScheduleIncludes(s, 2) and EncounterScript.ScheduleIncludes(s, 5), "every round from 2 includes 2..")
+    check(EncounterScript.ScheduleOrdinal(s, 2) == 1 and EncounterScript.ScheduleOrdinal(s, 3) == 2 and EncounterScript.ScheduleOrdinal(s, 1) == 0, "ordinals count arrivals")
+    s = S("At the start of every other round, starting on round 3.")
+    check(s ~= nil and s.every == 2 and s.from == 3, "every other round starting on round 3")
+    check(EncounterScript.ScheduleIncludes(s, 3) and not EncounterScript.ScheduleIncludes(s, 4) and EncounterScript.ScheduleIncludes(s, 5), "every other round")
+    s = S("every 3 rounds from round 2 until round 8")
+    check(s ~= nil and s.every == 3 and s.from == 2 and s.to == 8, "every 3 rounds with an end")
+    check(EncounterScript.ScheduleIncludes(s, 8) and not EncounterScript.ScheduleIncludes(s, 11), "the end round is honoured")
+    s = S("every round after round 1")
+    check(s ~= nil and s.from == 2, "after round 1 = from round 2")
+    s = S("every round")
+    check(s ~= nil and s.from == 1 and EncounterScript.ScheduleIncludes(s, 1), "every round includes round 1")
+    s = S("Round 3")
+    check(s ~= nil and s.rounds[3] and not s.rounds[2], "a single round")
+    s = S("rounds 2, 4 and 6")
+    check(s ~= nil and s.rounds[2] and s.rounds[4] and s.rounds[6] and not s.rounds[3], "a list of rounds")
+    check(EncounterScript.ScheduleOrdinal(s, 6) == 3, "the third arrival of a list")
+    s = S("rounds 2-4")
+    check(s ~= nil and s.rounds[2] and s.rounds[3] and s.rounds[4], "a range of rounds")
+    check(S("when they feel like it") == nil and S("rounds two and banana") == nil, "nonsense is not a schedule")
+    check(EncounterScript.DescribeSchedule(S("every round from round 2")) == "Every round from round 2", "describe recurring")
+    check(EncounterScript.DescribeSchedule(S("rounds 2, 4 and 6")) == "Rounds 2, 4 and 6", "describe a list")
+
+    check(EncounterScript.ParseReinforcementZone("from the Stairs zone.") == "Stairs", "Enter: from the Stairs zone")
+    check(EncounterScript.ParseShout('"Don\'t let them get away!"') == "Don't let them get away!", "shout quotes dropped")
+
+    local V = EncounterScript.ParseVictoryInstruction
+    local v = V("The heroes also win once every Dwarf on the map is defeated.")
+    check(v ~= nil and v.condition == "clearmap" and v.who == "dwarf" and v.whoText == "Dwarf", "every Dwarf on the map")
+    v = V("no dwarves are left on the map")
+    check(v ~= nil and v.who == "dwarf", "no dwarves are left")
+    v = V("every enemy on the map is defeated")
+    check(v ~= nil and v.who == nil, "every enemy = anyone")
+    v = V("defeat all the monsters on the map")
+    check(v ~= nil and v.who == nil, "all the monsters")
+    check(V("win the game") == nil, "not a victory line")
+
+    local text = [==[
+# Encounter
+
+Hostages: Civilian tokens stay out of initiative.
+Victory: The heroes also win once every Dwarf on the map is defeated.
+
+[[encounter]]
+
+## Reinforcements: Golden Hand
+
+Arrive: every round from round 2
+Enter: the Stairs zone
+Shout: Don't let them get away!
+Shout: "After them!"
+
+[[encounter]]
+
+[[encounter]]
+
+## Reinforcements: The Boss
+
+Arrive: round 4
+
+[[encounter]]
+]==]
+    local parse = EncounterScript.Parse(text)
+    local b = parse.beats[1]
+    check(b.kind == "encounter" and b.encounterTag == "encounter", "the opening island is the encounter's")
+    check(#b.setup == 2 and b.setup[2].kind == "victory" and b.setup[2].who == "dwarf", "the victory line is on the beat")
+    check(#b.reinforcements == 2, "two reinforcement sections")
+    local r = b.reinforcements[1]
+    check(r.name == "Golden Hand" and r.id == "rf1-golden-hand", "section name and id")
+    check(r.zone == "Stairs" and #r.shouts == 2 and r.shouts[2] == "After them!", "zone and shouts")
+    check(#r.islands == 2 and r.islands[1].line < r.islands[2].line, "two islands take turns")
+    check(r.schedule.every == 1 and r.schedule.from == 2, "the schedule")
+    local warned = { zone = false, island = false }
+    for _, w in ipairs(parse.warnings) do
+        if string.find(w, "The Boss", 1, true) and string.find(w, "Enter:", 1, true) then
+            warned.zone = true
+        end
+        if string.find(w, "Golden Hand", 1, true) then
+            warned.island = true
+        end
+    end
+    check(warned.zone and not warned.island, "a section with no zone warns; a complete one does not")
+    local dump = EncounterScript.Describe and EncounterScript.Describe(parse) or nil
+    check(dump == nil or string.find(dump, "Golden Hand", 1, true) ~= nil, "the dump lists reinforcements")
+end)()
 
 print(string.format("encounter_script_test: %d checks passed", passed))

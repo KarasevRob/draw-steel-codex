@@ -1564,7 +1564,7 @@ end
 
 --The whole Skills & Languages picture for one kind, for the screen:
 --  { pools = {pool + remaining}, entries = {entry...}, native = id|nil }
---entry = { id, name, category, description, state, source, dead, special, pools }
+--entry = { id, name, category, description, state, source, dead, speakers, special, pools }
 --  state: "native" | "fixed" | "selected" | "selectable" | "unavailable"
 --  special: names of abilities that single the skill out (skills only)
 --  pools: names of the pools it could fill
@@ -1638,6 +1638,10 @@ function EotwBuild.hero.PoolTable(hero, kind)
         end
         local description = nil
         pcall(function() description = item:try_get("description") end)
+        local speakers = kind == "language" and item:try_get("speakers") or nil
+        if type(speakers) ~= "string" or speakers == "" then
+            speakers = nil
+        end
         local source = nil
         if state == "native" then
             source = "your culture"
@@ -1654,6 +1658,8 @@ function EotwBuild.hero.PoolTable(hero, kind)
             source = source,
             --a dead language: read, not spoken
             dead = kind == "language" and item:try_get("dead", false) == true,
+            --a language: who speaks it (e.g. "Goblins, Radenwights"), or nil
+            speakers = speakers,
             special = benefits[id],
             pools = poolNames,
         }
@@ -1926,11 +1932,25 @@ function EotwBuild.SetName(token, name)
     token:UploadAppearance()
 end
 
+--Marks a portrait the builder chose (the class's or ancestry's default art)
+--rather than one the player picked. Only an auto portrait follows a class
+--change; nil means a hero from before the flag existed.
+EotwBuild.AUTO_PORTRAIT_FIELD = "eotwAutoPortrait"
+
+--Set the hero's portrait. auto: the builder is applying a default, not the
+--player choosing. The separate off-token portrait (the hero card's art, set
+--from the full character sheet) is cleared so the card shows this one too.
 ---@param token CharacterToken
 ---@param imageid string
-function EotwBuild.SetPortrait(token, imageid)
+---@param auto? boolean
+function EotwBuild.SetPortrait(token, imageid, auto)
     token.portrait = imageid
+    token.offTokenPortrait = ""
     token:UploadAppearance()
+    local hero = token.properties --[[@as character]]
+    if hero:try_get(EotwBuild.AUTO_PORTRAIT_FIELD) ~= (auto == true) then
+        Modify(token, "Portrait", function(h) h[EotwBuild.AUTO_PORTRAIT_FIELD] = auto == true end)
+    end
 end
 
 ---@param token CharacterToken
@@ -1971,8 +1991,9 @@ end
 
 --Keep a hero's portrait on the default art until the player picks
 --something else: the class's art, or the ancestry's before a class is
---chosen. A portrait that is unset, or is still some class's or ancestry's
---own art, counts as "the default" and follows the current choice.
+--chosen. A portrait that is unset or that the builder set (AUTO_PORTRAIT_FIELD)
+--follows the current choice. A player's pick never does, even when it is a
+--class's or ancestry's art: the Avatar library holds that art too.
 ---@param token CharacterToken
 function EotwBuild.SyncDefaultPortrait(token)
     local hero = token.properties --[[@as character]]
@@ -1989,7 +2010,11 @@ function EotwBuild.SyncDefaultPortrait(token)
         return
     end
     local isDefault = not EotwBuild.PortraitIsSet(current)
-    if not isDefault then
+    local auto = hero:try_get(EotwBuild.AUTO_PORTRAIT_FIELD)
+    if auto ~= nil then
+        isDefault = isDefault or auto == true
+    elseif not isDefault then
+        --A hero from before the flag: guess from the art itself.
         for _,tableName in ipairs({ Class.tableName, Race.tableName }) do
             for _,item in pairs(dmhub.GetTableVisible(tableName) or {}) do
                 if item:try_get("portraitid", "") == current then
@@ -2000,7 +2025,7 @@ function EotwBuild.SyncDefaultPortrait(token)
         end
     end
     if isDefault then
-        EotwBuild.SetPortrait(token, art)
+        EotwBuild.SetPortrait(token, art, true)
     end
 end
 
@@ -2054,9 +2079,8 @@ local function FillAppearance(token)
         local classItem = hero:GetClass()
         local classPortrait = classItem and classItem:try_get("portraitid", "") or ""
         if classPortrait ~= "" then
-            token.portrait = classPortrait
+            EotwBuild.SetPortrait(token, classPortrait, true)
             picks[#picks+1] = "Portrait -> class art"
-            changed = true
         end
     end
 

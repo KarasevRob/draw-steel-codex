@@ -14,16 +14,10 @@ local mod = dmhub.GetModLoading()
 --characterPanelAccess override forces read-only for everyone.
 --Design/plan doc: EncounterOfTheWeek/EncounterOfTheWeek.md.
 
---Hidden dev toggle: "/toggle eotw:forcecustomui" turns the custom
---interface on in ANY game (the authoring game included), for iterating on
---it without launching a real EotW game. The rails/title bar notice the
---flip within half a second.
-setting{
-    id = "eotw:forcecustomui",
-    description = "Force the Encounter of the Week custom interface",
-    default = false,
-    storage = "preference",
-}
+--The custom interface shows only in a real EotW game or during an
+--authoring test (IsEotwGame covers both); the authoring game is otherwise
+--a normal Director game. (The old "/toggle eotw:forcecustomui" dev toggle
+--that forced it on anywhere was retired for the authoring test.)
 
 --- Hero cards ---------------------------------------------------------------
 
@@ -932,9 +926,6 @@ pcall(function()
         id = "eotw",
 
         active = function()
-            if dmhub.GetSettingValue("eotw:forcecustomui") == true then
-                return true
-            end
             local eotw = rawget(_G, "EncounterOfTheWeekGame")
             if eotw == nil or not eotw.IsEotwGame() then
                 return false
@@ -967,6 +958,17 @@ pcall(function()
         end,
 
         suppressTitlebarMenu = { ["Panels"] = true },
+
+        --an authoring test's status and its END TEST button (EncounterTest
+        --loads after this file, so it is looked up at call time).
+        titlebarPanels = function()
+            local test = rawget(_G, "EncounterTest")
+            local eotw = rawget(_G, "EncounterOfTheWeekGame")
+            if test == nil or eotw == nil or not eotw.IsTestPlayer() then
+                return nil
+            end
+            return { test.CreateTitlebarItem() }
+        end,
 
         suppressPanel = { ["Compendium"] = true },
 

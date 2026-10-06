@@ -1459,14 +1459,15 @@ function EotwBuilder.Open(args)
             children = { previewFrame },
         }
 
-        local function SetPortraitTo(art, missingMessage)
+        --auto: back to the default, so the portrait follows later class changes.
+        local function SetPortraitTo(art, missingMessage, auto)
             local t = Tok()
             if t == nil or art == nil or art == "" then
                 state.message = missingMessage
                 Refresh(false)
                 return
             end
-            EotwBuild.SetPortrait(t, art)
+            EotwBuild.SetPortrait(t, art, auto)
             Refresh(false)
         end
 
@@ -1501,7 +1502,7 @@ function EotwBuilder.Open(args)
                                     click = function()
                                         local t = Tok()
                                         local classItem = t and (t.properties --[[@as character]]):GetClass() or nil
-                                        SetPortraitTo(classItem and classItem:try_get("portraitid", "") or nil, "Choose a class first: its art is the default portrait.")
+                                        SetPortraitTo(classItem and classItem:try_get("portraitid", "") or nil, "Choose a class first: its art is the default portrait.", true)
                                     end,
                                 },
                                 gui.Button{
@@ -1756,6 +1757,9 @@ function EotwBuilder.Open(args)
         if entry.dead then
             lines[#lines+1] = "*A dead language: no one speaks it any more, but its writing can still be read.*"
         end
+        if entry.speakers ~= nil then
+            lines[#lines+1] = string.format("**%s:** %s", cond(entry.dead, "Once spoken by", "Spoken by"), entry.speakers)
+        end
         if type(entry.description) == "string" and entry.description ~= "" then
             lines[#lines+1] = entry.description
         end
@@ -1781,6 +1785,22 @@ function EotwBuilder.Open(args)
         return { title = entry.name, text = table.concat(lines, "\n") }
     end
 
+    --A card's label: the name, plus who speaks a language and whether it is dead,
+    --e.g. "Szetch (Goblins, Radenwights)" or "Low Rhyvian (Sky elf; dead)".
+    local function PoolCardText(entry)
+        local notes = {}
+        if entry.speakers ~= nil then
+            notes[#notes+1] = entry.speakers
+        end
+        if entry.dead then
+            notes[#notes+1] = "dead"
+        end
+        if #notes == 0 then
+            return entry.name
+        end
+        return string.format("%s (%s)", entry.name, table.concat(notes, "; "))
+    end
+
     --One skill or language card on the Skills & Languages page.
     local function PoolCard(kind, entry)
         local entryState = entry.state
@@ -1789,7 +1809,7 @@ function EotwBuilder.Open(args)
         local children = {
             gui.Label{
                 classes = { "eotwbCardText" },
-                text = cond(entry.dead, entry.name .. " (dead)", entry.name),
+                text = PoolCardText(entry),
                 fontSize = 15,
                 minFontSize = 11,
                 interactable = false,
@@ -1933,18 +1953,6 @@ function EotwBuilder.Open(args)
             gui.Label{ classes = { "eotwbText" }, text = "Skills & Languages", fontSize = 18, bold = true, color = "#bfe0f0ff" },
             Text(table.concat(lines, "\n"), { "eotwbText" }, { fontSize = 15, vmargin = 4 }),
         }
-        if #grants.pools > 0 then
-            children[#children+1] = gui.Button{
-                text = "Pick These on Skills & Languages",
-                fontSize = 16,
-                width = 320,
-                height = 38,
-                tmargin = 4,
-                click = function()
-                    GoTo("skills")
-                end,
-            }
-        end
         return gui.Panel{
             classes = { "eotwbInfo" },
             bgimage = "panels/square.png",

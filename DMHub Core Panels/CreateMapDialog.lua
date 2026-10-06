@@ -225,6 +225,16 @@ mod.shared.ShowCreateMapDialog = function()
         halign = "left",
         tmargin = 6,
     }
+    --"321 props included", below the tags, when the map ships an "Objects
+    --for this map" set; hovering it previews the props.
+    local detailProps = gui.Panel{
+        classes = {"hidden"},
+        width = "100%",
+        height = "auto",
+        flow = "horizontal",
+        halign = "left",
+        tmargin = 2,
+    }
     local appearancesHeading = gui.Panel{
         classes = {"hidden"},
         width = "100%",
@@ -338,6 +348,7 @@ mod.shared.ShowCreateMapDialog = function()
             detailHero,
             detailInfo,
             detailTags,
+            detailProps,
             detailAccess,
             appearancesHeading,
             variantsPanel,
@@ -673,7 +684,9 @@ mod.shared.ShowCreateMapDialog = function()
     --long axis (the given one) into thirds: window seg (0..2) rests at the
     --start of its third and, while hovered, glides through it with the same
     --eased cosine swing the grid tiles use, easing home on mouse-out.
-    local HeroZoom = function(thumb, tileW, tileH, fw, fh, axis, seg, alignArg)
+    --Clicking it calls onOpen with the region it shows, as map fractions
+    --(y down), to open the full-size viewer zoomed in there.
+    local HeroZoom = function(thumb, tileW, tileH, fw, fh, axis, seg, alignArg, onOpen)
         --an extreme aspect can push a fraction past 1; shrink both so the
         --window stays aspect-true.
         if fw > 1 then
@@ -725,7 +738,13 @@ mod.shared.ShowCreateMapDialog = function()
             halign = alignArg,
             bgimage = thumb,
             imageRect = RectFor(0),
+            press = function(element)
+                --imageRect is in texture space, where y runs bottom-up.
+                local r = RectFor(panOffset)
+                onOpen{ x1 = r.x1, y1 = 1 - r.y2, x2 = r.x2, y2 = 1 - r.y1 }
+            end,
             hover = function(element)
+                gui.Tooltip("Click to view full size")(element)
                 if range <= 0 then
                     return
                 end
@@ -796,6 +815,15 @@ mod.shared.ShowCreateMapDialog = function()
         if h < 1 then h = 1 end
         local thumb = mod.shared.MapPackThumbImage(entry)
 
+        --clicking the map or a zoom window opens the full-size viewer.
+        local OpenFullSize = function(focus)
+            mod.shared.ShowMapPackFullPreview(entry, focus)
+        end
+        local OpenPress = function(element)
+            OpenFullSize(nil)
+        end
+        local OpenHover = gui.Tooltip("Click to view full size")
+
         --tier pill on the map's corner while the appearance is gated behind
         --a pledge the account lacks (the creator's tier name, else the price);
         --clicking it opens the creator's Patreon page where that pledge can
@@ -839,6 +867,8 @@ mod.shared.ShowCreateMapDialog = function()
                     height = DETAIL_IMAGE_H,
                     halign = "left",
                     bgimage = thumb,
+                    press = OpenPress,
+                    hover = OpenHover,
                     pill,
                 },
                 gui.Panel{
@@ -846,11 +876,11 @@ mod.shared.ShowCreateMapDialog = function()
                     height = "100%",
                     halign = "right",
                     flow = "vertical",
-                    HeroZoom(thumb, zoomW, zoomH, fw, fh, "y", 0, "right"),
+                    HeroZoom(thumb, zoomW, zoomH, fw, fh, "y", 0, "right", OpenFullSize),
                     gui.Panel{ width = 1, height = HERO_GAP },
-                    HeroZoom(thumb, zoomW, zoomH, fw, fh, "y", 1, "right"),
+                    HeroZoom(thumb, zoomW, zoomH, fw, fh, "y", 1, "right", OpenFullSize),
                     gui.Panel{ width = 1, height = HERO_GAP },
-                    HeroZoom(thumb, zoomW, zoomH, fw, fh, "y", 2, "right"),
+                    HeroZoom(thumb, zoomW, zoomH, fw, fh, "y", 2, "right", OpenFullSize),
                 },
             }
         end
@@ -876,6 +906,8 @@ mod.shared.ShowCreateMapDialog = function()
                 height = imgH,
                 halign = "center",
                 bgimage = thumb,
+                press = OpenPress,
+                hover = OpenHover,
                 pill,
             },
             gui.Panel{
@@ -884,11 +916,11 @@ mod.shared.ShowCreateMapDialog = function()
                 flow = "horizontal",
                 halign = "left",
                 tmargin = HERO_GAP,
-                HeroZoom(thumb, zoomW, zoomH, fw, fh, "x", 0, "left"),
+                HeroZoom(thumb, zoomW, zoomH, fw, fh, "x", 0, "left", OpenFullSize),
                 gui.Panel{ width = HERO_GAP, height = 1 },
-                HeroZoom(thumb, zoomW, zoomH, fw, fh, "x", 1, "left"),
+                HeroZoom(thumb, zoomW, zoomH, fw, fh, "x", 1, "left", OpenFullSize),
                 gui.Panel{ width = HERO_GAP, height = 1 },
-                HeroZoom(thumb, zoomW, zoomH, fw, fh, "x", 2, "left"),
+                HeroZoom(thumb, zoomW, zoomH, fw, fh, "x", 2, "left", OpenFullSize),
             },
         }
     end
@@ -1006,6 +1038,27 @@ mod.shared.ShowCreateMapDialog = function()
         end
         detailTags.children = tagPanels
         detailTags:SetClass("hidden", #tagPanels == 0)
+
+        local hasProps = (tonumber(entry.objectCount) or 0) > 0
+        detailProps:SetClass("hidden", not hasProps)
+        if hasProps then
+            detailProps.children = {
+                gui.Panel{
+                    classes = {"mapPackTagChip"},
+                    flow = "horizontal",
+                    hover = function(element)
+                        element.tooltip = gui.TooltipFrame(mod.shared.MapPackObjectsPreview(entry))
+                    end,
+                    gui.Panel{
+                        classes = {"mapPackPropsChipIcon"},
+                    },
+                    gui.Label{
+                        classes = {"mapPackTagText"},
+                        text = mod.shared.MapPackPropsText(entry),
+                    },
+                },
+            }
+        end
 
         --a lone "Default" appearance button is noise; the section only
         --shows when there is a real choice.
@@ -1523,6 +1576,15 @@ mod.shared.ShowCreateMapDialog = function()
 		vpad = 2,
 		rmargin = 4,
 		vmargin = 2,
+	}
+	tileStyles[#tileStyles + 1] = {
+		selectors = {"mapPackPropsChipIcon"},
+		width = 12,
+		height = 12,
+		valign = "center",
+		rmargin = 4,
+		bgimage = "phosphor/armchair-fill.png",
+		bgcolor = "@fgMuted",
 	}
 	tileStyles[#tileStyles + 1] = {
 		selectors = {"mapPackTagText"},

@@ -954,6 +954,8 @@ TokenHud.RegisterPanel{
                                             element.text = barInfo.text or barInfo.base.text
                                         else
 											local showAs = (token.canControl or token.isFriendOfPlayer) and "val" or barInfo.showAs or "bar"
+											--"bar" mode shows no number; clear it so text from an earlier mode does not linger.
+											element.text = ""
 											if (barInfo.temp or 0) > 0 then
 												if showAs == "pct" then
 													if barInfo.max and barInfo.max ~= 0 then

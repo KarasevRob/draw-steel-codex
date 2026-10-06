@@ -555,7 +555,9 @@ audio.SoundEvent{
 audio.SoundEvent{
     name = "Ability.Collar_DetonateBeep",
     mixgroup = "gameplay",
-    sounds = {"abl/collar/Collar_Detonate_Beep_v1_01.wav","abl/collar/Collar_Detonate_Beep_v1_02.wav","abl/collarCollar_Detonate_Beep_v1_03.wav","abl/collarCollar_Detonate_Beep_v1_04.wav"},
+    --v1_03/v1_04 were listed as "abl/collarCollar_..." (missing slash) and never uploaded, so they
+    --played silence; add them back once uploaded under the right path.
+    sounds = {"abl/collar/Collar_Detonate_Beep_v1_01.wav","abl/collar/Collar_Detonate_Beep_v1_02.wav"},
     volume = 0.3,
     pitchRand = 0.01,
     ignoreDuplicates = 0.01,
@@ -791,7 +793,9 @@ audio.SoundEvent{
 audio.SoundEvent{
     name = "Ability.Explosion_Medium_Short",
     mixgroup = "gameplay",
-    sounds = {"abl/explo/Explo_Medium_Short_v1_01.wav","abl/explo/Explo_Medium_Short_v1_02.wav","explo/Explo_Medium_Short_v1_03.wav",},
+    --v1_03 was listed as "explo/..." (missing "abl/") and never uploaded, so it played silence;
+    --add it back once uploaded under the right path.
+    sounds = {"abl/explo/Explo_Medium_Short_v1_01.wav","abl/explo/Explo_Medium_Short_v1_02.wav",},
     volume = 0.2,
     pitchRand = 0.15,
     ignoreDuplicates = 0.1

@@ -331,6 +331,52 @@ GameSystem.RegisterApplyToTargets{
 	end,
 }
 
+--The trigger subject, like "Trigger Subject". But if the subject is a minion
+--whose token is already gone (its death confirmed and the token removed), it
+--resolves to a living member of the same squad instead. Minions share one
+--Stamina pool, so damage to any member lands in it -- e.g. Mark's extra
+--damage after the marked minion died still hurts the squad.
+GameSystem.RegisterApplyToTargets{
+	id = "subject_or_squad",
+	text = "Trigger Subject (or its Squad)",
+	resolve = function(ability, casterToken, targets, options)
+		local result = {}
+		local subject = options.symbols ~= nil and options.symbols.subject or nil
+		if type(subject) == "function" then
+			subject = subject("self")
+		end
+		if subject == nil then
+			return result
+		end
+
+		local subjectToken = dmhub.LookupToken(subject)
+		if subjectToken ~= nil and subjectToken.valid then
+			result[#result+1] = { token = subjectToken }
+			return result
+		end
+
+		local squad = nil
+		pcall(function()
+			if subject.minion then
+				squad = subject:MinionSquad()
+			end
+		end)
+		if squad == nil then
+			return result
+		end
+
+		for _,tok in ipairs(dmhub.GetTokens{ haveProperties = true }) do
+			if tok.valid and tok.properties.minion and tok.properties:MinionSquad() == squad
+				and (not tok.properties.minionDead) and (not tok.properties:IsDead()) then
+				result[#result+1] = { token = tok }
+				return result
+			end
+		end
+
+		return result
+	end,
+}
+
 --when casting a spell, this is our set of 'target lists' who have different outcomes to what has happened in the spell so far.
 --it might include lists of creatures who have been hit, made a save, failed a save, been critically hit, etc.
 GameSystem.RegisterApplyToTargets{

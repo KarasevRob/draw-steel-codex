@@ -4223,53 +4223,58 @@ mod.shared.ShowPDFViewerDialog = function(doc, starting_page, options)
         styles = {
             ThemeEngine.GetStyles(),
 
-            {
-                selectors = { "framedPanel" },
-                width = "100%",
-                height = "100%",
-            },
-            {
-                selectors = { "framedPanel", "pdfPopoutCustomChrome" },
-                borderWidth = 0,
-                cornerRadius = 0,
-            },
-            {
-                selectors = { "pdfViewerContent", "pdfPopoutCustomChrome" },
-                --32px title row plus the viewer's existing 30px inset.
-                height = "100%-62",
-            },
-            {
-                selectors = { "pdfPopoutTitleBar" },
-                bgcolor = "@bg",
-            },
-            {
-                selectors = { "pdfPopoutWindowControl" },
-                bgcolor = "clear",
-            },
-            {
-                selectors = { "pdfPopoutWindowControl", "hover" },
-                bgcolor = "#ffffff1f",
-            },
-            {
-                selectors = { "pdfPopoutWindowControl", "press" },
-                bgcolor = "#ffffff33",
-            },
-            {
-                selectors = { "pdfPopoutWindowControlDanger", "hover" },
-                bgcolor = "#c42b1c",
-            },
-            {
-                selectors = { "pdfPopoutWindowControlDanger", "press" },
-                bgcolor = "#b3271a",
-            },
-            {
-                selectors = { "pdfPopoutWindowControlIcon" },
-                bgcolor = "@fg",
-            },
-            {
-                selectors = { "pdfPopoutWindowControlIconDanger", "parent:hover" },
-                bgcolor = "#ffffff",
-            },
+            --MergeTokens turns @fg / @bg into real colors. Popped out, this
+            --panel is its window's root with no themed ancestor, so a raw
+            --@fg here fell back to black (invisible caption glyphs).
+            ThemeEngine.MergeTokens({
+                {
+                    selectors = { "framedPanel" },
+                    width = "100%",
+                    height = "100%",
+                },
+                {
+                    selectors = { "framedPanel", "pdfPopoutCustomChrome" },
+                    borderWidth = 0,
+                    cornerRadius = 0,
+                },
+                {
+                    selectors = { "pdfViewerContent", "pdfPopoutCustomChrome" },
+                    --32px title row plus the viewer's existing 30px inset.
+                    height = "100%-62",
+                },
+                {
+                    selectors = { "pdfPopoutTitleBar" },
+                    bgcolor = "@bg",
+                },
+                {
+                    selectors = { "pdfPopoutWindowControl" },
+                    bgcolor = "clear",
+                },
+                {
+                    selectors = { "pdfPopoutWindowControl", "hover" },
+                    bgcolor = "#ffffff1f",
+                },
+                {
+                    selectors = { "pdfPopoutWindowControl", "press" },
+                    bgcolor = "#ffffff33",
+                },
+                {
+                    selectors = { "pdfPopoutWindowControlDanger", "hover" },
+                    bgcolor = "#c42b1c",
+                },
+                {
+                    selectors = { "pdfPopoutWindowControlDanger", "press" },
+                    bgcolor = "#b3271a",
+                },
+                {
+                    selectors = { "pdfPopoutWindowControlIcon" },
+                    bgcolor = "@fg",
+                },
+                {
+                    selectors = { "pdfPopoutWindowControlIconDanger", "parent:hover" },
+                    bgcolor = "#ffffff",
+                },
+            }),
         },
 
         resize = function(element, width, height)

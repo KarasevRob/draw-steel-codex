@@ -46,6 +46,7 @@ end
 -- Build the list of conditions/effects a target can save against.
 -- Each entry: { type = "condition"|"ongoingEffect", id = <conditionid or effectTypeid>,
 --               instanceId = <ongoing effect instance id>, name = <display name>,
+--               bondid = <ongoing effect instance bond id or false>,
 --               duration = <duration string or nil> }
 function ActivatedAbilitySaveBehavior:GetSaveItems(targetCreature)
     local conditionsTable = dmhub.GetTable(CharacterCondition.tableName) or {}
@@ -73,6 +74,7 @@ function ActivatedAbilitySaveBehavior:GetSaveItems(targetCreature)
                     id = effectInstance.ongoingEffectid,
                     instanceId = effectInstance.id,
                     name = ongoingEffectEntry.name,
+                    bondid = effectInstance.bondid,
                 }
             end
         end
@@ -146,6 +148,39 @@ function ActivatedAbilitySaveBehavior:PurgeSaveItem(targetToken, item)
                 targetToken.properties:RemoveOngoingEffect(item.id)
             end,
         }
+    end
+end
+
+-- After a passed save against a bonded ongoing effect whose definition has
+-- bondSaveEndsAll set (e.g. Net Trap: "any creature who makes their save ends
+-- that effect for all targets"), remove the same bond from every other creature.
+-- item.bondid is captured by GetSaveItems, since the saver's own instance is
+-- already gone by the time this runs.
+function ActivatedAbilitySaveBehavior:EndBondedSaveItem(targetToken, item)
+    if item.type ~= "ongoingEffect" or not item.bondid then
+        return
+    end
+
+    local ongoingEffect = (dmhub.GetTable(CharacterOngoingEffect.tableName) or {})[item.id]
+    if ongoingEffect == nil or ongoingEffect.casterTracking ~= "bond" or not ongoingEffect:try_get("bondSaveEndsAll", false) then
+        return
+    end
+
+    for _, tok in ipairs(dmhub.allTokens) do
+        if tok.charid ~= targetToken.charid and tok.properties:HasBondForOngoingEffect(item.id, item.bondid) then
+            tok:ModifyProperties{
+                description = string.format("%s ends for all bonded creatures", item.name),
+                execute = function()
+                    local kept = {}
+                    for _, inst in ipairs(tok.properties:try_get("ongoingEffects", {})) do
+                        if inst.ongoingEffectid ~= item.id or inst.bondid ~= item.bondid then
+                            kept[#kept+1] = inst
+                        end
+                    end
+                    tok.properties.ongoingEffects = kept
+                end,
+            }
+        end
     end
 end
 
@@ -531,6 +566,7 @@ function ActivatedAbilitySaveBehavior:RollSaveInTimeline(ability, casterToken, t
             local passed = saveState.forced or rollInfo.total >= saveEnds
             if passed then
                 self:PurgeSaveItem(targetToken, item)
+                self:EndBondedSaveItem(targetToken, item)
             elseif item.type == "ongoingEffect" or item.type == "condition" then
                 -- Failed save against an ongoing effect OR condition that
                 -- did NOT end (it persists). Fire the savefail trigger so

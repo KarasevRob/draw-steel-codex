@@ -3719,6 +3719,9 @@ function LiveEncounter:DeployWave(waveid, initiativeQueue)
                     --prefer an authored spawn location if one exists; otherwise lay the
                     --monsters out in a 5-wide grid around the camera centre.
                     local loc = (group.spawnlocs or {})[slot]
+                    --a grid loc has no altitude of its own: the engine stands
+                    --it on the ground (down into a pit as well as up a cliff).
+                    local onGround = false
                     if loc ~= nil then
                         if not loc.isValidFloor then
                             loc = loc.withCurrentFloor
@@ -3727,11 +3730,12 @@ function LiveEncounter:DeployWave(waveid, initiativeQueue)
                         local col = fallbackIndex % 5
                         local row = math.floor(fallbackIndex / 5)
                         loc = core.Loc { x = baseX + col, y = baseY + row, floorIndex = floorIndex }
+                        onGround = true
                     end
                     spawnIndex = spawnIndex + 1
                     fallbackIndex = fallbackIndex + 1
 
-                    local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true })
+                    local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true, onGround = onGround })
                     if token ~= nil then
                         token.properties.initiativeGrouping = groupid
                         token.properties:OnCreateFromBestiary(token, groupid)

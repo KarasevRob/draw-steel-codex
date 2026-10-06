@@ -210,6 +210,9 @@ end
 
 --A class list from optional entries: false/nil entries are dropped, so the
 --list never has holes (the engine stops at the first nil).
+--defined with the perk buttons, below; the scene stage calls them.
+local PerkActionChildren, PerkOfferChildren
+
 local function Classes(...)
     local result = {}
     for i = 1, select("#", ...) do
@@ -928,6 +931,17 @@ local function StageRules()
             bold = false,
             italics = true,
             color = "#c8c8c8",
+        },
+        --"no roll" after the name of an option a hero's knack (or the
+        --option itself) settles without dice.
+        {
+            selectors = {"eotwSceneOptionTag"},
+            fontSize = 13,
+            italics = true,
+            color = "#d9b3ff",
+            width = "auto",
+            height = "auto",
+            lmargin = 8,
         },
         --the "!" a hero wears while they could assist the test in flight.
         {
@@ -1795,10 +1809,10 @@ end
 --A hero who does not meet an Allow requirement is not read the requirement
 --back at them: every unmet Allow on the card collapses into one plain line
 --(user direction 2026-09-19).
-local function RiderRows(roll, verdict)
+local function RiderRows(riders, verdict)
     local rows = {}
     local saidLocked = false
-    for _, row in ipairs(TestRiders.DescribeRows(roll.riders, verdict)) do
+    for _, row in ipairs(TestRiders.DescribeRows(riders, verdict)) do
         local text = string.format("%s: %s", row.label, row.text)
         if row.state == "locked" then
             if saidLocked then
@@ -1838,50 +1852,101 @@ local function GrantedRows(option)
     return rows
 end
 
+--The rules of a free version (no roll), marked up like a landed tier once
+--they have been applied.
+local function FreeRulesRow(free, applied)
+    local text = EncounterScript.VisibleText(free.text or "")
+    local markup = EncounterScript.MarkupRules(text, string.format("<color=%s>", RULES_COLOR), "</color>")
+    return gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "horizontal",
+        vmargin = 1,
+        interactable = false,
+        gui.Label{ classes = Classes("eotwTierText", applied and "landed"), width = "100%", text = markup, interactable = false },
+    }
+end
+
 local function OptionCard(entry, option, index, m)
     local mine = IsMyTurn(m) and m.turn.status == "choosing"
     local chosen = m.turn ~= nil and m.turn.optionIndex == index
     local landed = nil
     if chosen and m.turn.status == "resolved" then
         landed = m.turn.tier
-    elseif chosen and (m.turn.status == "assist" or m.turn.status == "assisting") then
+    elseif chosen and (m.turn.status == "assist" or m.turn.status == "assisting" or m.turn.status == "perk") then
         --while the assist window is open the test's own tier is what is on
         --the table; an assist may still move it before anything is applied.
         landed = m.turn.baseTier
+    end
+    --the version of the option the hero at the entry takes: once chosen,
+    --the one the host fixed; before that, the first knack they meet.
+    local heroid = m.turn ~= nil and m.turn.heroid or nil
+    local version = option
+    local knackReason = nil
+    if chosen then
+        version = EncounterScript.OptionVersion(option, m.turn.knackIndex)
+        knackReason = m.turn.knackReason
+    elseif heroid ~= nil then
+        version = EncounterMontage.OptionForHero(heroid, option)
+        if version.knack ~= nil then
+            knackReason = EncounterMontage.KnackReason(heroid, option, version.knackIndex)
+        end
     end
     ---@type Panel[]
     local children = {
         gui.Label{ classes = {"eotwOptionName"}, text = option.name, interactable = false },
     }
-    if option.text ~= "" then
-        children[#children + 1] = gui.Label{ classes = {"eotwEntryDesc"}, text = option.text, interactable = false }
+    if (version.text or "") ~= "" then
+        children[#children + 1] = gui.Label{ classes = {"eotwEntryDesc"}, text = version.text, interactable = false }
     end
-    --the option's riders, weighed against the hero standing at the entry:
-    --an unmet Allow locks the card; a met one marks it special and says why.
+    --the option's riders, weighed against the hero standing at the entry: a
+    --secret option is never drawn for a hero who does not meet it, so here
+    --a met Allow marks it special and says why.
     local verdict = nil
-    if m.turn ~= nil and m.turn.heroid ~= nil then
-        verdict = EncounterMontage.RiderVerdict(m.turn.heroid, option)
+    if heroid ~= nil then
+        verdict = EncounterMontage.RiderVerdict(heroid, option, version)
     end
     local locked = verdict ~= nil and not verdict.allowed
-    local unlocked = verdict ~= nil and verdict.gated and verdict.allowed
-    if option.roll ~= nil then
-        children[#children + 1] = gui.Label{ classes = {"eotwOptionRoll"}, text = string.format("%s: %s", option.roll.name, EncounterScript.AttrWithoutSkills(option.roll.attr)), interactable = false }
-        for _, row in ipairs(RiderRows(option.roll, verdict)) do
+    local unlocked = (verdict ~= nil and verdict.gated and verdict.allowed) or version.knack ~= nil
+    if version.knack ~= nil then
+        children[#children + 1] = gui.Label{
+            classes = {"eotwRider", "unlocked"},
+            text = string.format("Knack: %s", knackReason or version.knack.requirementText),
+            interactable = false,
+        }
+    end
+    if version.roll ~= nil then
+        children[#children + 1] = gui.Label{ classes = {"eotwOptionRoll"}, text = string.format("%s: %s", version.roll.name, EncounterScript.AttrWithoutSkills(version.roll.attr)), interactable = false }
+        for _, row in ipairs(RiderRows(EncounterScript.VersionRiders(option, version), verdict)) do
             children[#children + 1] = row
         end
         for _, row in ipairs(GrantedRows(option)) do
             children[#children + 1] = row
         end
+        if chosen and m.turn.blessing ~= nil then
+            children[#children + 1] = gui.Label{
+                classes = {"eotwRider", "met"},
+                text = string.format("Double Edge: blessed by %s (Ritualist)", m.turn.blessing.heroName or "a Ritualist"),
+                interactable = false,
+            }
+        end
         local rows
         if chosen and m.turn.status == "rolling" then
-            rows = LiveTierRows(option.roll)
+            rows = LiveTierRows(version.roll)
         else
-            rows = TierRows(option.roll, landed, true)
+            rows = TierRows(version.roll, landed, true)
         end
         for _, row in ipairs(rows) do
             children[#children + 1] = row
         end
+    elseif version.free ~= nil then
+        children[#children + 1] = gui.Label{ classes = {"eotwOptionRoll"}, text = "No roll needed", interactable = false }
+        for _, row in ipairs(RiderRows(EncounterScript.VersionRiders(option, version), verdict)) do
+            children[#children + 1] = row
+        end
+        children[#children + 1] = FreeRulesRow(version.free, chosen and m.turn.status == "resolved")
     end
+    local takeable = version.roll ~= nil or version.free ~= nil or (option.delve ~= nil and (m.turn == nil or m.turn.delve == nil))
     return gui.Panel{
         classes = Classes("eotwOptionCard", mine and not locked and "actionable", chosen and "chosen", locked and "locked", unlocked and "unlocked"),
         width = "100%",
@@ -1894,7 +1959,7 @@ local function OptionCard(entry, option, index, m)
         children = children,
         press = function(element)
             --a "Delve:" option has no roll; it enters its delve instead.
-            if not mine or locked or (option.roll == nil and (option.delve == nil or m.turn.delve ~= nil)) then
+            if not mine or locked or not takeable then
                 return
             end
             audio.FireSoundEvent("Mouse.Click")
@@ -2052,6 +2117,160 @@ local function AssistChildren(m, t)
     return children
 end
 
+--- perks on the stage ----------------------------------------------------------
+--The montage plays a few perks by their real rules (EncounterMontage,
+--"perks"). Their buttons go to whoever controls the hero with the perk.
+
+--Does the local user control this hero?
+local function LocalControls(charid)
+    local tok = dmhub.GetCharacterById(charid)
+    if tok == nil or not tok.valid then
+        return false
+    end
+    local mine = nil
+    pcall(function() mine = tok.canControlAsUser end)
+    if mine == nil then
+        pcall(function() mine = tok.canControl end)
+    end
+    return mine == true
+end
+
+local function PerkButton(label, tooltip, onPress)
+    return gui.Panel{
+        classes = {"eotwSceneOption", "actionable", "unlocked"},
+        width = "auto",
+        height = "auto",
+        halign = "left",
+        hpad = 14,
+        vpad = 5,
+        borderBox = true,
+        vmargin = 2,
+        bgimage = "panels/square.png",
+        gui.Label{ classes = {"eotwSceneOptionName"}, text = label, interactable = false },
+        linger = function(element)
+            if tooltip ~= nil then
+                gui.Tooltip(tooltip)(element)
+            end
+        end,
+        press = function(element)
+            audio.FireSoundEvent("Mouse.Click")
+            onPress(element)
+        end,
+    }
+end
+
+--While a hero chooses: a Ritualist (any hero, once a round) may bless the
+--test they are about to take.
+PerkActionChildren = function(m, t)
+    local children = {}
+    if t == nil or t.delve ~= nil then
+        return children
+    end
+    if t.blessing ~= nil then
+        children[#children + 1] = gui.Label{
+            classes = {"eotwSceneHint"},
+            text = string.format("%s has blessed this test: a double edge (Ritualist).", t.blessing.heroName or "A Ritualist"),
+        }
+        return children
+    end
+    for _, hero in ipairs(EncounterMontage.Heroes()) do
+        local key = string.format("ritual:%d:%s", m.round or 1, hero.charid)
+        if LocalControls(hero.charid) and not (m.perkUsed or {})[key] and EncounterMontage.HeroHasPerk(hero.charid, "Ritualist") then
+            local label
+            if hero.charid == t.heroid then
+                label = "Bless your own test (Ritualist)"
+            else
+                label = string.format("%s: bless %s's test (Ritualist)", hero.name or "Your hero", t.heroName or "the hero")
+            end
+            children[#children + 1] = PerkButton(label,
+                "Ritualist: a minute's blessing gives a double edge on this test. Once a round.",
+                function(element)
+                    EncounterMontage.SendRequest("bless", { heroid = hero.charid })
+                    element:SetClass("hidden", true)
+                end)
+        end
+    end
+    return children
+end
+
+--After a failed test: the perks that could rescue it, each to its owner.
+PerkOfferChildren = function(m, t)
+    local children = {}
+    local rolled = string.format("%s rolled tier %d", t.heroName or "The hero", t.baseTier or t.tier or 1)
+    if t.baseTotal ~= nil then
+        rolled = string.format("%s (%s)", rolled, tostring(t.baseTotal))
+    end
+    children[#children + 1] = gui.Label{ classes = {"eotwSceneHint"}, text = rolled }
+    for i, offer in ipairs(t.offers or {}) do
+        if LocalControls(offer.heroid) then
+            children[#children + 1] = PerkButton(string.format("%s: use %s", offer.heroName or "Your hero", offer.perk), offer.text,
+                function(element)
+                    EncounterMontage.SendRequest("perkUse", { offerIndex = i })
+                    element:SetClass("hidden", true)
+                end)
+            children[#children + 1] = gui.Panel{
+                classes = {"eotwSceneOption", "actionable"},
+                width = "auto",
+                height = "auto",
+                halign = "left",
+                hpad = 14,
+                vpad = 5,
+                borderBox = true,
+                vmargin = 2,
+                bgimage = "panels/square.png",
+                gui.Label{ classes = {"eotwSceneOptionName", "pass"}, text = string.format("Don't use %s", offer.perk), interactable = false },
+                press = function(element)
+                    audio.FireSoundEvent("Mouse.Click")
+                    EncounterMontage.SendRequest("perkPass", { offerIndex = i })
+                    element:SetClass("hidden", true)
+                end,
+            }
+        else
+            children[#children + 1] = gui.Label{
+                classes = {"eotwSceneHint"},
+                text = string.format("%s may use %s...", offer.heroName or "A hero", offer.perk),
+            }
+        end
+    end
+    return children
+end
+
+--Round 1, before anyone acts: a Team Leader may spend a hero token so the
+--whole party tests with their exploration skills. Afterwards, a reminder.
+local function TeamLeaderChildren(m)
+    local children = {}
+    if m.teamLeader ~= nil then
+        children[#children + 1] = gui.Label{
+            classes = {"eotwTurnHint"},
+            text = string.format("%s leads the party: every hero tests as if they had %s's exploration skills (Team Leader).",
+                m.teamLeader.heroName or "A hero", m.teamLeader.heroName or "their"),
+        }
+        return children
+    end
+    if (m.round or 1) ~= 1 or next(m.acted or {}) ~= nil or m.turn ~= nil then
+        return children
+    end
+    for _, hero in ipairs(EncounterMontage.Heroes()) do
+        if LocalControls(hero.charid) and EncounterMontage.HeroHasPerk(hero.charid, "Team Leader") then
+            children[#children + 1] = gui.Button{
+                text = string.format("%s: lead the party (Team Leader)", hero.name or "Your hero"),
+                halign = "center",
+                tmargin = 8,
+                width = 380,
+                height = 40,
+                linger = function(element)
+                    gui.Tooltip("Team Leader: spend a hero token, and for this montage every hero tests as if they also had your exploration skills.")(element)
+                end,
+                click = function(element)
+                    EncounterMontage.SendRequest("teamLeader", { heroid = hero.charid })
+                    element:SetClass("hidden", true)
+                end,
+            }
+        end
+    end
+    return children
+end
+
 local function TurnSignature(m)
     local t = m.turn or {}
     local a = t.assist or {}
@@ -2062,6 +2281,8 @@ local function TurnSignature(m)
         tostring(t.rollSeq), tostring(t.tier), tostring(m.consequenceIndex), tostring(#(m.log or {})),
         tostring(dmhub.loginUserid == t.userid),
         tostring(a.rollSeq), tostring(a.status), tostring(a.tier),
+        tostring(t.knackIndex), tostring(#(t.offers or {})), tostring(t.blessing ~= nil and t.blessing.heroid or nil),
+        tostring(m.teamLeader ~= nil), tostring(m.perkSeq),
     }, "|")
 end
 
@@ -2486,9 +2707,16 @@ local function CreateSceneStage()
         local parse = CurrentParse()
         local buttons = {}
         for i, option in ipairs(entry.options) do
-            local verdict = EncounterMontage.RiderVerdict(t.heroid, option)
+            --a secret option the hero at the entry does not qualify for is
+            --not drawn at all -- for them, or for anyone watching them.
+            if not EncounterMontage.OptionVisible(t.heroid, option) then
+                goto nextOption
+            end
+            local version = EncounterMontage.OptionForHero(t.heroid, option)
+            local verdict = EncounterMontage.RiderVerdict(t.heroid, option, version)
             local locked = verdict ~= nil and not verdict.allowed
-            local unlocked = verdict ~= nil and verdict.gated and verdict.allowed
+            local unlocked = (verdict ~= nil and verdict.gated and verdict.allowed) or version.knack ~= nil
+            local takeable = version.roll ~= nil or version.free ~= nil or (option.delve ~= nil and t.delve == nil)
             buttons[#buttons + 1] = gui.Panel{
                 classes = Classes("eotwSceneOption", mine and not locked and "actionable", locked and "locked", unlocked and "unlocked"),
                 width = "auto",
@@ -2502,7 +2730,8 @@ local function CreateSceneStage()
                 bgimage = "panels/square.png",
                 children = Classes(
                     gui.Label{ classes = Classes("eotwSceneOptionName", locked and "locked"), text = option.name, interactable = false, valign = "center" },
-                    OutcomeIconRow(EncounterScript.OptionOutcomes(option, parse, entry), 16, { lmargin = 10 })
+                    (version.roll == nil and version.free ~= nil) and gui.Label{ classes = {"eotwSceneOptionTag"}, text = "no roll", interactable = false, valign = "center" } or nil,
+                    OutcomeIconRow(EncounterScript.OptionOutcomes(version, parse, entry), 16, { lmargin = 10 })
                 ),
                 hover = function(element)
                     ShowDetail({ OptionCard(entry, option, i, m) })
@@ -2512,13 +2741,14 @@ local function CreateSceneStage()
                 end,
                 press = function(element)
                     --a "Delve:" option has no roll; it enters its delve instead.
-                    if not mine or locked or (option.roll == nil and (option.delve == nil or t.delve ~= nil)) then
+                    if not mine or locked or not takeable then
                         return
                     end
                     audio.FireSoundEvent("Mouse.Click")
                     EncounterMontage.SendRequest("choose", { optionIndex = i })
                 end,
             }
+            ::nextOption::
         end
         --inside a delve the way out is turning back at a chest, not leaving
         --an obstacle half met.
@@ -2884,7 +3114,11 @@ local function CreateSceneStage()
         local option = here.options[t.optionIndex or 0]
         m_detailDefault = {}
         if t.status == "choosing" then
-            boxExtra.children = OptionButtons(m, here)
+            local buttons = OptionButtons(m, here)
+            for _, child in ipairs(PerkActionChildren(m, t)) do
+                buttons[#buttons + 1] = child
+            end
+            boxExtra.children = buttons
         elseif t.status == "chest" or t.status == "chestlanded" then
             local delve = EncounterMontage.TurnDelve(t)
             local chest = delve ~= nil and delve.sections.chest or nil
@@ -2943,6 +3177,8 @@ local function CreateSceneStage()
                 }
             elseif t.status == "assist" or t.status == "assisting" then
                 boxExtra.children = AssistChildren(m, t)
+            elseif t.status == "perk" then
+                boxExtra.children = PerkOfferChildren(m, t)
             else
                 boxExtra.children = {}
             end
@@ -3074,6 +3310,9 @@ local function BuildTurnChildren(m, beat)
     if t == nil or t.status == "resolved" then
         Add(gui.Label{ classes = {"eotwTurnTitle"}, text = string.format("Round %d", m.round or 1) })
         Add(YourMoveLabel())
+        for _, child in ipairs(TeamLeaderChildren(m)) do
+            Add(child)
+        end
         --a "(Temporary)" threat that ran out pays its consequence at the
         --round boundary, and the consequences phase -- the only other
         --place one is ever read out -- does not run mid-montage. So the
@@ -3109,8 +3348,13 @@ local function BuildTurnChildren(m, beat)
                     EncounterScript.Plural(last.depth or 0, "obstacle"), EncounterScript.Plural(last.chests or 0, "chest")) })
             elseif last.passed then
                 Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s approached %s and did nothing.", last.heroName or "A hero", last.entryName or "") })
+            elseif (last.tier or 0) == 0 then
+                Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s: %s (%s, no roll)", last.heroName or "", last.entryName or "", last.optionName or "") })
             else
                 Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s: %s (%s, tier %d)", last.heroName or "", last.entryName or "", last.optionName or "", last.tier or 0) })
+            end
+            if last.knack ~= nil then
+                Add(gui.Label{ classes = {"eotwAppliedLine"}, text = string.format("Knack: %s", last.knack) })
             end
             for _, line in ipairs(last.applied or {}) do
                 Add(gui.Label{ classes = {"eotwAppliedLine"}, text = line })
@@ -3444,7 +3688,7 @@ local function ActiveCharacteristic(m, charid)
     end
     local beat = EncounterMontage.CurrentBeat()
     local entry = beat ~= nil and EncounterMontage.TurnEntry(beat, t) or nil
-    local option = entry ~= nil and entry.options[t.optionIndex] or nil
+    local option = EncounterMontage.TurnOption(entry, t)
     if option == nil or option.roll == nil then
         return nil, nil
     end
@@ -5722,7 +5966,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
         end
         m_continued = true
         if button ~= nil and button.valid then
-            button.text = "Returning..."
+            button.text = args.busyText or "Returning..."
             button:SetClass("disabled", true)
         end
         if args.onContinue ~= nil then
@@ -5730,9 +5974,11 @@ function EncounterMontageStage.ShowStoryScreen(args)
         end
     end
 
+    --args.buttonText / busyText: an authoring test ends the test instead.
     button = gui.Button{
-        text = "Return to Blackbottom",
+        text = args.buttonText or "Return to Blackbottom",
         halign = "center",
+        valign = "top",
         tmargin = 18,
         width = 280,
         height = 48,
@@ -5753,6 +5999,8 @@ function EncounterMontageStage.ShowStoryScreen(args)
             classes = {"eotwStageRound"},
             text = cond(defeat, "Defeat", "Victory"),
             halign = "center",
+            valign = "top",
+            tmargin = 48,
             color = cond(defeat, "#e04545", "#ffd66b"),
             uppercase = true,
         },
@@ -5760,6 +6008,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
             classes = {"eotwStageTitle", cond(args.title == nil or args.title == "", "collapsed", nil)},
             text = args.title or "",
             halign = "center",
+            valign = "top",
             bmargin = 14,
         },
         gui.Panel{
@@ -5770,6 +6019,7 @@ function EncounterMontageStage.ShowStoryScreen(args)
             maxHeight = "60%",
             flow = "vertical",
             halign = "center",
+            valign = "top",
             bgimage = "panels/square.png",
             pad = 24,
             borderBox = true,

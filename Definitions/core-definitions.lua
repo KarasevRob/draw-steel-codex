@@ -368,6 +368,7 @@ termsAndOngoingEffectsText = ""
 ---@overload fun(tableName: "damageTypes"): table<string, DamageType>
 ---@overload fun(tableName: "Deities"): table<string, Deity>
 ---@overload fun(tableName: "DeityDomains"): table<string, DeityDomain>
+---@overload fun(tableName: "documentClasses"): table<string, DocumentClass>
 ---@overload fun(tableName: "documents"): table<string, CustomDocument>
 ---@overload fun(tableName: "downtimeActivities"): table<string, DowntimeActivity>
 ---@overload fun(tableName: "encounterfolders"): table<string, EncounterFolder>
@@ -430,6 +431,7 @@ function dmhub.GetTable(tableName) end
 ---@overload fun(tableName: "damageTypes"): table<string, DamageType>
 ---@overload fun(tableName: "Deities"): table<string, Deity>
 ---@overload fun(tableName: "DeityDomains"): table<string, DeityDomain>
+---@overload fun(tableName: "documentClasses"): table<string, DocumentClass>
 ---@overload fun(tableName: "documents"): table<string, CustomDocument>
 ---@overload fun(tableName: "downtimeActivities"): table<string, DowntimeActivity>
 ---@overload fun(tableName: "encounterfolders"): table<string, EncounterFolder>

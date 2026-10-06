@@ -204,6 +204,10 @@ local g_heroCardRules = {
         height = 15,
         textAlignment = "left",
         textWrap = false,
+        --a long name shrinks to fit the card rather than running off its
+        --edge; past the floor it ends in an ellipsis.
+        minFontSize = 8,
+        textOverflow = "ellipsis",
         bmargin = 3,
     },
     --montage only (opts.showStats): one chip per characteristic ("M +2")
@@ -287,6 +291,11 @@ local g_heroCardRules = {
         height = SKILLS_HEIGHT,
         textAlignment = "topleft",
         textWrap = true,
+        --a hero with many skills shrinks the text to stay inside the fixed
+        --height rather than spilling over the stamina bar; past the floor
+        --it ends in an ellipsis.
+        minFontSize = 6,
+        textOverflow = "ellipsis",
         bmargin = 2,
     },
     {
@@ -1354,6 +1363,45 @@ local function CreateHeroCard(entry, opts)
     --last, so the washes sit over every other layer of the card.
     cardArgs[#cardArgs+1] = hurtFlash
     cardArgs[#cardArgs+1] = healFlash
+    --opts.dismiss = {tooltip=, click=}: an X in the top-right corner that
+    --shows only while the card is hovered. A direct child of the card so
+    --"parent:hover" reaches it; after the washes so it sits on top.
+    if opts.dismiss ~= nil then
+        cardArgs[#cardArgs+1] = gui.Panel{
+            classes = {"eotwCardDismiss"},
+            floating = true,
+            halign = "right",
+            valign = "top",
+            x = -4,
+            y = 4,
+            width = 18,
+            height = 18,
+            bgimage = "phosphor/x-bold.png",
+            bgcolor = "#ffffffcc",
+            swallowPress = true,
+            styles = {
+                {
+                    selectors = {"eotwCardDismiss"},
+                    hidden = 1,
+                },
+                {
+                    selectors = {"eotwCardDismiss", "parent:hover"},
+                    hidden = 0,
+                },
+                {
+                    selectors = {"eotwCardDismiss", "hover"},
+                    hidden = 0,
+                    bgcolor = "#ff7a6aff",
+                    scale = 1.15,
+                },
+            },
+            hover = gui.Tooltip(opts.dismiss.tooltip or "Dismiss"),
+            press = function(element)
+                audio.FireSoundEvent("Mouse.Click")
+                opts.dismiss.click(element)
+            end,
+        }
+    end
     if opts.click ~= nil then
         cardArgs.click = function(element)
             opts.click(element, OpenCharacterPanel)

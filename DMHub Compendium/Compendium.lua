@@ -6797,6 +6797,11 @@ Compendium = {
 		end
 	end,
 
+	--Removes an entry added with Register, by its text.
+	Deregister = function(text)
+		CompendiumRegistry[text] = nil
+	end,
+
 	ShowModalEditDialog = function(dataType, dataid)
 		local editor = dataType.CreateEditor()
 		local SetData = editor.data.SetData

@@ -971,6 +971,17 @@ function RunAgenda.AddDocument(doc)
     }
 end
 
+CustomDocument.RegisterAction{
+    id = "run.add",
+    text = "Add to the Run",
+    mode = "read",
+    directorOnly = true,
+    anyPage = true,
+    run = function(doc)
+        RunAgenda.AddDocument(doc)
+    end,
+}
+
 --scripting hooks: read or replace the whole agenda from the console or
 --tooling. The Run panel monitors the shared document, so a SetItems
 --refreshes every open view.
@@ -3224,7 +3235,7 @@ local function FlowSceneType(doc)
         id = FLOW_SUBTITLE_TYPE[word] or "narration"
     end
 
-    local info = CustomDocument.docTypeInfo[id]
+    local info = CustomDocument.DocTypeInfoById(id) or CustomDocument.docTypeInfo.narration
     local tooltip = (italic ~= nil and italic ~= "") and italic or info.text
     return info.icon, tooltip
 end
@@ -3245,7 +3256,10 @@ local function BuildFlowGraph(folderid)
     end
     table.sort(nodes, function(a, b) return a.name < b.name end)
 
-    --map "C1-NN"-style name prefixes to nodes for exit-link resolution.
+    --DEPRECATED, kept as a shim: edges from "C1-NN" name prefixes and a
+    --"## Exit" heading in the prose. No shipped module names pages this way
+    --(the convention in use is TC-NN), so this matches nothing today. Exits
+    --are declared now -- [[exit]] tags and class exits, read below.
     local byPrefix = {}
     for _, node in ipairs(nodes) do
         local prefix = string.match(node.name, "^(C%d+%-%d+)")
@@ -3272,14 +3286,35 @@ local function BuildFlowGraph(folderid)
             end
         end
 
-        local ann = node.doc:try_get("annotations")
-        local exitAnn = ann ~= nil and ann.exit or nil
-        if exitAnn ~= nil and type(exitAnn) == "table" and exitAnn.typeName == "RichExit" then
-            local nd = exitAnn:try_get("nextDocid")
+        --Every [[exit]] on the page is an edge, not only the first. A page's
+        --second exit is keyed "exit:<name>", and reading only "exit" drew a
+        --branching scene as a straight line.
+        node.exitIds = {}
+        local ann = node.doc:try_get("annotations") or {}
+        local exitKeys = {}
+        for key, value in pairs(ann) do
+            if type(value) == "table" and value.typeName == "RichExit" then
+                exitKeys[#exitKeys + 1] = key
+            end
+        end
+        table.sort(exitKeys)
+        for _, key in ipairs(exitKeys) do
+            local nd = ann[key]:try_get("nextDocid")
             if type(nd) == "string" then
                 AddEdge(nd)
             end
-            node.exitId = exitAnn:try_get("id")
+            local exitId = ann[key]:try_get("id")
+            if exitId then
+                node.exitIds[#node.exitIds + 1] = exitId
+            end
+        end
+
+        --Exits the page's class declares (dev:documentclasses).
+        for _, exit in ipairs(CustomDocument.DeclaredExits(node.doc)) do
+            if exit.nextDocid then
+                AddEdge(exit.nextDocid)
+            end
+            node.exitIds[#node.exitIds + 1] = exit.id
         end
     end
 
@@ -3428,7 +3463,9 @@ local function CreateFlowPanel()
             local typeIcon, sceneType = FlowSceneType(node.doc)
 
             local happened = doneDocids[node.id] == true
-                or (node.exitId ~= nil and exitsTaken[node.exitId] == true)
+            for _, exitId in ipairs(node.exitIds) do
+                happened = happened or exitsTaken[exitId] == true
+            end
             local isNow = (node.id == nowDocid)
 
             local nodeClasses = { "bordered", "hoverable" }
