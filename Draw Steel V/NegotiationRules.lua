@@ -772,6 +772,12 @@ NegotiationDocument.impression = 1
 NegotiationDocument.archetype = ""
 NegotiationDocument.opening = ""
 NegotiationDocument.stakes = ""
+--The Director's notes on the scene, as free-form prose: what triggers the
+--negotiation, what raises interest without a test, how the heroes can learn
+--the motivations beforehand, how to vary it. This is about the scene, not the
+--NPC -- the NPC belongs on a negotiator page. The encounter book put all of it
+--in the one-line descriptor for want of anywhere else.
+NegotiationDocument.sceneNotes = ""
 --traits: array of { id, kind, name, line }
 NegotiationDocument.traits = {}
 --offers: map interest(string) -> { terms }
@@ -848,6 +854,8 @@ do
             } },
         { id = "stakes", label = "Stakes", kind = "text", storage = "document", section = "Stakes",
             placeholder = "What happens on a deal - and on no deal." },
+        { id = "sceneNotes", label = "Scene Notes", kind = "text", storage = "document", section = "Scene notes",
+            placeholder = "What triggers this, what moves interest without a test, how to vary it." },
         { id = "summaries", label = "Run records", kind = "stringList", storage = "document" },
     }
 end
@@ -2006,6 +2014,23 @@ function NegotiationDocument:EditPanel()
         SectionHeader("Stakes"),
         textInput("stakes", "What happens on a deal - and on no deal.", true),
 
+        SectionHeader("Scene notes"),
+        gui.Input{
+            classes = { "sizeM" },
+            width = "94%",
+            height = "auto",
+            minHeight = 120,
+            halign = "left",
+            multiline = true,
+            textAlignment = "topleft",
+            placeholderText = "What triggers this negotiation, what moves interest without a test, how the heroes can learn the motivations beforehand, how to vary it. For you, not the players.",
+            text = doc:try_get("sceneNotes", ""),
+            change = function(element)
+                doc.sceneNotes = element.text
+                CustomDocument.NotifyEdited(element)
+            end,
+        },
+
         SectionHeader("Who can read this page"),
         visibilityPanel,
     }
@@ -2123,6 +2148,12 @@ function NegotiationDocument:DisplayPanel()
             flow = "vertical", width = "100%", height = "auto",
             SectionHeader("Stakes"),
             md(doc.stakes),
+        } or nil,
+
+        (doc:try_get("sceneNotes", "") ~= "") and gui.Panel{
+            flow = "vertical", width = "100%", height = "auto",
+            SectionHeader("Scene notes"),
+            md(doc.sceneNotes),
         } or nil,
 
         SectionHeader("How negotiation works"),
