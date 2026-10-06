@@ -1564,7 +1564,7 @@ end
 
 --The whole Skills & Languages picture for one kind, for the screen:
 --  { pools = {pool + remaining}, entries = {entry...}, native = id|nil }
---entry = { id, name, category, description, state, source, dead, special, pools }
+--entry = { id, name, category, description, state, source, dead, speakers, special, pools }
 --  state: "native" | "fixed" | "selected" | "selectable" | "unavailable"
 --  special: names of abilities that single the skill out (skills only)
 --  pools: names of the pools it could fill
@@ -1638,6 +1638,10 @@ function EotwBuild.hero.PoolTable(hero, kind)
         end
         local description = nil
         pcall(function() description = item:try_get("description") end)
+        local speakers = kind == "language" and item:try_get("speakers") or nil
+        if type(speakers) ~= "string" or speakers == "" then
+            speakers = nil
+        end
         local source = nil
         if state == "native" then
             source = "your culture"
@@ -1654,6 +1658,8 @@ function EotwBuild.hero.PoolTable(hero, kind)
             source = source,
             --a dead language: read, not spoken
             dead = kind == "language" and item:try_get("dead", false) == true,
+            --a language: who speaks it (e.g. "Goblins, Radenwights"), or nil
+            speakers = speakers,
             special = benefits[id],
             pools = poolNames,
         }

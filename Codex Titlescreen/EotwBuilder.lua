@@ -1756,6 +1756,9 @@ function EotwBuilder.Open(args)
         if entry.dead then
             lines[#lines+1] = "*A dead language: no one speaks it any more, but its writing can still be read.*"
         end
+        if entry.speakers ~= nil then
+            lines[#lines+1] = string.format("**%s:** %s", cond(entry.dead, "Once spoken by", "Spoken by"), entry.speakers)
+        end
         if type(entry.description) == "string" and entry.description ~= "" then
             lines[#lines+1] = entry.description
         end
@@ -1781,6 +1784,22 @@ function EotwBuilder.Open(args)
         return { title = entry.name, text = table.concat(lines, "\n") }
     end
 
+    --A card's label: the name, plus who speaks a language and whether it is dead,
+    --e.g. "Szetch (Goblins, Radenwights)" or "Low Rhyvian (Sky elf; dead)".
+    local function PoolCardText(entry)
+        local notes = {}
+        if entry.speakers ~= nil then
+            notes[#notes+1] = entry.speakers
+        end
+        if entry.dead then
+            notes[#notes+1] = "dead"
+        end
+        if #notes == 0 then
+            return entry.name
+        end
+        return string.format("%s (%s)", entry.name, table.concat(notes, "; "))
+    end
+
     --One skill or language card on the Skills & Languages page.
     local function PoolCard(kind, entry)
         local entryState = entry.state
@@ -1789,7 +1808,7 @@ function EotwBuilder.Open(args)
         local children = {
             gui.Label{
                 classes = { "eotwbCardText" },
-                text = cond(entry.dead, entry.name .. " (dead)", entry.name),
+                text = PoolCardText(entry),
                 fontSize = 15,
                 minFontSize = 11,
                 interactable = false,
