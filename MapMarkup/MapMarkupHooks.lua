@@ -15,6 +15,10 @@ m.mode = "walls"
 m.markupModeRef = function() return m.mode end
 m.selectedIndex = 1
 m.paletteEntries = {}
+--Wall height chosen per wall type this session, keyed by EntryHeightKey
+--(MapMarkupWallData.lua):
+--a number of tiles, or false for To Roof. See MM.ApplyEntryHeight.
+m.entryHeights = {}
 --"rectangle" / "line" / "free" draw walls through the engine building tools,
 --and "points" drives the engine's wall vertex-editing tool the same way;
 --"erase" / "delete" and the solid shape tools are custom map tools driven

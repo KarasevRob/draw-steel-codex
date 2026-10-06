@@ -30,6 +30,13 @@ function MM.BuildWallsMode()
         m.selectedIndex = 1
     end
 
+    --The height settings are preferences and outlive the session, so the
+    --selected type starts at its own height rather than whatever the last
+    --type drawn (possibly in a previous session) left behind (J8PFJJ4Z).
+    if m.selectedIndex ~= nil then
+        MM.ApplyEntryHeight(m.paletteEntries[m.selectedIndex])
+    end
+
     --Each mode's default drawing tool is its first: the rectangle, in both.
     --Solid mode's tools are custom map tools, so it leaves the shared
     --building-tool settings alone. Openable (door) types are thin-only.
@@ -210,11 +217,12 @@ function MM.BuildWallsMode()
 
         m.selectedIndex = index
 
-        local preset = MM.PresetForEntry(entry)
-        if preset ~= nil then
+        if MM.PresetForEntry(entry) ~= nil then
             MaterializeEntry(entry)
-            MM.SetWallHeightSetting(preset.height)
         end
+        --every type, not just presets: a height set for the previous type
+        --must not carry over (J8PFJJ4Z).
+        MM.ApplyEntryHeight(entry)
 
         --Picking a wall type means "I want to draw this", so the destructive
         --tools don't stay armed on the new type: Eraser / Delete Wall fall
@@ -1773,9 +1781,9 @@ function MM.BuildWallsMode()
                             return
                         end
                         if height <= 1 then
-                            MM.SetWallHeightSetting(nil)
+                            MM.SetSelectedEntryHeight(nil)
                         else
-                            MM.SetWallHeightSetting(height - 1)
+                            MM.SetSelectedEntryHeight(height - 1)
                         end
                     end,
                 },
@@ -1812,9 +1820,9 @@ function MM.BuildWallsMode()
                     click = function()
                         local height = MM.GetWallHeightSetting()
                         if height == nil then
-                            MM.SetWallHeightSetting(1)
+                            MM.SetSelectedEntryHeight(1)
                         elseif height < 10 then
-                            MM.SetWallHeightSetting(height + 1)
+                            MM.SetSelectedEntryHeight(height + 1)
                         end
                     end,
                 },
