@@ -246,25 +246,79 @@ function ResolveStylesheet.ClearCache()
     g_resolveCache = {}
 end
 
---- Resolve this document's stylesheet (or the default skin if unset).
---- @return ResolvedStylesheet
-function MarkdownDocument:GetResolvedStylesheet()
-    return ResolveStylesheet(self.styleSheetId)
+-- A page's styleSheetId when it should keep the built-in skin even though the
+-- game has a default stylesheet. It names no stylesheet, so it resolves to the
+-- built-in skin on any client, including one that predates the default.
+JournalStylesheet.plainId = "@plain"
+
+-- The Director's default for the whole game: the stylesheet every journal page
+-- without one of its own is drawn in. "" = none, the built-in skin.
+JournalStylesheet.defaultSetting = setting{
+    id = "journal:defaultstylesheet",
+    description = "Default Journal Stylesheet",
+    help = "The stylesheet used by every journal page that has not chosen its own. A page can still pick a different one, or Plain.",
+    editor = "dropdown",
+    default = "",
+    storage = "game",
+    section = "game",
+    classes = {"dmonly"},
+    enumCalc = function()
+        local result = {}
+        for k, sheet in unhidden_pairs(dmhub.GetTable(JournalStylesheet.tableName) or {}) do
+            result[#result + 1] = { value = k, text = sheet.name or "Unnamed" }
+        end
+        table.sort(result, function(a, b) return a.text < b.text end)
+        table.insert(result, 1, { value = "", text = "None (plain)" })
+        return result
+    end,
+}
+
+-- The game's default stylesheet, or nil when there is none or it has been deleted.
+--- @return JournalStylesheet|nil
+function JournalStylesheet.Default()
+    local id = JournalStylesheet.defaultSetting:Get()
+    if type(id) ~= "string" or id == "" then
+        return nil
+    end
+    local sheet = (dmhub.GetTable(JournalStylesheet.tableName) or {})[id]
+    if sheet == nil or sheet:try_get("hidden", false) then
+        return nil
+    end
+    return sheet
 end
 
--- Dropdown options for choosing a journal stylesheet. First entry (id "") means
--- "no stylesheet -> built-in default skin". Sorted by name.
+--- Resolve this document's stylesheet: its own, else the game's default, else
+--- the built-in skin. The default is for journal pages only -- a Campaign
+--- Tracker note is a MarkdownDocument too, in its own table, and keeps its look.
+--- @return ResolvedStylesheet
+function MarkdownDocument:GetResolvedStylesheet()
+    local id = self.styleSheetId
+    if not id and self.tableName == CustomDocument.tableName then
+        --the setting holds the id; Default() says whether it still names a stylesheet.
+        if JournalStylesheet.Default() ~= nil then
+            id = JournalStylesheet.defaultSetting:Get()
+        end
+    end
+    return ResolveStylesheet(id)
+end
+
+-- Dropdown options for choosing a page's stylesheet, sorted by name. The first
+-- entry (id "") is "none of its own": the game's default, or the built-in skin
+-- when there is no default. With a default set, Plain is offered as a way out.
 function JournalStylesheet.PickerOptions()
-    local result = { { id = "", text = "Default" } }
+    local default = JournalStylesheet.Default()
+    local result = {}
     local tbl = dmhub.GetTable(JournalStylesheet.tableName) or {}
     for k, sheet in unhidden_pairs(tbl) do
         result[#result + 1] = { id = k, text = sheet.name or "Unnamed" }
     end
-    table.sort(result, function(a, b)
-        if a.id == "" then return true end
-        if b.id == "" then return false end
-        return a.text < b.text
-    end)
+    table.sort(result, function(a, b) return a.text < b.text end)
+    if default ~= nil then
+        table.insert(result, 1, { id = JournalStylesheet.plainId, text = "Plain" })
+        table.insert(result, 1, { id = "", text = string.format("Game default (%s)", default.name or "Unnamed") })
+    else
+        table.insert(result, 1, { id = "", text = "Default" })
+    end
     return result
 end
 

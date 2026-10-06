@@ -3972,7 +3972,8 @@ function CustomDocument:CreateInterface(args)
         --on first entry into edit mode.
         readPanel,
 
-        multimonitor = { "journal:fontsize" },
+        --the default stylesheet too: a page without its own is drawn in it.
+        multimonitor = { "journal:fontsize", "journal:defaultstylesheet" },
         monitor = function(element)
             g_scale = nil
             local newReadPanel = CustomDocument.WithFieldsDisplay(self, self:DisplayPanel{ relatedFooter = true })
