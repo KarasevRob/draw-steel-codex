@@ -14,6 +14,14 @@ function CreateCompendiumItemTooltip(spell, options)
 		return nil
 	end
 
+	--Not every compendium type can draw itself, and importers stage assets from
+	--any table. Reading a missing field is an error under strict types, so probe
+	--for Render and give up quietly rather than throwing on hover.
+	local ok, render = pcall(function() return spell.Render end)
+	if not ok or render == nil then
+		return nil
+	end
+
 
     local args = {
 		pad = 0,

@@ -772,6 +772,12 @@ NegotiationDocument.impression = 1
 NegotiationDocument.archetype = ""
 NegotiationDocument.opening = ""
 NegotiationDocument.stakes = ""
+--The Director's notes on the scene, as free-form prose: what triggers the
+--negotiation, what raises interest without a test, how the heroes can learn
+--the motivations beforehand, how to vary it. This is about the scene, not the
+--NPC -- the NPC belongs on a negotiator page. The encounter book put all of it
+--in the one-line descriptor for want of anywhere else.
+NegotiationDocument.sceneNotes = ""
 --traits: array of { id, kind, name, line }
 NegotiationDocument.traits = {}
 --offers: map interest(string) -> { terms }
@@ -848,6 +854,8 @@ do
             } },
         { id = "stakes", label = "Stakes", kind = "text", storage = "document", section = "Stakes",
             placeholder = "What happens on a deal - and on no deal." },
+        { id = "sceneNotes", label = "Scene Notes", kind = "text", storage = "document", section = "Scene notes",
+            placeholder = "What triggers this, what moves interest without a test, how to vary it." },
         { id = "summaries", label = "Run records", kind = "stringList", storage = "document" },
     }
 end
@@ -876,28 +884,245 @@ function NegotiationDocument.CreateNew(args)
     return doc
 end
 
---Seed traits + impression from a compendium Negotiator archetype, copying
---the voiced lines so the prep doc carries performance material.
-function NegotiationDocument:SeedFromArchetype(negotiator)
-    self.archetype = negotiator.name or ""
-    self.impression = negotiator:try_get("impressionScore", 1)
+--A negotiator as something a negotiation can be cast from, whichever place
+--it lives: { id, name, impression, flavor, portrait, traits = { {kind, name,
+--line} }, isPage }.
+--
+--The negotiator is the actor and the negotiation is the scene. A negotiator
+--is a page of the "negotiator" type, and stands alone as an NPC; casting one
+--COPIES them into the negotiation, which then owes nothing to the page it
+--came from. Until dev:documentclasses comes off, negotiators are still the
+--compendium's Negotiator rows for everyone without it.
+local function RowSource(id, negotiator)
+    local traits = {}
+    for _, m in ipairs(negotiator:try_get("motivations", {})) do
+        traits[#traits + 1] = { kind = "motivation", name = m.name or "", line = m.description or "" }
+    end
+    for _, p in ipairs(negotiator:try_get("pitfalls", {})) do
+        traits[#traits + 1] = { kind = "pitfall", name = p.name or "", line = p.description or "" }
+    end
+    return {
+        id = id, name = negotiator.name or "", impression = negotiator:try_get("impressionScore", 1),
+        flavor = negotiator:try_get("flavorText", ""), portrait = "", traits = traits, isPage = false,
+    }
+end
+
+--Every negotiator a negotiation can be cast from, by id.
+function NegotiationRules.NegotiatorSources()
+    local result = {}
+    if g_documentClassesSetting:Get() then
+        for id, doc in unhidden_pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
+            if doc:try_get("docType") == "negotiator" then
+                local values = doc:try_get("fieldValues") or {}
+                result[id] = {
+                    id = id, name = doc.description or "", impression = values.impression or 1,
+                    flavor = values.flavorText or "", portrait = values.portrait or "",
+                    traits = values.traits or {}, isPage = true,
+                }
+            end
+        end
+    else
+        for id, negotiator in unhidden_pairs(dmhub.GetTable(Negotiator.tableName) or {}) do
+            result[id] = RowSource(id, negotiator)
+        end
+    end
+    return result
+end
+
+--Copy a negotiator into this page: impression and traits always, the
+--descriptor only when the page has none. A negotiator page also brings its
+--name and portrait, again only where the page has none.
+function NegotiationDocument:SeedFromSource(source)
+    self.archetype = source.name
+    self.impression = source.impression
     --gate on the field we are about to WRITE, not on the page title: the Quick
     --negotiation path sets description = name before seeding, so testing
     --description here meant an improvised NPC never got a descriptor at all.
     if self:try_get("npcDesc", "") == "" then
-        self.npcDesc = negotiator:try_get("flavorText", "")
+        self.npcDesc = source.flavor
+    end
+    if source.isPage then
+        if self:try_get("npcName", "") == "" then
+            self.npcName = source.name
+        end
+        if self:try_get("portrait", "") == "" then
+            self.portrait = source.portrait
+        end
     end
     local traits = {}
-    for _, m in ipairs(negotiator:try_get("motivations", {})) do
-        traits[#traits + 1] = { id = dmhub.GenerateGuid(), kind = "motivation",
-            name = m.name or "", line = m.description or "" }
-    end
-    for _, p in ipairs(negotiator:try_get("pitfalls", {})) do
-        traits[#traits + 1] = { id = dmhub.GenerateGuid(), kind = "pitfall",
-            name = p.name or "", line = p.description or "" }
+    for _, t in ipairs(source.traits) do
+        traits[#traits + 1] = { id = dmhub.GenerateGuid(), kind = t.kind, name = t.name or "", line = t.line or "" }
     end
     self.traits = traits
 end
+
+--Seed traits + impression from a compendium Negotiator archetype, copying
+--the voiced lines so the prep doc carries performance material.
+function NegotiationDocument:SeedFromArchetype(negotiator)
+    self:SeedFromSource(RowSource("", negotiator))
+end
+
+--The negotiator as a page: an NPC with an impression, motivations and
+--pitfalls, and prose underneath for how to play them. Declared as fields, so
+--its editor and read view are generated (JOURNAL_PROGRAM.md Phases 3 and 6);
+--without dev:documentclasses the page shows its prose alone and keeps its
+--values.
+CustomDocument.docTypeInfo.negotiator = {
+    text = "Negotiator", icon = "phosphor/user-sound.png", beat = false, glyph = "R", ord = 55,
+    body = "markdown",
+    hiddenFromPlayers = true,
+    fields = {
+        { id = "portrait", label = "Portrait", kind = "image", library = "Avatar", width = 96, height = 120 },
+        { id = "flavorText", label = "Who They Are", kind = "text",
+            placeholder = "In a line or two. Copied into a negotiation as its descriptor." },
+        { id = "impression", label = "Impression", kind = "number", default = 1 },
+        { id = "traits", label = "Motivations & Pitfalls", kind = "recordList", groupBy = "kind",
+            columns = {
+                { id = "kind", label = "Kind", kind = "enum", options = {
+                    { id = "motivation", text = "Motivation", heading = "What they want (motivations)" },
+                    { id = "pitfall", text = "Pitfall", heading = "Never touch (pitfalls)" },
+                } },
+                { id = "name", label = "Name", kind = "string" },
+                { id = "line", label = "Line", kind = "text", placeholder = "What they say about it (their voice)" },
+            } },
+    },
+}
+
+--Registered at load, so turning the flag on needs a reload before "New
+--Negotiator" appears. The tab bar's + lists every registered type to everyone.
+if g_documentClassesSetting:Get() then
+    CustomDocument.Register{
+        id = "negotiator",
+        text = "New Negotiator",
+        docType = "negotiator",
+        icon = CustomDocument.docTypeInfo.negotiator.icon,
+        create = function()
+            return MarkdownDocument.new{
+                description = "New Negotiator",
+                content = "",
+                annotations = {},
+                docType = "negotiator",
+                hiddenFromPlayers = true,
+            }
+        end,
+    }
+end
+
+local NEGOTIATORS_FOLDER = "Negotiators"
+
+--The journal folder negotiators live in: "Negotiators" under Private
+--Documents. nil until it exists.
+local function NegotiatorsFolderId()
+    for id, folder in pairs(assets.documentFoldersTable or {}) do
+        if folder.description == NEGOTIATORS_FOLDER and folder.parentFolder == "private" then
+            return id
+        end
+    end
+    return nil
+end
+
+local g_convertingNegotiators = false
+
+--Give every compendium Negotiator row a negotiator page in the Negotiators
+--folder. Director only, and only with dev:documentclasses.
+--
+--A page takes its row's id. That is what makes this safe to run again, and
+--safe for two Directors to run at once: a row that already has a page --
+--deleted pages included, since deleting one only hides it -- is skipped, and
+--two clients converting the same row write the same page, not two. The rows
+--are left where they are.
+function NegotiationRules.ConvertNegotiatorsToPages()
+    if g_convertingNegotiators or not dmhub.isDM or not g_documentClassesSetting:Get() then
+        return
+    end
+
+    local documents = dmhub.GetTable(CustomDocument.tableName) or {}
+    local queue = {}
+    for id, negotiator in unhidden_pairs(dmhub.GetTable(Negotiator.tableName) or {}) do
+        if documents[id] == nil then
+            queue[#queue + 1] = RowSource(id, negotiator)
+            queue[#queue].notes = negotiator:try_get("description", "")
+        end
+    end
+    if #queue == 0 then
+        return
+    end
+    table.sort(queue, function(a, b)
+        if a.impression ~= b.impression then
+            return a.impression < b.impression
+        end
+        return a.name < b.name
+    end)
+
+    g_convertingNegotiators = true
+    local folderTries = 0
+    local made = 0
+
+    local function step()
+        if mod.unloaded then
+            return
+        end
+
+        local folderid = NegotiatorsFolderId()
+        if folderid == nil then
+            --the folder arrives a moment after it is asked for.
+            if folderTries == 0 then
+                assets:UploadNewDocumentFolder{ description = NEGOTIATORS_FOLDER, parentFolder = "private" }
+            end
+            folderTries = folderTries + 1
+            if folderTries > 40 then
+                g_convertingNegotiators = false
+                return
+            end
+            dmhub.Schedule(0.25, step)
+            return
+        end
+
+        local source = table.remove(queue, 1)
+        if source == nil then
+            g_convertingNegotiators = false
+            return
+        end
+
+        local traits = {}
+        for _, t in ipairs(source.traits) do
+            traits[#traits + 1] = { id = dmhub.GenerateGuid(), kind = t.kind, name = t.name, line = t.line }
+        end
+        local page = MarkdownDocument.new{
+            id = source.id,
+            description = source.name,
+            parentFolder = folderid,
+            content = "",
+            annotations = {},
+            docType = "negotiator",
+            hiddenFromPlayers = true,
+            ord = source.impression + made * 0.01,
+            fieldValues = { flavorText = source.flavor, impression = source.impression, traits = traits },
+        }
+        page:SetTextContent(source.notes)
+        page:Upload()
+
+        if (dmhub.GetTable(CustomDocument.tableName) or {})[source.id] == nil then
+            --some games (the lobby game) do not take the write. Stop, or
+            --this would try again on every load.
+            g_convertingNegotiators = false
+            return
+        end
+        made = made + 1
+
+        --same-table uploads in one frame drop all but the last.
+        dmhub.Schedule(0.05, step)
+    end
+
+    step()
+end
+
+--Tables are not loaded yet while this file runs.
+dmhub.Schedule(3.0, function()
+    if not mod.unloaded then
+        NegotiationRules.ConvertNegotiatorsToPages()
+    end
+end)
 
 --What the last seed did, kept so a control rebuilt straight after it (the
 --generated editor redraws its whole form) can still say so.
@@ -915,11 +1140,12 @@ local g_lastSeed = { docid = false, text = "" }
 --for the caller to save and redraw.
 function NegotiationDocument:SeedControl(onSeeded)
     local doc = self
-    local negotiators = dmhub.GetTable(Negotiator.tableName) or {}
+    NegotiationRules.ConvertNegotiatorsToPages()
+    local negotiators = NegotiationRules.NegotiatorSources()
 
     local list = {}
-    for id, neg in unhidden_pairs(negotiators) do
-        list[#list + 1] = { id = id, name = neg.name or "", impression = neg:try_get("impressionScore", 1) }
+    for _, source in pairs(negotiators) do
+        list[#list + 1] = source
     end
     table.sort(list, function(a, b)
         if a.impression ~= b.impression then
@@ -981,12 +1207,12 @@ function NegotiationDocument:SeedControl(onSeeded)
         else
             local negotiator = negotiators[id]
             if descriptor == "replaced" then
-                --SeedFromArchetype only fills an empty descriptor.
+                --SeedFromSource only fills an empty descriptor.
                 doc.npcDesc = ""
             end
-            doc:SeedFromArchetype(negotiator)
+            doc:SeedFromSource(negotiator)
             text = string.format("Seeded from %s: impression %d, %d motivations and %d pitfalls %s%s.",
-                negotiator.name or "", doc:try_get("impression", 1), Count("motivation"), Count("pitfall"),
+                negotiator.name, doc:try_get("impression", 1), Count("motivation"), Count("pitfall"),
                 replaced and "replaced" or "added",
                 descriptor ~= nil and string.format("; descriptor %s", descriptor) or "")
         end
@@ -1023,18 +1249,18 @@ function NegotiationDocument:SeedControl(onSeeded)
                     end
 
                     local negotiator = negotiators[id]
-                    local name = negotiator.name or ""
+                    local name = negotiator.name
                     local existing = #doc:try_get("traits", {})
                     --The descriptor on the page is one of three things. Empty
                     --or already this negotiator's: nothing to decide. Still
                     --the previous sample's untouched text: nobody wrote it,
                     --so it goes with the sample. Anything else is the
                     --Director's own, and they are asked.
-                    local theirs = negotiator:try_get("flavorText", "")
+                    local theirs = negotiator.flavor
                     local mine = doc:try_get("npcDesc", "")
                     local previous = negotiators[currentId]
                     local stale = mine ~= "" and mine ~= theirs and previous ~= nil
-                        and mine == previous:try_get("flavorText", "")
+                        and mine == previous.flavor
                     local descriptorDiffers = mine ~= "" and theirs ~= "" and mine ~= theirs and not stale
                     local unasked = (stale and theirs ~= "") and "replaced" or nil
 
@@ -1788,6 +2014,23 @@ function NegotiationDocument:EditPanel()
         SectionHeader("Stakes"),
         textInput("stakes", "What happens on a deal - and on no deal.", true),
 
+        SectionHeader("Scene notes"),
+        gui.Input{
+            classes = { "sizeM" },
+            width = "94%",
+            height = "auto",
+            minHeight = 120,
+            halign = "left",
+            multiline = true,
+            textAlignment = "topleft",
+            placeholderText = "What triggers this negotiation, what moves interest without a test, how the heroes can learn the motivations beforehand, how to vary it. For you, not the players.",
+            text = doc:try_get("sceneNotes", ""),
+            change = function(element)
+                doc.sceneNotes = element.text
+                CustomDocument.NotifyEdited(element)
+            end,
+        },
+
         SectionHeader("Who can read this page"),
         visibilityPanel,
     }
@@ -1905,6 +2148,12 @@ function NegotiationDocument:DisplayPanel()
             flow = "vertical", width = "100%", height = "auto",
             SectionHeader("Stakes"),
             md(doc.stakes),
+        } or nil,
+
+        (doc:try_get("sceneNotes", "") ~= "") and gui.Panel{
+            flow = "vertical", width = "100%", height = "auto",
+            SectionHeader("Scene notes"),
+            md(doc.sceneNotes),
         } or nil,
 
         SectionHeader("How negotiation works"),

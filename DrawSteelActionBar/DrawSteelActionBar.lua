@@ -9804,7 +9804,17 @@ local function CreateShiftController()
             if g_token ~= nil and (g_token.properties:CalculateNamedCustomAttribute("Shift Disabled") or 0) > 0 then
                 g_currentSymbols.shiftingOverride = false
                 element.value = false
-                m_label.text = "<color=#ff0000><b>You cannot shift.</b></color> You may move normally instead."
+
+                --name what is stopping the shift (e.g. Slowed), same as the movement HUD.
+                local reason = nil
+                for _,modification in ipairs(g_token.properties:DescribeModificationsToNamedCustomAttribute("Shift Disabled")) do
+                    reason = modification.key
+                end
+                if reason ~= nil then
+                    m_label.text = string.format("<color=#ff0000><b>You cannot shift.</b> (%s)</color> You may move normally instead.", reason)
+                else
+                    m_label.text = "<color=#ff0000><b>You cannot shift.</b></color> You may move normally instead."
+                end
                 return
             end
 

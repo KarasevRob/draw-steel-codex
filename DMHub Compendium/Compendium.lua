@@ -7300,6 +7300,26 @@ local function CreateNegotiatorEditor(key)
 end
 
 local function ShowNegotiatorsPanel(contentPanel)
+    if g_documentClassesSetting:Get() then
+        --Negotiators are journal pages now (NegotiationRules.lua). This tab is
+        --kept for one release as a signpost; the rows stay in the table,
+        --unused, as the fallback if a conversion missed something.
+        NegotiationRules.ConvertNegotiatorsToPages()
+        contentPanel.children = {
+            gui.Label{
+                width = 700,
+                height = "auto",
+                halign = "left",
+                valign = "top",
+                hmargin = 16,
+                vmargin = 16,
+                textWrap = true,
+                text = "Negotiators have moved to the journal. Each one is now a page in Private Documents > Negotiators, where you can edit it, add your own, and cast it into a negotiation.\n\nThe ones that were here have been copied across. This tab will be removed in a later update.",
+            },
+        }
+        return
+    end
+
     local itemsListPanel
     local leftPanel
 
