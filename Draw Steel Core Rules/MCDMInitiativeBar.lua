@@ -3341,6 +3341,8 @@ function GameHud.CreateInitiativeBar(self, info)
                 checkpointRound = nil,
                 checkpointTurn = nil,
                 checkpointCombatid = nil,
+                checkpointTime = 0,
+                checkpointSettled = true,
                 checkpointReason = "Revert Turn",
             },
 
@@ -3382,8 +3384,17 @@ function GameHud.CreateInitiativeBar(self, info)
                         element.data.checkpointRound = q.round
                         element.data.checkpointCombatid = q.guid
                         element.data.checkpoint = backup.CreateCombatCheckpoint()
+                        element.data.checkpointTime = dmhub.Time()
+                        element.data.checkpointSettled = false
                         element.data.checkpointReason = "Revert Turn"
                         element.data.checkpointReasonTurn = nil
+                    elseif not element.data.checkpointSettled
+                        and dmhub.Time() - element.data.checkpointTime > 2
+                        and not ActivatedAbility.IsCasting() then
+                        --Take the checkpoint again once things settle. Otherwise
+                        --reverting early in round 2 put Surprised back on everyone (42V3R7VV).
+                        element.data.checkpointSettled = true
+                        element.data.checkpoint = backup.CreateCombatCheckpoint()
                     end
                 else
                     --Mid-turn: q.currentTurn is now set, so we can build a label
