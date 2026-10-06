@@ -12,7 +12,7 @@
 --write INTENT ("you can teleport"), and this file works out which heroes
 --qualify, from every source that grants it (a teleport speed, Black Ash
 --Teleport, Practical Magic...). The full vocabulary is documented in
---KNACKS_REFERENCE.md at the dmhub repo root; in short:
+--EncounterOfTheWeek/KNACKS_REFERENCE.md; in short:
 --  you are skilled in <skill> / you speak <language> /
 --  you are a <class, subclass, ancestry or career> /
 --  you can <capability> (TestRiders.CAPABILITIES: teleport, fly, climb,
