@@ -3,7 +3,10 @@ local mod = dmhub.GetModLoading()
 
 local g_directlyLaunchingGame = false
 
-local g_titlescreen = nil
+--The titlescreen is only built on the first load (TitlescreenVersion guard
+--below), but this file re-runs when the codex reloads on entering the lobby
+--game. Adopt the existing root so TitlescreenHeroes.Edit/Create keep working.
+local g_titlescreen = rawget(_G, "CodexTitlescreenRoot")
 
 for _, str in ipairs(dmhub.commandLineArguments) do
     if str == "--gameid" then
