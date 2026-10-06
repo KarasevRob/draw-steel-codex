@@ -1869,8 +1869,9 @@ end
 -- ctx is the customTriggerContext when editing a modifier-fired custom
 -- trigger; the derived trigger prose becomes the context note since the
 -- stored event id is never consulted for those.
-local function buildTriggerPreviewCard(ability, ctx)
-    local CARD_WIDTH = LAYOUT.PREVIEW_WIDTH - 2 * LAYOUT.COL_HPAD - LAYOUT.SCROLL_GUTTER
+-- width is optional; the editor leaves it nil to fit its preview column.
+local function buildTriggerPreviewCard(ability, ctx, width)
+    local CARD_WIDTH = width or (LAYOUT.PREVIEW_WIDTH - 2 * LAYOUT.COL_HPAD - LAYOUT.SCROLL_GUTTER)
 
     -- Card Type: explicit override only (no derivation; the dropdown picks
     -- one of three values, default "trigger" for new abilities).
@@ -2148,6 +2149,21 @@ local function buildTriggerPreviewCard(ability, ctx)
             fullRow("Trigger:", triggerProse, true),
             fullRow("Effect:", effectText, false),
         },
+    }
+end
+
+--- Draws the Trigger Preview card outside the editor, e.g. in an importer's
+--- review.
+--- @param ability TriggeredAbility
+--- @param width? number Card width in pixels; defaults to the editor's.
+--- @return Panel
+function TriggeredAbility.RenderPreviewCard(ability, width)
+    --Without the theme styles the card's text is far too big outside the editor.
+    return gui.Panel{
+        width = "auto",
+        height = "auto",
+        styles = ThemeEngine.GetStyles(),
+        buildTriggerPreviewCard(ability, nil, width),
     }
 end
 
