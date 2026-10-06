@@ -296,6 +296,35 @@ end
 
 --defined with the coming-home write-back below.
 local ApplyPendingOutcomes
+local PromoteRosterHeroes
+--heroids whose slow-start promotion is being pushed to the city right now.
+local m_promoting = {}
+
+--Town heroes are always full level 1 or above. Module pregens are authored on
+--the Delian Tomb "slow start" (extraLevelInfo.encounter = 1..4), whose early
+--rungs leave out level-1 features such as the heroic abilities; clearing
+--.encounter promotes the hero to a full level 1, as the character builder's
+--level dropdown does. Only mutates the working copy -- the caller pushes it.
+--Returns true if the hero was changed.
+local function PromoteSlowStart(tok)
+    local props = tok.properties
+    if props == nil or props:ExtraLevelInfo().encounter == nil then
+        return false
+    end
+    tok:ModifyProperties{
+        description = "Encounter of the Week: full level 1",
+        undoable = false,
+        execute = function()
+            --the field exists (encounter was set), so this is the stored table,
+            --not try_get's default; write it back so the clear persists.
+            local info = props:ExtraLevelInfo()
+            info.encounter = nil
+            props.extraLevelInfo = info
+        end,
+    }
+    printf("EotW town: %s promoted from the slow start to full level 1", tostring(tok.name))
+    return true
+end
 
 --Import one hero's record from the city into its working copy.
 local function FetchAndImport(hero)
@@ -328,6 +357,7 @@ local function FetchAndImport(hero)
             --resolves a moment after it is written.
             dmhub.Schedule(1, function()
                 if not mod.unloaded then
+                    PromoteRosterHeroes()
                     ApplyPendingOutcomes()
                 end
             end)
@@ -510,9 +540,46 @@ ApplyPendingOutcomes = function()
             else
                 local tok = dmhub.GetCharacterById(entry.heroid)
                 local hero = EotwRoster.FindHero(entry.heroid)
-                if tok ~= nil and hero ~= nil and revs[entry.heroid] == hero.rev and not m_importing[entry.heroid] then
+                if tok ~= nil and hero ~= nil and revs[entry.heroid] == hero.rev and not m_importing[entry.heroid] and not m_promoting[entry.heroid] then
                     ApplyOutcome(key, entry, tok)
                 end
+            end
+        end
+    end
+end
+
+--Promote roster heroes recruited before PromoteSlowStart ran at recruit
+--time, then push them. Only copies in step with the city (an import in flight
+--would overwrite the change). A hero with an outcome still to push is changed
+--but not pushed here: that outcome's push carries it, and two pushes from the
+--same base revision would collide.
+PromoteRosterHeroes = function()
+    if m_heroes == nil or m_conn == nil then
+        return
+    end
+    local revs = GetRevs()
+    local outcomeWillPush = {}
+    local _, pending = LoadPendingOutcomes()
+    for _, entry in pairs(pending) do
+        if type(entry) == "table" and type(entry.heroid) == "string" and entry.stage ~= "pushed" then
+            outcomeWillPush[entry.heroid] = true
+        end
+    end
+    for _, hero in ipairs(m_heroes) do
+        local heroid = hero.heroid
+        local tok = dmhub.GetCharacterById(heroid)
+        if tok ~= nil and revs[heroid] == hero.rev and not m_importing[heroid] and not m_promoting[heroid] and PromoteSlowStart(tok) then
+            if not outcomeWillPush[heroid] then
+                m_promoting[heroid] = true
+                --as in JoinRoster: let the write land before the export.
+                dmhub.Schedule(0.3, function()
+                    if mod.unloaded then
+                        return
+                    end
+                    EotwRoster.PushHero(heroid, function()
+                        m_promoting[heroid] = nil
+                    end)
+                end)
             end
         end
     end
@@ -562,6 +629,7 @@ local function SyncWorkingCopies()
         Bump()
     end
 
+    PromoteRosterHeroes()
     --encounters won since the last visit: Victories onto the heroes.
     ApplyPendingOutcomes()
 end
@@ -686,6 +754,8 @@ local function JoinRoster(tok, onDone)
             tok.properties.mtime = ServerTimestamp()
         end,
     }
+    --a recruited pregen arrives on the slow start.
+    PromoteSlowStart(tok)
     --the property write applies locally at once; give it a beat so the
     --export carries it, then push.
     dmhub.Schedule(0.3, function()
