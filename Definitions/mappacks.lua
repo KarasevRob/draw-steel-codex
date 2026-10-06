@@ -29,6 +29,16 @@
 --- @field objectsTierName string the creator's name for that pledge level; "" when free or unnamed
 --- @field objectsOwned boolean whether the current account can use the map's object set
 ---
+--- @class MapPackObjectPreview One object of a map's "Objects for this map" set, for display.
+--- @field id string the object asset's guid
+--- @field name string
+--- @field image string content-addressed image URL of its base look (show it as "md5:" .. image, or through dmhub.LoadTransientImage when the account has not unlocked the set)
+--- @field width integer image pixels
+--- @field height integer image pixels
+--- @field scale number the object's Core scale (128 / the pixels per square it is drawn at)
+--- @field folder string the sub-folder it is filed in; "" for the set's root
+--- @field looks integer how many looks it has (1 + its Appearance variants)
+---
 --- @class MapPackMapObjects The "Objects for this map" set of the current map.
 --- @field pack string module fullid of the pack the map came from
 --- @field mapid string the map's id inside the pack
@@ -67,6 +77,10 @@ function mappacks.Sync(options) end
 --- @param options {text: nil|string, pack: nil|string, maxResults: nil|integer}
 --- @return MapPackIndexEntry[]
 function mappacks.Search(options) end
+
+--- Reads the "Objects for this map" set of one map-pack map for display, e.g. a preview in the map pack browser: options.success gets its objects in the set's order. Nothing is added to the asset tree. The set is downloaded once and cached; any account may read it, whether or not it has unlocked the set (see the entry's objectsOwned), so show locked images through dmhub.LoadTransientImage. options.error fires with a message when the map has no set or it could not be read.
+--- @param options {pack: string, mapid: string, success: nil|fun(objects: MapPackObjectPreview[]), error: nil|fun(message: string)}
+function mappacks.GetMapObjects(options) end
 
 --- How this account stands with a pack's Patreon gating: org is the creator organization the pack's tiers are measured against; cents the account's current monthly pledge to it (0 if none or lapsed); linked whether a Patreon account is attached at all; entitled whether the org grants this account anything; full whether the whole pack is unlocked regardless of tiers (bought in the store, or included with the org's membership). Evaluated live, so poll it to notice a pledge landing.
 --- @param pack string The pack's module fullid.

@@ -21,6 +21,11 @@ local PAN_SPEED = 20
 local PAN_MIN_PERIOD = 6
 local PAN_RETURN_RATE = 2
 
+--the props hover preview (MapPackObjectsPreview): a grid of thumbnails
+local PROPS_PREVIEW_CELL = 64
+local PROPS_PREVIEW_COLUMNS = 6
+local PROPS_PREVIEW_MAX = 24
+
 --exported so the Create Map details pane's zoom windows share the same pan
 --feel as the grid tiles.
 mod.shared.MapPackPanTuning = {
@@ -141,6 +146,24 @@ mod.shared.MapPackTileStyles = function()
 			rmargin = 4,
 			bgimage = "ui-icons/codex-logo.png",
 			bgcolor = "white",
+		},
+		{
+			selectors = {"mapPackTilePropsIcon"},
+			width = 12,
+			height = 12,
+			valign = "center",
+			rmargin = 4,
+			bgimage = "phosphor/armchair-fill.png",
+			bgcolor = "white",
+		},
+		{
+			selectors = {"mapPackObjectsPreviewCell"},
+			width = PROPS_PREVIEW_CELL,
+			height = PROPS_PREVIEW_CELL,
+			margin = 2,
+			bgimage = "panels/square.png",
+			bgcolor = "#ffffff10",
+			cornerRadius = 4,
 		},
 		{
 			selectors = {"mapPackTileEnhancementsText"},
@@ -636,6 +659,179 @@ mod.shared.CodexEnhancementsBadge = function(args)
 	return gui.Panel(result)
 end
 
+--a "Props Included" badge: the map ships an "Objects for this map" set
+--(MAP_PACK_OBJECTS_PLAN.md). Same look as the Codex Enhancements badge.
+mod.shared.PropsIncludedBadge = function(args)
+	local result = {
+		classes = {"mapPackTileEnhancements"},
+		interactable = false,
+		gui.Panel{
+			classes = {"mapPackTilePropsIcon"},
+			interactable = false,
+		},
+		gui.Label{
+			classes = {"mapPackTileEnhancementsText"},
+			text = "Props Included",
+			interactable = false,
+		},
+	}
+	for k, v in pairs(args or {}) do
+		result[k] = v
+	end
+	return gui.Panel(result)
+end
+
+--"321 props included"
+mod.shared.MapPackPropsText = function(entry)
+	local n = tonumber(entry.objectCount) or 0
+	return cond(n == 1, "1 prop included", string.format("%d props included", n))
+end
+
+--each map's object list, fetched once a session (mappacks.GetMapObjects).
+local g_mapObjects = {}
+
+--A hover preview of the props a map ships with: a heading, the Patreon
+--line when the set is gated, and a grid of up to PROPS_PREVIEW_MAX
+--thumbnails sampled evenly across the set. Images of a set the account has
+--not unlocked load as transient images (memory only, never on disk) and are
+--released when the preview closes. Built for gui.TooltipFrame.
+--- @param entry MapPackIndexEntry
+--- @return Panel
+mod.shared.MapPackObjectsPreview = function(entry)
+	local transientKeys = {}
+	local grid = gui.Panel{
+		width = PROPS_PREVIEW_COLUMNS * (PROPS_PREVIEW_CELL + 4),
+		height = "auto",
+		flow = "horizontal",
+		wrap = true,
+		tmargin = 6,
+	}
+	local status = gui.Label{
+		text = "Loading props...",
+		fontSize = 12,
+		italics = true,
+		color = "#bbbbbb",
+		width = "auto",
+		height = "auto",
+		tmargin = 4,
+	}
+	local footer = gui.Label{
+		classes = {"hidden"},
+		fontSize = 11,
+		color = "#999999",
+		width = "auto",
+		height = "auto",
+		tmargin = 4,
+	}
+
+	---@type Panel[]
+	local children = {
+		gui.Label{
+			text = mod.shared.MapPackPropsText(entry),
+			fontSize = 15,
+			bold = true,
+			color = "white",
+			width = "auto",
+			height = "auto",
+		},
+	}
+	if not entry.objectsOwned and (tonumber(entry.objectsTier) or 0) > 0 then
+		children[#children + 1] = gui.Label{
+			text = mod.shared.MapPackPatreonText({tier = entry.objectsTier, tierName = entry.objectsTierName, owned = false}),
+			fontSize = 12,
+			color = "#e8c46a",
+			width = "auto",
+			maxWidth = PROPS_PREVIEW_COLUMNS * (PROPS_PREVIEW_CELL + 4),
+			height = "auto",
+			textWrap = true,
+			tmargin = 2,
+		}
+	end
+	children[#children + 1] = status
+	children[#children + 1] = grid
+	children[#children + 1] = footer
+
+	local panel = gui.Panel{
+		width = "auto",
+		height = "auto",
+		flow = "vertical",
+		styles = mod.shared.MapPackTileStyles(),
+		destroy = function(element)
+			for _, key in ipairs(transientKeys) do
+				dmhub.ReleaseTransientImage(key)
+			end
+			transientKeys = {}
+		end,
+		children = children,
+	}
+
+	local function Show(objects)
+		if not panel.valid then
+			return
+		end
+		if #objects == 0 then
+			status.text = "No props found."
+			return
+		end
+		status:SetClass("collapsed", true)
+		--an even sample across the set, so every folder tends to show
+		local picked = {}
+		local n = math.min(#objects, PROPS_PREVIEW_MAX)
+		for i = 1, n do
+			picked[#picked + 1] = objects[math.floor((i - 1) * #objects / n) + 1]
+		end
+		local cells = {}
+		for _, obj in ipairs(picked) do
+			local image
+			if entry.objectsOwned then
+				image = "md5:" .. obj.image
+			else
+				image = dmhub.LoadTransientImage(obj.image)
+				transientKeys[#transientKeys + 1] = image
+			end
+			--fit the prop inside the cell, keeping its proportions
+			local w, h = math.max(1, obj.width), math.max(1, obj.height)
+			local fit = (PROPS_PREVIEW_CELL - 6) / math.max(w, h)
+			cells[#cells + 1] = gui.Panel{
+				classes = {"mapPackObjectsPreviewCell"},
+				gui.Panel{
+					width = math.max(4, math.floor(w * fit)),
+					height = math.max(4, math.floor(h * fit)),
+					halign = "center",
+					valign = "center",
+					bgimage = image,
+					bgcolor = "white",
+				},
+			}
+		end
+		grid.children = cells
+		if #objects > n then
+			footer.text = string.format("Showing %d of %d", n, #objects)
+			footer:SetClass("hidden", false)
+		end
+	end
+
+	local key = (entry.pack or "") .. "/" .. (entry.id or "")
+	if g_mapObjects[key] ~= nil then
+		Show(g_mapObjects[key])
+	else
+		mappacks.GetMapObjects{
+			pack = entry.pack,
+			mapid = entry.id,
+			success = function(objects)
+				g_mapObjects[key] = objects
+				Show(objects)
+			end,
+			error = function(message)
+				if status.valid then
+					status.text = "Could not load the props: " .. tostring(message)
+				end
+			end,
+		}
+	end
+	return panel
+end
+
 --one grid tile for an index entry (a map appearance variant). onPress is
 --called with the entry when the tile is clicked. The creator's logo sits in
 --the top-right corner once its record has loaded, with the Patreon glyph
@@ -726,6 +922,9 @@ mod.shared.CreateMapPackTile = function(entry, onPress)
 	end
 
 	local enhancementsBadge = mod.shared.CodexEnhancementsBadge{ classes = {"mapPackTileEnhancements", "hidden"} }
+	local propsBadge = mod.shared.PropsIncludedBadge{
+		classes = {"mapPackTileEnhancements", cond((tonumber(entry.objectCount) or 0) <= 0, "hidden")},
+	}
 
 	local tile = gui.Panel{
 		classes = {"mapPackTile"},
@@ -766,7 +965,8 @@ mod.shared.CreateMapPackTile = function(entry, onPress)
 		end,
 		viewport,
 		--the name bar, with the Codex Enhancements badge stacked above it
-		--once the pack's shared-markup listing says this map has one.
+		--once the pack's shared-markup listing says this map has one, and
+		--the Props Included badge when the map ships objects.
 		gui.Panel{
 			width = "100%",
 			height = "auto",
@@ -774,6 +974,7 @@ mod.shared.CreateMapPackTile = function(entry, onPress)
 			flow = "vertical",
 			interactable = false,
 			enhancementsBadge,
+			propsBadge,
 			gui.Panel{
 				classes = {"mapPackTileLabelBand"},
 				interactable = false,
@@ -1216,8 +1417,9 @@ mod.shared.ShowMapPackFullPreview = function(entry, focus)
 		end,
 		gui.Panel{
 			classes = {"mapPackViewerFrame"},
-			--swallows clicks so only the backdrop itself closes.
-			press = function(element) end,
+			--press bubbles to ancestors unless swallowed: stop it here so
+			--only a click on the backdrop itself closes the viewer.
+			swallowPress = true,
 			header,
 			viewport,
 		},

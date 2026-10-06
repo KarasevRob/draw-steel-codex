@@ -225,6 +225,16 @@ mod.shared.ShowCreateMapDialog = function()
         halign = "left",
         tmargin = 6,
     }
+    --"321 props included", below the tags, when the map ships an "Objects
+    --for this map" set; hovering it previews the props.
+    local detailProps = gui.Panel{
+        classes = {"hidden"},
+        width = "100%",
+        height = "auto",
+        flow = "horizontal",
+        halign = "left",
+        tmargin = 2,
+    }
     local appearancesHeading = gui.Panel{
         classes = {"hidden"},
         width = "100%",
@@ -338,6 +348,7 @@ mod.shared.ShowCreateMapDialog = function()
             detailHero,
             detailInfo,
             detailTags,
+            detailProps,
             detailAccess,
             appearancesHeading,
             variantsPanel,
@@ -1028,6 +1039,27 @@ mod.shared.ShowCreateMapDialog = function()
         detailTags.children = tagPanels
         detailTags:SetClass("hidden", #tagPanels == 0)
 
+        local hasProps = (tonumber(entry.objectCount) or 0) > 0
+        detailProps:SetClass("hidden", not hasProps)
+        if hasProps then
+            detailProps.children = {
+                gui.Panel{
+                    classes = {"mapPackTagChip"},
+                    flow = "horizontal",
+                    hover = function(element)
+                        element.tooltip = gui.TooltipFrame(mod.shared.MapPackObjectsPreview(entry))
+                    end,
+                    gui.Panel{
+                        classes = {"mapPackPropsChipIcon"},
+                    },
+                    gui.Label{
+                        classes = {"mapPackTagText"},
+                        text = mod.shared.MapPackPropsText(entry),
+                    },
+                },
+            }
+        end
+
         --a lone "Default" appearance button is noise; the section only
         --shows when there is a real choice.
         local buttons = {}
@@ -1544,6 +1576,15 @@ mod.shared.ShowCreateMapDialog = function()
 		vpad = 2,
 		rmargin = 4,
 		vmargin = 2,
+	}
+	tileStyles[#tileStyles + 1] = {
+		selectors = {"mapPackPropsChipIcon"},
+		width = 12,
+		height = 12,
+		valign = "center",
+		rmargin = 4,
+		bgimage = "phosphor/armchair-fill.png",
+		bgcolor = "@fgMuted",
 	}
 	tileStyles[#tileStyles + 1] = {
 		selectors = {"mapPackTagText"},
