@@ -128,7 +128,47 @@ function EncounterOfTheWeekGame.IsEotwGame()
     if marked then
         m_isEotwGame = true
     end
-    return m_isEotwGame
+    if m_isEotwGame then
+        return true
+    end
+
+    --an authoring test (see "the authoring test"): this client plays the
+    --encounter as a player host, so it gets the whole EotW game for as long
+    --as the test runs. Never cached -- the test ends.
+    return EncounterOfTheWeekGame.IsTestPlayer()
+end
+
+--- the authoring test: shared state ---------------------------------------
+--The Director of an authoring game can play the encounter on the current map
+--as its players will (Game menu > Test Encounter, the rest of it is under
+--"the authoring test" near the foot of this file). The test lives in the
+--state doc as data.test:
+--  { phase = "setup"|"running"|"ending", mode = "start"|"montage"|"combat",
+--    by = userid, startedAt, mapid, heroes = { source charid, ... },
+--    placed = { pasted copy charid, ... }, saved = { settings, heroTokens } }
+
+--The test record, or nil.
+function EncounterOfTheWeekGame.GetTest()
+    local test = nil
+    pcall(function()
+        local t = mod:GetDocumentSnapshot(STATE_DOC_ID).data.test
+        if type(t) == "table" then
+            test = t
+        end
+    end)
+    return test
+end
+
+--Is a test playing (heroes placed, the script handed to the host tick)?
+function EncounterOfTheWeekGame.IsTestRunning()
+    local test = EncounterOfTheWeekGame.GetTest()
+    return test ~= nil and test.phase == "running"
+end
+
+--Is THIS client playing the running test? Only a client in player-host mode
+--does: the tester. Anyone else in the authoring game keeps their normal view.
+function EncounterOfTheWeekGame.IsTestPlayer()
+    return dmhub.playerHostMode == true and EncounterOfTheWeekGame.IsTestRunning()
 end
 
 --Hide Director-facing UI in EotW games: the host keeps Director status
@@ -1160,6 +1200,9 @@ local function UpdateEncounterConclusion()
     if m_exitScheduled or not EncounterOfTheWeekGame.IsEotwGame() then
         return
     end
+    --an authoring test has no town to carry anything home to, and its
+    --"leaving" is the end of the test, back to the Director.
+    local testing = EncounterOfTheWeekGame.IsTestPlayer()
 
     local queue = dmhub.initiativeQueue
     if queue ~= nil and not queue.hidden then
@@ -1177,9 +1220,43 @@ local function UpdateEncounterConclusion()
         end
         --the Victory has landed: note it for the town now, not only on the
         --way out, so a crash on the victory screen does not lose it.
-        if outcome == "victory" and awarded then
+        if outcome == "victory" and awarded and not testing then
             RecordPendingOutcomes()
         end
+        return
+    end
+
+    if m_outcomeSeen and m_localProceeded and testing then
+        m_exitScheduled = true
+        printf("EotW test: encounter concluded; ending the test")
+        local section, script = OutcomeStory(m_outcomeKind)
+        local stage = rawget(_G, "EncounterMontageStage")
+        if section == nil or stage == nil or stage.ShowStoryScreen == nil then
+            EncounterOfTheWeekGame.EndTest()
+            return
+        end
+        dmhub.Schedule(0.8, function()
+            if mod.unloaded then
+                return
+            end
+            local title = nil
+            pcall(function()
+                title = string.match(game.currentMap.description or "", "^[^:]+:%s*(.+)$")
+            end)
+            local ok, err = pcall(stage.ShowStoryScreen, {
+                outcome = m_outcomeKind,
+                title = title,
+                section = section,
+                script = script,
+                buttonText = "End Test",
+                busyText = "Ending...",
+                onContinue = EncounterOfTheWeekGame.EndTest,
+            })
+            if not ok then
+                printf("EotW test: could not show the %s story: %s", tostring(m_outcomeKind), tostring(err))
+                EncounterOfTheWeekGame.EndTest()
+            end
+        end)
         return
     end
 
@@ -1428,6 +1505,11 @@ local function UpdateDirectorUIHatch()
     if not EncounterOfTheWeekGame.IsEotwGame() then
         return
     end
+    --an authoring test is a Director playing as a player host on purpose;
+    --End Test is its way back, so the hatch preference must not undo it.
+    if EncounterOfTheWeekGame.IsTestPlayer() then
+        return
+    end
     local suppress = EncounterOfTheWeekGame.ShowDirectorUI()
     if dmhub.playerHostModeSuppressed ~= suppress then
         printf("EncounterOfTheWeek: Director UI hatch %s", tostring(suppress))
@@ -1516,7 +1598,8 @@ function EncounterOfTheWeekGame.SetArrangeReady(ready)
     doc:CompleteChange("Encounter of the Week: heroes arranged", {undoable = false})
 end
 
---The banner resolved: hold for the arrangement when the heroes won.
+--The banner resolved: hold for the arrangement when the heroes won. Only
+--passed when no die was rolled (see StartEncounterCombat).
 local function HoldForArrangement(heroesWin, begin)
     if not heroesWin then
         begin()
@@ -1699,6 +1782,8 @@ dmhub.Coroutine(function()
         pcall(UpdateBusyMirror)
         pcall(UpdateEncounterConclusion)
         pcall(function() EncounterOfTheWeekGame.EnsureMapScriptRunning() end)
+        --an authoring test waiting to be set up after its player-host refresh.
+        pcall(function() EncounterOfTheWeekGame.ConsumePendingTest() end)
         --a montage turn that is this user's to roll (the stage's own think
         --also polls this; the driver is the backstop when the stage is not
         --mounted yet).
@@ -1758,6 +1843,12 @@ pcall(function()
                         AutoAwardVictories(live, true)
                     end
                 end)
+                --a test fight is not a real one: end it without the
+                --default teardown's battle log and analytics.
+                if EncounterOfTheWeekGame.IsTestPlayer() then
+                    EncounterOfTheWeekGame.EndTestCombat()
+                    return true
+                end
                 return false
             end
             local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
@@ -2155,7 +2246,7 @@ local function UnstackPlacedHeroes(charids, anchor)
                 local dest = rank > 0 and NthFreeStartTile(ordered, rank) or nil
                 if dest ~= nil then
                     printf("EotW: hero %s landed outside the Start zone at %s; moving it to %s", charid, tostring(token.loc), tostring(dest))
-                    token:ChangeLocation(dest)
+                    token:ChangeLocation(dest.withGroundAltitude)
                     moved = true
                 else
                     printf("EotW: hero %s is outside the Start zone but it has no free tile", charid)
@@ -2178,7 +2269,7 @@ local function UnstackPlacedHeroes(charids, anchor)
                         local dest = NthFreeStartTile(ordered, rank)
                         if dest ~= nil then
                             printf("EotW: hero %s shares %s with %d other token(s); moving it to %s", charid, tostring(token.loc), #stacked - 1, tostring(dest))
-                            token:ChangeLocation(dest)
+                            token:ChangeLocation(dest.withGroundAltitude)
                             moved = true
                         else
                             printf("EotW: hero %s is stacked but the Start zone has no free tile", charid)
@@ -2422,7 +2513,7 @@ function EncounterOfTheWeekGame.EnsureMapScriptRunning()
         RegisterMapScriptBuiltin()
     end
 
-    if not EncounterOfTheWeekGame.IsEotwGame() or not IsDMOrPlayerHost() then
+    if not (EncounterOfTheWeekGame.IsEotwGame() or EncounterOfTheWeekGame.IsTestRunning()) or not IsDMOrPlayerHost() then
         return
     end
     if game.currentMapId == nil or game.currentMapId == "" then
@@ -2629,6 +2720,14 @@ local function StartEncounterCombat(sides, options)
         immediateResult = "heroes"
     end
 
+    --Only a party handed the initiative with no die gets the arrangement
+    --pause. When the die is rolled the heroes arrange themselves (still
+    --confined to the start area) while the banner waits for someone to roll.
+    local holdBeforeQueue = nil
+    if immediateResult == "heroes" and not options.noArrange then
+        holdBeforeQueue = HoldForArrangement
+    end
+
     --elevated: the surprised condition goes on monsters too, and the host
     --is a player in an EotW game.
     ElevateToHostPermissions()
@@ -2639,8 +2738,7 @@ local function StartEncounterCombat(sides, options)
             encounter = encounter,
             immediateResult = immediateResult,
             surprisedTokens = surprisedTokens,
-            --a winning party arranges itself before the first turn.
-            holdBeforeQueue = cond(options.noArrange, nil, HoldForArrangement),
+            holdBeforeQueue = holdBeforeQueue,
         }
     end)
     DropHostPermissions()
@@ -2917,6 +3015,14 @@ local function CheckEncounterOutcome(queue)
 
     local victory = false
     pcall(function() victory = live:CheckVictory() == true end)
+    --the script's "Victory: every Dwarf on the map is defeated" line wins
+    --too, whatever the encounter's own condition says.
+    if not victory then
+        local reinforcements = rawget(_G, "EncounterReinforcements")
+        if reinforcements ~= nil then
+            pcall(function() victory = reinforcements.ClearMapVictory() == true end)
+        end
+    end
 
     local defeat = false
     if not victory then
@@ -3248,7 +3354,9 @@ end
 --                (clients that saw the outcome exit to the titlescreen on
 --                their own -- see UpdateEncounterConclusion)
 function EncounterOfTheWeekGame.MapScriptHostThink(ctx)
-    if not EncounterOfTheWeekGame.IsEotwGame() then
+    --a running authoring test plays wherever the election puts the host
+    --tick, even on a client that is not the tester.
+    if not (EncounterOfTheWeekGame.IsEotwGame() or EncounterOfTheWeekGame.IsTestRunning()) then
         return
     end
 
@@ -3274,6 +3382,25 @@ function EncounterOfTheWeekGame.MapScriptHostThink(ctx)
         pcall(EncounterMontage.ApplyPendingCombatBoons)
         EnsureAIRunning()
         CheckEncounterOutcome(queue)
+        --the script's reinforcements arrive at the start of their rounds --
+        --but never while a won or lost fight is waiting for its screen, so
+        --clearing the map just before a new round still wins.
+        local reinforcements = rawget(_G, "EncounterReinforcements")
+        if reinforcements ~= nil and m_outcomeMetTime == nil then
+            ---@cast queue -nil
+            local ok, err = pcall(function()
+                local live = queue:try_get("liveEncounter")
+                if type(live) ~= "table" then
+                    live = nil
+                end
+                if live == nil or live:GetAwardedOutcome() == nil then
+                    reinforcements.HostTick(queue, live)
+                end
+            end)
+            if not ok then
+                printf("EotW: reinforcements tick failed: %s", tostring(err))
+            end
+        end
         return
     end
 
@@ -3537,6 +3664,616 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
             --in to see the problem than to leave them waiting forever.
             SignalGameReady()
         end
+    end)
+end
+
+--- the authoring test --------------------------------------------------
+--The Director of an authoring game plays the encounter on the current map the
+--way its players will (EncounterTest.lua holds the menu rows, the hero
+--picker and the test bar; this is the machinery):
+--
+--  1. StartTest parks the request in a global and switches this client into
+--     player-host mode (dmhub.playerHostModeForced). That refreshes the game.
+--  2. After the refresh, the 1s driver's ConsumePendingTest runs the test's
+--     arrival: a clean slate (EncounterMontage.ResetTest), copies of the
+--     chosen heroes pasted into the Start zone as this user's own heroes, the
+--     settings a real EotW host writes (saved first), the party marked as
+--     arrived, the chosen beat started, and the map script attached.
+--  3. The test record turns "running": IsEotwGame() is now true on this
+--     client, so the EotW interface, the start-zone confinement, the strict
+--     rules and the host tick all behave as in a real game.
+--  4. EndTest (the test bar, the Game menu, or the end of the encounter)
+--     ends any combat, puts the map back (ResetTest, the hero copies deleted,
+--     the saved settings and hero tokens restored), clears the record and
+--     switches player-host mode off, refreshing back to the Director.
+
+--Where each kind of test starts: the first beat, the first montage beat, or
+--the encounter beat (whatever follows a beat plays on, as in a real game).
+EncounterOfTheWeekGame.TEST_MODES = {
+    { id = "start", name = "From the Start", beatKind = nil },
+    { id = "montage", name = "Montage", beatKind = "montage" },
+    { id = "combat", name = "Combat", beatKind = "encounter" },
+}
+
+local function TestMode(id)
+    for _, m in ipairs(EncounterOfTheWeekGame.TEST_MODES) do
+        if m.id == id then
+            return m
+        end
+    end
+    return nil
+end
+
+--The beat a test of this mode starts on: index, beat -- or nil, reason.
+function EncounterOfTheWeekGame.TestStartBeat(script, modeid)
+    local mode = TestMode(modeid)
+    if mode == nil then
+        return nil, "unknown test mode"
+    end
+    local beats = script ~= nil and script.parse ~= nil and script.parse.beats or {}
+    if #beats == 0 then
+        return nil, "this map has no Encounter of the Week script"
+    end
+    if mode.beatKind == nil then
+        return 1, beats[1]
+    end
+    for i, beat in ipairs(beats) do
+        if beat.kind == mode.beatKind then
+            return i, beat
+        end
+    end
+    if mode.beatKind == "montage" then
+        return nil, "this map's script has no # Montage beat"
+    end
+    return nil, "this map's script has no # Encounter beat"
+end
+
+--May the local user start a test of this mode on the current map? true, or
+--false + a reason (the menu rows hide on false).
+function EncounterOfTheWeekGame.CanStartTest(modeid)
+    if not dmhub.isDM then
+        return false, "only the Director can test an encounter"
+    end
+    if EncounterOfTheWeekGame.IsEotwGame() then
+        return false, "this is an Encounter of the Week game"
+    end
+    if EncounterOfTheWeekGame.GetTest() ~= nil then
+        return false, "a test is already running"
+    end
+    local q = dmhub.initiativeQueue
+    if q ~= nil and not q.hidden then
+        return false, "end combat first"
+    end
+    local montage = rawget(_G, "EncounterMontage")
+    if montage == nil then
+        return false, "the Encounter of the Week code is not loaded"
+    end
+    local script = nil
+    local ok = pcall(function() script = montage.FindMapScript() end)
+    if not ok or script == nil then
+        return false, "this map has no Encounter of the Week script"
+    end
+    local index, reason = EncounterOfTheWeekGame.TestStartBeat(script, modeid)
+    if index == nil then
+        return false, reason
+    end
+    return true
+end
+
+--The heroes a test party can be picked from: every hero character in the game
+--that is not on the current map. Module pregens first, then by name.
+--{ { charid, name, token, pregen }, ... }
+function EncounterOfTheWeekGame.TestCandidates()
+    local onMap = {}
+    for _, tok in ipairs(dmhub.allTokens) do
+        onMap[tok.charid] = true
+    end
+    local result = {}
+    for charid, tok in pairs(dmhub.GetAllCharacters() or {}) do
+        if not onMap[charid] and tok.properties ~= nil then
+            local isHero = false
+            pcall(function() isHero = tok.properties:IsHero() end)
+            if isHero then
+                local pregen = false
+                pcall(function() pregen = module.IsCharacterAvailableInModule(charid) end)
+                result[#result + 1] = {
+                    charid = charid,
+                    name = EncounterMontage.HeroDisplayName(tok),
+                    token = tok,
+                    pregen = pregen,
+                }
+            end
+        end
+    end
+    table.sort(result, function(a, b)
+        if a.pregen ~= b.pregen then
+            return a.pregen
+        end
+        if a.name ~= b.name then
+            return a.name < b.name
+        end
+        return a.charid < b.charid
+    end)
+    return result
+end
+
+--Heroes already standing on the current map: they join any test too (the
+--montage and combat take every hero on the map), so the picker names them.
+function EncounterOfTheWeekGame.HeroesOnMap()
+    local result = {}
+    for _, hero in ipairs(EncounterMontage.Heroes()) do
+        result[#result + 1] = hero.name
+    end
+    return result
+end
+
+--Start a test: options = { mode = "start"|"montage"|"combat", heroes = {
+--charid, ... } } (characters from TestCandidates). Returns true, or false +
+--a reason. The game refreshes into player-host mode; the setup runs after.
+function EncounterOfTheWeekGame.StartTest(options)
+    local ok, reason = EncounterOfTheWeekGame.CanStartTest(options.mode)
+    if not ok then
+        return false, reason
+    end
+    if type(options.heroes) ~= "table" or #options.heroes == 0 then
+        return false, "choose at least one hero"
+    end
+    --parked in a global: the refresh rebuilds the game (and this codemod)
+    --but not the Lua state, so the request crosses it -- the same way the
+    --titlescreen hands a real arrival over (EotwPendingArrival).
+    _G.EotwPendingTest = {
+        gameid = dmhub.gameid,
+        mode = options.mode,
+        heroes = options.heroes,
+        at = dmhub.Time(),
+    }
+    printf("EotW test: starting a %s test with %d heroes", tostring(options.mode), #options.heroes)
+    --the Director becomes a player host. This forces a refresh; the 1s
+    --driver of the reloaded game picks the request up.
+    dmhub.playerHostModeForced = true
+    return true
+end
+
+--Back into a test that is still on the record after this client left player-
+--host mode (an app restart): switch it on again; the record carries the rest.
+function EncounterOfTheWeekGame.ResumeTest()
+    dmhub.playerHostModeForced = true
+end
+
+--Every game setting a test overrides, saved at the start and put back at the
+--end: the forced EotW settings, plus what SetupOnArrival writes.
+local function TestSettingIds()
+    local ids = { "numheroes", "permission:playersinitiative" }
+    for _, entry in ipairs(g_forcedGameSettings) do
+        ids[#ids + 1] = entry.id
+    end
+    return ids
+end
+
+--Settings are registered by the codemods as they load, so straight after the
+--test's refresh some may not exist yet (touching one logs "Could not find
+--setting"). The setup waits for them all.
+local function TestSettingsRegistered()
+    for _, id in ipairs(TestSettingIds()) do
+        if not dmhub.HasSetting(id) then
+            return false
+        end
+    end
+    return true
+end
+
+local function WriteTest(fn, description)
+    local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
+    doc:BeginChange()
+    fn(doc.data)
+    doc:CompleteChange(description, {undoable = false})
+end
+
+--Corpses and loot drops: map objects made from the "corpse" keyword's
+--blueprint (ActivatedAbilityRemoveCreatureBehavior's LeaveCorpse/DropLoot,
+--run by Monster Death and Hero Death). A test notes the ones already on the
+--map and End Test destroys every other, so the deaths leave nothing behind
+--while corpses the author placed stay. { [objid] = obj } on the current map.
+local function CorpseObjects()
+    local result = {}
+    local assetids = {}
+    pcall(function()
+        for _, asset in ipairs(assets:GetObjectsWithKeyword("corpse")) do
+            assetids[asset.id] = true
+        end
+    end)
+    local map = game.currentMap
+    for _, floor in ipairs((map and map.floors) or {}) do
+        pcall(function()
+            for objid, obj in pairs(floor.objects or {}) do
+                if assetids[obj.assetid] then
+                    result[objid] = obj
+                end
+            end
+        end)
+    end
+    return result
+end
+
+--Every token already on the map when a test starts (bystanders, authored
+--monsters, heroes left standing there), as full character records, so End
+--Test can put each back exactly: position, conditions, stamina -- whatever
+--the fight or the map's own scripts did to it (a hostage script that frees
+--and walks the Civilians). Kept in its own document: the records are big and
+--eotwstate is watched by every client.
+--  data.records = { [charid] = ExportCharacter record (JSON text) }
+local SNAPSHOT_DOC_ID = "eotwtestsnapshot"
+
+local function SnapshotMapTokens()
+    local records = {}
+    local n = 0
+    local function Add(tok)
+        if tok == nil or tok.charid == nil or records[tok.charid] ~= nil then
+            return
+        end
+        local exported = dmhub.ExportCharacter(tok)
+        if exported ~= nil then
+            records[tok.charid] = exported.record
+            n = n + 1
+        end
+    end
+    for _, tok in ipairs(dmhub.allTokens) do
+        Add(tok)
+    end
+    for _, tok in ipairs(dmhub.despawnedTokens or {}) do
+        Add(tok)
+    end
+    local doc = mod:GetDocumentSnapshot(SNAPSHOT_DOC_ID)
+    doc:BeginChange()
+    doc.data.records = records
+    doc:CompleteChange("Encounter test: map tokens noted", {undoable = false})
+    return n
+end
+
+--Write every noted record back over its character (re-creating any the test
+--deleted), then forget them. Returns how many were restored.
+local function RestoreMapTokens()
+    local doc = mod:GetDocumentSnapshot(SNAPSHOT_DOC_ID)
+    local records = doc.data.records
+    if type(records) ~= "table" then
+        return 0
+    end
+    local n = 0
+    for charid, record in pairs(records) do
+        if type(record) == "string" and dmhub.ImportCharacter{ record = record, charid = charid } ~= nil then
+            n = n + 1
+        end
+    end
+    doc:BeginChange()
+    doc.data.records = nil
+    doc:CompleteChange("Encounter test: map tokens restored", {undoable = false})
+    return n
+end
+
+--The state-doc keys a real arrival and its combat write. A test starts and
+--ends with none of them (ResetTest clears the combat ones).
+local function ClearTestArrival(data)
+    data.placedHeroes = nil
+    data.expectedUsers = nil
+    data.arrived = nil
+    data.arrange = nil
+    data.combatStarted = nil
+    data.proceedRequested = nil
+    data.arrivalItems = nil
+    data.alreadyCompleted = nil
+    data.abilityBusy = nil
+end
+
+--The test's arrival (host, inside a coroutine, already in player-host mode).
+--Errors are raised; RunTestSetup ends the test on one.
+local function TestArrival(pending)
+    local userid = dmhub.loginUserid
+    local montage = EncounterMontage
+    local script = montage.FindMapScript(true)
+    local index, beat = EncounterOfTheWeekGame.TestStartBeat(script, pending.mode)
+    if index == nil then
+        error(beat)
+    end
+
+    --a clean slate: whatever a previous test or a dev driver left behind.
+    if not montage.ResetTest() then
+        error("combat is running")
+    end
+    m_arrangeBegin = nil
+
+    local saved = { settings = {}, heroTokens = 0 }
+    for _, id in ipairs(TestSettingIds()) do
+        if dmhub.HasSetting(id) then
+            saved.settings[id] = dmhub.GetSettingValue(id)
+        end
+    end
+    pcall(function() saved.heroTokens = CharacterResource.GetGlobalResource(CharacterResource.heroTokenId) end)
+    saved.corpses = {}
+    for objid, _ in pairs(CorpseObjects()) do
+        saved.corpses[objid] = true
+    end
+    --after the clean-slate reset (so a previous run's leftovers are not
+    --noted) and before the hero copies arrive.
+    saved.tokens = SnapshotMapTokens()
+
+    WriteTest(function(data)
+        ClearTestArrival(data)
+        data.test = {
+            phase = "setup",
+            mode = pending.mode,
+            by = userid,
+            startedAt = dmhub.serverTime,
+            mapid = game.currentMapId,
+            heroes = pending.heroes,
+            saved = saved,
+        }
+    end, "Encounter test: setting up")
+
+    --copies of the chosen heroes, pasted into the Start zone and claimed as
+    --this user's own -- the real arrival's pregen path.
+    local entries = {}
+    for _, charid in ipairs(pending.heroes) do
+        entries[#entries + 1] = { kind = "pregen", id = charid }
+    end
+    PlaceMyHeroes(entries, {})
+    local placed = {}
+    for _, charid in pairs(GetPlacedHeroes(userid)) do
+        placed[#placed + 1] = charid
+    end
+    WriteTest(function(data)
+        data.test.placed = placed
+    end, "Encounter test: heroes placed")
+    if #placed == 0 then
+        error("none of the chosen heroes could be placed")
+    end
+
+    --what a real EotW host writes at setup.
+    local numHeroes = math.max(3, math.min(7, #placed))
+    dmhub.SetSettingValue("numheroes", numHeroes)
+    CharacterResource.SetGlobalResource(CharacterResource.heroTokenId, #placed, "Start of the encounter test")
+    dmhub.SetSettingValue("permission:playersinitiative", true)
+    EnforceStrictRules()
+
+    --the whole party is here (just this user); the host tick waits the usual
+    --3s settle from this stamp.
+    WriteTest(function(data)
+        data.expectedUsers = { userid }
+        data.arrived = { [userid] = dmhub.serverTime }
+    end, "Encounter test: arrived")
+
+    --the chosen beat. Stage beats go up now; the encounter beat starts on
+    --the host tick.
+    local narrative = rawget(_G, "EncounterNarrative")
+    if beat.kind == "montage" then
+        montage.Begin(script, beat, index)
+    elseif beat.kind == "narrative" and narrative ~= nil then
+        narrative.Begin(script, beat, index)
+    end
+    SetBeatIndex(index)
+
+    AttachMapScript()
+
+    WriteTest(function(data)
+        data.test.phase = "running"
+    end, "Encounter test: running")
+    printf("EotW test: running from beat %d (%s) with %d heroes", index, tostring(beat.kind), #placed)
+end
+
+local m_testSetupRunning = false
+
+--When this copy of the file loaded. The test's refresh reloads the codemods,
+--and only a copy loaded after StartTest may run the setup: the copy from
+--before the refresh can see a map and a hud mid-reload, while the core
+--files (and the settings they register) are still loading.
+local m_loadedAt = dmhub.Time()
+
+local function RunTestSetup(pending)
+    m_testSetupRunning = true
+    dmhub.Coroutine(function()
+        --the refresh rebuilds the game: give it a moment to begin, then wait
+        --for it to finish loading and for the map and the hud to come up.
+        for _ = 1, 300 do
+            if mod.unloaded then
+                return
+            end
+            local progress = dmhub.gameLoadingProgress
+            if dmhub.Time() - (tonumber(pending.at) or 0) > 2 and (progress == nil or progress >= 1)
+                and game.currentMap ~= nil and GameHud.instance and TestSettingsRegistered() then
+                break
+            end
+            coroutine.yield(0.2)
+        end
+        coroutine.yield(1)
+        --the request stays parked until here: playerHostMode reads true the
+        --moment the switch is set, BEFORE the refresh, so the instance that
+        --started this may be the one the refresh unloads. Its successor
+        --then finds the request still waiting.
+        if mod.unloaded or rawget(_G, "EotwPendingTest") ~= pending then
+            return
+        end
+        _G.EotwPendingTest = nil
+        local ok, err = pcall(TestArrival, pending)
+        m_testSetupRunning = false
+        if not ok then
+            printf("EotW test: could not start the test: %s", tostring(err))
+            EncounterOfTheWeekGame.EndTest()
+        end
+    end)
+end
+
+--The 1s driver: run a test request parked by StartTest once this client is
+--in player-host mode (after the refresh the switch caused). A request whose
+--switch never took -- no hosting status -- is dropped after a while.
+function EncounterOfTheWeekGame.ConsumePendingTest()
+    local pending = rawget(_G, "EotwPendingTest")
+    if type(pending) ~= "table" or m_testSetupRunning then
+        return
+    end
+    if pending.gameid ~= dmhub.gameid then
+        _G.EotwPendingTest = nil
+        return
+    end
+    if dmhub.playerHostMode ~= true then
+        if dmhub.Time() - (tonumber(pending.at) or 0) > 30 then
+            _G.EotwPendingTest = nil
+            dmhub.playerHostModeForced = false
+            printf("EotW test: this client never became a player host; the test was not started")
+        end
+        return
+    end
+    --leave it for the copy the refresh loads (see m_loadedAt); only if no
+    --reload ever comes does this copy take it.
+    if m_loadedAt < (tonumber(pending.at) or 0) and dmhub.Time() - (tonumber(pending.at) or 0) < 15 then
+        return
+    end
+    RunTestSetup(pending)
+end
+
+--End a test's combat with no victory screen and none of the real teardown's
+--battle log or analytics (the proceed override uses it after a test's
+--victory screen too).
+function EncounterOfTheWeekGame.EndTestCombat()
+    local q = dmhub.initiativeQueue
+    if q == nil or q.hidden then
+        return
+    end
+    ElevateToHostPermissions()
+    local ok, err = pcall(function()
+        local live = q:try_get("liveEncounter")
+        if type(live) == "table" then
+            live.victoryAwarded = false
+            live.defeatAwarded = false
+        end
+        q.hidden = true
+        q.gameMode = "exploration"
+        dmhub:UploadInitiativeQueue()
+        CharacterResource.SetMalice(0, "End of the encounter test")
+        ActivatedAbilitySummonBehavior.RemoveSummonsAtEndOfCombat()
+        Aura.RemoveExpiredMapAnchoredAurasAtEndOfCombat()
+    end)
+    DropHostPermissions()
+    if not ok then
+        printf("EotW test: could not end combat: %s", tostring(err))
+    end
+end
+
+--Put the map back as authored (inside a coroutine; see EndTest).
+local function TestTeardown()
+    local test = EncounterOfTheWeekGame.GetTest()
+    if test ~= nil then
+        WriteTest(function(data)
+            data.test.phase = "ending"
+        end, "Encounter test: ending")
+    end
+
+    m_arrangeBegin = nil
+    EnsureAIStopped()
+    EncounterOfTheWeekGame.EndTestCombat()
+    for _ = 1, 25 do
+        local q = dmhub.initiativeQueue
+        if q == nil or q.hidden then
+            break
+        end
+        coroutine.yield(0.2)
+    end
+
+    --the script's state, its allies and spawns, the traps and zones, malice
+    --(and it detaches the map script).
+    EncounterMontage.ResetTest()
+
+    --the hero copies, and the settings and hero tokens the test overrode.
+    local copies = {}
+    local seen = {}
+    local function AddCopy(charid)
+        if type(charid) == "string" and not seen[charid] and dmhub.GetCharacterById(charid) ~= nil then
+            seen[charid] = true
+            copies[#copies + 1] = charid
+        end
+    end
+    if test ~= nil then
+        for _, charid in ipairs(test.placed or {}) do
+            AddCopy(charid)
+        end
+    end
+    for _, charid in pairs(GetPlacedHeroes(dmhub.loginUserid)) do
+        AddCopy(charid)
+    end
+
+    ElevateToHostPermissions()
+    local ok, err = pcall(function()
+        if #copies > 0 then
+            game.DeleteCharacters(copies)
+            printf("EotW test: removed %d hero copies", #copies)
+        end
+        local saved = test ~= nil and test.saved or nil
+        --the corpses and loot the test's deaths left (a record from before
+        --corpses were noted has no list, and then nothing is touched).
+        if type(saved) == "table" and type(saved.corpses) == "table" then
+            local n = 0
+            for objid, obj in pairs(CorpseObjects()) do
+                if not saved.corpses[objid] then
+                    obj:Destroy()
+                    n = n + 1
+                end
+            end
+            if n > 0 then
+                printf("EotW test: removed %d corpse/loot objects", n)
+            end
+        end
+        --the tokens that were on the map before the test, exactly as they were.
+        local restored = RestoreMapTokens()
+        if restored > 0 then
+            printf("EotW test: restored %d map tokens", restored)
+        end
+        if type(saved) == "table" then
+            for id, value in pairs(saved.settings or {}) do
+                if dmhub.GetSettingValue(id) ~= value then
+                    dmhub.SetSettingValue(id, value)
+                end
+            end
+            CharacterResource.SetGlobalResource(CharacterResource.heroTokenId, tonumber(saved.heroTokens) or 0, "End of the encounter test")
+        end
+    end)
+    DropHostPermissions()
+    if not ok then
+        printf("EotW test: cleanup failed: %s", tostring(err))
+    end
+
+    WriteTest(function(data)
+        ClearTestArrival(data)
+        data.test = nil
+    end, "Encounter test: ended")
+
+    --this client's own end-of-encounter bookkeeping, in case no refresh
+    --follows to reset it.
+    m_outcomeSeen = false
+    m_outcomeKind = nil
+    m_outcomesRecorded = false
+    m_exitScheduled = false
+    m_localProceeded = false
+    m_victorySeenAt = nil
+    m_awardHoldTicks = 0
+    m_outcomeMetTime = nil
+end
+
+local m_testEnding = false
+
+--End the test: put the map back and return this client to the Director.
+--Safe to call with no test running (it then only leaves player-host mode).
+function EncounterOfTheWeekGame.EndTest()
+    if m_testEnding then
+        return
+    end
+    m_testEnding = true
+    _G.EotwPendingTest = nil
+    dmhub.Coroutine(function()
+        local ok, err = pcall(TestTeardown)
+        if not ok then
+            printf("EotW test: ending the test failed: %s", tostring(err))
+        end
+        m_testEnding = false
+        print("EotW test: ended; back to the Director")
+        dmhub.playerHostModeForced = false
     end)
 end
 

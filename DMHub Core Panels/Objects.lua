@@ -56,6 +56,40 @@ end
 
 local CreateObjectNode
 
+--"Objects for this map": when the current map came from a map pack that
+--ships props, the engine merges that map's set into the asset tree as a
+--transient store (MapPackObjects.cs, MAP_PACK_OBJECTS_PLAN.md). Its root
+--folder is pinned to the top of the library and starts expanded. Its folders
+--vanish on other maps, so they cannot be renamed, deleted, or filed into.
+local function MapPackObjectsFolderId()
+	local info = mappacks.currentMapObjects
+	if info == nil or info.status ~= "loaded" or info.folderid == "" then
+		return nil
+	end
+	return info.folderid
+end
+
+--the status line under the library's search box while the current map's set
+--is not usable yet: loading, locked behind a Patreon tier, or failed. nil
+--when there is nothing to say (no set, or it is loaded).
+local function MapPackObjectsStatusText(info, creatorName)
+	if info == nil or info.status == "loaded" then
+		return nil
+	end
+	if info.status == "loading" then
+		return "Loading objects for this map..."
+	end
+	if info.status == "error" then
+		return "Could not load the objects for this map."
+	end
+	local objects = cond(info.count == 1, "1 object", string.format("%d objects", info.count))
+	if info.tier > 0 then
+		local requirement = mod.shared.MapPackPatreonText({tier = info.tier, tierName = info.tierName, owned = false}, creatorName)
+		return string.format("This map comes with %s. %s.", objects, requirement)
+	end
+	return string.format("This map comes with %s, unlocked along with the map.", objects)
+end
+
 mod.shared.selectedObjectEntries = {}
 
 local ObjectPanelHeight = 30
@@ -943,6 +977,12 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 	--Callers pass the root ('') or a live folder's id; refreshAssets keeps it non-nil after that.
 	---@cast node -nil
 
+	--a folder of the current map's "Objects for this map" set; see MapPackObjectsFolderId.
+	local fromMapPack = nodeid ~= '' and node.fromMapPack
+	if fromMapPack and nodeid == MapPackObjectsFolderId() then
+		isCollapsed = false
+	end
+
 	---@type Panel
 	local folderPane = nil
 
@@ -1073,6 +1113,49 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 						},
 					},
 				},
+
+				--the current map's "Objects for this map" set while it is
+				--loading, locked or failed; once loaded it is a folder below.
+				gui.Label{
+					classes = {"collapsed"},
+					width = "95%",
+					height = "auto",
+					halign = "left",
+					fontSize = 12,
+					italics = true,
+					color = "#bbbbbb",
+					textWrap = true,
+					vmargin = 2,
+					create = function(element)
+						element:FireEvent("refreshAssets")
+					end,
+					refreshAssets = function(element)
+						local info = mappacks.currentMapObjects
+						local text = MapPackObjectsStatusText(info)
+						element:SetClass("collapsed", text == nil)
+						if info == nil or text == nil then
+							return
+						end
+						element.text = text
+						element.data.error = cond(info.status == "error", info.error)
+						if info.status == "locked" and info.tier > 0 then
+							--name the creator once the lookup lands.
+							mod.shared.GetMapPackCreator({pack = info.pack}, function(creator)
+								if element.valid then
+									local current = mappacks.currentMapObjects
+									if current ~= nil and current.status == "locked" and current.pack == info.pack then
+										element.text = MapPackObjectsStatusText(current, creator.displayName)
+									end
+								end
+							end)
+						end
+					end,
+					hover = function(element)
+						if element.data.error ~= nil and element.data.error ~= "" then
+							gui.Tooltip(element.data.error)(element)
+						end
+					end,
+				},
 			},
 		}
 	end
@@ -1171,8 +1254,10 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 			wrap = true,
 		},
 
-		classes = {'object-drag-target'},
-		dragTarget = true,
+		--a map-pack folder is not a drop target: anything filed into it
+		--would land at the library root on other maps.
+		classes = {cond(not fromMapPack, 'object-drag-target')},
+		dragTarget = not fromMapPack,
 		dragTargetPriority = 0,
 
 		children = {},
@@ -1186,10 +1271,10 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 	local headerPanel = gui.Panel({
 		
 		bgimage = 'panels/square.png',
-		classes = {'folderHeader','object-drag-target'},
-		dragTarget = true,
+		classes = {'folderHeader', cond(not fromMapPack, 'object-drag-target')},
+		dragTarget = not fromMapPack,
 
-		draggable = nodeid ~= '',
+		draggable = nodeid ~= '' and not fromMapPack,
 		canDragOnto = function(element, target)
 			return target:HasClass('object-drag-target') and not IsObjectNodeSelfOrChildOf(element.data.nodeid, target.data.nodeid)
 		end,
@@ -1238,7 +1323,7 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 
 			gui.Label({
 				text = 'Object Library',
-				editableOnDoubleClick = (nodeid ~= ''), --all folders except the root Object folder can be renamed.
+				editableOnDoubleClick = (nodeid ~= '' and not fromMapPack), --all folders except the root Object folder and map-pack folders can be renamed.
 				characterLimit = 52,
 				events = {
 					moduleInstalled = function(element)
@@ -1282,6 +1367,55 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 
 		},
 	})
+
+	--under the "Objects for this map" folder: who made the props.
+	local creditPanel = nil
+	if fromMapPack and nodeid == MapPackObjectsFolderId() then
+		local creditLogo = gui.Panel{
+			classes = {"collapsed"},
+			width = 16,
+			height = 16,
+			valign = "center",
+			hmargin = 4,
+			bgcolor = "white",
+		}
+		local creditLabel = gui.Label{
+			width = "auto",
+			height = "auto",
+			maxWidth = 240,
+			valign = "center",
+			fontSize = 12,
+			italics = true,
+			color = "#bbbbbb",
+			text = "",
+		}
+		creditPanel = gui.Panel{
+			classes = {cond(isCollapsed, "collapsed")},
+			x = 18,
+			width = "auto",
+			height = "auto",
+			halign = "left",
+			flow = "horizontal",
+			vmargin = 2,
+			children = {creditLogo, creditLabel},
+		}
+
+		local info = mappacks.currentMapObjects
+		if info ~= nil then
+			mod.shared.GetMapPackCreator({pack = info.pack}, function(creator)
+				if not creditLabel.valid then
+					return
+				end
+				if (creator.displayName or "") ~= "" then
+					creditLabel.text = string.format("From %s", creator.displayName)
+				end
+				if (creator.logo or "") ~= "" then
+					creditLogo.bgimage = creator.logo
+					creditLogo:SetClass("collapsed", false)
+				end
+			end)
+		end
+	end
 
 	local elements = {}
 
@@ -1348,6 +1482,10 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 					rootPanel:SetClass('collapsed', isCollapsed)
 				end
 
+				if creditPanel ~= nil then
+					creditPanel:SetClass('collapsed', isCollapsed)
+				end
+
 				for k,v in pairs(elements) do
 					v.data.setParentCollapsed(v, isCollapsed)
 				end
@@ -1372,6 +1510,11 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 			end,
 
 			rightClick = function(element)
+				if fromMapPack then
+					--map-pack folders come and go with the map; nothing to edit.
+					return
+				end
+
 				--create the context menu for this folder.
 				local menuItems = {}
 				local parentElement = element
@@ -1477,7 +1620,8 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 				if (not isCollapsed) or searchNodes ~= nil then
 					local newElements = {}
 					for i,v in ipairs(node.children) do
-						if (not options.hideobjects) or v.isfolder then
+						--a folder picker (selectfolders) never offers map-pack folders.
+						if ((not options.hideobjects) or v.isfolder) and not (options.selectfolders and v.fromMapPack) then
 							--if we are searching, only create the elements that match the search.
 							if elements[v.id] == nil and ((not isCollapsed) or searchNodes == nil or searchNodes[v.id]) then
 								newElements[v.id] = CreateObjectNode(v, folderPane, options)
@@ -1494,7 +1638,7 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 						end
 					end
 
-					local newChildren = {headerPanel, rootPanel}
+					local newChildren = {headerPanel, rootPanel or creditPanel}
 					local newPalette = {}
 
 					element.data.childObjectPanels = {}
@@ -1510,7 +1654,16 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 						end
 					end
 
-					table.sort(folderChildren, function(a,b) return a.data.node().description < b.data.node().description end)
+					--the current map's "Objects for this map" folder goes first.
+					local pinnedFolder = MapPackObjectsFolderId()
+					table.sort(folderChildren, function(a,b)
+						local aPinned = a.data.node().id == pinnedFolder
+						local bPinned = b.data.node().id == pinnedFolder
+						if aPinned ~= bPinned then
+							return aPinned
+						end
+						return a.data.node().description < b.data.node().description
+					end)
 					for _,folder in ipairs(folderChildren) do
 						newChildren[#newChildren+1] = folder
 					end
@@ -1533,7 +1686,7 @@ local function CreateObjectFolder(nodeid, parentElement, options)
 
 		children = {
 			headerPanel,
-			rootPanel,
+			rootPanel or creditPanel,
 			palettePanel,
 		}
 	})

@@ -2302,7 +2302,6 @@ local showShareModuleDialog = function(options)
 		classes = {'status-label', 'hidden'},
 		halign = "center",
 		valign = "center",
-		floating = true,
 		text = "Uploading...",
 	}
 
@@ -2314,7 +2313,7 @@ local showShareModuleDialog = function(options)
 			flow = "horizontal",
 			width = "auto",
 			height = "auto",
-			y = 30,
+			tmargin = 10,
 			moduleUploaded = function(element)
 				element:SetClass("collapsed", false)
 			end,
@@ -3611,8 +3610,18 @@ local showShareModuleDialog = function(options)
 			sharePanel,
 		},
 
-		statusLabel,
-		moduleCodePanel,
+		--One centered column, so a status that wraps (the Encounter of the
+		--Week pool sentence) pushes the Module ID row down instead of under it.
+		gui.Panel{
+			floating = true,
+			halign = "center",
+			valign = "center",
+			width = "auto",
+			height = "auto",
+			flow = "vertical",
+			statusLabel,
+			moduleCodePanel,
+		},
 
 		gui.Button{
             classes = {"closeButton"},

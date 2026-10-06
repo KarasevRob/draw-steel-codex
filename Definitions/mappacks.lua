@@ -23,6 +23,22 @@
 --- @field org string creator organization whose Patreon the tier is measured against
 --- @field owned boolean whether the current account can use this appearance
 --- @field matchScore integer how well the entry matched a Search; 0 for an empty search
+--- @field objects string URL of the map's "Objects for this map" set; "" when the map ships no objects
+--- @field objectCount integer objects in that set (0 when none)
+--- @field objectsTier integer Patreon pledge in cents that unlocks the object set on top of the map itself; 0 = no extra gate
+--- @field objectsTierName string the creator's name for that pledge level; "" when free or unnamed
+--- @field objectsOwned boolean whether the current account can use the map's object set
+---
+--- @class MapPackMapObjects The "Objects for this map" set of the current map.
+--- @field pack string module fullid of the pack the map came from
+--- @field mapid string the map's id inside the pack
+--- @field status "loading"|"loaded"|"locked"|"error" locked = the account lacks the map or the pack's objects tier
+--- @field count integer objects in the set (from the index while loading or locked, from the set once loaded)
+--- @field folderid string id of the set's root object folder once loaded, else ""
+--- @field tier integer pledge in cents the set needs; 0 when no extra gate
+--- @field tierName string the creator's name for that pledge level
+--- @field org string creator organization whose Patreon the tier is measured against
+--- @field error string why loading failed (status "error")
 ---
 --- @class MapPackInfo One synced map pack.
 --- @field id string module fullid
@@ -32,13 +48,15 @@
 --- @field blob string
 --- @field org string creator organization whose Patreon unlocks tiered appearances
 --- @field premium boolean whether the pack module is premium
+--- @field prelaunch boolean the pack is hidden pre-launch; only admins see it
 
 --- The map pack index: every published map pack's searchable list of maps and appearance variants, synced from the cloud, cached locally and searched in memory. Individual maps are added to the current game with AddMapToGame without installing the pack's module.
 --- @class mappacks
 --- @field synced boolean Whether the index has been synced at least once this session. (Read-only)
 --- @field syncing boolean Whether a sync is currently in progress. (Read-only)
 --- @field count number The number of variant entries across every synced pack. (Read-only)
---- @field packs MapPackInfo[] The synced packs: one record per /MapPackIndex pointer, with the module fullid as id. org is the creator organization whose Patreon unlocks tiered appearances; premium says the pack module is premium. (Read-only)
+--- @field currentMapObjects MapPackMapObjects|nil The "Objects for this map" set of the current map, or nil when the current map did not come from a map pack, ships no objects, or this client is not the Director. While status is "loaded" the set's objects are in the asset tree under the folder folderid, ready to place; placing one copies its record into the game. "locked" means the account lacks the map or the pack's objects tier (tier/tierName say which pledge). (Read-only)
+--- @field packs MapPackInfo[] The synced packs: one record per /MapPackIndex pointer, with the module fullid as id. org is the creator organization whose Patreon unlocks tiered appearances; premium says the pack module is premium; prelaunch marks a hidden pre-launch pack, which only admin accounts receive. (Read-only)
 mappacks = {}
 
 --- Reads /MapPackIndex, downloads any pack index blob that changed since the local cache was written, and rebuilds the in-memory index. Calls options.success when done, or options.error with a message if the pointer node could not be read or some pack failed to load (the packs that did load are still searchable).

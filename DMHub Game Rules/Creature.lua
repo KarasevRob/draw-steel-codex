@@ -230,6 +230,7 @@ end
 --- @field duplicateSourceId? string Duplicates: charid of the token that was duplicated.
 --- @field hiddenInvisibilityApplied? boolean True when invisibleToPlayers was applied by the Hidden condition sync.
 --- @field eotwAllyOf? string Encounter of the Week: charid of the hero this ally belongs to.
+--- @field eotwReinforcement? string Encounter of the Week: id of the reinforcements section this monster arrived with.
 --- @field followers? table Characters: follower entries (legacy shape, migrated by validation).
 --- @field levelOverride? integer Characters: minimum character level (slow start / level picker).
 --- @field extraLevelInfo? table Characters: additional level data; read via ExtraLevelInfo().
@@ -10895,6 +10896,7 @@ end
 --- @field rules string
 --- @field activateText string The name of mode 1 of a multi-mode trigger.
 --- @field activateRules string The rules text of mode 1 of a multi-mode trigger.
+--- @field activateModeIndex number The modeList index the trigger's own card runs: 1, unless mode 1's condition failed and a later mode took the card.
 --- @field modes {text: string, rules: string, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil, injectedBy: string|nil}[] modeIndex is the entry's position in the ability's modeList (see ModeIndexForTriggered). unavailable/conditionReason mark a mode whose condition is not met but which is offered anyway, greyed out, with that reason shown. injectedBy is the TriggerModeMarker of a trigger modifier that added the mode (MCDMModifyTriggers).
 --- @field casterid false|string The id of the caster of the ability that caused the trigger.
 --- @field originalAbilityRange number the range of the original ability that caused the trigger.
@@ -10956,6 +10958,7 @@ ActiveTrigger.text = "Trigger"
 --modes holds the remaining modes whose conditions passed. See UsesModeHeading.
 ActiveTrigger.activateText = "Activate"
 ActiveTrigger.activateRules = ""
+ActiveTrigger.activateModeIndex = 1
 ActiveTrigger.rules = ""
 ActiveTrigger.modes = {}
 ActiveTrigger.casterid = false
@@ -11294,10 +11297,11 @@ end
 --option's position here is not its position in modeList -- each entry records
 --the index it came from. Prompts serialized before modeIndex existed, and the
 --non-numeric `triggered == true` case (mode 1, the trigger's own card), fall
---back to the positional reading.
+--back to the positional reading. The trigger's own card runs activateModeIndex
+--(mode 1 unless its condition failed).
 function ActiveTrigger:ModeIndexForTriggered(triggered)
 	if type(triggered) ~= "number" then
-		return 1
+		return self.activateModeIndex
 	end
 
 	local entry = self.modes[triggered]
@@ -11604,7 +11608,7 @@ end
 --each prompt of a merged group hides the modes its own subject fails, so one
 --mode sits at different positions in different members' lists.
 local function TriggeredValueForModeIndex(record, modeIndex)
-	if modeIndex == nil or modeIndex <= 1 then
+	if modeIndex == nil or modeIndex == record.activateModeIndex then
 		return true
 	end
 
@@ -11636,6 +11640,12 @@ local function MergeTriggerIntoGroup(availableTriggers, triggerInfo)
 	end
 
 	if leader == nil then
+		return
+	end
+
+	--The group's front card runs the leader's activate mode for every member, so
+	--a prompt whose own card runs a different mode stays a separate card.
+	if leader.activateModeIndex ~= triggerInfo.activateModeIndex then
 		return
 	end
 

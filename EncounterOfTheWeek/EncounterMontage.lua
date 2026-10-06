@@ -831,13 +831,30 @@ end
 --What a hero is, for rider requirements (skills, languages, class /
 --subclass / ancestry), read off the creature by core (TestRiders).
 --`round` is the montage's current round, for "|Edge (Round 1): ..." riders.
+--Reading a hero's facts walks their features, abilities and choices, and
+--the stage asks for every option it draws, so they are cached for a moment
+--per hero. A copy is returned: callers add `round`.
+local g_factsCache = {}
+local FACTS_CACHE_SECONDS = 2
+
 function EncounterMontage.HeroFacts(charid)
-    local facts
-    local tok = dmhub.GetCharacterById(charid)
-    if tok == nil or not tok.valid or tok.properties == nil then
-        facts = { skill = {}, language = {}, kindred = {}, movement = {} }
+    local now = dmhub.Time()
+    local cached = g_factsCache[charid or ""]
+    local base
+    if cached ~= nil and now < cached.expires then
+        base = cached.facts
     else
-        facts = TestRiders.CreatureFacts(tok.properties)
+        local tok = dmhub.GetCharacterById(charid)
+        if tok == nil or not tok.valid or tok.properties == nil then
+            base = TestRiders.CompleteFacts({})
+        else
+            base = TestRiders.CreatureFacts(tok.properties)
+        end
+        g_factsCache[charid or ""] = { facts = base, expires = now + FACTS_CACHE_SECONDS }
+    end
+    local facts = {}
+    for k, v in pairs(base) do
+        facts[k] = v
     end
     pcall(function()
         local m = EncounterMontage.GetState()
@@ -846,6 +863,81 @@ function EncounterMontage.HeroFacts(charid)
         end
     end)
     return facts
+end
+
+--The first knack of `option` this hero meets (and that has a roll or
+--rules), as an index into option.knacks; nil when none.
+function EncounterMontage.KnackIndex(charid, option)
+    if option == nil or option.knacks == nil or #option.knacks == 0 or option.delve ~= nil then
+        return nil
+    end
+    local facts = EncounterMontage.HeroFacts(charid)
+    for i, k in ipairs(option.knacks) do
+        if EncounterScript.KnackUsable(k) then
+            local met = false
+            pcall(function() met = EncounterScript.RequirementMet(k.requirement, facts) == true end)
+            if met then
+                return i
+            end
+        end
+    end
+    return nil
+end
+
+--Why this hero gets a knack ("you can fly (Wings)"), or nil.
+function EncounterMontage.KnackReason(charid, option, knackIndex)
+    local k = option ~= nil and option.knacks ~= nil and knackIndex ~= nil and option.knacks[knackIndex] or nil
+    if k == nil then
+        return nil
+    end
+    local why = nil
+    pcall(function()
+        local _, w = EncounterScript.RequirementMet(k.requirement, EncounterMontage.HeroFacts(charid))
+        why = w
+    end)
+    return why or k.requirementText
+end
+
+--The version of `option` this hero takes: the first knack they meet, or
+--the option itself.
+function EncounterMontage.OptionForHero(charid, option)
+    return EncounterScript.OptionVersion(option, EncounterMontage.KnackIndex(charid, option))
+end
+
+--The option the turn in flight is taking, in the version the host fixed
+--when it was chosen (t.knackIndex).
+function EncounterMontage.TurnOption(entry, t)
+    if entry == nil or t == nil then
+        return nil
+    end
+    local option = entry.options[t.optionIndex or 0]
+    if option == nil then
+        return nil
+    end
+    return EncounterScript.OptionVersion(option, t.knackIndex)
+end
+
+--The turn's option as written (no knack applied), for the host's gate.
+function EncounterMontage.TurnBaseOption(entry, t)
+    if entry == nil or t == nil then
+        return nil
+    end
+    return entry.options[t.optionIndex or 0]
+end
+
+--The effects a version of an option applies at `tierIndex`: its roll's
+--tier, or -- for a free version (tier 0) -- its rules.
+function EncounterMontage.VersionEffects(option, tierIndex)
+    if option == nil then
+        return {}
+    end
+    if option.roll ~= nil and tierIndex ~= nil and tierIndex > 0 then
+        return option.roll.effects[tierIndex] or {}
+    end
+    if option.free ~= nil then
+        return option.free.effects or {}
+    end
+    return {}
 end
 
 --The standing edges and banes an earlier outcome put on this option's
@@ -882,9 +974,24 @@ end
 --How an option's riders fall for a hero (EncounterScript.EvaluateRiders
 --result), with any standing edges and banes from the montage folded in as
 --applied riders. Nil when the option has neither.
-function EncounterMontage.RiderVerdict(charid, option)
-    local riders = (option ~= nil and option.roll ~= nil and option.roll.riders) or {}
-    local granted = EncounterMontage.OptionTestMods(nil, option)
+--`version` is the version of the option the hero takes (a knack's, or the
+--option itself); nil works it out (OptionForHero). The option's Allow
+--lines decide whether the hero may take it at all; a knack's roll brings
+--its own edges, not the base roll's.
+function EncounterMontage.RiderVerdict(charid, option, version)
+    if option == nil then
+        return nil
+    end
+    --a version passed in is a copy carrying .knack; get back to the option
+    --as written for its Allow lines.
+    if version == nil then
+        version = EncounterMontage.OptionForHero(charid, option)
+    end
+    local riders = EncounterScript.VersionRiders(option, version)
+    local granted = {}
+    if version.roll ~= nil then
+        granted = EncounterMontage.OptionTestMods(nil, option)
+    end
     if #riders == 0 and #granted == 0 then
         return nil
     end
@@ -913,6 +1020,22 @@ function EncounterMontage.RiderVerdict(charid, option)
     return verdict
 end
 
+--May this hero see (and take) this option? A secret option -- one an
+--Allow / Secret rider gates -- is invisible to a hero who does not meet it.
+--Everyone watching the stage sees the options of the hero at the entry,
+--so a secret option appears for spectators exactly when it appears for
+--the player choosing.
+function EncounterMontage.OptionVisible(charid, option)
+    if option == nil then
+        return false
+    end
+    if not EncounterScript.OptionIsSecret(option) then
+        return true
+    end
+    local verdict = EncounterMontage.RiderVerdict(charid, option)
+    return verdict == nil or verdict.allowed
+end
+
 --The names of the riders a hero does not meet, for a refusal message.
 function EncounterMontage.DescribeUnmet(verdict)
     local parts = {}
@@ -939,6 +1062,9 @@ function EncounterMontage.AssistSkillFor(charid, option, usedSkillId)
             local trained = false
             if skillInfo ~= nil then
                 pcall(function() trained = tok.properties:ProficientInSkill(skillInfo) end)
+                if not trained and EncounterMontage.TeamLeaderGrants(skillid) then
+                    trained = true
+                end
             end
             if trained then
                 --trained is only set when skillInfo was found.
@@ -948,6 +1074,15 @@ function EncounterMontage.AssistSkillFor(charid, option, usedSkillId)
         end
     end
     return nil
+end
+
+--Teamwork: in round 1, a hero with the perk may both make a test and
+--assist one (once).
+function EncounterMontage.TeamworkAvailable(m, charid)
+    if m == nil or (m.round or 1) ~= 1 or (m.perkUsed or {})["teamwork:" .. tostring(charid)] then
+        return false
+    end
+    return EncounterMontage.HeroHasPerk(charid, "Teamwork")
 end
 
 --Every hero who could assist the turn in flight: { charid, skillid,
@@ -968,12 +1103,12 @@ function EncounterMontage.EligibleAssistants(m, beat, heroes)
         return result
     end
     local entry = EncounterMontage.TurnEntry(beat, t)
-    local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
+    local option = EncounterMontage.TurnOption(entry, t)
     if option == nil or option.roll == nil then
         return result
     end
     for _, hero in ipairs(heroes or EncounterMontage.Heroes()) do
-        if hero.charid ~= t.heroid and not (m.acted or {})[hero.charid] then
+        if hero.charid ~= t.heroid and (not (m.acted or {})[hero.charid] or EncounterMontage.TeamworkAvailable(m, hero.charid)) then
             local skillid, skillName = EncounterMontage.AssistSkillFor(hero.charid, option, t.skillid)
             if skillid ~= nil then
                 result[#result + 1] = { charid = hero.charid, name = hero.name, skillid = skillid, skillName = skillName }
@@ -1021,6 +1156,9 @@ end
 function EncounterMontage.ApplyAssistToTier(outcome, baseTier, baseTotal)
     local total = tonumber(baseTotal)
     local tier = tonumber(baseTier) or 1
+    if outcome == "none" then
+        return tier, total
+    end
     if outcome == "doubleedge" then
         tier = tier + 1
     elseif total ~= nil then
@@ -1624,7 +1762,8 @@ end
 
 local function SpawnAlly(monsterid, heroEntry, userid)
     local loc = FreeTileNear(heroEntry.token)
-    local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true })
+    --FreeTileNear's tiles are x/y only: stand the ally on the ground there.
+    local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true, onGround = true })
     if token == nil then
         return nil
     end
@@ -2586,9 +2725,16 @@ local function SceneEnv(t, option, tier, actors)
             if atom.op == "speaks" then
                 return Met("you speak " .. atom.name)
             elseif atom.op == "is" then
-                return Met("you are a " .. atom.name)
-            elseif atom.op == "has" then
+                --"PC is small" / "PC is immune to fire" first, then "PC is
+                --a Dwarf" (the article is optional in a scene condition).
+                return Met("you are " .. atom.name) or Met("you are a " .. atom.name)
+            elseif atom.op == "skilled" then
                 return Met("you are skilled in " .. atom.name)
+            elseif atom.op == "has" then
+                --anything the hero has by name: a skill, perk, ability ...
+                return Met("you have " .. atom.name)
+            elseif atom.op == "req" then
+                return Met(atom.text)
             elseif atom.op == "chose" then
                 return option ~= nil and EncounterScript.MatchKey(option.name) == EncounterScript.MatchKey(atom.name)
             end
@@ -2672,7 +2818,7 @@ local function ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, user
         return
     end
     local hero = HeroByCharid(heroes, t.heroid)
-    local applied, newAllies = EncounterMontage.ApplyEffects(option.roll.effects[tierIndex] or {}, {
+    local applied, newAllies = EncounterMontage.ApplyEffects(EncounterMontage.VersionEffects(option, tierIndex), {
         heroEntry = hero,
         userid = userid,
         entryName = entry.name,
@@ -2688,9 +2834,16 @@ local function ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, user
             table.insert(doc.data.allies[t.heroid], charid)
         end
     end
+    for i = #(t.perkLines or {}), 1, -1 do
+        table.insert(applied, 1, t.perkLines[i])
+    end
     t.status = "resolved"
     t.tier = tierIndex
-    t.tierText = EncounterScript.VisibleText(option.roll.tiers[tierIndex])
+    if option.roll ~= nil and tierIndex ~= nil and tierIndex > 0 then
+        t.tierText = EncounterScript.VisibleText(option.roll.tiers[tierIndex])
+    else
+        t.tierText = EncounterScript.VisibleText((option.free or {}).text or "")
+    end
     t.applied = applied
     t.resolvedAt = dmhub.serverTime
     m.acted = m.acted or {}
@@ -2711,6 +2864,7 @@ local function ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, user
         tier = tierIndex,
         total = t.total,
         applied = applied,
+        knack = t.knackReason,
         assistName = a ~= nil and a.heroName or nil,
         assistOutcome = a ~= nil and a.outcome or nil,
     }
@@ -2720,7 +2874,12 @@ end
 --outcome lines, if it has any for this tier, before anything is applied --
 --the witch hands over the potions, THEN they arrive in the haul.
 local function ResolveTurn(m, doc, t, entry, option, tierIndex, heroes, userid)
-    if option.postScene ~= nil and BuildScenePart(m, t, entry, option, "outcome", tierIndex) > 0 then
+    --a free option (tier 0) has no tier for its outcome lines to test.
+    local sceneTier = nil
+    if tierIndex ~= nil and tierIndex > 0 then
+        sceneTier = tierIndex
+    end
+    if option.postScene ~= nil and BuildScenePart(m, t, entry, option, "outcome", sceneTier) > 0 then
         t.tier = tierIndex
         t.pendingTier = tierIndex
         t.resolveUserid = userid
@@ -2831,6 +2990,12 @@ local function ClearTest(t)
     t.assist = nil
     t.assistOpenedAt = nil
     t.chest = nil
+    t.knackIndex = nil
+    t.knackReason = nil
+    t.offers = nil
+    t.offerOpenedAt = nil
+    t.perkLines = nil
+    t.blessing = nil
 end
 
 local DelveAdvance
@@ -2964,7 +3129,8 @@ end
 --chest, the next obstacle, or the way out.
 DelveObstacleResolved = function(m, doc, t, entry, option, tierIndex, heroes, userid)
     local hero = HeroByCharid(heroes, t.heroid)
-    local applied, newAllies = EncounterMontage.ApplyEffects(option.roll.effects[tierIndex] or {}, {
+    DelveAddApplied(t, t.perkLines)
+    local applied, newAllies = EncounterMontage.ApplyEffects(EncounterMontage.VersionEffects(option, tierIndex), {
         heroEntry = hero,
         userid = userid,
         entryName = t.delve.entryName,
@@ -3017,6 +3183,274 @@ DelveObstacleResolved = function(m, doc, t, entry, option, tierIndex, heroes, us
     DelveNextObstacle(m, doc, t, heroes)
 end
 
+--- perks (host side) ------------------------------------------------------------
+--
+--The real rules of the perks (and the one class feature) that are about
+--tests, played out in the montage rather than left to the author:
+--  Brawny / Lucky Dog: a failed Might / intrigue test can be raised a tier
+--    for 1d6 + level Stamina (offered to the roller right after the roll).
+--  Put Your Back Into It!: an assist that rolls tier 1 imposes no bane;
+--    once per montage, raise an ally's tier 1 to tier 2 (offered to the
+--    perk's owner when an ally fails).
+--  Team Leader: before anyone acts, spend a hero token so every hero tests
+--    as if they had the leader's exploration skills for the montage.
+--  Teamwork: in round 1 the hero may both make a test and assist one.
+--  Ritualist: once a round, bless the hero at an entry (or yourself): a
+--    double edge on their test (EncounterMontage.AppendPerkModifiers).
+--  Born Tracker (edge), Polymath / Handy (+1 with no skill that applies),
+--    Power Player (Might for Brag / Flirt / Intimidate): roll chips.
+--  Mighty Leaps (Fury): a Might test to jump never lands below tier 2.
+--Perks are read off the hero's facts by name (TestRiders.CreatureFacts).
+
+local PERK_OFFER_SECONDS = 30
+EncounterMontage.PERK_OFFER_SECONDS = PERK_OFFER_SECONDS
+
+function EncounterMontage.HeroHasPerk(charid, perkName)
+    local facts = EncounterMontage.HeroFacts(charid)
+    return (facts.perk or {})[TestRiders.NormalizeName(perkName)] == true
+end
+
+function EncounterMontage.HeroHasTrait(charid, name)
+    local facts = EncounterMontage.HeroFacts(charid)
+    local n = TestRiders.NormalizeName(name)
+    return (facts.trait or {})[n] == true or (facts.ability or {})[n] == true
+end
+
+--The skill rows of a list of skill ids.
+local function SkillInfos(skillids)
+    local result = {}
+    local t = dmhub.GetTable(Skill.tableName) or {}
+    for _, id in ipairs(skillids or {}) do
+        if t[id] ~= nil then
+            result[#result + 1] = t[id]
+        end
+    end
+    return result
+end
+
+local function SkillsInclude(skillids, names)
+    for _, info in ipairs(SkillInfos(skillids)) do
+        if names[string.lower(info.name or "")] then
+            return true
+        end
+    end
+    return false
+end
+
+local function SkillsInCategory(skillids, category)
+    for _, info in ipairs(SkillInfos(skillids)) do
+        local cat = nil
+        pcall(function() cat = info.category end)
+        if string.lower(cat or "") == category then
+            return true
+        end
+    end
+    return false
+end
+
+--The attribute id of a characteristic by name ("might").
+local function AttrIdNamed(name)
+    for id, info in pairs(creature.attributesInfo or {}) do
+        if string.lower(info.description or "") == name then
+            return id
+        end
+    end
+    return nil
+end
+
+local function IsMightAttr(attrid)
+    return attrid ~= nil and attrid == AttrIdNamed("might")
+end
+
+local function PerkUsed(m, key)
+    return (m.perkUsed or {})[key] == true
+end
+
+local function MarkPerkUsed(m, key)
+    m.perkUsed = m.perkUsed or {}
+    m.perkUsed[key] = true
+    m.perkSeq = (m.perkSeq or 0) + 1
+end
+
+--Team Leader: does the party's leader lend this skill to everyone?
+function EncounterMontage.TeamLeaderGrants(skillid, m)
+    m = m or EncounterMontage.GetState()
+    local leader = m ~= nil and m.teamLeader or nil
+    if leader == nil or skillid == nil then
+        return false
+    end
+    for _, id in ipairs(leader.skills or {}) do
+        if id == skillid then
+            return true
+        end
+    end
+    return false
+end
+
+--Power Player: Might may stand in for the listed characteristics on a
+--Brag, Flirt or Intimidate test. Returns the (possibly widened) set.
+function EncounterMontage.PerkCharacteristics(c, charid, characteristics, skills)
+    if not EncounterMontage.HeroHasPerk(charid, "Power Player") then
+        return characteristics
+    end
+    if not SkillsInclude(skills, { brag = true, flirt = true, intimidate = true }) then
+        return characteristics
+    end
+    local might = AttrIdNamed("might")
+    if might == nil then
+        return characteristics
+    end
+    local widened = {}
+    for k, v in pairs(characteristics or {}) do
+        widened[k] = v
+    end
+    widened[might] = true
+    return widened
+end
+
+--One synthetic, pre-ticked roll-dialog chip (like a rider's).
+local function PerkChip(name, description, modtype, replaceText)
+    local chip = nil
+    pcall(function()
+        --replaceText ("1") is what an "appendroll" chip adds to the roll; the
+        --power init leaves it alone.
+        local m = CharacterModifier.new{
+            guid = dmhub.GenerateGuid(),
+            name = name,
+            description = description,
+            behavior = "power",
+            domains = {},
+            replaceText = replaceText,
+        }
+        CharacterModifier.TypeInfo.power.init(m)
+        m.rollType = "test_power_roll"
+        m.modtype = modtype
+        m.activationCondition = true
+        chip = { modifier = m, context = {}, hint = { result = true, justification = { description } } }
+    end)
+    return chip
+end
+
+--The perk chips for the acting hero's test (Born Tracker, Polymath, Handy,
+--a Ritualist's blessing). Appends to `modifiers`.
+function EncounterMontage.AppendPerkModifiers(modifiers, c, charid, turn, option, skills, attrid)
+    local function Add(chip)
+        if chip ~= nil then
+            modifiers[#modifiers + 1] = chip
+        end
+    end
+    if EncounterMontage.HeroHasPerk(charid, "Born Tracker") and SkillsInclude(skills, { track = true, navigate = true }) then
+        Add(PerkChip("Edge: Born Tracker", "Born Tracker: an edge on tests to track creatures or find your way.", "edge"))
+    end
+    local skilled = false
+    for _, info in ipairs(SkillInfos(skills)) do
+        local ok = false
+        pcall(function() ok = c:ProficientInSkill(info) end)
+        if ok or EncounterMontage.TeamLeaderGrants(info.id) then
+            skilled = true
+        end
+    end
+    if not skilled then
+        if EncounterMontage.HeroHasPerk(charid, "Polymath") and SkillsInCategory(skills, "lore") then
+            Add(PerkChip("+1: Polymath", "Polymath: +1 on a test to recall lore when no skill you have applies.", "appendroll", "1"))
+        end
+        if EncounterMontage.HeroHasPerk(charid, "Handy") and SkillsInCategory(skills, "crafting") then
+            Add(PerkChip("+1: Handy", "Handy: +1 on a test to craft when no skill you have applies.", "appendroll", "1"))
+        end
+    end
+    if turn ~= nil and turn.blessing ~= nil then
+        local who = turn.blessing.heroName or "a Ritualist"
+        Add(PerkChip(string.format("Double Edge: blessed by %s", who),
+            string.format("Ritualist: %s blessed this test.", who), "double_edge"))
+    end
+    return modifiers
+end
+
+--Mighty Leaps (Fury): a Might test to jump never lands below tier 2.
+local function ApplyTierFloors(t, option, tierIndex)
+    if tierIndex < 2 and IsMightAttr(t.attrid) and SkillsInclude(EncounterMontage.OptionSkills(option), { jump = true })
+        and EncounterMontage.HeroHasTrait(t.heroid, "Mighty Leaps") then
+        t.perkLines = t.perkLines or {}
+        t.perkLines[#t.perkLines + 1] = "Mighty Leaps: a Might jump never lands below tier 2"
+        return 2
+    end
+    return tierIndex
+end
+
+--The lowest total that lands on a tier (Draw Steel: 12 and 17), so an
+--assist computed off the total keeps a tier a perk paid for.
+local TIER_FLOOR_TOTAL = { [2] = 12, [3] = 17 }
+
+local function RaiseTier(t, by)
+    t.tier = math.min(3, (t.tier or 1) + (by or 1))
+    t.baseTier = t.tier
+    local floor = TIER_FLOOR_TOTAL[t.tier]
+    if floor ~= nil and tonumber(t.baseTotal) ~= nil and tonumber(t.baseTotal) < floor then
+        t.baseTotal = floor
+        t.total = floor
+    end
+end
+
+--The perks that could rescue a failed (tier 1) test, as offers:
+--{ kind, heroid, heroName, perk, text }.
+local function PerkOffersFor(m, t, option, heroes)
+    local offers = {}
+    if (t.tier or 1) ~= 1 then
+        return offers
+    end
+    local skills = EncounterMontage.OptionSkills(option)
+    if IsMightAttr(t.attrid) and EncounterMontage.HeroHasPerk(t.heroid, "Brawny") then
+        offers[#offers + 1] = { kind = "stamina", heroid = t.heroid, heroName = t.heroName, perk = "Brawny",
+            text = "Lose 1d6 + your level Stamina to raise this failed Might test by one tier." }
+    end
+    if SkillsInCategory(skills, "intrigue") and EncounterMontage.HeroHasPerk(t.heroid, "Lucky Dog") then
+        offers[#offers + 1] = { kind = "stamina", heroid = t.heroid, heroName = t.heroName, perk = "Lucky Dog",
+            text = "Lose 1d6 + your level Stamina to raise this failed intrigue test by one tier." }
+    end
+    --a delve is the hero alone: only their own perks reach in.
+    for _, hero in ipairs(cond(t.delve == nil, heroes or {}, {})) do
+        if hero.charid ~= t.heroid and not PerkUsed(m, "backintoit:" .. hero.charid)
+            and EncounterMontage.HeroHasPerk(hero.charid, "Put Your Back Into It!") then
+            offers[#offers + 1] = { kind = "backintoit", heroid = hero.charid, heroName = hero.name, perk = "Put Your Back Into It!",
+                text = string.format("Once this montage: turn %s's tier 1 into tier 2.", t.heroName or "the hero") }
+        end
+    end
+    return offers
+end
+
+--A test has landed (after any perk offers): open the assist window if
+--someone could help, else resolve it.
+local function AfterTestLanded(m, doc, t, beat, entry, option, heroes, userid)
+    t.offers = nil
+    t.offerOpenedAt = nil
+    if (t.tier or 1) < 3 and #EncounterMontage.EligibleAssistants(m, beat, heroes) > 0 then
+        t.status = "assist"
+        t.assistOpenedAt = dmhub.serverTime
+        return string.format("%s rolled tier %d on %s -- assistance is offered", t.heroName, t.tier or 1, entry.name)
+    end
+    ResolveTurn(m, doc, t, entry, option, t.tier or 1, heroes, userid)
+    return string.format("%s rolled tier %d on %s", t.heroName, t.tier or 1, entry.name)
+end
+
+--Use one perk offer: pay its cost and raise the test a tier.
+local function UsePerkOffer(m, doc, t, offer, heroes)
+    local hero = HeroByCharid(heroes, offer.heroid)
+    if offer.kind == "stamina" then
+        local level = tonumber(EncounterMontage.HeroFacts(offer.heroid).stat.level) or 1
+        local loss = math.random(1, 6) + level
+        if hero ~= nil and hero.token ~= nil then
+            LoseStamina(hero.token, loss, offer.perk)
+        end
+        t.perkLines = t.perkLines or {}
+        t.perkLines[#t.perkLines + 1] = string.format("%s: lost %d Stamina to raise the test a tier", offer.perk, loss)
+    elseif offer.kind == "backintoit" then
+        MarkPerkUsed(m, "backintoit:" .. offer.heroid)
+        t.perkLines = t.perkLines or {}
+        t.perkLines[#t.perkLines + 1] = string.format("%s put their back into it: tier 1 became tier 2", offer.heroName or "A hero")
+    end
+    RaiseTier(t, 1)
+end
+
 --Every line of the playing scene part has been read: move the turn on.
 local function FinishScenePart(m, doc, t, beat, heroes)
     local after = t.sceneAfter
@@ -3030,13 +3464,26 @@ local function FinishScenePart(m, doc, t, beat, heroes)
         m.seq = (m.seq or 0) + 1
         t.rollSeq = m.seq
         t.status = "rolling"
-    elseif after == "resolve" then
-        local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
-        if option == nil or option.roll == nil then
+    elseif after == "free" then
+        --a free option's own lines have played: no dice, straight to its
+        --outcome (lines, then effects).
+        local option = EncounterMontage.TurnOption(entry, t)
+        if option == nil or option.free == nil then
             t.status = "choosing"
             return
         end
-        ApplyResolution(m, doc, t, entry, option, t.pendingTier or t.tier or 1, heroes, t.resolveUserid or t.userid)
+        ResolveTurn(m, doc, t, entry, option, 0, heroes, t.userid)
+    elseif after == "resolve" then
+        local option = EncounterMontage.TurnOption(entry, t)
+        if option == nil or (option.roll == nil and option.free == nil) then
+            t.status = "choosing"
+            return
+        end
+        local tier = t.pendingTier
+        if tier == nil then
+            tier = t.tier or 1
+        end
+        ApplyResolution(m, doc, t, entry, option, tier, heroes, t.resolveUserid or t.userid)
     else
         t.status = "choosing"
     end
@@ -3108,7 +3555,8 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         end
         local entry = EncounterMontage.TurnEntry(beat, t)
         local option = entry ~= nil and entry.options[tonumber(req.optionIndex) or 0] or nil
-        if option == nil or (option.roll == nil and (option.delve == nil or t.delve ~= nil)) then
+        if option == nil or (option.roll == nil and option.free == nil and (option.delve == nil or t.delve ~= nil)
+            and EncounterMontage.KnackIndex(t.heroid, option) == nil) then
             return "ignored choose: no such option"
         end
         --option is only found when entry is.
@@ -3140,19 +3588,36 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             end
             return string.format("%s enters %s", t.heroName, delve.name)
         end
-        --an Allow rider the hero does not meet locks the option; the stage
-        --never sends this, but the host is the authority.
+        --an Allow rider the hero does not meet hides the option (a secret
+        --option); the stage never sends this, but the host is the authority.
         local verdict = EncounterMontage.RiderVerdict(t.heroid, option)
         if verdict ~= nil and not verdict.allowed then
             return string.format("ignored choose: %s does not meet '%s'", t.heroName, EncounterMontage.DescribeUnmet(verdict))
         end
+        --the version this hero takes is fixed here, once: a knack they
+        --meet replaces the option's roll (or removes it).
+        local knackIndex = EncounterMontage.KnackIndex(t.heroid, option)
+        local version = EncounterScript.OptionVersion(option, knackIndex)
+        if version.roll == nil and version.free == nil then
+            return "ignored choose: the option has nothing to take"
+        end
         t.optionIndex = tonumber(req.optionIndex)
         t.optionName = option.name
+        t.knackIndex = knackIndex
+        t.knackReason = EncounterMontage.KnackReason(t.heroid, option, knackIndex)
+        local after = "rolling"
+        if version.roll == nil then
+            after = "free"
+        end
         --the option's own lines play before the dice come out.
-        if option.preScene ~= nil and BuildScenePart(m, t, entry, option, "option") > 0 then
+        if version.preScene ~= nil and BuildScenePart(m, t, entry, version, "option") > 0 then
             t.status = "scene"
-            t.sceneAfter = "rolling"
+            t.sceneAfter = after
             return string.format("%s chooses %s", t.heroName, option.name)
+        end
+        if after == "free" then
+            ResolveTurn(m, doc, t, entry, version, 0, heroes, userid)
+            return string.format("%s chooses %s (no roll)", t.heroName, option.name)
         end
         m.seq = (m.seq or 0) + 1
         t.status = "rolling"
@@ -3165,6 +3630,8 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             t.rollSeq = nil
             t.optionIndex = nil
             t.optionName = nil
+            t.knackIndex = nil
+            t.knackReason = nil
             return "roll cancelled"
         end
         return "ignored cancel"
@@ -3174,7 +3641,7 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             return "ignored roll: stale"
         end
         local entry = EncounterMontage.TurnEntry(beat, t)
-        local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
+        local option = EncounterMontage.TurnOption(entry, t)
         if option == nil or option.roll == nil then
             t.status = "choosing"
             return "ignored roll: option vanished"
@@ -3187,22 +3654,104 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         --not already using.
         t.attrid = req.attrid
         t.skillid = req.skillid
-        t.tier = tierIndex
         t.total = req.total
         t.natural = req.natural
-        t.baseTier = tierIndex
         t.baseTotal = req.total
+        tierIndex = ApplyTierFloors(t, option, tierIndex)
+        t.tier = tierIndex
+        t.baseTier = tierIndex
+        if tierIndex == 2 and tonumber(t.baseTotal) ~= nil and tonumber(t.baseTotal) < 12 then
+            t.baseTotal = 12
+        end
+
+        --a failed test: perks that could rescue it are offered first.
+        local offers = PerkOffersFor(m, t, option, heroes)
+        if #offers > 0 then
+            t.offers = offers
+            t.offerOpenedAt = dmhub.serverTime
+            t.status = "perk"
+            return string.format("%s rolled tier %d on %s -- a perk may help", t.heroName, tierIndex, entry.name)
+        end
 
         --below tier 3, a skilled hero may still lend a hand (never in a
         --delve: EligibleAssistants is empty there).
-        if tierIndex < 3 and #EncounterMontage.EligibleAssistants(m, beat, heroes) > 0 then
-            t.status = "assist"
-            t.assistOpenedAt = dmhub.serverTime
-            return string.format("%s rolled tier %d on %s -- assistance is offered", t.heroName, tierIndex, entry.name)
+        return AfterTestLanded(m, doc, t, beat, entry, option, heroes, userid)
+    elseif kind == "perkUse" or kind == "perkPass" then
+        local t = m.turn
+        if t == nil or t.status ~= "perk" then
+            return "ignored perk: not the moment"
         end
-
-        ResolveTurn(m, doc, t, entry, option, tierIndex, heroes, userid)
-        return string.format("%s rolled tier %d on %s", t.heroName, tierIndex, entry.name)
+        local index = tonumber(req.offerIndex) or 0
+        local offer = (t.offers or {})[index]
+        local hero = offer ~= nil and HeroByCharid(heroes, offer.heroid) or nil
+        if offer == nil or hero == nil or not UserControlsHero(userid, hero) then
+            return "ignored perk: not your offer"
+        end
+        local entry = EncounterMontage.TurnEntry(beat, t)
+        local option = EncounterMontage.TurnOption(entry, t)
+        if entry == nil or option == nil or option.roll == nil then
+            t.status = "choosing"
+            return "ignored perk: option vanished"
+        end
+        if kind == "perkPass" then
+            table.remove(t.offers, index)
+            if #t.offers > 0 then
+                return string.format("%s passes on %s", offer.heroName or "A hero", offer.perk)
+            end
+            return AfterTestLanded(m, doc, t, beat, entry, option, heroes, t.userid)
+        end
+        UsePerkOffer(m, doc, t, offer, heroes)
+        local note = string.format("%s uses %s", offer.heroName or "A hero", offer.perk)
+        AfterTestLanded(m, doc, t, beat, entry, option, heroes, t.userid)
+        return note
+    elseif kind == "bless" then
+        --Ritualist: a blessing on the test of the hero at the entry.
+        local t = m.turn
+        if t == nil or t.status ~= "choosing" or t.delve ~= nil then
+            return "ignored bless: not the moment"
+        end
+        local hero = HeroByCharid(heroes, req.heroid)
+        if hero == nil or not UserControlsHero(userid, hero) then
+            return "ignored bless: not your hero"
+        end
+        local key = string.format("ritual:%d:%s", m.round or 1, hero.charid)
+        if not EncounterMontage.HeroHasPerk(hero.charid, "Ritualist") or PerkUsed(m, key) or t.blessing ~= nil then
+            return "ignored bless: no blessing to give"
+        end
+        MarkPerkUsed(m, key)
+        t.blessing = { heroid = hero.charid, heroName = hero.name }
+        return string.format("%s blesses %s (Ritualist)", hero.name, t.heroName or "the hero")
+    elseif kind == "teamLeader" then
+        --Team Leader: at the start of the montage, spend a hero token so
+        --everyone tests with the leader's exploration skills.
+        if m.phase ~= "rounds" or (m.round or 1) ~= 1 or next(m.acted or {}) ~= nil or m.teamLeader ~= nil then
+            return "ignored team leader: not the moment"
+        end
+        local hero = HeroByCharid(heroes, req.heroid)
+        if hero == nil or not UserControlsHero(userid, hero) or not EncounterMontage.HeroHasPerk(hero.charid, "Team Leader") then
+            return "ignored team leader: not your hero"
+        end
+        local tokens = 0
+        pcall(function() tokens = CharacterResource.GetGlobalResource(CharacterResource.heroTokenId) or 0 end)
+        if tokens < 1 then
+            return "ignored team leader: no hero token to spend"
+        end
+        pcall(function()
+            CharacterResource.SetGlobalResource(CharacterResource.heroTokenId, tokens - 1, string.format("%s: Team Leader", hero.name))
+        end)
+        local skills = {}
+        pcall(function()
+            for id, info in pairs(dmhub.GetTable(Skill.tableName) or {}) do
+                local cat = nil
+                pcall(function() cat = info.category end)
+                if string.lower(cat or "") == "exploration" and hero.token.properties:ProficientInSkill(info) then
+                    skills[#skills + 1] = id
+                end
+            end
+        end)
+        m.teamLeader = { heroid = hero.charid, heroName = hero.name, skills = skills }
+        MarkPerkUsed(m, "teamleader:" .. hero.charid)
+        return string.format("%s leads the party (Team Leader)", hero.name)
     elseif kind == "assist" then
         local t = m.turn
         if t == nil or t.status ~= "assist" then
@@ -3285,7 +3834,7 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             return "ignored assist roll: stale"
         end
         local entry = EncounterMontage.TurnEntry(beat, t)
-        local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
+        local option = EncounterMontage.TurnOption(entry, t)
         if option == nil or option.roll == nil then
             t.status = "choosing"
             t.assist = nil
@@ -3298,10 +3847,19 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         a.total = req.total
         a.natural = req.natural
         a.outcome = ASSIST_OUTCOMES[assistTier]
+        --Put Your Back Into It!: a tier 1 assist imposes no bane.
+        if a.outcome == "bane" and EncounterMontage.HeroHasPerk(a.heroid, "Put Your Back Into It!") then
+            a.outcome = "none"
+        end
         a.status = "resolved"
-        --assisting costs the helper their turn this round, whatever it rolled.
+        --assisting costs the helper their turn this round, whatever it
+        --rolled -- unless Teamwork lets them assist AND test in round 1.
         m.acted = m.acted or {}
-        m.acted[a.heroid] = true
+        if EncounterMontage.TeamworkAvailable(m, a.heroid) then
+            MarkPerkUsed(m, "teamwork:" .. a.heroid)
+        else
+            m.acted[a.heroid] = true
+        end
         local tierIndex, newTotal = EncounterMontage.ApplyAssistToTier(a.outcome, t.baseTier, t.baseTotal)
         tierIndex = TierIndexForRoll(option.roll, tierIndex, t.natural)
         t.total = newTotal
@@ -3318,7 +3876,7 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
             return "ignored noassist: not your test"
         end
         local entry = EncounterMontage.TurnEntry(beat, t)
-        local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
+        local option = EncounterMontage.TurnOption(entry, t)
         if option == nil or option.roll == nil then
             t.status = "choosing"
             return "ignored noassist: option vanished"
@@ -3784,10 +4342,27 @@ function EncounterMontage.HostTick(script, beat, beatIndex)
         if age >= ASSIST_WINDOW_SECONDS then
             local t = m.turn
             local entry = EncounterMontage.TurnEntry(beat, t)
-            local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
+            local option = EncounterMontage.TurnOption(entry, t)
             if option ~= nil and option.roll ~= nil then
                 ResolveTurn(m, doc, t, entry, option, t.baseTier or t.tier or 1, heroes, t.userid)
                 printf("EotW montage: no assistance offered for %s; the result stands", tostring(t.heroName))
+            else
+                t.status = "choosing"
+            end
+        end
+    end
+
+    --a perk offer nobody answers closes itself, like the assist window:
+    --the test keeps its result and moves on.
+    if m.turn ~= nil and m.turn.status == "perk" then
+        local t = m.turn
+        local age = dmhub.serverTime - (tonumber(t.offerOpenedAt) or dmhub.serverTime)
+        if age >= PERK_OFFER_SECONDS or #(t.offers or {}) == 0 then
+            local entry = EncounterMontage.TurnEntry(beat, t)
+            local option = EncounterMontage.TurnOption(entry, t)
+            if entry ~= nil and option ~= nil and option.roll ~= nil then
+                AfterTestLanded(m, doc, t, beat, entry, option, heroes, t.userid)
+                printf("EotW montage: no perk used for %s; the result stands", tostring(t.heroName))
             else
                 t.status = "choosing"
             end
@@ -4021,11 +4596,15 @@ local function ApplySkilledModifier(c, modifiers, skills, only)
             for _, skillid in ipairs(skills) do
                 if only == nil or skillid == only then
                     local skillInfo = dmhub.GetTable(Skill.tableName)[skillid]
-                    if skillInfo ~= nil and c:ProficientInSkill(skillInfo) then
+                    local lent = skillInfo ~= nil and not c:ProficientInSkill(skillInfo) and EncounterMontage.TeamLeaderGrants(skillid)
+                    if skillInfo ~= nil and (c:ProficientInSkill(skillInfo) or lent) then
                         found = true
                         usedSkillId = skillid
                         m.modifier = DeepCopy(m.modifier)
                         m.modifier.name = string.format(tr("Skilled in %s"), skillInfo.name)
+                        if lent then
+                            m.modifier.name = string.format("%s (Team Leader)", m.modifier.name)
+                        end
                         m.modifier.description = string.format(tr("Skill in %s gives you +2 on this roll"), skillInfo.name)
                         m.modifier.activationCondition = true
                         m.hint.result = true
@@ -4082,6 +4661,9 @@ local function LaunchRoll(turn, entry, option, heroToken)
     local c = heroToken.properties
     local characteristics, skills = EncounterScript.ParseAttr(option.roll.attr, creature.attributesInfo, Skill.skillsDropdownOptions)
     local title = string.format("%s: %s", option.roll.name, option.roll.attr)
+    --Power Player: Might may stand in for any characteristic on a Brag,
+    --Flirt or Intimidate test (EncounterMontage.PerkCharacteristics).
+    characteristics = EncounterMontage.PerkCharacteristics(c, heroToken.charid, characteristics, skills)
 
     local attrid, bestModifier = BestCharacteristic(c, characteristics)
     if attrid == nil then
@@ -4092,10 +4674,15 @@ local function LaunchRoll(turn, entry, option, heroToken)
     local roll = string.format("2d10 + %d", bestModifier)
     local modifiers = {}
     if attrid ~= nil then
-        modifiers = c:GetModifiersForPowerRoll(roll, rollType, { attribute = attrid, title = title })
+        --the test's skills go in the query, so a feature that grants an edge
+        --on, say, Sneak tests (Wode Elf Glamor) turns on for a test that
+        --lists Sneak, exactly as on a skill test from the character sheet.
+        modifiers = c:GetModifiersForPowerRoll(roll, rollType, { attribute = attrid, title = title, skills = skills })
     end
     local usedSkillId = ApplySkilledModifier(c, modifiers, skills)
-    AppendRiderModifiers(modifiers, EncounterMontage.RiderVerdict(heroToken.charid, option), rollType)
+    local base = EncounterMontage.TurnBaseOption(entry, turn)
+    AppendRiderModifiers(modifiers, EncounterMontage.RiderVerdict(heroToken.charid, base or option, option), rollType)
+    EncounterMontage.AppendPerkModifiers(modifiers, c, heroToken.charid, turn, option, skills, attrid)
 
     ShowMontageRoll {
         creature = c,
@@ -4141,7 +4728,7 @@ local function LaunchAssistRoll(turn, entry, option, assistToken)
     local roll = string.format("2d10 + %d", modifier)
     local modifiers = {}
     if attrid ~= nil then
-        modifiers = c:GetModifiersForPowerRoll(roll, rollType, { attribute = attrid, title = title })
+        modifiers = c:GetModifiersForPowerRoll(roll, rollType, { attribute = attrid, title = title, skills = { a.skillid } })
     end
     --the helper assists WITH a skill, so the chip is never in doubt.
     ApplySkilledModifier(c, modifiers, { a.skillid }, a.skillid)
@@ -4224,7 +4811,7 @@ function EncounterMontage.ClientTick()
         return
     end
     local entry = EncounterMontage.TurnEntry(beat, t)
-    local option = entry ~= nil and entry.options[t.optionIndex or 0] or nil
+    local option = EncounterMontage.TurnOption(entry, t)
     if option == nil or option.roll == nil then
         return
     end
@@ -4340,6 +4927,15 @@ function EncounterMontage.ResetTest()
             toDelete[#toDelete + 1] = charid
         end
     end
+    --and every reinforcement that arrived.
+    local reinforcements = rawget(_G, "EncounterReinforcements")
+    if reinforcements ~= nil then
+        pcall(function()
+            for _, charid in ipairs(reinforcements.SpawnedTokens(doc)) do
+                toDelete[#toDelete + 1] = charid
+            end
+        end)
+    end
 
     ElevateToHostPermissions()
     local ok, err = pcall(function()
@@ -4402,6 +4998,7 @@ function EncounterMontage.ResetTest()
     doc.data.noSurprise = nil
     doc.data.surprised = nil
     doc.data.zoneSetup = nil
+    doc.data.reinforcements = nil
     doc.data.revealZones = nil
     doc.data.zonesRevealed = nil
     doc.data.startZones = nil

@@ -2908,10 +2908,17 @@ end)
 --are NOT applied: there is no creature standing on the square to test.
 --------------------------------------------------------------------------------
 
---True if the aura instance's vertical band covers a creature standing at
---refAltitude. nil height means unlimited height (the engine skips the
---vertical test entirely in that case too).
-local function AuraBandCoversAltitude(auraInstance, refAltitude)
+--True if the aura instance's vertical band overlaps the vertical span
+--[spanBottom, spanTop] (inclusive). groundAltitude is the ground a
+--ground-relative band is measured from. Mirrors the engine's
+--Aura.ApplyToIgnoringCreatureFilter overlap test. nil height means unlimited
+--height (the engine skips the vertical test entirely in that case too).
+--- @param auraInstance any
+--- @param groundAltitude number
+--- @param spanBottom number
+--- @param spanTop number
+--- @return boolean
+local function AuraBandOverlapsSpan(auraInstance, groundAltitude, spanBottom, spanTop)
 	local height = auraInstance:GetHeight()
 	if height == nil then
 		return true
@@ -2927,10 +2934,10 @@ local function AuraBandCoversAltitude(auraInstance, refAltitude)
 	local groundRelative = false
 	pcall(function() groundRelative = auraInstance:GetGroundRelative() == true end)
 	if groundRelative then
-		base = refAltitude + base
+		base = groundAltitude + base
 	end
 
-	return refAltitude >= base and refAltitude <= base + height
+	return spanBottom <= base + height and spanTop >= base
 end
 
 --Aura.LocOnlyAdjacent is a newer engine method (includeAdjacent auras); on an
@@ -2954,9 +2961,17 @@ end
 
 EnvironmentalKeyword.AuraLocOnlyAdjacent = AuraLocOnlyAdjacent
 
---Returns the (Lua) AuraInstances covering a single square, band-tested at the
---square's ground altitude. engineLoc is an engine Loc userdata.
-local function AuraInstancesCoveringSquare(engineLoc)
+--Returns the (Lua) AuraInstances covering a single square. engineLoc is an
+--engine Loc userdata. By default each aura is band-tested at the square's
+--ground altitude (what a size-1 creature standing there would occupy; used by
+--square targeting). Pass span to test a creature's actual vertical extent
+--instead: span.bottom/span.top (inclusive altitudes) and optionally
+--span.ground, the ground a ground-relative band is measured from (defaults to
+--the square's own ground).
+--- @param engineLoc Loc
+--- @param span? {bottom: number, top: number, ground?: number}
+--- @return table[]
+local function AuraInstancesCoveringSquare(engineLoc, span)
 	local result = {}
 
 	--normalize the query the way the engine does for tokens: the aura index
@@ -2968,6 +2983,12 @@ local function AuraInstancesCoveringSquare(engineLoc)
 	end
 
 	local refAltitude = engineLoc.withGroundAltitude.altitude
+	local groundAltitude, spanBottom, spanTop = refAltitude, refAltitude, refAltitude
+	if span ~= nil then
+		groundAltitude = span.ground or refAltitude
+		spanBottom = span.bottom
+		spanTop = span.top
+	end
 
 	for _,aura in ipairs(auras) do
 		local instance = aura.auraInstance
@@ -2976,7 +2997,7 @@ local function AuraInstancesCoveringSquare(engineLoc)
 		if instance ~= nil and not AuraLocOnlyAdjacent(aura, queryLoc) then
 			--tolerate aura instances that do not implement the AuraInstance
 			--interface: skip them rather than erroring the whole filter.
-			local ok, covers = pcall(AuraBandCoversAltitude, instance, refAltitude)
+			local ok, covers = pcall(AuraBandOverlapsSpan, instance, groundAltitude, spanBottom, spanTop)
 			if ok and covers then
 				result[#result+1] = instance
 			end
@@ -3072,7 +3093,9 @@ EnvironmentalKeyword.AuraInstancesCoveringSquare = AuraInstancesCoveringSquare
 
 --- Returns the keyword ids (environmentalKeywords keys) of the map zones
 --- covering any square the token occupies or any square 8-adjacent to one, as a
---- set {keywordid = true}. Squares are band-tested at their ground altitude.
+--- set {keywordid = true}. A zone only counts when its vertical band overlaps
+--- the token's own vertical extent, so a creature flying above a ground-only
+--- zone is not at or next to it (zones with unlimited height still count).
 --- @param token CharacterToken
 --- @return table<string, boolean>
 function EnvironmentalKeyword.KeywordIdsAtOrAdjacentToToken(token)
@@ -3081,15 +3104,44 @@ function EnvironmentalKeyword.KeywordIdsAtOrAdjacentToToken(token)
 		return result
 	end
 
+	local tokenLoc = token.loc
+	if tokenLoc == nil then
+		return result
+	end
+
+	--The token's vertical extent, as the engine's Aura.ApplyTo reads it
+	--(altitudeBottom .. altitudeTop).
+	local tokenBottom = tokenLoc.altitude
+	local tokenTop = tokenBottom + (token.tileSize or 1) - 1
+
+	--Squares the token stands on measure a ground-relative band from the
+	--HIGHEST ground under the token (engine Aura.BandBaseForToken), so a
+	--creature straddling a ledge counts as on the ledge. Neighbouring squares
+	--measure from their own ground, where the zone actually lies.
+	local occupiedKeys = {}
+	local tokenGround = nil
+	local locsOccupying = token.locsOccupying or {}
+	for _,occupied in ipairs(locsOccupying) do
+		occupiedKeys[string.format("%d,%d,%d", occupied.x, occupied.y, occupied.floor or 0)] = true
+		local ground = occupied.withGroundAltitude.altitude
+		if tokenGround == nil or ground > tokenGround then
+			tokenGround = ground
+		end
+	end
+
 	local seenSquares = {}
-	for _,occupied in ipairs(token.locsOccupying or {}) do
+	for _,occupied in ipairs(locsOccupying) do
 		for dy = -1,1 do
 			for dx = -1,1 do
 				local loc = occupied:dir(dx, dy)
 				local key = string.format("%d,%d,%d", loc.x, loc.y, loc.floor or 0)
 				if seenSquares[key] == nil then
 					seenSquares[key] = true
-					for _,instance in ipairs(AuraInstancesCoveringSquare(loc)) do
+					local span = { bottom = tokenBottom, top = tokenTop }
+					if occupiedKeys[key] then
+						span.ground = tokenGround
+					end
+					for _,instance in ipairs(AuraInstancesCoveringSquare(loc, span)) do
 						local auraDef = instance:try_get("aura")
 						local keywordid = auraDef ~= nil and auraDef:try_get("environmentalKeywordId") or nil
 						if keywordid ~= nil then

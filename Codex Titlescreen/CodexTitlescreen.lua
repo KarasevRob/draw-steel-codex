@@ -7131,6 +7131,10 @@ function CreateTitlescreen(dialog, options)
 
     local m_currentSearch = nil
 
+    --the campaigns page the list was on when a search began, restored when
+    --the search is cleared (a search always shows its own first page).
+    local m_pageBeforeSearch = nil
+
     local m_states = { "starting-screen", "selection-screen", "games-screen" }
     local function SetTitlescreenState(state)
         for _, s in ipairs(m_states) do
@@ -7142,7 +7146,11 @@ function CreateTitlescreen(dialog, options)
         --its real 3D resting die on this).
         titlescreen:FireEventTree("titlescreenStateChanged", state)
 
+        if m_currentSearch ~= nil and m_pageBeforeSearch ~= nil then
+            g_gamePageSetting:Set(m_pageBeforeSearch)
+        end
         m_currentSearch = nil
+        m_pageBeforeSearch = nil
 
         --first arrival at the Director/Player cards is where we make the
         --Patreon/email offer, if there is anything left to offer.
@@ -7166,10 +7174,24 @@ function CreateTitlescreen(dialog, options)
         titlescreen.data.searchHandler = nil
         if state == "games-screen" then
             titlescreen.data.searchHandler = TopBar.InstallSearchHandler(function(text)
-                m_currentSearch = text
-                if m_currentSearch == "" then
-                    m_currentSearch = nil
+                local search = text
+                if search == "" then
+                    search = nil
                 end
+                if search ~= m_currentSearch then
+                    --the page setting persists, so without this a search
+                    --opened on whatever page the full list was last left on.
+                    if m_currentSearch == nil then
+                        m_pageBeforeSearch = g_gamePageSetting:Get()
+                    end
+                    if search == nil then
+                        g_gamePageSetting:Set(m_pageBeforeSearch or 1)
+                        m_pageBeforeSearch = nil
+                    else
+                        g_gamePageSetting:Set(1)
+                    end
+                end
+                m_currentSearch = search
                 titlescreen:FireEventTree("refreshLobby")
             end)
         else
@@ -7186,9 +7208,14 @@ function CreateTitlescreen(dialog, options)
         return math.ceil(#m_games / 4)
     end
 
+    --the stored page clamped to the pages that exist now: the setting
+    --persists and can be past the end of a shorter (e.g. filtered) list.
+    local function CurrentPage()
+        return clamp(round(g_gamePageSetting:Get()), 1, math.max(1, GetNumPages()))
+    end
+
     local function PageBaseIndex()
-        local npage = clamp(round(g_gamePageSetting:Get()), 1, GetNumPages())
-        return (npage - 1) * 4
+        return (CurrentPage() - 1) * 4
     end
 
     local RefreshAllPanels
@@ -9191,7 +9218,7 @@ function CreateTitlescreen(dialog, options)
                                 element:SetClass("hidden", npage <= 1)
                             end,
                             press = function(element)
-                                g_gamePageSetting:Set(g_gamePageSetting:Get() - 1)
+                                g_gamePageSetting:Set(CurrentPage() - 1)
                                 element.root:FireEventTree("refreshGames", m_games, PageBaseIndex())
                             end,
                         },
@@ -9222,7 +9249,7 @@ function CreateTitlescreen(dialog, options)
                                 element:SetClass("hidden", npage >= numPages)
                             end,
                             press = function(element)
-                                g_gamePageSetting:Set(g_gamePageSetting:Get() + 1)
+                                g_gamePageSetting:Set(CurrentPage() + 1)
                                 element.root:FireEventTree("refreshGames", m_games, PageBaseIndex())
                             end,
                         },

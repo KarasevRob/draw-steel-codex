@@ -521,6 +521,20 @@ function CharacterOngoingEffect.CreateEditor(condid, editorOptions)
             }
 
             children[#children+1] = gui.Check{
+                classes = {cond(ongoingEffect.casterTracking == "bond", nil, "collapseAnim")},
+                text = "A Save Ends It For All Bonded",
+                halign = "left",
+                value = ongoingEffect:try_get("bondSaveEndsAll", false),
+                refreshCasterTracking = function(element)
+                    element:SetClass("collapseAnim", ongoingEffect.casterTracking ~= "bond")
+                end,
+                change = function(element)
+                    ongoingEffect.bondSaveEndsAll = element.value
+                    UploadOngoingEffect()
+                end,
+            }
+
+            children[#children+1] = gui.Check{
                 text = "Stackable",
                 halign = "left",
                 value = ongoingEffect.stackable,

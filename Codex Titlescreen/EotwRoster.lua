@@ -1052,7 +1052,19 @@ end
 
 --- the Hero's Guild ---------------------------------------------------------
 
---The name prompt for a recruit: prefilled with the pregen's own name.
+--A fresh name for a recruit from its ancestry's name generator, or the
+--pregen's own name when the ancestry has none.
+local function RecruitName(pregen)
+    local tok = EncounterOfTheWeek.GetPregenToken(pregen.id)
+    local name = nil
+    if tok ~= nil then
+        name = EotwBuild.GenerateName(tok.properties --[[@as character]])
+    end
+    return name or pregen.name or ""
+end
+
+--The name prompt for a recruit: prefilled with a name rolled from its
+--ancestry's name table.
 local function ShowRecruitNamePrompt(host, pregen, onDone)
     local nameInput = nil
     local dlg
@@ -1098,7 +1110,7 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
                 placeholderText = "Hero name...",
                 create = function(element)
                     nameInput = element
-                    element.text = pregen.name or ""
+                    element.text = RecruitName(pregen)
                     element.hasInputFocus = true
                 end,
                 submit = function(element)

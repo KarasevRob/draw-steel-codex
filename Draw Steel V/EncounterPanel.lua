@@ -629,11 +629,14 @@ local function StageGroupAtSavedLocations(encounter, groupIndex, group, numHeroe
         for i = 1, quantity do
             local entry = TakeBankedPosition(queues, legacy, monsterid)
             local loc = entry ~= nil and entry.loc or nil
+            --grid locs have no altitude: the engine stands them on the ground.
+            local onGround = false
             if loc ~= nil then
                 if not loc.isValidFloor then
                     loc = loc.withCurrentFloor
                 end
             else
+                onGround = true
                 --Same 5-wide grid SpawnGroupForReal uses for unbanked monsters.
                 --Skipping instead (as this did) silently lost the monster: the
                 --user got a captain and seven of their eight minions, with no
@@ -644,7 +647,7 @@ local function StageGroupAtSavedLocations(encounter, groupIndex, group, numHeroe
                 fallbackIndex = fallbackIndex + 1
             end
 
-            local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true })
+            local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true, onGround = onGround })
             if token ~= nil then
                 token.properties.encounterPlacementId = placementid
                 token.properties.encounterSpawnSlot = slot
@@ -3841,6 +3844,10 @@ function Encounter.SpawnGroupForReal(group, numHeroes, fallbackAnchor)
         for i = 1, quantity do
             local entry = TakeBankedPosition(queues, legacy, monsterid)
             local loc = entry ~= nil and entry.loc or nil
+            --a grid loc has no altitude of its own: the engine stands it on
+            --the ground (down into a pit as well as up a cliff). A banked
+            --position keeps its saved height.
+            local onGround = false
             if loc ~= nil then
                 if not loc.isValidFloor then
                     loc = loc.withCurrentFloor
@@ -3850,9 +3857,10 @@ function Encounter.SpawnGroupForReal(group, numHeroes, fallbackAnchor)
                 local row = math.floor(fallbackIndex / 5)
                 loc = core.Loc { x = baseX + col, y = baseY + row, floorIndex = floorIndex }
                 fallbackIndex = fallbackIndex + 1
+                onGround = true
             end
 
-            local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true })
+            local token = game.SpawnTokenFromBestiaryLocally(monsterid, loc, { fitLocation = true, onGround = onGround })
             if token ~= nil then
                 token.properties.initiativeGrouping = groupid
                 token.properties:OnCreateFromBestiary(token, groupid)

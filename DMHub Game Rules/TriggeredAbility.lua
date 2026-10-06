@@ -1567,53 +1567,83 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 
             local activateText = nil
             local activateRules = nil
+            local activateModeIndex = 1
             local modes = nil
             if self.multipleModes then
                 local modeList = self:try_get("modeList", {})
-                --Mode 1 is carried separately from the modes list: it is the
-                --trigger's own card in the trigger panel, and the panel shows
-                --its name and rules there when other modes are present.
-                if modeList[1] ~= nil then
-                    activateText = modeList[1].text
-                    activateRules = StringInterpolateGoblinScript(modeList[1].rules or "", casterSymbols)
-                end
-                for i=2,#modeList do
-                    local modeEntry = modeList[i]
-                    local passes = true
+
+                local function ModePasses(modeEntry)
                     local formula = modeEntry.condition or ""
-                    if formula ~= "" then
-                        local condition = ExecuteGoblinScript(formula, creature:LookupSymbol(symbols), 0, "Trigger condition")
-                        if tonumber(condition) == 0 then
-                            passes = false
-                        end
+                    if formula == "" then
+                        return true
+                    end
+                    local condition = ExecuteGoblinScript(formula, creature:LookupSymbol(symbols), 0, "Trigger condition")
+                    return tonumber(condition) ~= 0
+                end
+
+                --A failed condition hides the mode, as it always has, unless
+                --the author gave it a Condition Reason: then it is offered
+                --anyway, greyed out and annotated with that reason, and the
+                --player may override it.
+                --modeIndex is what selects the behaviors to run. Hidden modes
+                --leave holes in this list, so an option's position in it is not
+                --its position in modeList -- the index has to be carried rather
+                --than inferred, or every mode after a hidden one runs the wrong
+                --modeList entry's behaviors.
+                local function ModeOption(i, passes)
+                    local modeEntry = modeList[i]
+                    local reason = trim(modeEntry.conditionReason or "")
+                    if (not passes) and reason == "" then
+                        return nil
                     end
 
-                    --A failed condition hides the mode, as it always has, unless
-                    --the author gave it a Condition Reason: then it is offered
-                    --anyway, greyed out and annotated with that reason, and the
-                    --player may override it.
-                    local reason = trim(modeEntry.conditionReason or "")
+                    local entry = {
+                        text = modeEntry.text,
+                        rules = StringInterpolateGoblinScript(modeEntry.rules or "", casterSymbols),
+                        modeIndex = i,
+                    }
 
-                    if passes or reason ~= "" then
-                        --modeIndex is what selects the behaviors to run.
-                        --Hidden modes leave holes in this list, so an option's
-                        --position in it is not its position in modeList -- the
-                        --index has to be carried rather than inferred, or every
-                        --mode after a hidden one runs the wrong modeList
-                        --entry's behaviors.
-                        local entry = {
-                            text = modeEntry.text,
-                            rules = StringInterpolateGoblinScript(modeEntry.rules, casterSymbols),
-                            modeIndex = i,
-                        }
+                    if not passes then
+                        entry.unavailable = true
+                        entry.conditionReason = StringInterpolateGoblinScript(reason, casterSymbols)
+                    end
 
-                        if not passes then
-                            entry.unavailable = true
-                            entry.conditionReason = StringInterpolateGoblinScript(reason, casterSymbols)
+                    return entry
+                end
+
+                local passList = {}
+                for i=1,#modeList do
+                    passList[i] = ModePasses(modeList[i])
+                end
+
+                --The trigger's own card (the "activate" slot) is normally mode 1,
+                --carried separately from the modes list. If mode 1's condition
+                --fails, the first mode that passes takes the card instead (e.g.
+                --Mark's extra damage once the marked creature is dead). If none
+                --passes, mode 1 keeps the card as before.
+                if modeList[1] ~= nil and not passList[1] then
+                    for i=2,#modeList do
+                        if passList[i] then
+                            activateModeIndex = i
+                            break
                         end
+                    end
+                end
 
-                        modes = modes or {}
-                        modes[#modes+1] = entry
+                if modeList[activateModeIndex] ~= nil then
+                    activateText = modeList[activateModeIndex].text
+                    activateRules = StringInterpolateGoblinScript(modeList[activateModeIndex].rules or "", casterSymbols)
+                end
+
+                for i=1,#modeList do
+                    --a mode 1 that lost the card to its failed condition joins the
+                    --list like any other failed mode: greyed out if it has a reason.
+                    if i ~= activateModeIndex then
+                        local entry = ModeOption(i, passList[i])
+                        if entry ~= nil then
+                            modes = modes or {}
+                            modes[#modes+1] = entry
+                        end
                     end
                 end
             end
@@ -1641,6 +1671,7 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 				id = guid,
                 activateText = activateText,
                 activateRules = activateRules,
+                activateModeIndex = activateModeIndex,
 				text = text,
 				rules = StringInterpolateGoblinScript(self:try_get("triggerPrompt"), casterSymbols),
                 targets = targetids,

@@ -278,6 +278,10 @@ function EncounterZones.RunEncounterSetup(beat)
                     --nothing to place: GatherCombatSides reads these when
                     --combat starts.
                     setup.entries[#setup.entries + 1] = { label = instruction.label, kind = "bystanders", text = instruction.text }
+                elseif instruction.kind == "victory" then
+                    --nothing to set up: the host's outcome check reads it
+                    --(EncounterReinforcements.ClearMapVictory).
+                    setup.entries[#setup.entries + 1] = { label = instruction.label, kind = "victory", text = instruction.text }
                 else
                     setup.entries[#setup.entries + 1] = { label = instruction.label, kind = "unknown", text = instruction.text, error = "unrecognized instruction" }
                     printf("EotW zones: setup '%s' is not understood: %s", tostring(instruction.label), tostring(instruction.text))

@@ -489,6 +489,8 @@ local function BuildSurfaceAuraInstance(entry)
         iconid = "ui-icons/skills/1.png",
         display = { bgcolor = entry.patternColor, hueshift = 0, saturation = 1, brightness = 1 },
         area = shape,
+        --only changes footstep sounds: a chip/icon for it would be clutter.
+        hideFromAuraLists = true,
     }
 end
 

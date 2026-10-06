@@ -3118,8 +3118,10 @@ function CustomDocument:CreateInterface(args)
         --includes everything from this one.
         resultPanel.data.pendingOriginal = DeepCopy(self)
 
-        --a new attempt supersedes any previously displayed save error.
-        resultPanel:SetClassTree("saveError", false)
+        --drives the editor's "Saving..." status. A save error already showing stays
+        --up until a save is actually confirmed (refreshGame): clearing it on every
+        --retry hid it for most of a session whose saves kept failing.
+        resultPanel:SetClassTree("savePending", true)
 
         if writePanel ~= nil and writePanel.valid then
             writePanel:FireEventTree("checkChanges", resultPanel.data.pendingOriginal)
@@ -3241,6 +3243,10 @@ function CustomDocument:CreateInterface(args)
                     resultPanel.data.originalUpdateId = self.updateid
                     resultPanel.data.pendingOriginal = nil
                     resultPanel.data.pendingUpload = nil
+                    --fresh baseline, nothing in flight: the save status starts clean
+                    --(a save left in flight by the last session is never confirmed here).
+                    resultPanel:SetClassTree("savePending", false)
+                    resultPanel:SetClassTree("saveError", false)
                 end
                 GetOrCreateWritePanel()
                 ---@cast writePanel -nil
@@ -4107,6 +4113,7 @@ function CustomDocument:CreateInterface(args)
                     resultPanel.data.saveConfirmed = true
                     --a confirmation (even a late one, after the connection recovered)
                     --clears any save error we may have surfaced in the meantime.
+                    resultPanel:SetClassTree("savePending", false)
                     resultPanel:SetClassTree("saveError", false)
                     element:FireEventTree("saveConfirmed")
                 end
@@ -4157,9 +4164,7 @@ function CustomDocument:CreateInterface(args)
             if resultPanel.data.firstEditTime ~= nil and IsEditing() then
                 local now = dmhub.Time()
                 if (now - resultPanel.data.editTime) >= AUTOSAVE_IDLE_DELAY or (now - resultPanel.data.firstEditTime) >= AUTOSAVE_MAX_DELAY then
-                    if BeginSaveAttempt(false) then
-                        resultPanel:SetClassTree("savePending", true)
-                    else
+                    if not BeginSaveAttempt(false) then
                         resultPanel.data.firstEditTime = nil
                         resultPanel.data.editTime = nil
                     end

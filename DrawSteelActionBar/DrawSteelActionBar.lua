@@ -1561,6 +1561,31 @@ function DrawSteelActionBar._aim.Commit(casterToken, targets)
     aim.token = nil
 end
 
+--Teleport destination check that respects altitude. The engine's requireEmpty
+--treats a creature as filling its whole column, which forbade teleporting into
+--the air above another creature. Here a space is blocked only when another
+--creature's vertical span (altitude up to altitude + height) overlaps the
+--mover's span at the chosen landing altitude.
+--- @param mover CharacterToken The creature being teleported (never blocks itself).
+--- @param locs Loc[] The squares the mover would occupy.
+--- @param altitude number The chosen landing altitude, in tiles.
+--- @return boolean
+function DrawSteelActionBar.TeleportSpaceBlocked(mover, locs, altitude)
+    local moverTop = altitude + math.max(1, mover.characterHeight)
+    for _, loc in ipairs(locs) do
+        for _, tok in ipairs(dmhub.GetTokensAtLoc(loc) or {}) do
+            if tok.charid ~= mover.charid then
+                local bottom = tok.loc.altitude
+                local top = bottom + math.max(1, tok.characterHeight)
+                if altitude < top and bottom < moverTop then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 --Polled by the bar's container, since nothing refreshes the bar when a token
 --merely moves. Ends operating once the operator can no longer operate the
 --object, and keeps "Operating X [Stop]" in the cast prompt whenever no cast
@@ -8945,21 +8970,18 @@ local function EffectiveArrowRange(sourceToken, targetToken, range, ability)
     return effective
 end
 
--- originToken is where the ability actually reaches from -- the caster, or a
--- casting-origin relay standing in for it. Everything geometric (line of sight,
--- line of effect, range) measures from there; the modifier list still comes off
--- sourceToken, since edges and banes belong to the caster either way.
-local function AddModifierLabelsToMarker(markers, sourceToken, targetToken, ability, range, originToken)
-    if markers == nil or ability == nil or sourceToken == nil or targetToken == nil then
-        return
-    end
-
+-- Why targetToken is outside line of effect, or nil when the ability can reach
+-- it. originToken is where the ability reaches from (the caster, or a
+-- casting-origin relay); sourceToken is the caster. The arrow label and the
+-- strict-targeting click block both read this, so a target whose arrow says
+-- "No Line of Effect" is exactly one a player can't pick. A table field rather
+-- than a local: this file's main chunk is at Lua's 200-local limit.
+function DrawSteelActionBar.LineOfEffectFailReason(sourceToken, targetToken, originToken)
     originToken = originToken or sourceToken
 
     local pierceWalls = originToken.properties:GetPierceWalls()
     if originToken:GetLineOfSight(targetToken, pierceWalls) == 0 then
-        markers:AddLabel("No Line of Effect", "forbidden")
-        return
+        return "No Line of Effect"
     end
 
     -- Per-creature line-of-effect cap (e.g. the Dazzled condition's "line of
@@ -8976,9 +8998,28 @@ local function AddModifierLabelsToMarker(markers, sourceToken, targetToken, abil
         local distSquares = originToken:Distance(targetToken) / dmhub.unitsPerSquare
         if (sourceLoeLimit > 0 and distSquares > sourceLoeLimit) or
            (targetLoeLimit > 0 and distSquares > targetLoeLimit) then
-            markers:AddLabel("Beyond Line of Effect", "forbidden")
-            return
+            return "Beyond Line of Effect"
         end
+    end
+
+    return nil
+end
+
+-- originToken is where the ability actually reaches from -- the caster, or a
+-- casting-origin relay standing in for it. Everything geometric (line of sight,
+-- line of effect, range) measures from there; the modifier list still comes off
+-- sourceToken, since edges and banes belong to the caster either way.
+local function AddModifierLabelsToMarker(markers, sourceToken, targetToken, ability, range, originToken)
+    if markers == nil or ability == nil or sourceToken == nil or targetToken == nil then
+        return
+    end
+
+    originToken = originToken or sourceToken
+
+    local loeFailReason = DrawSteelActionBar.LineOfEffectFailReason(sourceToken, targetToken, originToken)
+    if loeFailReason ~= nil then
+        markers:AddLabel(loeFailReason, "forbidden")
+        return
     end
 
     -- Match the validity check in CalculateSpellTargetFocusing: failReason
@@ -12276,6 +12317,8 @@ CreateAbilityController = function()
                 local radius = g_currentAbility:GetRadius(g_token.properties, g_currentSymbols)
                 local shape = g_currentAbility.targetType
                 local requireEmpty = false
+                --set for teleport targeting: the landing altitude occupancy is checked at
+                local teleportAltitude = nil
 
                 local locOverride = g_currentAbility:try_get("casterLocOverride")
 
@@ -13052,6 +13095,14 @@ CreateAbilityController = function()
                         requireEmpty = false
                     end
 
+                    --Teleport with the altitude controller: the space may be above
+                    --another creature, so check occupancy at the chosen altitude
+                    --after the shape is built instead of the engine's per-column test.
+                    if requireEmpty and targetingType == "direct" and m_allowedAltitudeCalculator ~= nil and loc ~= nil then
+                        teleportAltitude = loc.altitude
+                        requireEmpty = false
+                    end
+
                     if (shape == "emptyspace" or shape == "anyspace") then
                         radius = g_token.creatureDimensions.x * dmhub.unitsPerSquare * 0.5
                         if g_token.creatureDimensions.x % 2 == 1 then
@@ -13171,6 +13222,12 @@ CreateAbilityController = function()
                     targetFloorIndex = targetFloorIndex,
                     altitude = shapeAltitude,
                 }
+
+                --a nil shape is how an unusable space reads to the click handler.
+                if teleportAltitude ~= nil and g_pointTargeting.shape ~= nil
+                    and DrawSteelActionBar.TeleportSpaceBlocked(g_token, g_pointTargeting.shape.locations, teleportAltitude) then
+                    g_pointTargeting.shape = nil
+                end
 
                 -- Partner burst: if the ability declares partnerBurst (a GoblinScript
                 -- condition formula that evaluates true) and we're doing a
@@ -14181,6 +14238,17 @@ local function CalculateSpellTargetFocusing(symbols)
                         end
                     end
 
+                    --Line of effect: a single-target ability can't reach a creature
+                    --behind a wall, so under strict targeting a player can't pick it.
+                    --Area abilities already drop such targets in TargetPassesFilter.
+                    --Squad strikes draw from each minion (any one may reach), and an
+                    --aura's casterLocOverride cast has no caster token to measure from.
+                    if failReason == nil and spell.targetType == "target" and casterLocOverride == nil
+                        and targetToken.charid ~= g_token.charid and not SquadStrikeActive() then
+                        failReason = DrawSteelActionBar.LineOfEffectFailReason(g_token, targetToken,
+                            ResolveArrowOrigin(g_currentAbility, g_token, targetToken))
+                    end
+
                     local valid = failReason == nil
 
                     if targetToken.valid and targetToken.sheet ~= nil then
@@ -14209,9 +14277,10 @@ local function CalculateSpellTargetFocusing(symbols)
                         --record validity so click handlers can reject invalid
                         --targets when strict-targeting is enforced for players.
                         targetToken.sheet.data.targetValid = valid
-                        --out-of-range is shown as an arrow label instead of a token tooltip.
+                        --out-of-range and line of effect are shown as arrow labels instead of a token tooltip.
                         local tooltipReason = failReason
-                        if tooltipReason ~= nil and string.starts_with(tooltipReason, "Out of range") then
+                        if tooltipReason ~= nil and (string.starts_with(tooltipReason, "Out of range")
+                            or string.find(tooltipReason, "Line of Effect", 1, true) ~= nil) then
                             tooltipReason = nil
                         end
                         targetToken.sheet:FireEvent('target', { valid = valid, classes = classes, reason = tooltipReason })

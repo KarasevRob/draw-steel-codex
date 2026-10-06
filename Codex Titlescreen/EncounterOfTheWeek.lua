@@ -1189,8 +1189,8 @@ local function CreateLoadingVeil(root)
             --to render, since that is what makes its textures stream, and
             --a live panel takes clicks whatever its opacity. So cap it
             --with a transparent blocker -- added last, so it sits above
-            --everything in the screen including the floating close button
-            --(which lands under the titlescreen link that opened us). The
+            --everything in the screen, including the back button (which
+            --lands under the titlescreen link that opened us). The
             --reveal drops it; the self-destruct is the safety net for a
             --reveal that never comes.
             element.data.blocker = gui.Panel{
@@ -4157,7 +4157,7 @@ CreateScreen = function(args)
     ---- locations: full-screen scenes over the map ----
 
     --The card holding a location's controls sits on the right, clear of the
-    --close button above it and the creator credit + chat button below it.
+    --creator credit + chat button below it.
     local SCENE_CARD_TOP = 76
     local SCENE_CARD_BOTTOM = 104
     local SCENE_CARD_MARGIN = 40
@@ -4199,6 +4199,48 @@ CreateScreen = function(args)
         },
     }
 
+    --A gold-edged "<- text" pill: the way back out of a scene, and out of
+    --the town itself. Carries sceneStyles' eotwSceneBack rules, so it can
+    --sit outside a scene panel.
+    local BackButton = function(text, press)
+        return gui.Panel{
+            classes = { "eotwSceneBack" },
+            styles = sceneStyles,
+            width = "auto",
+            height = 40,
+            hpad = 16,
+            borderBox = true,
+            flow = "horizontal",
+            hoverCursor = "pressbutton",
+            hover = function(element)
+                audio.FireSoundEvent("Mouse.Hover")
+            end,
+            press = function(element)
+                audio.FireSoundEvent("Mouse.Click")
+                press(element)
+            end,
+            gui.Panel{
+                classes = { "eotwSceneBackIcon" },
+                interactable = false,
+                bgimage = "phosphor/arrow-left-bold.png",
+                width = 18,
+                height = 18,
+                valign = "center",
+                rmargin = 10,
+            },
+            gui.Label{
+                interactable = false,
+                text = text,
+                fontSize = 17,
+                bold = true,
+                color = "#f6ead0",
+                width = "auto",
+                height = "auto",
+                valign = "center",
+            },
+        }
+    end
+
     --The top-left of a scene: the way back to the map, then the place's
     --name over a gold rule and a line about it.
     local SceneHeader = function(scene)
@@ -4212,41 +4254,9 @@ CreateScreen = function(args)
             height = "auto",
             flow = "vertical",
 
-            gui.Panel{
-                classes = { "eotwSceneBack" },
-                width = "auto",
-                height = 40,
-                hpad = 16,
-                borderBox = true,
-                flow = "horizontal",
-                hoverCursor = "pressbutton",
-                hover = function(element)
-                    audio.FireSoundEvent("Mouse.Hover")
-                end,
-                press = function(element)
-                    audio.FireSoundEvent("Mouse.Click")
-                    CloseLocation()
-                end,
-                gui.Panel{
-                    classes = { "eotwSceneBackIcon" },
-                    interactable = false,
-                    bgimage = "phosphor/arrow-left-bold.png",
-                    width = 18,
-                    height = 18,
-                    valign = "center",
-                    rmargin = 10,
-                },
-                gui.Label{
-                    interactable = false,
-                    text = "Back to Town",
-                    fontSize = 17,
-                    bold = true,
-                    color = "#f6ead0",
-                    width = "auto",
-                    height = "auto",
-                    valign = "center",
-                },
-            },
+            BackButton("Back to Town", function()
+                CloseLocation()
+            end),
 
             gui.Label{
                 text = "<cspace=0.3em>BLACKBOTTOM</cspace>",
@@ -4693,9 +4703,7 @@ CreateScreen = function(args)
         captureEscape = true,
         --Above the titlescreen's own escape (3) and below the hero builder
         --(5, see EotwBuilder.lua), which mounts over this screen. The town's
-        --dialogs sit at EXIT_MODAL_DIALOG. The close button does NOT take
-        --escape: at its default EXIT_DIALOG it would close the whole town
-        --from inside a location, a dialog, or the builder.
+        --dialogs sit at EXIT_MODAL_DIALOG.
         escapePriority = 4,
         escape = function(element)
             --close the topmost town panel first: the chat drawer, then
@@ -4865,75 +4873,88 @@ CreateScreen = function(args)
             },
         },
 
-        --the town's name plaque, who is here, and the connection state.
+        --top-left: the way back to the titlescreen, then the town's name
+        --plaque, who is here, and the connection state. Collapsed together
+        --while a scene (with its own back button) is up.
         gui.Panel{
-            classes = { "eotwPlaque" },
             floating = true,
             halign = "left",
             valign = "top",
             hmargin = 20,
             vmargin = 20,
             width = 440,
+            height = "auto",
+            flow = "vertical",
             create = function(element)
                 townPlaque = element
             end,
-            height = "auto",
-            flow = "vertical",
-            styles = townStyles,
-            gui.Label{
-                text = "Blackbottom",
-                fontSize = 40,
-                bold = true,
-                color = "#f6ead0",
-                width = "auto",
+
+            BackButton("Back to Title Screen", function(element)
+                element:FireEventOnParents("closeEncounterOfTheWeek")
+            end),
+
+            gui.Panel{
+                classes = { "eotwPlaque" },
+                tmargin = 12,
+                width = 440,
                 height = "auto",
-            },
-            gui.Label{
-                text = "Encounter of the Week",
-                fontSize = 18,
-                italics = true,
-                color = "#c9bfa9",
-                width = "auto",
-                height = "auto",
-            },
-            gui.Label{
-                fontSize = 16,
-                color = "#c9bfa9",
-                width = "100%",
-                height = "auto",
-                tmargin = 6,
-                text = "",
-                data = { seen = nil },
-                thinkTime = 1,
-                think = function(element)
-                    if m_conn == nil then
-                        return
-                    end
-                    local presence = m_conn:GetPath("/presence")
-                    local n = 0
-                    for _,_ in pairs(presence or {}) do
-                        n = n + 1
-                    end
-                    element.text = string.format("%d adventurer%s in town", n, cond(n == 1, "", "s"))
-                end,
-            },
-            --connection status line (blank while healthy).
-            gui.Label{
-                fontSize = 16,
-                color = "#ffcc66",
-                width = "100%",
-                height = "auto",
-                create = function(element)
-                    statusLabel = element
-                    RefreshStatus()
-                end,
+                flow = "vertical",
+                styles = townStyles,
+                gui.Label{
+                    text = "Blackbottom",
+                    fontSize = 40,
+                    bold = true,
+                    color = "#f6ead0",
+                    width = "auto",
+                    height = "auto",
+                },
+                gui.Label{
+                    text = "Encounter of the Week",
+                    fontSize = 18,
+                    italics = true,
+                    color = "#c9bfa9",
+                    width = "auto",
+                    height = "auto",
+                },
+                gui.Label{
+                    fontSize = 16,
+                    color = "#c9bfa9",
+                    width = "100%",
+                    height = "auto",
+                    tmargin = 6,
+                    text = "",
+                    data = { seen = nil },
+                    thinkTime = 1,
+                    think = function(element)
+                        if m_conn == nil then
+                            return
+                        end
+                        local presence = m_conn:GetPath("/presence")
+                        local n = 0
+                        for _,_ in pairs(presence or {}) do
+                            n = n + 1
+                        end
+                        element.text = string.format("%d adventurer%s in town", n, cond(n == 1, "", "s"))
+                    end,
+                },
+                --connection status line (blank while healthy).
+                gui.Label{
+                    fontSize = 16,
+                    color = "#ffcc66",
+                    width = "100%",
+                    height = "auto",
+                    create = function(element)
+                        statusLabel = element
+                        RefreshStatus()
+                    end,
+                },
             },
         },
 
         heroStrip,
 
         --the open location's full-screen scene, over the town and under the
-        --chat and the close button (see OpenLocation).
+        --chat (see OpenLocation).
         gui.Panel{
             floating = true,
             width = "100%",
@@ -4966,18 +4987,6 @@ CreateScreen = function(args)
         },
 
         chatPanel,
-
-        gui.CloseButton{
-            floating = true,
-            halign = "right",
-            valign = "top",
-            hmargin = 12,
-            vmargin = 12,
-            escapeActivates = false,
-            click = function(element)
-                element:FireEventOnParents("closeEncounterOfTheWeek")
-            end,
-        },
     }
 
     --Watch the lobby document + connection state. Handlers are dropped by

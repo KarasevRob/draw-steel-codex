@@ -1698,6 +1698,13 @@ CreateChatPanel = function()
             sort = true,
             monitorAssets = "ObjectTables",
             refreshAssets = function(element)
+                --a hard refresh (view-as-player, an EotW test's switch into or
+                --out of player-host mode) reloads the codemods while this old
+                --panel still lives; its Language global has been reset and
+                --has no tableName until DMHub Game Rules reloads.
+                if mod.unloaded then
+                    return
+                end
                 local options = {}
                 for key,language in unhidden_pairs(dmhub.GetTable(Language.tableName) or {}) do
                     local text = language.name

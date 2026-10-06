@@ -10631,7 +10631,7 @@ function TacPanel.ConditionsRow()
 
             for _, auraInfo in ipairs(creature:GetAurasAffecting(token) or {}) do
                 --our own auras come back here too, because we emit them.
-                if rawget(auraInfo.auraInstance, "casterid") ~= token.charid then
+                if rawget(auraInfo.auraInstance, "casterid") ~= token.charid and not auraInfo.auraInstance:IsHiddenFromAuraLists() then
                     children[#children + 1] = TacPanel.AuraChip(auraInfo.auraInstance, token)
                 end
             end
@@ -12808,7 +12808,7 @@ function TacPanel.Conditions()
             -- Aura chips (DISABLED FOR DIAGNOSTIC)
             local aurasTouching = creature:GetAurasAffecting(token) or {}
             for _, auraInfo in ipairs(aurasTouching) do
-                if rawget(auraInfo.auraInstance, "casterid") ~= token.charid then --we'll see our own auras because we emit them.
+                if rawget(auraInfo.auraInstance, "casterid") ~= token.charid and not auraInfo.auraInstance:IsHiddenFromAuraLists() then --we'll see our own auras because we emit them.
                     children[#children + 1] = TacPanel.AuraChip(auraInfo.auraInstance, token)
                 end
             end

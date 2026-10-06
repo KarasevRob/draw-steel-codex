@@ -220,7 +220,7 @@ DramaticBanner.maliceAccent = "#DE1E47"
 DramaticBanner.defaultType = "heroic"
 DramaticBanner.types = {
     { id = "heroic", text = "Heroic", sound = DramaticBanner.defaultSound },
-    { id = "malice", text = "Malice", sound = "MaliceUsed" },
+    { id = "malice", text = "Malice", sound = "Notify.Malice_Use" },
 }
 
 --- The entry in DramaticBanner.types for a type id, falling back to the
