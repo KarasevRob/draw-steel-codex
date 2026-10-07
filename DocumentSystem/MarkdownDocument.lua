@@ -2389,7 +2389,11 @@ BreakdownRichTags = function(content, result, options, extraOutput)
                         linepos = linepos,
                     }
 
-                    text = text .. ThemeEngine.ResolveTokens(string.format("<color=@accent><size=70%%><link=spoiler:%s>%s</link></size></color>", guid, spoilerText))
+                    --when the block's text starts on the brace's own line the link
+                    --would run straight into it; <space> is markup, so it adds no
+                    --characters to the text.
+                    local gap = string.match(suffix, "^!?%s*$") == nil and "<space=0.5em>" or ""
+                    text = text .. ThemeEngine.ResolveTokens(string.format("<color=@accent><size=70%%><link=spoiler:%s>%s</link></size></color>%s", guid, spoilerText, gap))
                 end
 
                 text = text .. "{"
