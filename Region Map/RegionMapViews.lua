@@ -1,3 +1,0 @@
--- Compatibility no-op. Its views moved to RegionMapLibrary.lua and
--- RegionMapLocationCard.lua; remove this file from the CodeMod in the in-app
--- mod tools, then delete it.
