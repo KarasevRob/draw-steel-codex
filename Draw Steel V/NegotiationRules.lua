@@ -2065,95 +2065,29 @@ function NegotiationDocument:DisplayPanel()
         }
     end
 
-    --Shadows the editor's SectionHeader. The label height is fixed: with an
-    --auto height, two headings side by side came out at different heights.
-    local function SectionHeader(text)
-        return gui.Panel{
-            flow = "vertical", width = "100%", height = "auto", halign = "left",
-            tmargin = 14, bmargin = 4,
-            gui.Label{
-                classes = { "bold", "sizeL" },
-                width = "auto", height = 26, halign = "left",
-                textAlignment = "bottomleft",
-                text = text,
-            },
-            gui.Divider{ width = "100%", halign = "left", tmargin = 2 },
-        }
-    end
+    local SectionHeader = CustomDocument.ReadSectionHeader
 
     --want / never-touch, with the voiced lines.
-    local function TraitGroup(kind, heading, width)
-        local rows = {}
+    local function TraitGroup(kind, heading)
+        local children = { SectionHeader(heading) }
         for _, t in ipairs(doc:try_get("traits", {})) do
             if t.kind == kind and (t.name or "") ~= "" then
-                local line = (t.line or "")
-                rows[#rows + 1] = gui.Panel{
-                    flow = "vertical", width = "100%", height = "auto", halign = "left",
-                    vmargin = 5,
-                    gui.Label{
-                        classes = { "bold", "sizeS" },
-                        width = "95%", height = "auto", halign = "left",
-                        textWrap = true, textAlignment = "topleft",
-                        text = t.name,
-                    },
-                    (line ~= "") and gui.Label{
-                        classes = { "sizeS" },
-                        width = "100%-40", height = "auto", halign = "left",
-                        lmargin = 16, tmargin = 1,
-                        markdown = true, textWrap = true, textAlignment = "topleft",
-                        text = line,
-                    } or nil,
-                }
+                children[#children + 1] = CustomDocument.ReadNamedRow(t.name, t.line or "")
             end
         end
-        if #rows == 0 then
+        if #children == 1 then
             return nil
         end
-        local children = { SectionHeader(heading) }
-        for _, r in ipairs(rows) do
-            children[#children + 1] = r
-        end
         return gui.Panel{
-            flow = "vertical", width = width, height = "auto", halign = "left", valign = "top",
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
             children = children,
         }
     end
 
-    --Side by side when the page has both kinds.
-    local hasWant, hasNever = false, false
-    for _, t in ipairs(doc:try_get("traits", {})) do
-        if (t.name or "") ~= "" then
-            hasWant = hasWant or t.kind == "motivation"
-            hasNever = hasNever or t.kind == "pitfall"
-        end
-    end
-    local twoColumns = hasWant and hasNever
-    local traitsPanel = gui.Panel{
-        flow = "horizontal", width = "100%", height = "auto", halign = "left",
-        TraitGroup("motivation", "What they want", twoColumns and "50%-12" or "100%"),
-        twoColumns and gui.Panel{ width = 24, height = 1, valign = "top" } or nil,
-        TraitGroup("pitfall", "Never touch", twoColumns and "50%-12" or "100%"),
-    }
-
-    --Colors come from the active scheme; corners are left to the theme.
-    local function StatChipStyles()
-        return ThemeEngine.MergeTokens({
-            { selectors = { "negStatChip" }, bgcolor = "@bgAlt", borderColor = "@fgMuted", color = "@fgStrong" },
-        }) --[[@as StyleArgs[] ]]
-    end
-
-    local function StatChip(text)
-        return gui.Label{
-            classes = { "sizeS", "negStatChip" },
-            width = "auto", height = "auto", halign = "left",
-            hpad = 10, vpad = 5, rmargin = 6,
-            borderBox = true,
-            bgimage = "panels/square.png",
-            border = 1,
-            markdown = true,
-            text = text,
-        }
-    end
+    local traitGroups = {}
+    traitGroups[#traitGroups + 1] = TraitGroup("motivation", "What they want")
+    traitGroups[#traitGroups + 1] = TraitGroup("pitfall", "Never touch")
+    local traitsPanel = CustomDocument.ReadColumns(traitGroups)
 
     local offerRows = {}
     for i = NegotiationRules.MAX, 0, -1 do
@@ -2194,27 +2128,11 @@ function NegotiationDocument:DisplayPanel()
                     text = doc.description,
                 },
                 (doc:try_get("npcDesc", "") ~= "") and md(doc.npcDesc) or nil,
-                gui.Panel{
-                    flow = "horizontal", width = "100%", height = "auto", halign = "left",
-                    wrap = true, vmargin = 6,
-                    styles = StatChipStyles(),
-                    create = function(element)
-                        --recolor live when the Director switches scheme
-                        element.data.themeListener = ThemeEngine.OnThemeChanged(mod, function()
-                            if element.valid then
-                                element.styles = StatChipStyles()
-                            end
-                        end)
-                    end,
-                    destroy = function(element)
-                        if element.data.themeListener ~= nil then
-                            element.data.themeListener:Deregister()
-                        end
-                    end,
-                    StatChip(string.format("**%s**", att.name)),
-                    StatChip(string.format("Interest **%d**", interest)),
-                    StatChip(string.format("Patience **%d**", patience)),
-                    StatChip(string.format("Impression **%d**", doc:try_get("impression", 1))),
+                CustomDocument.StatChips{
+                    string.format("**%s**", att.name),
+                    string.format("Interest **%d**", interest),
+                    string.format("Patience **%d**", patience),
+                    string.format("Impression **%d**", doc:try_get("impression", 1)),
                 },
             },
         },

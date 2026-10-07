@@ -1011,6 +1011,115 @@ do
         }
     end
 
+    --The read views' section heading: a size above SectionHeader, and ruled.
+    --The label height is fixed: with an auto height, two headings side by
+    --side came out at different heights.
+    function CustomDocument.ReadSectionHeader(text)
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            tmargin = 14, bmargin = 4,
+            gui.Label{
+                classes = { "bold", "sizeL" },
+                width = "auto", height = 26, halign = "left",
+                textAlignment = "bottomleft",
+                text = text,
+            },
+            gui.Divider{ width = "100%", halign = "left", tmargin = 2 },
+        }
+    end
+
+    --Colors come from the active scheme; corners are left to the theme.
+    local function StatChipStyles()
+        return ThemeEngine.MergeTokens({
+            { selectors = { "docStatChip" }, bgcolor = "@bgAlt", borderColor = "@fgMuted", color = "@fgStrong" },
+        }) --[[@as StyleArgs[] ]]
+    end
+
+    --A row of short facts as chips. Each entry is markdown.
+    --- @param texts string[]
+    --- @return Panel
+    function CustomDocument.StatChips(texts)
+        local children = {}
+        for _, text in ipairs(texts) do
+            children[#children + 1] = gui.Label{
+                classes = { "sizeS", "docStatChip" },
+                width = "auto", height = "auto", halign = "left",
+                hpad = 10, vpad = 5, rmargin = 6, vmargin = 2,
+                borderBox = true,
+                bgimage = "panels/square.png",
+                border = 1,
+                markdown = true,
+                text = text,
+            }
+        end
+        return gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            wrap = true, vmargin = 6,
+            styles = StatChipStyles(),
+            create = function(element)
+                element.data.themeListener = ThemeEngine.OnThemeChanged(mod, function()
+                    if element.valid then
+                        element.styles = StatChipStyles()
+                    end
+                end)
+            end,
+            destroy = function(element)
+                if element.data.themeListener ~= nil then
+                    element.data.themeListener:Deregister()
+                end
+            end,
+            children = children,
+        }
+    end
+
+    --One entry of a read-view list: a name with its detail indented under it.
+    --- @param name string
+    --- @param detail string markdown; "" for none
+    --- @return Panel
+    function CustomDocument.ReadNamedRow(name, detail)
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            vmargin = 5,
+            gui.Label{
+                classes = { "bold", "sizeS" },
+                width = "95%", height = "auto", halign = "left",
+                textWrap = true, textAlignment = "topleft",
+                text = name,
+            },
+            (detail ~= "") and gui.Label{
+                classes = { "sizeS" },
+                width = "100%-40", height = "auto", halign = "left",
+                lmargin = 16, tmargin = 1,
+                markdown = true, textWrap = true, textAlignment = "topleft",
+                text = detail,
+            } or nil,
+        }
+    end
+
+    --Lists side by side when there are two, stacked otherwise.
+    --- @param columns Panel[] each built with width "100%"
+    --- @return Panel
+    function CustomDocument.ReadColumns(columns)
+        if #columns ~= 2 then
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left",
+                children = columns,
+            }
+        end
+        local function Half(panel)
+            return gui.Panel{
+                flow = "vertical", width = "50%-12", height = "auto", halign = "left", valign = "top",
+                panel,
+            }
+        end
+        return gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            Half(columns[1]),
+            gui.Panel{ width = 24, height = 1, valign = "top" },
+            Half(columns[2]),
+        }
+    end
+
     local function LabelledRow(labelText, control)
         return gui.Panel{
             flow = "horizontal",
@@ -1485,41 +1594,77 @@ do
                 width = field.width or 96, height = field.height or 96, halign = "left",
                 bgimage = value, bgcolor = "white",
             })
-        elseif kind == "recordList" or kind == "keyedList" then
-            local lines = {}
-            if kind == "keyedList" then
-                for _, key in ipairs(field.displayReversed and Reversed(field.keys or {}) or field.keys or {}) do
-                    local parts = {}
-                    for _, column in ipairs(field.columns or {}) do
-                        local cell = (value[key.index] or {})[column.id]
-                        if cell ~= nil and cell ~= "" then
-                            parts[#parts + 1] = tostring(cell)
-                        end
-                    end
-                    if #parts > 0 then
-                        lines[#lines + 1] = key.label .. ": " .. table.concat(parts, " - ")
-                    end
-                end
-            else
-                for _, row in ipairs(value) do
-                    local parts = {}
-                    for _, column in ipairs(field.columns or {}) do
-                        local cell = row[column.id]
-                        if cell ~= nil and cell ~= "" then
-                            parts[#parts + 1] = column.kind == "enum" and OptionText(column, cell) or tostring(cell)
-                        end
-                    end
-                    if #parts > 0 then
-                        lines[#lines + 1] = table.concat(parts, " - ")
-                    end
+        elseif kind == "recordList" then
+            --Each row reads as a name with the other columns under it; a
+            --grouped list gets one headed column per group that has rows.
+            local groupColumn = nil
+            local columns = {}
+            for _, column in ipairs(field.columns or {}) do
+                if column.id == field.groupBy then
+                    groupColumn = column
+                else
+                    columns[#columns + 1] = column
                 end
             end
-            if #lines == 0 then
+            local function CellText(row, column)
+                local cell = row[column.id]
+                if cell == nil or cell == "" then
+                    return ""
+                end
+                return column.kind == "enum" and OptionText(column, cell) or tostring(cell)
+            end
+            local function ListPanel(heading, groupId)
+                local children = { CustomDocument.ReadSectionHeader(heading) }
+                for _, row in ipairs(value) do
+                    if groupColumn == nil or row[groupColumn.id] == groupId then
+                        local parts = {}
+                        for _, column in ipairs(columns) do
+                            local text = CellText(row, column)
+                            if text ~= "" then
+                                parts[#parts + 1] = text
+                            end
+                        end
+                        if #parts > 0 then
+                            children[#children + 1] = CustomDocument.ReadNamedRow(
+                                table.remove(parts, 1), table.concat(parts, " - "))
+                        end
+                    end
+                end
+                if #children == 1 then
+                    return nil
+                end
+                return gui.Panel{
+                    flow = "vertical", width = "100%", height = "auto", halign = "left",
+                    children = children,
+                }
+            end
+            if groupColumn == nil then
+                return ListPanel(field.label, nil)
+            end
+            local lists = {}
+            for _, group in ipairs(FieldOptions(groupColumn)) do
+                lists[#lists + 1] = ListPanel(group.heading or group.text, group.id)
+            end
+            if #lists == 0 then
                 return nil
             end
-            local children = { SectionHeader(field.label) }
-            for _, line in ipairs(lines) do
-                children[#children + 1] = ReadOnlyText(line)
+            return CustomDocument.ReadColumns(lists)
+        elseif kind == "keyedList" then
+            local children = { CustomDocument.ReadSectionHeader(field.label) }
+            for _, key in ipairs(field.displayReversed and Reversed(field.keys or {}) or field.keys or {}) do
+                local parts = {}
+                for _, column in ipairs(field.columns or {}) do
+                    local cell = (value[key.index] or {})[column.id]
+                    if cell ~= nil and cell ~= "" then
+                        parts[#parts + 1] = tostring(cell)
+                    end
+                end
+                if #parts > 0 then
+                    children[#children + 1] = CustomDocument.ReadNamedRow(key.label, table.concat(parts, " - "))
+                end
+            end
+            if #children == 1 then
+                return nil
             end
             return gui.Panel{
                 flow = "vertical", width = "100%", height = "auto", halign = "left",
@@ -1533,17 +1678,91 @@ do
         if text == "" then
             return nil
         end
+        if kind == "text" then
+            --prose gets the full width, under its label.
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left", vmargin = 4,
+                gui.Label{
+                    classes = { "bold", "sizeS" },
+                    width = "auto", height = "auto", halign = "left",
+                    text = field.label,
+                },
+                gui.Label{
+                    classes = { "sizeS" },
+                    width = "95%", height = "auto", halign = "left",
+                    markdown = true, textWrap = true, textAlignment = "topleft",
+                    text = text,
+                },
+            }
+        end
         return LabelledRow(field.label, gui.Label{
             width = "100%-156", height = "auto", halign = "left", textWrap = true, text = text,
         })
     end
 
-    --The generated read view: every field that has a value.
+    --The generated read view: every field that has a value. The page opens
+    --with its name; the first image field sits beside it as the portrait, and
+    --number, enum and bool fields gather into one row of chips. Fields ahead of
+    --the first list join that header, the rest follow at full width.
     function CustomDocument:FieldsDisplayPanel()
-        local children = {}
-        for _, field in ipairs(CustomDocument.ClassFields(self)) do
-            children[#children + 1] = FieldDisplay(self, field)
+        local fields = CustomDocument.ClassFields(self)
+        local portrait, portraitWidth = nil, 0
+        local header, chips, children = {}, {}, {}
+        local inHeader = true
+
+        --a prose page that opens with its own heading already has a title.
+        if #fields > 0 and not string.starts_with(self:GetTextContent(), "#") then
+            header[#header + 1] = gui.Label{
+                classes = { "bold", "sizeXl" },
+                width = "auto", height = "auto", halign = "left", vmargin = 4,
+                text = self.description,
+            }
         end
+
+        for _, field in ipairs(fields) do
+            local kind = field.kind
+            local value = self:GetFieldValue(field)
+            if kind == "image" and portrait == nil and value ~= "" then
+                portraitWidth = (field.width or 96) + 12
+                portrait = gui.Panel{
+                    classes = { "image" },
+                    width = field.width or 96, height = field.height or 120,
+                    valign = "top", rmargin = 12,
+                    bgcolor = "white",
+                    bgimage = value,
+                }
+            elseif kind == "number" then
+                chips[#chips + 1] = string.format("%s **%s**", field.label, tostring(value))
+            elseif kind == "enum" then
+                local text = OptionText(field, value)
+                if text ~= "" then
+                    chips[#chips + 1] = string.format("%s **%s**", field.label, text)
+                end
+            elseif kind == "bool" then
+                if value == true then
+                    chips[#chips + 1] = string.format("**%s**", field.label)
+                end
+            else
+                if g_listKinds[kind] then
+                    inHeader = false
+                end
+                local target = inHeader and header or children
+                target[#target + 1] = FieldDisplay(self, field)
+            end
+        end
+        if #chips > 0 then
+            header[#header + 1] = CustomDocument.StatChips(chips)
+        end
+
+        table.insert(children, 1, gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            portrait,
+            gui.Panel{
+                flow = "vertical", height = "auto", valign = "top",
+                width = string.format("100%%-%d", portraitWidth),
+                children = header,
+            },
+        })
         --exits are run furniture: the Director's, never the players'. RichExit
         --loads after this file, hence rawget.
         if dmhub.isDM and rawget(_G, "RichExit") ~= nil then
@@ -1573,7 +1792,7 @@ do
     local function StackFields(doc, fieldsPanel, panel)
         local children = {
             gui.Panel{
-                flow = "vertical", width = "100%", height = "auto", maxHeight = "50%",
+                flow = "vertical", width = "100%", height = "auto", maxHeight = "75%",
                 valign = "top", vscroll = true, bmargin = 8,
                 fieldsPanel,
             },
