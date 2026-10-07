@@ -1745,6 +1745,10 @@ function NegotiationDocument:EditPanel()
             height = multiline and 60 or 26,
             halign = "left",
             multiline = multiline,
+            --A text input stops taking characters at 256 unless told otherwise,
+            --and one already holding more than its limit takes none at all.
+            --Shipped pages hold far more than that in these fields.
+            characterLimit = 8192,
             placeholderText = placeholder,
             text = doc:try_get(field, ""),
             change = function(element)
@@ -1796,6 +1800,7 @@ function NegotiationDocument:EditPanel()
                         gui.Input{
                             classes = { "sizeS" }, width = 420, height = "auto",
                             valign = "top", multiline = true, lmargin = 6,
+                            characterLimit = 2048,
                             placeholderText = "What they say about it (their voice)",
                             text = trait.line,
                             change = function(element)
@@ -1856,6 +1861,7 @@ function NegotiationDocument:EditPanel()
             },
             gui.Input{
                 classes = { "sizeS" }, width = 460, height = "auto", multiline = true,
+                characterLimit = 2048,
                 placeholderText = "What he offers (leave blank to use the book's line)",
                 text = (doc:try_get("offers", {})[NegotiationRules.OfferIndex(interest)] or {}).terms or "",
                 change = function(element)
@@ -2022,6 +2028,7 @@ function NegotiationDocument:EditPanel()
             minHeight = 120,
             halign = "left",
             multiline = true,
+            characterLimit = 16384,
             textAlignment = "topleft",
             placeholderText = "What triggers this negotiation, what moves interest without a test, how the heroes can learn the motivations beforehand, how to vary it. For you, not the players.",
             text = doc:try_get("sceneNotes", ""),

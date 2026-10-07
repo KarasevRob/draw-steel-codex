@@ -1032,6 +1032,14 @@ do
         }
     end
 
+    --How much a field's input will hold. A text input stops taking characters
+    --at 256 unless told otherwise, and one already holding more than its limit
+    --takes none at all -- far too little for prose, and shipped pages already
+    --hold more.
+    local function TextLimit(field)
+        return field.characterLimit or (field.kind == "text" and 8192 or 1024)
+    end
+
     --One cell of a list row. `row` is the row as it was when the cell was
     --built; `liveRow` returns the row to write to. They differ: once a save
     --is echoed back, the engine has swapped a newly added row for a fresh
@@ -1058,6 +1066,7 @@ do
         return gui.Input{
             classes = { "sizeS" }, width = width, height = column.kind == "text" and "auto" or 24,
             valign = "top", lmargin = 6, multiline = column.kind == "text",
+            characterLimit = TextLimit(column),
             placeholderText = column.placeholder or column.label,
             text = row[column.id] or "",
             change = function(element)
@@ -1189,6 +1198,7 @@ do
                 cells[#cells + 1] = gui.Input{
                     classes = { "sizeS" }, width = column.width or 460, height = column.kind == "text" and "auto" or 24,
                     multiline = column.kind == "text", valign = "top",
+                    characterLimit = TextLimit(column),
                     placeholderText = column.placeholder or column.label,
                     text = current[column.id] or "",
                     change = function(element)
@@ -1238,6 +1248,7 @@ do
                 height = kind == "text" and 60 or 26,
                 halign = "left",
                 multiline = kind == "text",
+                characterLimit = TextLimit(field),
                 placeholderText = field.placeholder or "",
                 text = doc:GetFieldValue(field),
                 change = function(element)
