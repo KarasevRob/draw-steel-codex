@@ -1032,17 +1032,20 @@ do
     local function StatChipStyles()
         return ThemeEngine.MergeTokens({
             { selectors = { "docStatChip" }, bgcolor = "@bgAlt", borderColor = "@fgMuted", color = "@fgStrong" },
+            { selectors = { "docStatChip", "active" }, borderColor = "@border" },
         }) --[[@as StyleArgs[] ]]
     end
 
-    --A row of short facts as chips. Each entry is markdown.
+    --A row of short facts as chips. Each entry is markdown; `active` is the
+    --index of one to pick out, if any.
     --- @param texts string[]
+    --- @param active? integer
     --- @return Panel
-    function CustomDocument.StatChips(texts)
+    function CustomDocument.StatChips(texts, active)
         local children = {}
-        for _, text in ipairs(texts) do
+        for i, text in ipairs(texts) do
             children[#children + 1] = gui.Label{
-                classes = { "sizeS", "docStatChip" },
+                classes = { "sizeS", "docStatChip", cond(i == active, "active") },
                 width = "auto", height = "auto", halign = "left",
                 hpad = 10, vpad = 5, rmargin = 6, vmargin = 2,
                 borderBox = true,
