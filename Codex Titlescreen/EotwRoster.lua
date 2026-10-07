@@ -1032,7 +1032,7 @@ local function ModalFrame(args)
         --opaque: near-opaque alphas (f8) still let the town map show through.
         bgcolor = "#14110dff",
         borderWidth = 2,
-        borderColor = "#9b968a",
+        borderColor = "#8c7a55",
         cornerRadius = 10,
         flow = "vertical",
         styles = { Styles.Default },
@@ -1170,22 +1170,53 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
                 textAlignment = "center",
                 vmargin = 8,
             },
-            gui.Input{
-                width = 420,
-                height = 40,
+            gui.Panel{
+                width = "auto",
+                height = "auto",
                 halign = "center",
                 vmargin = 10,
-                fontSize = 22,
-                characterLimit = 60,
-                placeholderText = "Hero name...",
-                create = function(element)
-                    nameInput = element
-                    element.text = RecruitName(pregen)
-                    element.hasInputFocus = true
-                end,
-                submit = function(element)
-                    Confirm()
-                end,
+                flow = "horizontal",
+                gui.Input{
+                    width = 380,
+                    height = 40,
+                    valign = "center",
+                    fontSize = 22,
+                    characterLimit = 60,
+                    placeholderText = "Hero name...",
+                    create = function(element)
+                        nameInput = element
+                        element.text = RecruitName(pregen)
+                        element.hasInputFocus = true
+                    end,
+                    submit = function(element)
+                        Confirm()
+                    end,
+                },
+                --rolls another name from the ancestry's name table.
+                gui.Panel{
+                    width = 32,
+                    height = 32,
+                    valign = "center",
+                    lmargin = 10,
+                    bgimage = "phosphor/arrow-clockwise.png",
+                    bgcolor = DIM,
+                    styles = {
+                        {
+                            selectors = { "hover" },
+                            bgcolor = "#ffffff",
+                            scale = 1.12,
+                        },
+                    },
+                    linger = function(element)
+                        gui.Tooltip("Roll another name")(element)
+                    end,
+                    press = function()
+                        audio.FireSoundEvent("Mouse.Click")
+                        if nameInput ~= nil and nameInput.valid then
+                            nameInput.text = RecruitName(pregen)
+                        end
+                    end,
+                },
             },
             gui.Panel{
                 width = "auto",
@@ -1226,7 +1257,6 @@ local function ShowRecruitPicker(host, onDone)
             flow = "vertical",
             bgimage = "panels/square.png",
             cornerRadius = 8,
-            hoverCursor = "pressbutton",
             press = function()
                 audio.FireSoundEvent("Mouse.Click")
                 dlg:DestroySelf()
@@ -1304,17 +1334,50 @@ end
 local GUILD_STYLES = {
     {
         selectors = { "eotwGuildRow" },
-        bgcolor = "#ffffff0c",
+        bgcolor = "#221b13",
         borderWidth = 1,
-        borderColor = "#00000000",
+        borderColor = "#5a4b33",
     },
     {
         selectors = { "eotwGuildRow", "hover" },
-        bgcolor = "#ffffff16",
+        bgcolor = "#2c2318",
+    },
+    --an active hero's row: a gold stripe down its left edge and a gold
+    --frame on the portrait. Resting heroes keep both quiet.
+    {
+        selectors = { "eotwGuildStripe" },
+        bgcolor = "#00000000",
     },
     {
-        selectors = { "eotwGuildRow", "active" },
-        borderColor = "#ffd66baa",
+        selectors = { "eotwGuildStripe", "parent:active" },
+        bgcolor = "#d9b56a",
+    },
+    {
+        selectors = { "eotwGuildPortrait" },
+        borderWidth = 2,
+        borderColor = "#8c7a55",
+    },
+    {
+        selectors = { "eotwGuildPortrait", "parent:active" },
+        borderColor = "#d9b56a",
+    },
+    --one stat in the row's strip: the value over its caption.
+    {
+        selectors = { "eotwGuildStatValue" },
+        fontSize = 18,
+        bold = true,
+        color = TEXT,
+        width = "auto",
+        height = "auto",
+        halign = "center",
+    },
+    {
+        selectors = { "eotwGuildStatKey" },
+        fontSize = 12,
+        color = DIM,
+        width = "auto",
+        height = "auto",
+        halign = "center",
     },
     {
         selectors = { "eotwGuildPick" },
@@ -1342,7 +1405,89 @@ local GUILD_STYLES = {
         selectors = { "eotwGuildIcon", "on" },
         bgcolor = "#ffd66b",
     },
+    --the row's actions, stacked in a column at its right edge.
+    {
+        selectors = { "eotwGuildIcon", "stacked" },
+        width = 24,
+        height = 24,
+        hmargin = 0,
+        vmargin = 3,
+        halign = "center",
+    },
 }
+
+--The stat strip in a roster row: stamina, recoveries and the
+--characteristics (in the game system's own order), read off the hero's
+--character. refresh(tok) repaints it; a nil tok shows dashes.
+local function GuildStatStrip()
+    local cells = {}
+    local function Cell(key, read)
+        local value = gui.Label{
+            classes = { "eotwGuildStatValue" },
+            text = "-",
+        }
+        cells[#cells+1] = { label = value, read = read }
+        return gui.Panel{
+            width = "auto",
+            height = "auto",
+            flow = "vertical",
+            valign = "center",
+            hmargin = 7,
+            value,
+            gui.Label{
+                classes = { "eotwGuildStatKey" },
+                text = key,
+            },
+        }
+    end
+
+    local children = {
+        Cell("Stamina", function(c)
+            local cur, max = c:CurrentHitpoints(), c:MaxHitpoints()
+            if cur >= max then
+                return tostring(max)
+            end
+            return string.format("%d/%d", cur, max)
+        end),
+        Cell("Recov.", function(c)
+            local id = CharacterResource.recoveryResourceId
+            local max = c:GetResources()[id] or 0
+            local used = c:GetResourceUsage(id, "long") or 0
+            return tostring(math.max(0, max - used))
+        end),
+    }
+
+    local attrList = {}
+    for _, info in pairs(creature.attributesInfo) do
+        attrList[#attrList+1] = info
+    end
+    table.sort(attrList, function(a, b) return a.order < b.order end)
+    for _, info in ipairs(attrList) do
+        local attrid = info.id
+        children[#children+1] = Cell(string.sub(info.description, 1, 1), function(c)
+            return string.format("%+d", c:GetAttribute(attrid):Modifier())
+        end)
+    end
+
+    local strip = gui.Panel{
+        width = "auto",
+        height = "auto",
+        flow = "horizontal",
+        valign = "center",
+        children = children,
+    }
+
+    local refresh = function(tok)
+        for _, cell in ipairs(cells) do
+            local text = "-"
+            if tok ~= nil and tok.properties ~= nil then
+                pcall(function() text = cell.read(tok.properties) end)
+            end
+            cell.label.text = text
+        end
+    end
+    return strip, refresh
+end
 
 --One roster row: portrait, name, details, status, and the hero's actions.
 --The row persists across roster refreshes: GuildPanel fires "refreshRow"
@@ -1353,7 +1498,9 @@ local function GuildRow(hero, away, host)
     local confirmingDismiss = false
 
     local portraitPanel = Portrait(nil, 72, 96)
+    portraitPanel:AddClass("eotwGuildPortrait")
     local shownPortrait = nil
+    local statStrip, refreshStats = GuildStatStrip()
 
     local nameLabel = gui.Label{
         text = "",
@@ -1382,9 +1529,8 @@ local function GuildRow(hero, away, host)
         tmargin = 4,
     }
     local activeIcon = gui.Panel{
-        classes = { "eotwGuildIcon" },
+        classes = { "eotwGuildIcon", "stacked" },
         bgimage = "phosphor/star.png",
-        hoverCursor = "pressbutton",
         linger = function(element)
             gui.Tooltip(cond(hero.active == true, "Active: adventuring in town. Click to rest them.", string.format("Make active: up to %d heroes adventure in town at once.", EotwRoster.MAX_ACTIVE)))(element)
         end,
@@ -1401,7 +1547,11 @@ local function GuildRow(hero, away, host)
         flow = "horizontal",
         bgimage = "panels/square.png",
         cornerRadius = 8,
-        pad = 8,
+        --the stripe sits close to the left edge; the portrait carries
+        --the rest of the inset.
+        lpad = 5,
+        rpad = 12,
+        vpad = 8,
         borderBox = true,
         vmargin = 3,
 
@@ -1448,6 +1598,7 @@ local function GuildRow(hero, away, host)
             detailsLabel.text = details
             statusLabel.text = table.concat(status, "  -  ")
             activeIcon:SetClass("on", hero.active == true)
+            refreshStats(tok)
             activeIcon.bgimage = cond(hero.active == true, "phosphor/star-fill.png", "phosphor/star.png")
 
             --only touch the portrait when it actually changes: re-setting a
@@ -1460,13 +1611,30 @@ local function GuildRow(hero, away, host)
                 portraitPanel.bgimage = portrait or "panels/square.png"
                 portraitPanel.selfStyle.bgcolor = cond(portrait ~= nil, "white", "#ffffff10")
             end
+            --crop the art to the frame's 3:4 rather than squashing it in.
+            --Needs the character, so it lands once the hero has loaded.
+            if portrait ~= nil and tok ~= nil then
+                local rect = nil
+                pcall(function() rect = tok:GetPortraitRectForAspect(72 / 96, portrait) end)
+                portraitPanel.selfStyle.imageRect = rect
+            end
         end,
+
+        gui.Panel{
+            classes = { "eotwGuildStripe" },
+            interactable = false,
+            width = 4,
+            height = "100%",
+            rmargin = 4,
+            cornerRadius = 2,
+            bgimage = "panels/square.png",
+        },
 
         portraitPanel,
 
         gui.Panel{
-            width = "100%-330",
-            height = "100%",
+            width = 220,
+            height = "auto",
             flow = "vertical",
             valign = "center",
             lmargin = 14,
@@ -1475,17 +1643,29 @@ local function GuildRow(hero, away, host)
             statusLabel,
         },
 
+        --a hairline between the hero's name and their numbers.
         gui.Panel{
-            width = 230,
-            height = "100%",
+            interactable = false,
+            width = 1,
+            height = "70%",
+            valign = "center",
+            hmargin = 8,
+            bgimage = "panels/square.png",
+            bgcolor = "#5a4b33",
+        },
+        statStrip,
+
+        gui.Panel{
+            width = "auto",
+            height = "auto",
             halign = "right",
-            flow = "horizontal",
+            valign = "center",
+            flow = "vertical",
 
             activeIcon,
             gui.Panel{
-                classes = { "eotwGuildIcon" },
+                classes = { "eotwGuildIcon", "stacked" },
                 bgimage = "phosphor/pencil-simple.png",
-                hoverCursor = "pressbutton",
                 linger = function(element)
                     if EotwRoster.CanRebuildHero(heroid) then
                         gui.Tooltip("Rebuild this hero. You can change a hero's build until their first encounter.")(element)
@@ -1499,9 +1679,8 @@ local function GuildRow(hero, away, host)
                 end,
             },
             gui.Panel{
-                classes = { "eotwGuildIcon" },
+                classes = { "eotwGuildIcon", "stacked" },
                 bgimage = "phosphor/trash.png",
-                hoverCursor = "pressbutton",
                 linger = function(element)
                     if away ~= nil then
                         gui.Tooltip("This hero is in a party and cannot be dismissed.")(element)

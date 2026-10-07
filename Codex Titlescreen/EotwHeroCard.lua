@@ -1396,7 +1396,10 @@ local function CreateHeroCard(entry, opts)
                 },
             },
             hover = gui.Tooltip(opts.dismiss.tooltip or "Dismiss"),
-            press = function(element)
+            --on click, not press: a handled click stops here, but an
+            --unhandled one bubbles up to the card, whose click opens the
+            --hero's sheet. swallowPress covers cards that open on press.
+            click = function(element)
                 audio.FireSoundEvent("Mouse.Click")
                 opts.dismiss.click(element)
             end,

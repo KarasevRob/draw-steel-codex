@@ -221,7 +221,6 @@ function PowerRollSpoilers.CreateEyeButton(info, options)
         valign = "center",
         rmargin = 2,
         swallowPress = true,
-        hoverCursor = "hand",
         click = function(element)
             local revealed = PowerRollSpoilers.IsRevealed(info.key, info.defaultRevealed)
             if revealed then
@@ -4207,7 +4206,6 @@ function GameHud.CreateEmbeddedRollDialog()
             halign = "center",
             valign = "center",
             brightness = 1,
-            hoverCursor = "pointer",
             styles = {
                 {
                     selectors = {"hover"},

@@ -4345,7 +4345,6 @@ local function CreateObjectEditorPanel()
 							vmargin = 2,
 							cornerRadius = 4,
 							bgimage = artistInfo.bannerImage,
-							hoverCursor = "hand",
 							click = function(element)
 								if dmhub.hasStoreAccess then
 									GameHud.instance.mainDialogPanel:AddChild(CreateShopScreen{ titlescreen = GameHud.instance, artistid = artist })

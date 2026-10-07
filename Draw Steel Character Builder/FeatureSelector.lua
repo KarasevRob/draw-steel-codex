@@ -326,7 +326,6 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                 local canDrag = option ~= nil
                 element.draggable = canDrag
                 element.dragTarget = true  -- Always a drag target (empty or filled)
-                element.hoverCursor = canDrag and "hand" or nil
             end,
             removeItem = function(element)
                 if element.data.option then
@@ -628,7 +627,6 @@ function CBFeatureSelector.SelectionPanel(selector, feature)
                 end
                 element.draggable = canDrag
                 element.dragTarget = true
-                element.hoverCursor = canDrag and "hand" or nil
             end,
             selectItem = function(element)
                 local option = element.data.option

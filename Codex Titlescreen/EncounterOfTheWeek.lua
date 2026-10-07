@@ -1574,7 +1574,7 @@ CreateScreen = function(args)
             --opaque, matching the guild dialogs: these float over the town map.
             bgcolor = "#14110dff",
             borderWidth = 2,
-            borderColor = "#9b968a",
+            borderColor = "#8c7a55",
             cornerRadius = 10,
         },
     }
@@ -1672,7 +1672,7 @@ CreateScreen = function(args)
             text = string.upper(text),
             fontSize = 17,
             bold = true,
-            color = "#e6dcc6",
+            color = "#d9b56a",
             width = "100%",
             height = "auto",
             tmargin = 14,
@@ -2264,7 +2264,7 @@ CreateScreen = function(args)
         {
             selectors = { "heroCard" },
             borderWidth = 2,
-            borderColor = "#8f8a7faa",
+            borderColor = "#88775faa",
             cornerRadius = 8,
             transitionTime = 0.15,
         },
@@ -4037,7 +4037,7 @@ CreateScreen = function(args)
             bgimage = "panels/square.png",
             bgcolor = "clear",
             swallowPress = true,
-            data = { lockedReason = nil },
+            data = { lockedReason = nil, nextBeckon = 0 },
             thinkTime = 0.5,
             think = function(element)
                 local reason = nil
@@ -4046,6 +4046,25 @@ CreateScreen = function(args)
                 end
                 element.data.lockedReason = reason
                 element:SetClass("locked", reason ~= nil)
+
+                --while the hero strip says no hero is active, the guild
+                --icon pulses to point the player at it.
+                if loc.id == "guild" and EotwRoster.GetHeroes() ~= nil then
+                    local anyActive = false
+                    for _,hero in ipairs(EotwRoster.ActiveHeroes()) do
+                        if dmhub.GetCharacterById(hero.heroid) ~= nil then
+                            anyActive = true
+                        end
+                    end
+                    local now = dmhub.Time()
+                    if not anyActive and now >= element.data.nextBeckon then
+                        element.data.nextBeckon = now + 1.5
+                        local halo = element:Get("eotwTownHalo")
+                        if halo ~= nil then
+                            halo:PulseClass("beckon")
+                        end
+                    end
+                end
             end,
             create = function(element)
                 element:FireEvent("think")
@@ -4071,6 +4090,15 @@ CreateScreen = function(args)
                 classes = { "eotwTownNodeIcon" },
                 interactable = false,
                 halign = "center",
+                --a halo ring, invisible until the think above pulses it
+                --(only the guild's does). First child, so the glyph draws
+                --over it.
+                gui.Panel{
+                    id = "eotwTownHalo",
+                    classes = { "eotwTownNodeHalo" },
+                    floating = true,
+                    interactable = false,
+                },
                 gui.Panel{
                     classes = { "eotwTownNodeGlyph" },
                     interactable = false,
@@ -4099,14 +4127,40 @@ CreateScreen = function(args)
             bgimage = "panels/square.png",
             bgcolor = "#1b140cee",
             borderWidth = 3,
-            borderColor = "#e6dcc6",
+            borderColor = "#d9b56a",
             transitionTime = 0.15,
         },
         {
             selectors = { "eotwTownNodeIcon", "parent:hover" },
             scale = 1.12,
-            borderColor = "#ffffff",
+            borderColor = "#ffe9b0",
             brightness = 1.2,
+        },
+        --A ring around the icon. It rests large and fully transparent;
+        --PulseClass("beckon") snaps it to the {beckon} rule (icon-sized,
+        --bright) and eases back to rest over that rule's transitionTime,
+        --so each pulse is a ring that swells outward and fades.
+        {
+            selectors = { "eotwTownNodeHalo" },
+            width = 64,
+            height = 64,
+            halign = "center",
+            valign = "center",
+            cornerRadius = 32,
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+            borderWidth = 4,
+            borderColor = "#ffe9b000",
+            scale = 1.9,
+        },
+        {
+            selectors = { "eotwTownNodeHalo", "beckon" },
+            borderColor = "#ffe9b0ff",
+            scale = 1.05,
+            transitionTime = 1.2,
+            --a pulse eases on the REMAINING weight (1 -> 0), so the curve
+            --runs backwards: easeIn here plays as a fast burst that settles.
+            easing = "easeInCubic",
         },
         {
             selectors = { "eotwTownNodeGlyph" },
@@ -4114,7 +4168,7 @@ CreateScreen = function(args)
             height = 34,
             halign = "center",
             valign = "center",
-            bgcolor = "#f6efe0",
+            bgcolor = "#f3dfae",
         },
         {
             selectors = { "eotwTownNodeLabel" },
@@ -4143,7 +4197,7 @@ CreateScreen = function(args)
             bgcolor = "#120d08e0",
             cornerRadius = 10,
             borderWidth = 2,
-            borderColor = "#9b968a",
+            borderColor = "#8c7a55",
             pad = 14,
             borderBox = true,
         },
@@ -4167,7 +4221,7 @@ CreateScreen = function(args)
             --translucent on purpose: the art should read through the card.
             bgcolor = "#0e0b08dc",
             borderWidth = 1,
-            borderColor = "#e6dcc655",
+            borderColor = "#d9b56a55",
             cornerRadius = 12,
         },
         {
@@ -4175,22 +4229,22 @@ CreateScreen = function(args)
             bgimage = "panels/square.png",
             bgcolor = "#0b0907b0",
             borderWidth = 1,
-            borderColor = "#e6dcc666",
+            borderColor = "#d9b56a66",
             cornerRadius = 20,
             transitionTime = 0.12,
         },
         {
             selectors = { "eotwSceneBack", "hover" },
-            bgcolor = "#34312bd0",
-            borderColor = "#e6dcc6",
+            bgcolor = "#3a2e1ad0",
+            borderColor = "#d9b56a",
         },
         {
             selectors = { "eotwSceneBackIcon" },
-            bgcolor = "#e6dcc6",
+            bgcolor = "#d9b56a",
         },
         {
             selectors = { "eotwSceneBackIcon", "parent:hover" },
-            bgcolor = "#ffffff",
+            bgcolor = "#ffe9b0",
         },
     }
 
@@ -4256,7 +4310,7 @@ CreateScreen = function(args)
                 text = "<cspace=0.3em>BLACKBOTTOM</cspace>",
                 fontSize = 15,
                 bold = true,
-                color = "#e6dcc6",
+                color = "#d9b56a",
                 width = "auto",
                 height = "auto",
                 tmargin = 34,
@@ -4275,7 +4329,7 @@ CreateScreen = function(args)
                 height = 2,
                 tmargin = 6,
                 bgimage = "panels/square.png",
-                bgcolor = "#e6dcc6",
+                bgcolor = "#d9b56a",
                 gradient = gui.Gradient{
                     point_a = { x = 0, y = 0.5 },
                     point_b = { x = 1, y = 0.5 },

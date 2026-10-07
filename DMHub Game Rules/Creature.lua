@@ -1382,7 +1382,6 @@ function creature:FillCalculatedStatusIcons(result)
                     local tokenid = dmhub.LookupTokenId(self)
                     if tokenid ~= nil and casterToken ~= nil and casterToken.valid and casterToken.canControl then
                         local condid = k
-                        result[#result].hoverCursor = "hand"
                         result[#result].click = function()
                             local token = dmhub.GetTokenById(tokenid)
                             if token ~= nil and token.valid and conditionInfo:has_key("casterClickAbility") then

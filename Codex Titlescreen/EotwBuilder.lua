@@ -411,7 +411,6 @@ local function Card(args)
         vmargin = 4,
         hpad = 8,
         borderBox = true,
-        hoverCursor = cond(args.unavailable, nil, "pressbutton"),
         hover = function()
             if args.hover ~= nil then
                 args.hover()
@@ -890,7 +889,6 @@ function EotwBuilder.Open(args)
                 flow = "horizontal",
                 hpad = 10,
                 borderBox = true,
-                hoverCursor = "pressbutton",
                 press = function()
                     audio.FireSoundEvent("Mouse.Click")
                     state.step = stepid
@@ -1121,7 +1119,6 @@ function EotwBuilder.Open(args)
                 height = 92,
                 hmargin = 5,
                 flow = "vertical",
-                hoverCursor = cond(locked, nil, "hand"),
                 data = { attrid = attrid },
                 draggable = not locked,
                 dragTarget = not locked,
@@ -1845,7 +1842,6 @@ function EotwBuilder.Open(args)
             vmargin = 4,
             hpad = 8,
             borderBox = true,
-            hoverCursor = cond(clickable, "pressbutton", nil),
             hover = function()
                 ShowDetail(PoolEntryDetail(kind, entry))
             end,

@@ -163,7 +163,7 @@ function CreatorCredit.Badge(options)
         bgimage = "panels/square.png",
         bgcolor = "clear",
         styles = BADGE_STYLES,
-        hoverCursor = cond(url ~= nil, "pressbutton", nil),
+        hoverCursor = cond(url ~= nil, "hand", nil),
         linger = function(element)
             gui.Tooltip(tooltip)(element)
         end,

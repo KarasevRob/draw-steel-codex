@@ -177,7 +177,6 @@ local function CreateChatImageAttachment(attachment)
 		halign = "left",
 		autosizeimage = true,
 		bgimageStreamed = source,
-		hoverCursor = "hand",
 		press = function(element)
 			dmhub.ViewSign(source)
 		end,
@@ -201,7 +200,6 @@ local function CreateChatAudioAttachment(attachment)
 		flow = "horizontal",
 		borderBox = true,
 		hpad = 8,
-		hoverCursor = "hand",
 		press = function(element)
 			if playingEvent ~= nil and playingEvent.playing then
 				playingEvent:Stop()
@@ -305,7 +303,6 @@ local function CreateChatVideoAttachment(attachment, options)
 		autosizeimage = true,
 		clip = true,
 		swallowPress = options.swallowPress,
-		hoverCursor = "hand",
 		bgimageStreamed = "md5:" .. attachment.chatAttachmentBlobId .. "###LOOPAUDIO" .. dmhub.GenerateGuid(),
 		press = function(element)
 			if finished then

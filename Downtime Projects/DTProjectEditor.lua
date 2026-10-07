@@ -90,7 +90,6 @@ function DTProjectEditor:_createProjectForm()
         halign = "left",
         rmargin = 6,
         icon = "icons/icon_tool/icon_tool_79.png", --mod.images.downtimeProjects,
-        hoverCursor = "pressbutton",
         data = {
             getProject = function(element)
                 local projectController = element:FindParentWithClass("projectController")
@@ -596,7 +595,6 @@ function DTProjectEditor:_createProjectForm()
         icon = "panels/initiative/initiative-dice.png",
         halign = "right",
         valign = "center",
-        hoverCursor = "pressbutton",
         data = {
             getProject = function(element)
                 local projectController = element:FindParentWithClass("projectController")
@@ -891,7 +889,6 @@ milestoneInput,
         icon = "phosphor/book-light.png",
         halign = "right",
         valign = "center",
-        hoverCursor = "pressbutton",
         data = {
             suggestion = nil,
             getProject = function(element)

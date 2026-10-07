@@ -7553,7 +7553,6 @@ function GlossaryTerm:Render(options)
             color = "#ffffff77",
             bgimage = "panels/square.png",
             bgcolor = "#00000000",
-            hoverCursor = "pressbutton",
             text = "<u>" .. sourceLine .. "</u>",
             hover = function(element) element.selfStyle.color = "#ffffffcc" end,
             dehover = function(element) element.selfStyle.color = "#ffffff77" end,

@@ -474,7 +474,6 @@ local pointerBehaviorCard = gui.Panel{
             gui.Label{
                 id = "alpha-hit-underlay", classes = {"interactive"},
                 width = "100%-12", height = "100%-12", halign = "center", valign = "center",
-                hoverCursor = "hand",
                 text = "UNDERLAY\nclick a transparent triangle corner",
                 fontSize = 12, textAlignment = "center",
                 click = function(element)

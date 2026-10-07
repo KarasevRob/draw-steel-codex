@@ -649,7 +649,6 @@ function CBClassDetail._characteristicPanel()
                     local draggable = element.parent.data.locked == false
                     element.draggable = draggable
                     element.dragTarget = draggable
-                    element.hoverCursor = draggable and "hand" or nil
                 end,
             },
             gui.Panel{

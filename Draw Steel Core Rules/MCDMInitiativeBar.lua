@@ -4171,7 +4171,6 @@ function GameHud.CreateInitiativeBarChoicePanel(self, info)
 				width = 24,
 				height = 24,
 				bgimage = "phosphor/notebook.png",
-				hoverCursor = "pressbutton",
 				swallowPress = true,
 				linger = function(element)
 					gui.Tooltip("Encounter Wrangler")(element)

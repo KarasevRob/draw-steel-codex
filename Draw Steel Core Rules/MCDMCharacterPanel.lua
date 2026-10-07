@@ -3005,7 +3005,6 @@ function TacPanel.Portrait()
             outlineButton(gui.Panel{
                 id = "char-panel-light-btn",
                 classes = {"toggle-btn", "light-btn", "editOnly"},
-                hoverCursor = "pressbutton",
                 width = visionBtnSize,
                 height = visionBtnSize,
                 bgimage = "drawsteel/light-off.png",
@@ -3041,7 +3040,6 @@ function TacPanel.Portrait()
             }),
             outlineButton(gui.Panel{
                 classes = {"toggle-btn", "character-sheet-btn", "editOnly"},
-                hoverCursor = "pressbutton",
                 width = visionBtnSize,
                 height = visionBtnSize,
                 data = { token = nil },
@@ -3070,7 +3068,6 @@ function TacPanel.Portrait()
             --summoner (for monsters placed outside a summon ability).
             outlineButton(gui.Panel{
                 classes = {"toggle-btn", "summoner-btn", "collapsed"},
-                hoverCursor = "pressbutton",
                 width = visionBtnSize,
                 height = visionBtnSize,
                 data = { token = nil },
@@ -3156,7 +3153,6 @@ function TacPanel.Portrait()
 
             outlineButton(gui.Panel{
                 classes = {"toggle-btn", "light-btn", "collapsed"},
-                hoverCursor = "pressbutton",
                 bgimage = "ui-icons/eye.png",
                 width = visionBtnSize,
                 height = visionBtnSize,
@@ -4536,7 +4532,6 @@ function TacPanel.RecoveriesBox()
 
     return gui.Panel{
         classes = {"stamina-box", "recoveries"},
-        hoverCursor = "pressbutton",
         data = { token = nil },
         refreshCharacter = function(element, token)
             element.data.token = token
@@ -4958,7 +4953,6 @@ function TacPanel.BarAdjustControls(labelPanel)
     local function AdjustButton(mode, text, extraClass)
         return gui.Panel{
             classes = {"bar-adjust-btn", extraClass},
-            hoverCursor = "pressbutton",
             --A panel with no background image is not a hit target at all, so
             --clicks fell straight through it to the bar behind. bgimage is a
             --panel property; a style rule that sets it is ignored.
@@ -5268,7 +5262,6 @@ function TacPanel.HealthBar()
         --be a hit target at all, kept clear so nothing changes visually.
         bgimage = true,
         bgcolor = "clear",
-        hoverCursor = "pressbutton",
         press = function(element)
             if TacPanel.IsReadOnly(element) then return end
             --Classic: monsters only, since heroes still have the STAMINA box
@@ -5907,7 +5900,6 @@ function TacPanel.AltitudeBox()
                 gui.Label{
                     classes = {"altitude-btn", "editOnly"},
                     text = "+",
-                    hoverCursor = "pressbutton",
                     data = { token = nil },
                     press = function(element)
                         if TacPanel.IsReadOnly(element) then return end
@@ -5940,7 +5932,6 @@ function TacPanel.AltitudeBox()
                 gui.Label{
                     classes = {"altitude-btn", "editOnly"},
                     text = "-",
-                    hoverCursor = "pressbutton",
                     data = { token = nil },
                     press = function(element)
                         if TacPanel.IsReadOnly(element) then return end
@@ -6090,7 +6081,6 @@ function TacPanel.CharacteristicBox(attrInfo)
 
     return gui.Panel{
         classes = {"characteristic-box"},
-        hoverCursor = "pressbutton",
         data = { token = nil, valueOnTop = false },
         --Fired by TacPanel.SetCompactBoxes. Reassigns only on an actual flip:
         --that runs on every refreshCharacter, and rebuilding the child list each
@@ -10550,7 +10540,6 @@ function TacPanel.ConditionsRow()
         return gui.Label{
             classes = {"cond-add", "editOnly"},
             text = "+",
-            hoverCursor = "pressbutton",
             press = function(element)
                 if TacPanel.IsReadOnly(element) then return end
                 TacPanel.AddConditionMenu{
