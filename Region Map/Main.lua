@@ -1,2 +1,2 @@
--- Compatibility no-op. RegionMap.lua is the registered bootstrap; this file
--- remains because the current CodeMod has it as a separate persisted entry.
+-- Compatibility no-op. RegionMap.lua is the registered bootstrap; remove this
+-- file from the CodeMod in the in-app mod tools, then delete it.

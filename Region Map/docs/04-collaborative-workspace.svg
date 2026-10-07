@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1520" viewBox="0 0 1400 1520" role="img" aria-labelledby="title desc">
+  <title id="title">Region Map collaborative workspace states</title>
+  <desc id="desc">Black and white schematic of Director and player location cards, separate editors, narrow layout, and an offered presentation. Conceptual UI guide, not runtime screenshots.</desc>
+  <style>
+    text { font-family:Arial,sans-serif; font-size:16px; fill:black }
+    .title { font-size:23px; font-weight:bold }
+    .caption { font-size:14px }
+    .strong { font-weight:bold }
+    .box { fill:white; stroke:black; stroke-width:1.5 }
+    .dash { fill:white; stroke:black; stroke-width:1.5; stroke-dasharray:6 4 }
+    .rule { stroke:black; stroke-width:1 }
+    .small { font-size:13px }
+  </style>
+  <rect width="1400" height="1520" fill="white"/>
+  <text x="35" y="40" class="title">REGION MAP / COLLABORATIVE WORKSPACE</text>
+  <text x="35" y="67">Implementation guide, 2026-09-15. Schematic controls and text; actual theme and dimensions vary.</text>
+  <defs>
+    <g id="frame">
+      <rect class="box" width="640" height="390"/>
+      <path class="rule" d="M0 40H640 M0 77H640"/>
+      <text x="14" y="26">North Coast v</text><text x="206" y="26">Labels   +   Party</text>
+      <text x="14" y="64" class="small">Party: Director moves</text>
+    </g>
+    <g id="map">
+      <rect x="12" y="90" width="292" height="285" class="box"/>
+      <path d="M30 332L86 280L118 304L184 224L268 178 M42 185L116 154L163 181L275 115" fill="none" stroke="black"/>
+      <circle cx="180" cy="227" r="7" fill="white" stroke="black"/>
+      <text x="181" y="214" class="small">Old Tower</text>
+      <text x="28" y="365" class="small">Fit   -   +   Show labels</text>
+    </g>
+    <g id="card">
+      <rect x="316" y="90" width="312" height="285" class="box"/>
+      <text x="331" y="112" class="small">Back to map</text>
+      <text x="331" y="141" class="strong">Old Tower</text>
+      <text x="331" y="165" class="small">Director - Shared</text>
+    </g>
+  </defs>
+  <g transform="translate(35 115)">
+    <text y="-15" class="title">1 / DIRECTOR: SHARED LOCATION</text>
+    <use href="#frame"/><use href="#map"/><use href="#card"/>
+    <text x="420" y="26">Present    Manage maps</text>
+    <text x="331" y="195" class="small">Edit name         Move Party here</text>
+    <text x="331" y="219" class="small">Hide from players   Present location</text>
+    <text x="331" y="249" class="strong">Description</text>
+    <text x="331" y="270" class="small">A ruined watchtower above the road.</text>
+    <text x="331" y="295" class="small">Edit description / Open journal entry</text>
+    <path d="M327 309H618" class="rule"/>
+    <text x="331" y="331" class="strong">&gt; Director notes</text>
+    <text x="331" y="352" class="small">Visible only to Directors / Edit</text>
+    <text y="418" class="caption">A single card contains shared details and a separate private section.</text>
+  </g>
+  <g transform="translate(725 115)">
+    <text y="-15" class="title">2 / PLAYER: ANOTHER AUTHOR'S CARD</text>
+    <use href="#frame"/><use href="#map"/><use href="#card"/>
+    <text x="331" y="196" class="small">Only the Director can move Party.</text>
+    <text x="331" y="231" class="strong">Description</text>
+    <text x="331" y="256" class="small">A ruined watchtower above the road.</text>
+    <text x="331" y="305" class="small">Open journal entry</text>
+    <text y="418" class="caption">Public text is read-only. The private section is absent.</text>
+    <text y="440" class="caption">A journal link appears only while its entry is accessible to this player.</text>
+  </g>
+  <g transform="translate(35 605)">
+    <text y="-15" class="title">3 / DIRECTOR NOTES: FAILED SAVE</text>
+    <use href="#frame"/>
+    <text x="420" y="26">Present    Manage maps</text>
+    <text x="331" y="64" class="small">Unsaved changes (1)</text>
+    <text x="16" y="108">Back to map</text>
+    <text x="16" y="141" class="strong">Director notes - visible only to Directors</text>
+    <text x="16" y="169">Save failed - retry. Your text is kept for this session.</text>
+    <rect x="14" y="187" width="612" height="141" class="box"/>
+    <text x="28" y="213">The scouts return at dusk.</text>
+    <text x="28" y="239">Keep the cellar entrance secret.</text>
+    <text x="23" y="365" class="small">Save Director note       Discard changes       Back to location</text>
+    <text y="418" class="caption">The description's save result is independent of the Director note.</text>
+    <text y="440" class="caption">Save before restarting the app or reloading Lua: drafts are session-only.</text>
+  </g>
+  <g transform="translate(725 605)">
+    <text y="-15" class="title">4 / PLAYER: EDIT OWN DESCRIPTION</text>
+    <use href="#frame"/>
+    <text x="331" y="64" class="small">Unsaved changes (1)</text>
+    <text x="16" y="108">Back to map</text>
+    <text x="16" y="141" class="strong">Description</text>
+    <text x="16" y="169">Unsaved changes</text>
+    <rect x="14" y="187" width="612" height="141" class="box"/>
+    <text x="28" y="213">We found a path around the western wall.</text>
+    <text x="28" y="239">The stairs need repair.</text>
+    <text x="30" y="365" class="small">Save details             Discard changes        Back to location</text>
+    <text y="418" class="caption">Enter inserts a newline. Back and Escape keep the unsaved description.</text>
+    <text y="440" class="caption">A description save preserves the Director's existing journal link.</text>
+  </g>
+  <g transform="translate(35 1095)">
+    <text y="-15" class="title">5 / COMPACT: FULL CONTENT PANE</text>
+    <rect width="640" height="300" class="box"/>
+    <text x="15" y="27">North Coast v    Labels  +  Party    Present    Manage maps</text>
+    <path d="M0 44H640" class="rule"/>
+    <text x="15" y="72">Back to map</text><text x="15" y="106" class="strong">Old Tower</text>
+    <text x="15" y="136">Description</text><text x="15" y="166">A ruined watchtower above the road.</text>
+    <text x="15" y="205">Edit description    Open journal entry</text>
+    <text x="15" y="260">&gt; Director notes / Visible only to Directors</text>
+    <text y="328" class="caption">The pane uses the full content area when a usable canvas would not fit.</text>
+    <text y="350" class="caption">Taller narrow windows use a bottom pane. Wide windows use a side pane.</text>
+    <text y="372" class="caption">Resizing preserves camera and drafts; an interrupted drag is cancelled.</text>
+  </g>
+  <g transform="translate(725 1095)">
+    <text y="-15" class="title">6 / PRESENT OFFER DURING EDITING</text>
+    <rect width="640" height="300" class="box"/>
+    <text x="15" y="27">North Coast v    Labels  +  Party</text>
+    <rect x="14" y="46" width="612" height="38" class="dash"/>
+    <text x="28" y="71">View location (8s)               Unsaved changes (1)</text>
+    <text x="15" y="117" class="strong">Description / Unsaved changes</text>
+    <rect x="14" y="137" width="612" height="99" class="box"/>
+    <text x="28" y="165">My unfinished notes stay here.</text>
+    <text x="28" y="208">|</text>
+    <text x="26" y="276" class="small">Save details             Discard changes        Back to location</text>
+    <text y="328" class="caption">An offer does not move the camera or steal text focus.</text>
+    <text y="350" class="caption">Accept once to focus the shared location; Back restores the prior pane.</text>
+    <text y="372" class="caption">Offers expire. Delivery is best effort and has no receipt badge.</text>
+  </g>
+</svg>

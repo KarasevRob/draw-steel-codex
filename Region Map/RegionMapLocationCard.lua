@@ -1,0 +1,2 @@
+-- Retired no-op: the V1 location card is replaced by RegionMapSidePanel.lua. Remove
+-- this file from the CodeMod in the in-app mod tools, then delete it.
