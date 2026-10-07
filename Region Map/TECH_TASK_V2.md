@@ -49,7 +49,7 @@ From the 2026-10-05 engine checks (brief section 11b) and the V1 build:
 | 2 | `RegionMapCopy.lua` | New | Every manifest string and `Copy.T(id, args)` (V2-02) |
 | 3 | `RegionMapJournal.lua` | Keep | Journal access and opening |
 | 4 | `RegionMapRecords.lua` | Update | Record types (V2 Location, log entry, details and notes), safe reads, validation, uploads (V2-03) |
-| 5 | ~~`RegionMapMigration.lua`~~ | Retired | Cut with V2-04 (decision 8.3); a no-op until the user removes it |
+| 5 | ~~`RegionMapMigration.lua`~~ | Removed | Cut with V2-04 (decision 8.3); removed from the CodeMod and the repo 2026-10-08 |
 | 6 | `RegionMapModel.lua` | Rewrite | Location tree, permissions, visibility, writes, Party, settings, preferences (V2-03) |
 | 7 | `RegionMapUndo.lua` | New | Undo entries and the toast queue (V2-05) |
 | 8 | `RegionMapLog.lua` | New | Session log entries, merging, route points, cap (V2-15) |
@@ -71,7 +71,7 @@ on their root panel (V1 pattern, `RegionMapSession.lua`).
 **User steps in the in-app mod tools** (the bridge cannot unregister): remove
 `RegionMapLocationCard.lua`, `RegionMapLibrary.lua`, `RegionMapMigration.lua`, `Main.lua` and
 `RegionMapViews.lua` from the CodeMod once the replacements are registered and loading; then
-delete the files. Until then each is a no-op file.
+delete the files. Done 2026-10-08 (see section 7b, "Cloud cleanup").
 
 ### 3.2 Data
 
@@ -891,6 +891,22 @@ M4, with the user's choice of hover preview plus right-click.
   leaves the next merged route leg starting at the old point; `window.title` and
   `search.result.path` are unused. Players may still Move to map a Location of theirs that
   carries Director content (a move, not a delete).
+
+**Cloud cleanup, 2026-10-08.**
+- **Retired files removed.** The user removed `Main`, `RegionMapMigration`, `RegionMapLibrary`,
+  `RegionMapLocationCard` and `RegionMapViews` from the CodeMod in the mod tools. Then the
+  five files were deleted from the repo. `RegionMapViews` had stayed in the cloud list, as an
+  empty file, after it stopped loading.
+- **CodeMod renamed.** The user renamed the CodeMod to "Overland Map" (id
+  `ec447c62-03db-4416-a5a2-0b013c0f3893`). The app now reads it from the dev-mod folder
+  `Overland Map\`. The rename filled that folder with one-line placeholder files, and they
+  were replaced with the real files. The repo folder, the panel name and every on-screen
+  string still say Region Map.
+- **Checked:**
+  - Read through `code.GetMod(id).files`, the cloud list is the 18 files of section 3.1 in
+    order.
+  - Each cloud file's md5 equals the committed repo file.
+  - The mod reports no local changes.
 
 **M0 / V2-00: PASSED 2026-10-06.** A player client wrote a `RegionMapLocations` row through
 the model and it reached the Director client with the player as owner. Players can write

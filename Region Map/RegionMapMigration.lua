@@ -1,2 +1,0 @@
--- Retired no-op (V1 migration cut, decision 8.3). Remove this file from the CodeMod
--- in the in-app mod tools, then delete it.
