@@ -2065,14 +2065,45 @@ function NegotiationDocument:DisplayPanel()
         }
     end
 
+    --Shadows the editor's SectionHeader. The label height is fixed: with an
+    --auto height, two headings side by side came out at different heights.
+    local function SectionHeader(text)
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            tmargin = 14, bmargin = 4,
+            gui.Label{
+                classes = { "bold", "sizeL" },
+                width = "auto", height = 26, halign = "left",
+                textAlignment = "bottomleft",
+                text = text,
+            },
+            gui.Divider{ width = "100%", halign = "left", tmargin = 2 },
+        }
+    end
+
     --want / never-touch, with the voiced lines.
-    local function TraitGroup(kind, heading)
+    local function TraitGroup(kind, heading, width)
         local rows = {}
         for _, t in ipairs(doc:try_get("traits", {})) do
             if t.kind == kind and (t.name or "") ~= "" then
                 local line = (t.line or "")
-                rows[#rows + 1] = md(string.format("**%s** %s", t.name,
-                    line ~= "" and ("\n\n> " .. line) or ""))
+                rows[#rows + 1] = gui.Panel{
+                    flow = "vertical", width = "100%", height = "auto", halign = "left",
+                    vmargin = 5,
+                    gui.Label{
+                        classes = { "bold", "sizeS" },
+                        width = "95%", height = "auto", halign = "left",
+                        textWrap = true, textAlignment = "topleft",
+                        text = t.name,
+                    },
+                    (line ~= "") and gui.Label{
+                        classes = { "sizeS" },
+                        width = "100%-40", height = "auto", halign = "left",
+                        lmargin = 16, tmargin = 1,
+                        markdown = true, textWrap = true, textAlignment = "topleft",
+                        text = line,
+                    } or nil,
+                }
             end
         end
         if #rows == 0 then
@@ -2083,8 +2114,44 @@ function NegotiationDocument:DisplayPanel()
             children[#children + 1] = r
         end
         return gui.Panel{
-            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            flow = "vertical", width = width, height = "auto", halign = "left", valign = "top",
             children = children,
+        }
+    end
+
+    --Side by side when the page has both kinds.
+    local hasWant, hasNever = false, false
+    for _, t in ipairs(doc:try_get("traits", {})) do
+        if (t.name or "") ~= "" then
+            hasWant = hasWant or t.kind == "motivation"
+            hasNever = hasNever or t.kind == "pitfall"
+        end
+    end
+    local twoColumns = hasWant and hasNever
+    local traitsPanel = gui.Panel{
+        flow = "horizontal", width = "100%", height = "auto", halign = "left",
+        TraitGroup("motivation", "What they want", twoColumns and "50%-12" or "100%"),
+        twoColumns and gui.Panel{ width = 24, height = 1, valign = "top" } or nil,
+        TraitGroup("pitfall", "Never touch", twoColumns and "50%-12" or "100%"),
+    }
+
+    --Colors come from the active scheme; corners are left to the theme.
+    local function StatChipStyles()
+        return ThemeEngine.MergeTokens({
+            { selectors = { "negStatChip" }, bgcolor = "@bgAlt", borderColor = "@fgMuted", color = "@fgStrong" },
+        }) --[[@as StyleArgs[] ]]
+    end
+
+    local function StatChip(text)
+        return gui.Label{
+            classes = { "sizeS", "negStatChip" },
+            width = "auto", height = "auto", halign = "left",
+            hpad = 10, vpad = 5, rmargin = 6,
+            borderBox = true,
+            bgimage = "panels/square.png",
+            border = 1,
+            markdown = true,
+            text = text,
         }
     end
 
@@ -2093,8 +2160,7 @@ function NegotiationDocument:DisplayPanel()
         local o = (doc:try_get("offers", {})[NegotiationRules.OfferIndex(i)] or {})
         local terms = (o.terms or "")
         offerRows[#offerRows + 1] = md(string.format("**%d - \"%s\"**  %s", i,
-            NegotiationRules.offerLabels[i],
-            terms ~= "" and terms or "*(the book's line)*"))
+            NegotiationRules.offerLabels[i], terms))
     end
 
     local summaryChildren = {}
@@ -2109,7 +2175,7 @@ function NegotiationDocument:DisplayPanel()
     local sceneImage = doc:try_get("sceneImage", "")
 
     local body = gui.Panel{
-        width = "100%", height = "100%-50", flow = "vertical", valign = "top", vscroll = true,
+        width = "100%", height = dmhub.isDM and "100%-60" or "100%", flow = "vertical", valign = "top", vscroll = true,
 
         gui.Panel{
             flow = "horizontal", width = "100%", height = "auto", halign = "left",
@@ -2127,10 +2193,29 @@ function NegotiationDocument:DisplayPanel()
                     width = "auto", height = "auto", halign = "left", vmargin = 4,
                     text = doc.description,
                 },
-                md(string.format("%s%s",
-                    doc:try_get("npcDesc", "") ~= "" and (doc.npcDesc .. "\n\n") or "",
-                    string.format("**%s** - starts at **Interest %d**, **Patience %d**.  Impression **%d**.",
-                        att.name, interest, patience, doc:try_get("impression", 1)))),
+                (doc:try_get("npcDesc", "") ~= "") and md(doc.npcDesc) or nil,
+                gui.Panel{
+                    flow = "horizontal", width = "100%", height = "auto", halign = "left",
+                    wrap = true, vmargin = 6,
+                    styles = StatChipStyles(),
+                    create = function(element)
+                        --recolor live when the Director switches scheme
+                        element.data.themeListener = ThemeEngine.OnThemeChanged(mod, function()
+                            if element.valid then
+                                element.styles = StatChipStyles()
+                            end
+                        end)
+                    end,
+                    destroy = function(element)
+                        if element.data.themeListener ~= nil then
+                            element.data.themeListener:Deregister()
+                        end
+                    end,
+                    StatChip(string.format("**%s**", att.name)),
+                    StatChip(string.format("Interest **%d**", interest)),
+                    StatChip(string.format("Patience **%d**", patience)),
+                    StatChip(string.format("Impression **%d**", doc:try_get("impression", 1))),
+                },
             },
         },
 
@@ -2141,8 +2226,7 @@ function NegotiationDocument:DisplayPanel()
             bgimage = sceneImage,
         } or nil,
 
-        TraitGroup("motivation", "What they want"),
-        TraitGroup("pitfall", "Never touch"),
+        traitsPanel,
 
         (doc:try_get("opening", "") ~= "") and gui.Panel{
             flow = "vertical", width = "100%", height = "auto",
@@ -2184,6 +2268,8 @@ function NegotiationDocument:DisplayPanel()
     resultPanel = gui.Panel{
         width = "100%", height = "100%", flow = "vertical",
         body,
+        --marks where the scrolling page ends
+        dmhub.isDM and gui.Divider{ width = "100%", tmargin = 0, bmargin = 6 } or nil,
         dmhub.isDM and gui.Button{
             classes = { "bold", "sizeXl" },
             valign = "bottom", halign = "center",
