@@ -1707,18 +1707,24 @@ do
         })
     end
 
-    --The generated read view: every field that has a value. The page opens
-    --with its name; the first image field sits beside it as the portrait, and
-    --number, enum and bool fields gather into one row of chips. Fields ahead of
-    --the first list join that header, the rest follow at full width.
-    function CustomDocument:FieldsDisplayPanel()
+    --The fields of the generated read view: every field that has a value. The
+    --page opens with its name; the first image field sits beside it as the
+    --portrait, and number, enum and bool fields gather into one row of chips
+    --under the name. Fields ahead of the first list join that header, the rest
+    --follow at full width. nil for a class with no fields.
+    local function FieldsHeaderPanel(self)
         local fields = CustomDocument.ClassFields(self)
+        if #fields == 0 then
+            return nil
+        end
         local portrait, portraitWidth = nil, 0
         local header, chips, children = {}, {}, {}
         local inHeader = true
+        local hasTitle = false
 
         --a prose page that opens with its own top-level heading already has a title.
-        if #fields > 0 and string.match(self:GetTextContent(), "^#%s") == nil then
+        if string.match(self:GetTextContent(), "^#%s") == nil then
+            hasTitle = true
             header[#header + 1] = gui.Label{
                 classes = { "bold", "sizeXl" },
                 width = "auto", height = "auto", halign = "left", vmargin = 4,
@@ -1758,7 +1764,7 @@ do
             end
         end
         if #chips > 0 then
-            header[#header + 1] = CustomDocument.StatChips(chips)
+            table.insert(header, hasTitle and 2 or 1, CustomDocument.StatChips(chips))
         end
 
         table.insert(children, 1, gui.Panel{
@@ -1770,6 +1776,16 @@ do
                 children = header,
             },
         })
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left", valign = "top", bmargin = 8,
+            children = children,
+        }
+    end
+
+    --What closes the generated read view: the page's exits and its class's
+    --actions. nil when it has neither.
+    local function FieldsFooterPanel(self)
+        local children = {}
         --exits are run furniture: the Director's, never the players'. RichExit
         --loads after this file, hence rawget.
         if dmhub.isDM and rawget(_G, "RichExit") ~= nil then
@@ -1780,9 +1796,20 @@ do
         for _, entry in ipairs(CustomDocument.ClassActions(self, "read")) do
             children[#children + 1] = ActionButton(self, entry, nil)
         end
+        if #children == 0 then
+            return nil
+        end
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left", valign = "top", tmargin = 8,
+            children = children,
+        }
+    end
+
+    function CustomDocument:FieldsDisplayPanel()
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
-            children = children,
+            FieldsHeaderPanel(self),
+            FieldsFooterPanel(self),
         }
     end
 
@@ -1795,16 +1822,17 @@ do
     end
 
     --Fields above, the page's own panel below. `panel` keeps the height the
-    --fields leave; a fields-only class drops it.
+    --fields leave; a fields-only class drops it and the fields take the page.
     local function StackFields(doc, fieldsPanel, panel)
+        local hasBody = CustomDocument.DocTypeInfo(doc).body ~= "none"
         local children = {
             gui.Panel{
-                flow = "vertical", width = "100%", height = "auto", maxHeight = "75%",
+                flow = "vertical", width = "100%", height = "auto", maxHeight = hasBody and "75%" or "100%",
                 valign = "top", vscroll = true, bmargin = 8,
                 fieldsPanel,
             },
         }
-        if CustomDocument.DocTypeInfo(doc).body ~= "none" then
+        if hasBody then
             --an edit panel is built collapsed; the wrapper carries that state now.
             panel:SetClass("collapsed", false)
             panel.selfStyle.height = "100% available"
@@ -1830,12 +1858,21 @@ do
             or #CustomDocument.ClassActions(doc, "read") > 0 or #CustomDocument.ClassActions(doc, "edit") > 0
     end
 
-    --Wraps a document's read panel with its class's fields, if it has any.
-    function CustomDocument.WithFieldsDisplay(doc, panel)
+    --A document's read panel, with its class's fields if it has any. A prose
+    --page carries them itself, fields first and exits last, so it scrolls as
+    --one; a fields-only class has no text to share the page with.
+    function CustomDocument.ReadPanel(doc)
         if not HasDeclaredForm(doc) or HasOwnForm(doc) then
-            return panel
+            return doc:DisplayPanel{ relatedFooter = true }
         end
-        return StackFields(doc, doc:FieldsDisplayPanel(), panel)
+        if CustomDocument.DocTypeInfo(doc).body == "none" then
+            return StackFields(doc, doc:FieldsDisplayPanel(), doc:DisplayPanel{ relatedFooter = true })
+        end
+        return doc:DisplayPanel{
+            relatedFooter = true,
+            pageHeader = FieldsHeaderPanel,
+            pageFooter = FieldsFooterPanel,
+        }
     end
 
     --Wraps a document's edit panel with the generated editor. A type with its
@@ -3078,7 +3115,7 @@ function CustomDocument:CreateInterface(args)
     local buttonSize = 20
 
     args = args or {}
-    local readPanel = CustomDocument.WithFieldsDisplay(self, self:DisplayPanel{ relatedFooter = true })
+    local readPanel = CustomDocument.ReadPanel(self)
 
     --The edit panel is the most expensive part of opening a document and most
     --opens never edit, so it is built lazily on first entry into edit mode.
@@ -4216,7 +4253,7 @@ function CustomDocument:CreateInterface(args)
         multimonitor = { "journal:fontsize", "journal:defaultstylesheet" },
         monitor = function(element)
             g_scale = nil
-            local newReadPanel = CustomDocument.WithFieldsDisplay(self, self:DisplayPanel{ relatedFooter = true })
+            local newReadPanel = CustomDocument.ReadPanel(self)
             newReadPanel:SetClass("collapsed", readPanel:HasClass("collapsed"))
             readPanel = newReadPanel
 

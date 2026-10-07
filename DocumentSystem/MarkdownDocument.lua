@@ -5502,6 +5502,13 @@ function MarkdownDocument.DisplayPanel(self, args)
     local m_relatedFooter = args.relatedFooter or false
     args.relatedFooter = nil
 
+    --Panels a document class puts on the page around its text, so the page
+    --scrolls as one: each is fun(doc): Panel? and is called on every render.
+    local m_pageHeader = args.pageHeader
+    local m_pageFooter = args.pageFooter
+    args.pageHeader = nil
+    args.pageFooter = nil
+
     --Find-in-page state (driven by the findInPage event below).
     local m_findTerm = nil
     local m_findIndex = 1
@@ -5886,6 +5893,18 @@ function MarkdownDocument.DisplayPanel(self, args)
             }
 
             local children = RenderMarkdownTokens(ctx, tokens)
+            if m_pageHeader ~= nil then
+                local header = m_pageHeader(self)
+                if header ~= nil then
+                    table.insert(children, 1, header)
+                end
+            end
+            if m_pageFooter ~= nil then
+                local footer = m_pageFooter(self)
+                if footer ~= nil then
+                    children[#children + 1] = footer
+                end
+            end
             if m_relatedFooter then
                 local footer = BuildRelatedFooter(self)
                 if footer ~= nil then

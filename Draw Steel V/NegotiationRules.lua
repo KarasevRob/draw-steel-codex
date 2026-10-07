@@ -1711,13 +1711,20 @@ end
 -- journal document type.
 --==============================================================================
 
-local LOOP_REFERENCE = [[**The loop.** One hero argues; you classify what they said and Resolve - the runner applies the rules.
-- **Appeals to a motivation** (each usable once): tier 1 costs patience; tier 2 raises interest and costs patience; tier 3 raises interest only.
-- **No motivation:** tier 1 loses interest and patience; tier 2 costs patience; tier 3 raises interest and costs patience. A natural 19-20 costs no patience.
-- **Hits a pitfall:** automatic failure - interest and patience both drop, whatever they rolled.
-- **Read them** (a test): tier 3 reveals a motivation or pitfall; tier 1 costs patience.
-- **After every argument**, respond as the NPC and state his offer for the current interest.
-- **It ends** at interest 5 or patience 0 (final offer), at interest 0 (no deal), or when the heroes take the deal on the table.]]
+--The rules reminder that closes the scene page: { heading, { name, detail }... } per column.
+local LOOP_REFERENCE = {
+    { "Resolving an argument",
+        { "Appeals to a motivation", "Each motivation works once. **Tier 1:** patience drops. **Tier 2:** interest rises, patience drops. **Tier 3:** interest rises." },
+        { "No motivation", "**Tier 1:** interest and patience drop. **Tier 2:** patience drops. **Tier 3:** interest rises, patience drops. A natural 19-20 costs no patience." },
+        { "Hits a pitfall", "Automatic failure: interest and patience both drop, whatever they rolled." },
+        { "Read them (a test)", "**Tier 3:** reveals a motivation or pitfall. **Tier 1:** patience drops." },
+    },
+    { "Running the scene",
+        { "Each turn", "One hero argues. You say what kind of argument it was and Resolve; the runner applies the rules." },
+        { "After every argument", "Respond as the NPC and state their offer for the current interest." },
+        { "It ends", "At interest 5 or patience 0 (final offer), at interest 0 (no deal), or when the heroes take the deal on the table." },
+    },
+}
 
 local function SectionHeader(text)
     return gui.Label{
@@ -2090,6 +2097,18 @@ function NegotiationDocument:DisplayPanel()
     traitGroups[#traitGroups + 1] = TraitGroup("pitfall", "Never touch")
     local traitsPanel = CustomDocument.ReadColumns(traitGroups)
 
+    local loopColumns = {}
+    for _, column in ipairs(LOOP_REFERENCE) do
+        local children = { SectionHeader(column[1]) }
+        for i = 2, #column do
+            children[#children + 1] = CustomDocument.ReadNamedRow(column[i][1], column[i][2])
+        end
+        loopColumns[#loopColumns + 1] = gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            children = children,
+        }
+    end
+
     local offerRows = {}
     for i = NegotiationRules.MAX, 0, -1 do
         local o = (doc:try_get("offers", {})[NegotiationRules.OfferIndex(i)] or {})
@@ -2171,8 +2190,7 @@ function NegotiationDocument:DisplayPanel()
             md(doc.sceneNotes),
         } or nil,
 
-        SectionHeader("How negotiation works"),
-        md(LOOP_REFERENCE),
+        CustomDocument.ReadColumns(loopColumns),
 
         (#summaryChildren > 0) and gui.Panel{
             flow = "vertical", width = "100%", height = "auto",
@@ -2182,6 +2200,9 @@ function NegotiationDocument:DisplayPanel()
                 return c
             end)(),
         } or nil,
+
+        --keeps the last line clear of the scroll edge.
+        gui.Panel{ width = 1, height = 12 },
     }
 
     resultPanel = gui.Panel{
