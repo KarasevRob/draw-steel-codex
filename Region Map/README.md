@@ -1,6 +1,8 @@
 # Region Map
 
-An opt-in CodeMod for DMHub / Draw Steel Codex. The Director builds a tree of image-based
+An opt-in CodeMod for DMHub / Draw Steel Codex, listed as **Overland Map** in the in-app mod
+tools (id `ec447c62-03db-4416-a5a2-0b013c0f3893`). In the app and in this repo the feature
+and its window are still called Region Map. The Director builds a tree of image-based
 maps and Locations; the group reads them, adds their own places and follows one shared
 Party across the maps. Region Map owns its own window, canvas and data. It does not touch
 tactical maps, tokens, combat rules or character content.
@@ -119,9 +121,10 @@ Load order (the CodeMod file list must match):
 | 17 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, layout, refresh |
 | 18 | `RegionMap.lua` | Capability check, registration, host window adapter, Expand |
 
-**Retired files.** `Main.lua`, `RegionMapViews.lua`, `RegionMapMigration.lua`,
-`RegionMapLibrary.lua` and `RegionMapLocationCard.lua` are comment-only no-ops. Remove them
-from the CodeMod in the in-app mod tools (the bridge cannot unregister), then delete them.
+The V1 files (`Main.lua`, `RegionMapViews.lua`, `RegionMapMigration.lua`,
+`RegionMapLibrary.lua`, `RegionMapLocationCard.lua`) were removed from the CodeMod and the
+repo on 2026-10-08. A file is removed from the CodeMod in the in-app mod tools; the MCP
+bridge can only add files.
 
 Each file defines one typed namespace (`RegisterGameType`, `@class X: GameType`).
 Components receive a `RegionMapContext` (see `RegionMapSession.lua`), report upward through
@@ -207,5 +210,7 @@ in rail mode at Font Size 80 and 140, and Font Size with the rail off.
 - Check syntax with `..\dependencies\lua\bin\luac.exe -p` and types with the upstream
   `tools/lua-typing/check.ps1` (every file in this mod checks clean).
 - Deploy with explicit paths so nothing outside the runtime files is copied:
-  `.\deploy.ps1 "Region Map/RegionMapConstants.lua" ...` (where `deploy.ps1` cannot run,
-  copy the files into the dev-mod folder's `Region Map\` directly), then reload Lua.
+  `.\deploy.ps1 "Region Map/RegionMapConstants.lua" ...`, then reload Lua. The app reads
+  dev mods from a dev-mod folder named after the CodeMod, so these files go to
+  `<git folder>\Overland Map\`, not `Region Map\`. Where `deploy.ps1` cannot run, or does not
+  know the rename, copy the files there directly.
