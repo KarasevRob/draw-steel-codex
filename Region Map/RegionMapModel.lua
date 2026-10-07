@@ -1,894 +1,1169 @@
 local mod = dmhub.GetModLoading()
 
-RegionMapAddon = rawget(_G, "RegionMapAddon") or {}
-local Addon = RegionMapAddon
-Addon.Model = nil
+--- Data access and permission rules for Region Map. The UI never reads the
+--- Region Map tables directly; it calls the functions on this namespace.
+--- @class RegionMapModel: GameType
+--- @field new fun(o?: table): RegionMapModel
+RegionMapModel = RegisterGameType("RegionMapModel")
+local C = RegionMapConstants
+local R = RegionMapRecords
+local Journal = RegionMapJournal
 
-Addon.schemaVersion = 1
-Addon.mapTableName = "RegionMapRecords"
-Addon.labelTableName = "RegionMapLabelRecords"
-Addon.tombstoneTableName = "RegionMapTombstones"
-Addon.stateDocumentId = "regionMapState"
-Addon.preferencesSettingId = "regionmap:preferences"
-Addon.panelName = "Region Map"
+local Clamp = R.Clamp
+local IsFinite = R.IsFinite
+local Field = R.Field
+local ValidText = R.ValidText
+local NextRevision = R.NextRevision
+local Audit = R.Audit
+local UploadRecord = R.UploadRecord
+local PendingWrite = R.PendingWrite
+local LastWrite = R.LastWrite
+local StateDocument = R.StateDocument
+local StateData = R.StateData
+local CurrentUserName = R.CurrentUserName
+local NormalizeMultiline = R.NormalizeMultiline
+local SidecarSpec = R.SidecarSpec
+local ReadSidecar = R.ReadSidecar
 
-local LABEL_LIMIT = 250
-local TEXT_LIMIT = 80
-local MIN_ZOOM = 1
-local MAX_ZOOM = 20
-local MAX_REVISION = 9007199254740991
+-- Utilities the UI shares with the model.
+RegionMapModel.Clamp = Clamp
+RegionMapModel.IsFinite = IsFinite
+RegionMapModel.IsPositiveInteger = R.IsPositiveInteger
+RegionMapModel.Field = Field
+RegionMapModel.TrimSingleLine = R.TrimSingleLine
+RegionMapModel.TextLength = R.TextLength
+RegionMapModel.ValidText = ValidText
 
-RegionMapRecord = RegisterGameType("RegionMapRecord")
-RegionMapRecord.tableName = Addon.mapTableName
-
-RegionMapLabelRecord = RegisterGameType("RegionMapLabelRecord")
-RegionMapLabelRecord.tableName = Addon.labelTableName
-
-RegionMapTombstoneRecord = RegisterGameType("RegionMapTombstoneRecord")
-RegionMapTombstoneRecord.tableName = Addon.tombstoneTableName
-
-setting {
-    id = Addon.preferencesSettingId,
-    description = "Region Map local view state.",
-    storage = "pergamepreference",
-    default = {},
-}
-
-mod:RegisterDocumentForCheckpointBackups(Addon.stateDocumentId)
-
-local Model = {}
-local function Clamp(value, low, high)
-    return math.max(low, math.min(high, value))
+--- Escape rich-text markup in user text before it reaches a label.
+--- @param value any
+--- @return string
+function RegionMapModel.LiteralText(value)
+    -- Escape each opening bracket separately, including literal closing noparse tags.
+    return (tostring(value or ""):gsub("<", "<noparse><</noparse>"))
 end
 
-local function IsFinite(value)
-    return type(value) == "number" and value == value and value > -math.huge and value < math.huge
+--- @return string
+function RegionMapModel.StatePath()
+    return StateDocument().path
 end
-
-local function IsPositiveInteger(value)
-    return IsFinite(value) and value >= 1 and value <= MAX_REVISION and value % 1 == 0
-end
-
-local function Field(object, key, default)
-    if type(object) ~= "table" and type(object) ~= "userdata" then return default end
-    local ok, value = pcall(function()
-        if type(object.try_get) == "function" then return object:try_get(key, default) end
-        return object[key]
-    end)
-    if not ok or value == nil then return default end
-    return value
-end
-
-local function RecordRevision(record)
-    local value = Field(record, "revision", 0)
-    if value == 0 or IsPositiveInteger(value) then return value end
-    return 0
-end
-
-local function TrimSingleLine(value)
-    value = tostring(value or "")
-    value = value:gsub("[\r\n]+", " ")
-    value = value:gsub("^%s+", "")
-    value = value:gsub("%s+$", "")
-    return value
-end
-
-local function TextLength(value)
-    local ok, length = pcall(utf8.len, value)
-    if ok and length ~= nil then
-        return length
-    end
-    return math.huge
-end
-
-local function ValidText(value)
-    return type(value) == "string" and value ~= "" and TrimSingleLine(value) == value
-        and TextLength(value) <= TEXT_LIMIT
-end
-
--- This is an intentionally limited, locale-independent case fold for map
--- names. It covers ASCII, Latin-1, Latin Extended-A, and Cyrillic. Unsupported
--- code points are preserved exactly. Canonically equivalent UTF-8 sequences
--- remain distinct because the addon has no public Unicode normalization API.
-local function FoldMapNameCodepoint(codepoint)
-    if codepoint >= 0x0041 and codepoint <= 0x005A then
-        return utf8.char(codepoint + 0x20)
-    end
-
-    if (codepoint >= 0x00C0 and codepoint <= 0x00D6)
-        or (codepoint >= 0x00D8 and codepoint <= 0x00DE) then
-        return utf8.char(codepoint + 0x20)
-    end
-    if codepoint == 0x00DF or codepoint == 0x1E9E then
-        return "ss"
-    end
-
-    if codepoint >= 0x0100 and codepoint <= 0x012E and codepoint % 2 == 0 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint == 0x0130 then
-        return "i" .. utf8.char(0x0307)
-    end
-    if codepoint >= 0x0132 and codepoint <= 0x0136 and codepoint % 2 == 0 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint >= 0x0139 and codepoint <= 0x0147 and codepoint % 2 == 1 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint == 0x0149 then
-        return utf8.char(0x02BC) .. "n"
-    end
-    if codepoint >= 0x014A and codepoint <= 0x0176 and codepoint % 2 == 0 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint == 0x0178 then
-        return utf8.char(0x00FF)
-    end
-    if codepoint >= 0x0179 and codepoint <= 0x017D and codepoint % 2 == 1 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint == 0x017F then
-        return "s"
-    end
-
-    if codepoint >= 0x0400 and codepoint <= 0x040F then
-        return utf8.char(codepoint + 0x50)
-    end
-    if codepoint >= 0x0410 and codepoint <= 0x042F then
-        return utf8.char(codepoint + 0x20)
-    end
-    if codepoint >= 0x0460 and codepoint <= 0x0480 and codepoint % 2 == 0 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint >= 0x048A and codepoint <= 0x04BE and codepoint % 2 == 0 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint == 0x04C0 then
-        return utf8.char(0x04CF)
-    end
-    if codepoint >= 0x04C1 and codepoint <= 0x04CD and codepoint % 2 == 1 then
-        return utf8.char(codepoint + 1)
-    end
-    if codepoint >= 0x04D0 and codepoint <= 0x052E and codepoint % 2 == 0 then
-        return utf8.char(codepoint + 1)
-    end
-
-    return utf8.char(codepoint)
-end
-
-local function MapNameKey(value)
-    value = tostring(value or "")
-    local folded = {}
-    local ok = pcall(function()
-        for _, codepoint in utf8.codes(value) do
-            folded[#folded + 1] = FoldMapNameCodepoint(codepoint)
-        end
-    end)
-    if not ok then
-        -- Preserve the old safe behavior for malformed byte strings.
-        return string.lower(value)
-    end
-    return table.concat(folded)
-end
-
-local function CurrentUserName()
-    local name = TrimSingleLine(dmhub.userDisplayName)
-    return name ~= "" and name or "Unknown user"
-end
-
-local function Audit(record, creating)
-    local now = ServerTimestamp()
-    if creating then
-        record.createdBy = dmhub.loginUserid
-        record.createdByName = CurrentUserName()
-        record.createdAt = now
-    end
-    record.updatedBy = dmhub.loginUserid
-    record.updatedByName = CurrentUserName()
-    record.updatedAt = now
-    record.mutationId = dmhub.GenerateGuid()
-end
-
-local pendingWrites = {}
-local function UploadRecord(tableName, record, description, callbacks, creating)
-    if mod.unloaded then return nil end
-    local key = tableName .. ":" .. record.id
-    local previous = pendingWrites[key]
-    if previous ~= nil and previous.status == "pending" then return nil end
-    local operation = {
-        status = "pending", record = DeepCopy(record), description = description,
-        tableName = tableName, mutationId = Field(record, "mutationId", nil), creating = creating == true,
-    }
-    pendingWrites[key] = operation
-    local function Finish(status, message)
-        if operation.status ~= "pending" then return end
-        operation.status, operation.error = status, message
-        if mod.unloaded then return end
-        if callbacks ~= nil then
-            local callback
-            if status == "confirmed" then callback = callbacks.success else callback = callbacks.failure end
-            if callback ~= nil then callback(operation) end
-        end
-    end
-    local ok, result = pcall(dmhub.SetAndUploadTableItem, tableName, DeepCopy(record), {
-        success = function() Finish("confirmed") end,
-        failure = function(message) Finish("failed", tostring(message)) end,
-    })
-    if not ok or result == nil then
-        Finish("failed", not ok and tostring(result) or nil)
-        return nil
-    end
-    return operation
-end
-
-local function PendingWrite(tableName, id)
-    local operation = pendingWrites[tableName .. ":" .. tostring(id)]
-    return operation ~= nil and operation.status == "pending" and operation or nil
-end
-
-local function MapsTable()
-    -- Region Map owns visibility through its validated hidden/publication
-    -- fields. GetTableVisible excludes rows created with caller-assigned IDs,
-    -- which Region Map requires for stable cross-record references.
-    return dmhub.GetTable(Addon.mapTableName) or {}
-end
-
-local function LabelsTable()
-    return dmhub.GetTable(Addon.labelTableName) or {}
-end
-
-local function TombstonesTable()
-    return dmhub.GetTable(Addon.tombstoneTableName) or {}
-end
-
-local invalidDataReports = {}
-local function RejectMalformed(kind, id, reason)
-    local key = string.format("%s:%s:%s", kind, tostring(id or "<unknown>"), reason)
-    if not invalidDataReports[key] then
-        invalidDataReports[key] = true
-        print(string.format("REGION_MAP: ignoring malformed %s %s (%s)",
-            kind, tostring(id or "<unknown>"), reason))
-    end
-    return false
-end
-
-local function IsTombstoned(mapId)
-    if type(mapId) ~= "string" or mapId == "" then
-        return true
-    end
-    local operation = pendingWrites[Addon.tombstoneTableName .. ":" .. mapId]
-    if operation ~= nil and operation.status ~= "confirmed" then return false end
-    local tombstone = TombstonesTable()[mapId]
-    return tombstone ~= nil and not Field(tombstone, "hidden", false)
-end
-
-local function IsValidMap(map)
-    if map == nil or Field(map, "hidden", false) then
-        return false
-    end
-    local id = Field(map, "id", nil)
-    local operation = id and pendingWrites[Addon.mapTableName .. ":" .. tostring(id)]
-    if operation and operation.creating and operation.status ~= "confirmed" then return false end
-    if Field(map, "schemaVersion", 0) ~= Addon.schemaVersion then
-        return RejectMalformed("map", id, "unsupported schema")
-    end
-    if type(id) ~= "string" or id == "" then
-        return RejectMalformed("map", id, "missing id")
-    end
-    if IsTombstoned(id) then
-        return false
-    end
-    local name = Field(map, "name", "")
-    local imageId = Field(map, "imageId", "")
-    if not ValidText(name) then
-        return RejectMalformed("map", id, "invalid name")
-    end
-    if type(imageId) ~= "string" or imageId == "" then
-        return RejectMalformed("map", id, "missing image")
-    end
-    local imageRevision = Field(map, "imageRevision", nil)
-    if not IsPositiveInteger(imageRevision) then
-        return RejectMalformed("map", id, "invalid image revision")
-    end
-    if type(Field(map, "published", nil)) ~= "boolean" then
-        return RejectMalformed("map", id, "invalid publication state")
-    end
-    return true
-end
-
-local function GetMap(mapId)
-    local map = MapsTable()[mapId]
-    return IsValidMap(map) and map or nil
-end
-
-local function CanViewMap(map)
-    return IsValidMap(map) and (dmhub.isDM or Field(map, "published", false))
-end
-
-local function VisibleMaps()
-    local result = {}
-    for _, map in pairs(MapsTable()) do
-        if CanViewMap(map) then
-            result[#result + 1] = map
-        end
-    end
-    table.sort(result, function(a, b)
-        local aname = MapNameKey(Field(a, "name", ""))
-        local bname = MapNameKey(Field(b, "name", ""))
-        if aname ~= bname then
-            return aname < bname
-        end
-        return a.id < b.id
-    end)
-    return result
-end
-
-local function ResolveFallbackMap(maps, rememberedId, isDirector)
-    if type(rememberedId) == "string" then
-        for _, map in ipairs(maps) do
-            if map.id == rememberedId then
-                return map
-            end
-        end
-    end
-
-    for _, map in ipairs(maps) do
-        if Field(map, "published", false) then
-            return map
-        end
-    end
-
-    if isDirector then
-        for _, map in ipairs(maps) do
-            if not Field(map, "published", false) then
-                return map
-            end
-        end
-    end
-    return nil
-end
-
--- Only accessible maps participate, so a hidden draft cannot affect player copy.
-local function MapDisplayNames(maps)
-    local groups, result = {}, {}
-    for _, map in ipairs(maps) do
-        local key = MapNameKey(map.name)
-        groups[key] = groups[key] or {}
-        groups[key][#groups[key] + 1] = map
-        result[map.id] = map.name
-    end
-    for _, group in pairs(groups) do
-        if #group > 1 then
-            for _, map in ipairs(group) do
-                local length = math.min(6, #map.id)
-                local unique = false
-                while not unique and length <= #map.id do
-                    unique = true
-                    local prefix = map.id:sub(1, length)
-                    for _, other in ipairs(group) do
-                        if other.id ~= map.id and other.id:sub(1, length) == prefix then
-                            unique = false
-                            break
-                        end
-                    end
-                    if not unique then length = length + 1 end
-                end
-                result[map.id] = map.name .. " [" .. map.id:sub(1, length) .. "]"
-            end
-        end
-    end
-    return result
-end
-
-local function IsValidLabel(label)
-    if label == nil or Field(label, "hidden", false) then
-        return false
-    end
-    local id = Field(label, "id", nil)
-    local operation = id and pendingWrites[Addon.labelTableName .. ":" .. tostring(id)]
-    if operation and operation.creating and operation.status ~= "confirmed" then return false end
-    if Field(label, "schemaVersion", 0) ~= Addon.schemaVersion then
-        return RejectMalformed("label", id, "unsupported schema")
-    end
-    local text = Field(label, "text", "")
-    local u = Field(label, "u", nil)
-    local v = Field(label, "v", nil)
-    if type(id) ~= "string" or id == "" then
-        return RejectMalformed("label", id, "missing id")
-    end
-    local mapId = Field(label, "mapId", nil)
-    if type(mapId) ~= "string" or GetMap(mapId) == nil then
-        return RejectMalformed("label", id, "missing map")
-    end
-    if not ValidText(text) then
-        return RejectMalformed("label", id, "invalid text")
-    end
-    if type(Field(label, "createdByDirector", nil)) ~= "boolean" then
-        return RejectMalformed("label", id, "missing creator role")
-    end
-    local visibility = Field(label, "visibility", nil)
-    if visibility ~= "shared" and visibility ~= "director" then
-        return RejectMalformed("label", id, "invalid visibility")
-    end
-    if type(Field(label, "ownerId", nil)) ~= "string" then
-        return RejectMalformed("label", id, "missing owner")
-    end
-    if not IsFinite(u) or not IsFinite(v) or u < 0 or u > 1 or v < 0 or v > 1 then
-        return RejectMalformed("label", id, "invalid coordinates")
-    end
-    return true
-end
-
-local function LabelVisibility(label)
-    if not Field(label, "createdByDirector", false) then return "shared" end
-    return Field(label, "visibility", "shared")
-end
-
-local function CanViewLabel(label)
-    return IsValidLabel(label) and CanViewMap(GetMap(Field(label, "mapId", nil)))
-        and (LabelVisibility(label) ~= "director" or dmhub.isDM)
-end
-
-local function CanEditLabel(label)
-    return CanViewLabel(label) and (dmhub.isDM or Field(label, "ownerId", "") == dmhub.loginUserid)
-end
-
-local function LabelsForMap(mapId, includeDirectorOnly)
-    local result = {}
-    for _, label in pairs(LabelsTable()) do
-        if IsValidLabel(label) and label.mapId == mapId and (includeDirectorOnly or CanViewLabel(label)) then
-            result[#result + 1] = label
-        end
-    end
-    table.sort(result, function(a, b)
-        local atext = string.lower(Field(a, "text", ""))
-        local btext = string.lower(Field(b, "text", ""))
-        if atext ~= btext then
-            return atext < btext
-        end
-        return a.id < b.id
-    end)
-    return result
-end
-
--- A local creation guard, not a distributed quota. Never truncate existing labels.
-local function LabelCount(mapId)
-    return #LabelsForMap(mapId, true)
-end
-
-local function LabelStateForMap(mapId)
-    local allLabels = LabelsForMap(mapId, true)
-    local visibleLabels = {}
-    local labelsById = {}
-    local editableLabelIds = {}
-    for _, label in ipairs(allLabels) do
-        labelsById[label.id] = label
-        editableLabelIds[label.id] = CanEditLabel(label)
-        if CanViewLabel(label) then
-            visibleLabels[#visibleLabels + 1] = label
-        end
-    end
-    return visibleLabels, #allLabels, labelsById, editableLabelIds
-end
-
-local function StateDocument()
-    return mod:GetDocumentSnapshot(Addon.stateDocumentId)
-end
-
-local function StateData()
-    local data = StateDocument().data
-    if type(data) ~= "table" then return nil end
-    if data.schemaVersion == nil and next(data) == nil then return data end
-    if data.schemaVersion ~= Addon.schemaVersion then
-        RejectMalformed("state", Addon.stateDocumentId, "unsupported schema")
-        return nil
-    end
-    return data
-end
-
-local function GetParty()
-    local data = StateData()
-    local party = data and data.party
-    if party == nil then
-        return nil
-    end
-    if type(party) ~= "table" or type(party.mapId) ~= "string" or GetMap(party.mapId) == nil then
-        RejectMalformed("Party state", nil, "missing map")
-        return nil
-    end
-    if not IsFinite(party.u) or not IsFinite(party.v) or party.u < 0 or party.u > 1 or party.v < 0 or party.v > 1 then
-        RejectMalformed("Party state", party.mapId, "invalid coordinates")
-        return nil
-    end
-    return party
-end
-
-local function LabelRenderSnapshot(label)
-    return {
-        labelId = label.id,
-        mapId = label.mapId,
-        u = label.u,
-        v = label.v,
-    }
-end
-
-local function PartyRenderSnapshot(party)
-    if party == nil then return nil end
-    return {
-        mapId = party.mapId,
-        u = party.u,
-        v = party.v,
-    }
-end
-
-local function PlayersCanMoveParty()
-    local data = StateData()
-    return data ~= nil and data.playerCanMoveParty == true
-end
-
-local function CanMoveParty()
-    return not mod.unloaded and StateData() ~= nil and (dmhub.isDM or PlayersCanMoveParty())
-end
-
-local function WriteParty(mapId, u, v, description)
-    local map = GetMap(mapId)
-    if map == nil or not CanMoveParty() or (not dmhub.isDM and not Field(map, "published", false)) then
-        return false
-    end
-    if not IsFinite(u) or not IsFinite(v) then
-        return false
-    end
-    local doc = StateDocument()
-    local old = doc.data.party
-    if RecordRevision(old) >= MAX_REVISION then return false end
-    doc:BeginChange()
-    doc.data.schemaVersion = Addon.schemaVersion
-    doc.data.party = {
-        mapId = mapId,
-        u = Clamp(u, 0, 1),
-        v = Clamp(v, 0, 1),
-        revision = RecordRevision(old) + 1,
-        updatedBy = dmhub.loginUserid,
-        updatedByName = CurrentUserName(),
-        updatedAt = ServerTimestamp(),
-    }
-    doc:CompleteChange(description or "Move Party on region map")
-    return true
-end
-
-local function UnplaceParty(description, expectedMapId)
-    if mod.unloaded or not dmhub.isDM or StateData() == nil then return false end
-    local doc = StateDocument()
-    if expectedMapId ~= nil and Field(doc.data.party, "mapId", nil) ~= expectedMapId then return false end
-    if doc.data.party == nil then
-        return
-    end
-    doc:BeginChange()
-    doc.data.schemaVersion = Addon.schemaVersion
-    doc.data.party = nil
-    doc.data.partyUpdatedBy = dmhub.loginUserid
-    doc.data.partyUpdatedByName = CurrentUserName()
-    doc.data.partyUpdatedAt = ServerTimestamp()
-    doc:CompleteChange(description or "Unplace Party on region map")
-end
-
-local function SetPlayersCanMoveParty(value)
-    if mod.unloaded or not dmhub.isDM or StateData() == nil then
-        return false
-    end
-    local doc = StateDocument()
-    doc:BeginChange()
-    doc.data.schemaVersion = Addon.schemaVersion
-    doc.data.playerCanMoveParty = value == true
-    doc:CompleteChange("Change Region Map Party permission")
-end
-
-local function ReadPreferences()
-    local prefs = dmhub.GetSettingValue(Addon.preferencesSettingId)
-    return type(prefs) == "table" and DeepCopy(prefs) or {}
-end
-
-local function WritePreferences(prefs)
-    dmhub.SetSettingValue(Addon.preferencesSettingId, prefs)
-end
-
-local function CameraKey(map)
-    local revision = Field(map, "imageRevision", nil)
-    if not IsPositiveInteger(revision) then return nil end
-    return string.format("%s:%.0f", map.id, revision)
-end
-
-local function ReadCamera(map)
-    local prefs = ReadPreferences()
-    local camera = type(prefs.cameras) == "table" and prefs.cameras[CameraKey(map)] or nil
-    if type(camera) ~= "table" or not IsFinite(camera.zoom) or not IsFinite(camera.centerX) or not IsFinite(camera.centerY) then
-        return { zoom = MIN_ZOOM, centerX = 0.5, centerY = 0.5 }, false
-    end
-    return {
-        zoom = Clamp(camera.zoom, MIN_ZOOM, MAX_ZOOM),
-        centerX = Clamp(camera.centerX, 0, 1),
-        centerY = Clamp(camera.centerY, 0, 1),
-    }, true
-end
-
-local function SaveCamera(map, camera)
-    if map == nil or camera == nil then return end
-    local prefs = ReadPreferences()
-    prefs.cameras = type(prefs.cameras) == "table" and prefs.cameras or {}
-    prefs.cameras[CameraKey(map)] = {
-        zoom = camera.zoom,
-        centerX = camera.centerX,
-        centerY = camera.centerY,
-    }
-    WritePreferences(prefs)
-end
-
-local function ShowLabelsForMap(mapId)
-    local prefs = ReadPreferences()
-    if type(prefs.showLabels) ~= "table" or prefs.showLabels[mapId] == nil then
-        return true
-    end
-    return prefs.showLabels[mapId] == true
-end
-
-local function SaveShowLabels(mapId, value)
-    local prefs = ReadPreferences()
-    prefs.showLabels = type(prefs.showLabels) == "table" and prefs.showLabels or {}
-    prefs.showLabels[mapId] = value == true
-    WritePreferences(prefs)
-end
-
-local function SaveSelectedMap(mapId)
-    local prefs = ReadPreferences()
-    prefs.selectedMapId = mapId
-    WritePreferences(prefs)
-end
-
-Model.LABEL_LIMIT = LABEL_LIMIT
-Model.TEXT_LIMIT = TEXT_LIMIT
-Model.MIN_ZOOM = MIN_ZOOM
-Model.MAX_ZOOM = MAX_ZOOM
 
 local function CanCommit(guard)
     return not mod.unloaded and (guard == nil or guard())
 end
 
-local function EditableMap(mapId, guard)
-    if not CanCommit(guard) or not dmhub.isDM then return nil end
-    return GetMap(mapId)
+-- The Location tree --------------------------------------------------------------------------
+
+--- Every valid Location, validated once and grouped by parent. Not filtered
+--- for the viewer.
+--- @class RegionMapLocationIndex
+--- @field byId table<string, RegionMapLocationRecord>
+--- @field childrenOf table<string, RegionMapLocationRecord[]> sorted by name; "" holds the top level
+
+--- One reversible part of a model write. Table steps restore a row; the Party
+--- step restores the state document's party. Undo refuses a step whose row
+--- changed since (another write), which revision and mutationId detect.
+--- @class RegionMapUndoStep
+--- @field tableName nil|string
+--- @field id nil|string
+--- @field before nil|table the row before the write; nil when the write created it
+--- @field party nil|table|false the party before a Party write; false = not placed
+--- @field afterRevision integer
+--- @field afterMutationId string
+
+--- What one user action changed, for RegionMapUndo.
+--- @class RegionMapUndoEntry
+--- @field description string
+--- @field steps RegionMapUndoStep[]
+
+--- The Party as the viewer may know it. At a Location, mapId/u/v follow that pin.
+--- @class RegionMapPartyView
+--- @field mapId string
+--- @field u number
+--- @field v number
+--- @field locationId nil|string only when the viewer can see that pin
+--- @field revision integer
+
+--- @alias RegionMapWriteReason "permission"|"invalid"|"busy"|"limit"|"unavailable"
+
+local Locations = R.LocationsTable
+local ValidName = R.ValidName
+
+-- View as player (V2-19): the Director's client answers every visibility
+-- question as a player who owns nothing, and refuses writes while it is on.
+local viewAsPlayer = false
+
+--- @param on boolean
+function RegionMapModel.SetViewAsPlayer(on)
+    viewAsPlayer = on == true and dmhub.isDM
 end
 
-local function NextRevision(record)
-    local revision = Field(record, "revision", 0)
-    if revision ~= 0 and not IsPositiveInteger(revision) then return nil end
-    if revision >= MAX_REVISION then return nil end
-    return revision + 1
+--- @return boolean
+function RegionMapModel.ViewingAsPlayer()
+    return viewAsPlayer
 end
 
-local function UpdateMap(mapId, changes, description, guard, callbacks)
-    local current = EditableMap(mapId, guard)
-    if current == nil or NextRevision(current) == nil then return false end
-    local result = DeepCopy(current)
-    if changes.name ~= nil then
-        if not ValidText(changes.name) then return false end
-        result.name = changes.name
-    end
-    if changes.imageId ~= nil then
-        if type(changes.imageId) ~= "string" or changes.imageId == ""
-            or current.imageRevision >= MAX_REVISION then return false end
-        result.imageId = changes.imageId
-        result.imageRevision = current.imageRevision + 1
-    end
-    if changes.published ~= nil then
-        if type(changes.published) ~= "boolean" then return false end
-        result.published = changes.published
-    end
-    result.revision = NextRevision(current)
-    Audit(result, false)
-    return UploadRecord(Addon.mapTableName, result, description, callbacks) ~= nil
+--- True when the viewer gets Director rights (a Director not viewing as player).
+--- @return boolean
+function RegionMapModel.IsDirector()
+    return dmhub.isDM and not viewAsPlayer
+end
+local IsDirector = RegionMapModel.IsDirector
+
+local function ViewerId()
+    if viewAsPlayer then return "" end
+    return dmhub.loginUserid
 end
 
-local function UpdateLabel(labelId, changes, description, guard, callbacks)
-    local current = LabelsTable()[labelId]
-    if not CanCommit(guard) or not CanEditLabel(current) or NextRevision(current) == nil then return false end
-    local map = GetMap(current.mapId)
-    if changes.mapId ~= nil and changes.mapId ~= current.mapId then return false end
-    if changes.imageRevision ~= nil and changes.imageRevision ~= map.imageRevision then return false end
-    local result = DeepCopy(current)
-    if changes.text ~= nil then
-        if not ValidText(changes.text) then return false end
-        result.text = changes.text
-    end
-    if changes.u ~= nil or changes.v ~= nil then
-        if not IsFinite(changes.u) or not IsFinite(changes.v) then return false end
-        result.u, result.v = Clamp(changes.u, 0, 1), Clamp(changes.v, 0, 1)
-    end
-    if changes.visibility ~= nil then
-        result.visibility = dmhub.isDM and Field(current, "createdByDirector", false)
-            and changes.visibility == "director" and "director" or "shared"
-    end
-    if changes.hidden == true then result.hidden = true end
-    result.revision = NextRevision(current)
-    Audit(result, false)
-    return UploadRecord(Addon.labelTableName, result, description, callbacks) ~= nil
+local function CanWrite()
+    return not mod.unloaded and not viewAsPlayer
 end
 
+-- Index ------------------------------------------------------------------------------------
 
-local function CreateMap(name, imageId, id, guard, callbacks)
-    if not CanCommit(guard) or not dmhub.isDM or not ValidText(name)
-        or type(imageId) ~= "string" or imageId == "" then return nil end
-    local previous = id and pendingWrites[Addon.mapTableName .. ":" .. id]
-    local existing = id and MapsTable()[id]
-    if id ~= nil and IsTombstoned(id) then return nil end
-    if existing ~= nil and (previous == nil or previous.status ~= "failed"
-        or Field(existing, "mutationId", nil) ~= previous.mutationId) then return nil end
-    if previous and previous.status == "failed" and previous.record.name == name
-        and previous.record.imageId == imageId then
-        return UploadRecord(Addon.mapTableName, previous.record, "Create region map", callbacks, true)
+local cachedIndex = nil --- @type nil|RegionMapLocationIndex
+local cachedKey = nil --- @type nil|string
+
+-- Changes whenever cloud data arrives; this client's own writes call InvalidateIndex.
+local function IndexKey()
+    return tostring(dmhub.ngameupdate) .. ":" .. tostring(dmhub.tablesUpdateId)
+end
+
+--- Drop the cached index so the next question rebuilds it.
+function RegionMapModel.InvalidateIndex()
+    cachedIndex = nil
+end
+local InvalidateIndex = RegionMapModel.InvalidateIndex
+
+local function NameKey(location)
+    return R.MapNameKey(location.name)
+end
+
+--- The validated Location tree, rebuilt only when the data changed.
+--- @return RegionMapLocationIndex
+function RegionMapModel.Index()
+    local key = IndexKey()
+    if cachedIndex ~= nil and cachedKey == key then return cachedIndex end
+    local candidates = {} --- @type table<string, RegionMapLocationRecord>
+    for id, row in pairs(Locations()) do
+        if R.IsValidLocationFields(row) then candidates[id] = row end
     end
-    local record = RegionMapRecord.new {
-        id = id or dmhub.GenerateGuid(), schemaVersion = Addon.schemaVersion,
-        name = name, imageId = imageId, imageRevision = 1, revision = 1,
-        published = false, hidden = false,
-    }
-    Audit(record, true)
-    return UploadRecord(Addon.mapTableName, record, "Create region map", callbacks, true)
-end
-
-local function CreateLabel(mapId, text, visibility, u, v, id, guard, callbacks)
-    local map = GetMap(mapId)
-    if not CanCommit(guard) or not CanViewMap(map) or not ValidText(text)
-        or not IsFinite(u) or not IsFinite(v) or LabelCount(mapId) >= LABEL_LIMIT then return nil end
-    local previous = id and pendingWrites[Addon.labelTableName .. ":" .. id]
-    local existing = id and LabelsTable()[id]
-    if existing ~= nil and (previous == nil or previous.status ~= "failed"
-        or Field(existing, "mutationId", nil) ~= previous.mutationId) then return nil end
-    local effectiveVisibility = dmhub.isDM and visibility == "director" and "director" or "shared"
-    if previous and previous.status == "failed" and previous.record.text == text
-        and previous.record.u == u and previous.record.v == v
-        and previous.record.visibility == effectiveVisibility then
-        return UploadRecord(Addon.labelTableName, previous.record, "Add region map label", callbacks, true)
-    end
-    local record = RegionMapLabelRecord.new {
-        id = id or dmhub.GenerateGuid(), schemaVersion = Addon.schemaVersion, mapId = mapId,
-        text = text, u = Clamp(u, 0, 1), v = Clamp(v, 0, 1),
-        ownerId = dmhub.loginUserid, ownerName = CurrentUserName(),
-        createdByDirector = dmhub.isDM,
-        visibility = dmhub.isDM and visibility == "director" and "director" or "shared",
-        revision = 1, hidden = false,
-    }
-    Audit(record, true)
-    return UploadRecord(Addon.labelTableName, record, "Add region map label", callbacks, true)
-end
-
--- Cleanup is independent per record. A failed hide cannot hold up other hides.
-local function HideDeletedRecord(tableName, id)
-    if type(id) ~= "string" or id == "" then return end
-    if mod.unloaded or not dmhub.isDM or PendingWrite(tableName, id) ~= nil then return end
-    local record = (dmhub.GetTable(tableName) or {})[id]
-    if record == nil or Field(record, "id", nil) ~= id
-        or Field(record, "schemaVersion", 0) ~= Addon.schemaVersion then return end
-    local previous = pendingWrites[tableName .. ":" .. id]
-    if Field(record, "hidden", false) and (previous == nil or previous.status ~= "failed")
-        and (tableName ~= Addon.mapTableName or not Field(record, "published", false)) then return end
-    local revision = NextRevision(record)
-    if revision == nil then return end
-    local result = DeepCopy(record)
-    result.hidden, result.revision = true, revision
-    if tableName == Addon.mapTableName then result.published = false end
-    Audit(result, false)
-    UploadRecord(tableName, result, "Hide deleted region map content", {
-        failure = function(operation)
-            print("REGION_MAP: cleanup can be retried for " .. id .. ": " .. tostring(operation.error))
-        end,
-    })
-end
-
-local function FinishDeletion(mapId, afterWithdraw)
-    if mod.unloaded or not dmhub.isDM or not IsTombstoned(mapId) then return end
-    -- These live-document actions are best effort; the tombstone already hides
-    -- the map and dangling Party references regardless of their outcome.
-    local ok, message = pcall(function()
-        if afterWithdraw ~= nil then afterWithdraw(mapId) end
-    end)
-    if not ok then print("REGION_MAP: presentation cleanup: " .. tostring(message)) end
-    ok, message = pcall(UnplaceParty, "Unplace Party from deleted region map", mapId)
-    if not ok then print("REGION_MAP: Party cleanup: " .. tostring(message)) end
-    HideDeletedRecord(Addon.mapTableName, mapId)
-    for id, label in pairs(LabelsTable()) do
-        if Field(label, "mapId", nil) == mapId then HideDeletedRecord(Addon.labelTableName, id) end
-    end
-end
-
-local function DeleteMap(mapId, guard, callbacks, afterWithdraw)
-    local current = EditableMap(mapId, guard)
-    if current == nil then return false end
-    local tombstone = RegionMapTombstoneRecord.new {
-        id = mapId, schemaVersion = Addon.schemaVersion, mapId = mapId,
-        deletedBy = dmhub.loginUserid, deletedByName = CurrentUserName(),
-        deletedAt = ServerTimestamp(), hidden = false,
-    }
-    Audit(tombstone, true)
-    return UploadRecord(Addon.tombstoneTableName, tombstone, "Delete region map", {
-        success = function(operation)
-            FinishDeletion(mapId, afterWithdraw)
-            -- Only the tombstone has been acknowledged; cleanup may still be pending.
-            if callbacks and callbacks.success then callbacks.success(operation) end
-        end,
-        failure = callbacks and callbacks.failure,
-    }) ~= nil
-end
-
-local function ResumeDeletions(afterWithdraw)
-    if mod.unloaded or not dmhub.isDM then return end
-    for id, tombstone in pairs(TombstonesTable()) do
-        if Field(tombstone, "schemaVersion", 0) == Addon.schemaVersion and IsTombstoned(id) then
-            FinishDeletion(id, afterWithdraw)
+    local byId, childrenOf, keys = {}, { [""] = {} }, {}
+    for id, row in pairs(candidates) do
+        if R.IsValidLocation(row, candidates) then
+            byId[id] = row
+            keys[id] = NameKey(row)
+            local list = childrenOf[row.parentId]
+            if list == nil then
+                list = {}
+                childrenOf[row.parentId] = list
+            end
+            list[#list + 1] = row
         end
     end
+    local function Before(a, b)
+        if keys[a.id] ~= keys[b.id] then return keys[a.id] < keys[b.id] end
+        return a.id < b.id
+    end
+    for _, list in pairs(childrenOf) do table.sort(list, Before) end
+    cachedIndex = { byId = byId, childrenOf = childrenOf }
+    cachedKey = key
+    return cachedIndex
+end
+local Index = RegionMapModel.Index
+
+-- A valid Location with no viewer filter. Internal: public reads filter.
+local function Raw(id)
+    if type(id) ~= "string" then return nil end
+    return Index().byId[id]
 end
 
--- Escape each opening bracket separately, including literal closing noparse tags.
-Model.LiteralText = function(value)
-    return (tostring(value or ""):gsub("<", "<noparse><</noparse>"))
+-- Visibility rules (D9, R4) ---------------------------------------------------------------
+
+--- Whether the viewer may open a Location's map. Director: any map. Player: a
+--- shared map whose own pin they can see (top-level maps have no pin).
+--- @param location nil|RegionMapLocationRecord
+--- @return boolean
+function RegionMapModel.CanOpenMap(location)
+    if location == nil or location.imageId == "" then return false end
+    if IsDirector() then return true end
+    if not location.mapShared then return false end
+    return location.parentId == "" or RegionMapModel.CanSeePin(location)
 end
-Model.ResumeDeletions = ResumeDeletions
-Model.CreateMap = CreateMap
-Model.CreateLabel = CreateLabel
-Model.DeleteMap = DeleteMap
-Model.CanCommit = CanCommit
-Model.EditableMap = EditableMap
-Model.NextRevision = NextRevision
-Model.UpdateMap = UpdateMap
-Model.UpdateLabel = UpdateLabel
-Model.StateData = StateData
-Model.ValidText = ValidText
-Model.MAX_REVISION = MAX_REVISION
-Model.Clamp = Clamp
-Model.IsFinite = IsFinite
-Model.IsPositiveInteger = IsPositiveInteger
-Model.Field = Field
-Model.RecordRevision = RecordRevision
-Model.TrimSingleLine = TrimSingleLine
-Model.TextLength = TextLength
-Model.MapNameKey = MapNameKey
-Model.CurrentUserName = CurrentUserName
-Model.Audit = Audit
-Model.UploadRecord = UploadRecord
-Model.PendingWrite = PendingWrite
-Model.MapsTable = MapsTable
-Model.LabelsTable = LabelsTable
-Model.TombstonesTable = TombstonesTable
-Model.IsTombstoned = IsTombstoned
-Model.IsValidMap = IsValidMap
-Model.GetMap = GetMap
-Model.CanViewMap = CanViewMap
-Model.VisibleMaps = VisibleMaps
-Model.ResolveFallbackMap = ResolveFallbackMap
-Model.MapDisplayNames = MapDisplayNames
-Model.IsValidLabel = IsValidLabel
-Model.LabelVisibility = LabelVisibility
-Model.CanViewLabel = CanViewLabel
-Model.CanEditLabel = CanEditLabel
-Model.LabelsForMap = LabelsForMap
-Model.LabelCount = LabelCount
-Model.LabelStateForMap = LabelStateForMap
-Model.StateDocument = StateDocument
-Model.GetParty = GetParty
-Model.LabelRenderSnapshot = LabelRenderSnapshot
-Model.PartyRenderSnapshot = PartyRenderSnapshot
-Model.PlayersCanMoveParty = PlayersCanMoveParty
-Model.CanMoveParty = CanMoveParty
-Model.WriteParty = WriteParty
-Model.UnplaceParty = UnplaceParty
-Model.SetPlayersCanMoveParty = SetPlayersCanMoveParty
-Model.ReadPreferences = ReadPreferences
-Model.WritePreferences = WritePreferences
-Model.CameraKey = CameraKey
-Model.ReadCamera = ReadCamera
-Model.SaveCamera = SaveCamera
-Model.ShowLabelsForMap = ShowLabelsForMap
-Model.SaveShowLabels = SaveShowLabels
-Model.SaveSelectedMap = SaveSelectedMap
-Model.ready = true
-Addon.Model = Model
+local CanOpenMap = RegionMapModel.CanOpenMap
+
+--- Whether the viewer sees a Location's pin on its parent's map.
+--- @param location nil|RegionMapLocationRecord
+--- @return boolean
+function RegionMapModel.CanSeePin(location)
+    if location == nil or location.parentId == "" then return false end
+    if IsDirector() then return true end
+    return location.visibility == "revealed" and CanOpenMap(Raw(location.parentId))
+end
+local CanSeePin = RegionMapModel.CanSeePin
+
+-- A pin the viewer sees, or a top-level map they may open.
+local function CanSee(location)
+    if location == nil then return false end
+    if location.parentId == "" then return CanOpenMap(location) end
+    return CanSeePin(location)
+end
+
+--- @param location nil|RegionMapLocationRecord
+--- @return boolean
+function RegionMapModel.CanEdit(location)
+    if not CanWrite() or not CanSee(location) then return false end
+    return IsDirector() or (location ~= nil and location.ownerId == ViewerId())
+end
+local CanEdit = RegionMapModel.CanEdit
+
+--- A Location the viewer may see, or nil. Never returns a Hidden pin or an
+--- unshared map to a player.
+--- @param id any
+--- @return nil|RegionMapLocationRecord
+function RegionMapModel.GetLocation(id)
+    local location = Raw(id)
+    if not CanSee(location) then return nil end
+    return location
+end
+
+--- The pins on a map the viewer may see, sorted by name. Empty when the
+--- viewer may not open the map.
+--- @param mapId string
+--- @return RegionMapLocationRecord[]
+function RegionMapModel.Children(mapId)
+    local result = {} --- @type RegionMapLocationRecord[]
+    if not CanOpenMap(Raw(mapId)) then return result end
+    for _, child in ipairs(Index().childrenOf[mapId] or {}) do
+        if CanSeePin(child) then result[#result + 1] = child end
+    end
+    return result
+end
+local Children = RegionMapModel.Children
+
+--- Top-level maps the viewer may open, sorted by name (the Atlas).
+--- @return RegionMapLocationRecord[]
+function RegionMapModel.TopLevel()
+    local result = {} --- @type RegionMapLocationRecord[]
+    for _, location in ipairs(Index().childrenOf[""]) do
+        if CanOpenMap(location) then result[#result + 1] = location end
+    end
+    return result
+end
+
+--- Every map the viewer may open, at any depth, sorted by name ("Move to map...").
+--- @return RegionMapLocationRecord[]
+function RegionMapModel.OpenableMaps()
+    local result, keys = {}, {} --- @type RegionMapLocationRecord[], table<string, string>
+    for id, location in pairs(Index().byId) do
+        if CanOpenMap(location) then
+            result[#result + 1] = location
+            keys[id] = NameKey(location)
+        end
+    end
+    table.sort(result, function(a, b)
+        if keys[a.id] ~= keys[b.id] then return keys[a.id] < keys[b.id] end
+        return a.id < b.id
+    end)
+    return result
+end
+
+--- Locations the viewer can see on any map whose name contains the query
+--- (case-folded like the sort key), best first: names that start with the
+--- query, then the rest, each by name. Unnamed Locations never match.
+--- @param query string
+--- @param limit integer
+--- @return RegionMapLocationRecord[]
+function RegionMapModel.Search(query, limit)
+    local needle = R.MapNameKey(R.TrimSingleLine(query))
+    local result, rank, keys = {}, {}, {} --- @type RegionMapLocationRecord[], table<string, integer>, table<string, string>
+    if needle == "" then return result end
+    for id, location in pairs(Index().byId) do
+        if location.name ~= "" and CanSee(location) then
+            local key = NameKey(location)
+            local at = string.find(key, needle, 1, true)
+            if at ~= nil then
+                result[#result + 1] = location
+                rank[id] = at == 1 and 0 or 1
+                keys[id] = key
+            end
+        end
+    end
+    table.sort(result, function(a, b)
+        if rank[a.id] ~= rank[b.id] then return rank[a.id] < rank[b.id] end
+        if keys[a.id] ~= keys[b.id] then return keys[a.id] < keys[b.id] end
+        return a.id < b.id
+    end)
+    for i = #result, limit + 1, -1 do result[i] = nil end
+    return result
+end
+
+--- The path to a Location, root first and the Location itself last, for the
+--- breadcrumb. Empty when the viewer may not see it (so a player never gets a
+--- level they cannot see).
+--- @param id string
+--- @return RegionMapLocationRecord[]
+function RegionMapModel.Ancestors(id)
+    local path = {} --- @type RegionMapLocationRecord[]
+    local location = Raw(id)
+    if not CanSee(location) then return path end
+    for _ = 1, C.maxDepth do
+        if location == nil then break end
+        table.insert(path, 1, location)
+        if location.parentId == "" then break end
+        location = Raw(location.parentId)
+    end
+    return path
+end
+
+--- True when target is the Location or anywhere below it.
+--- @param id string
+--- @param targetId string
+--- @return boolean
+function RegionMapModel.IsInSubtree(id, targetId)
+    local location = Raw(targetId)
+    for _ = 1, C.maxDepth + 1 do
+        if location == nil then return false end
+        if location.id == id then return true end
+        location = Raw(location.parentId)
+    end
+    return false
+end
+local IsInSubtree = RegionMapModel.IsInSubtree
+
+-- Every valid Location below id, deepest last; viewer filter not applied.
+local function Descendants(id)
+    local result, queue = {}, { id }
+    local childrenOf = Index().childrenOf
+    while #queue > 0 do
+        local parentId = table.remove(queue, 1)
+        for _, child in ipairs(childrenOf[parentId] or {}) do
+            result[#result + 1] = child
+            queue[#queue + 1] = child.id
+        end
+    end
+    return result
+end
+
+--- How many Locations below this one the viewer sees (dialog and Atlas counts).
+--- @param id string
+--- @return integer
+function RegionMapModel.VisibleDescendantCount(id)
+    local count = 0
+    for _, location in ipairs(Descendants(id)) do
+        if CanSeePin(location) then count = count + 1 end
+    end
+    return count
+end
+
+-- State document settings ------------------------------------------------------------------
+
+-- Write state document fields. Party settings are not on the engine undo stack:
+-- Region Map keeps its own undo, and Ctrl+Z must not desync it.
+local function WriteState(description, apply)
+    if not CanWrite() or StateData() == nil then return false end
+    local doc = StateDocument()
+    doc:BeginChange()
+    doc.data.schemaVersion = C.schemaVersion
+    apply(doc.data)
+    doc:CompleteChange(description, { undoable = false })
+    return true
+end
+
+--- The Party's custom name (D11b).
+--- @return string
+function RegionMapModel.PartyName()
+    local data = StateData()
+    local name = data and data.partyName
+    if ValidText(name) then return name --[[@as string]] end
+    return RegionMapCopy.T("party.defaultName", nil, true)
+end
+
+--- @param name string "" restores the default name
+--- @return boolean written
+function RegionMapModel.SetPartyName(name)
+    name = R.TrimSingleLine(name)
+    if not IsDirector() or not ValidName(name) then return false end
+    return WriteState("Rename the Party", function(data) data.partyName = name end)
+end
+
+--- A library image id for the Party marker, or "" for the default banner.
+--- @return string
+function RegionMapModel.PartyImageId()
+    local data = StateData()
+    local imageId = data and data.partyImageId
+    if type(imageId) == "string" and #imageId <= C.journalIdLimit then return imageId end
+    return ""
+end
+
+--- @param imageId string
+--- @return boolean written
+function RegionMapModel.SetPartyImageId(imageId)
+    if not IsDirector() or type(imageId) ~= "string" or #imageId > C.journalIdLimit then return false end
+    return WriteState("Change the Party image", function(data) data.partyImageId = imageId end)
+end
+
+--- Game-wide: whether players may add Locations (D9d). On unless the Director turned it off.
+--- @return boolean
+function RegionMapModel.PlayersCanAddLocations()
+    local data = StateData()
+    return data == nil or data.playersCanAddLocations ~= false
+end
+
+--- @param value boolean
+--- @return boolean written
+function RegionMapModel.SetPlayersCanAddLocations(value)
+    if not IsDirector() then return false end
+    return WriteState("Change who can add Region Map locations", function(data)
+        data.playersCanAddLocations = value == true
+    end)
+end
+
+--- Whether the viewer may add a Location on this map now.
+--- @param mapId string
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+function RegionMapModel.CanAdd(mapId)
+    if not CanWrite() or not CanOpenMap(Raw(mapId)) then return false, "permission" end
+    if not IsDirector() and not RegionMapModel.PlayersCanAddLocations() then return false, "permission" end
+    -- Counted per viewer, so hidden pins neither leak nor block a player (V1 RM-02).
+    if #Children(mapId) >= C.labelLimit then return false, "limit" end
+    return true, nil
+end
+local CanAdd = RegionMapModel.CanAdd
+
+-- Location writes --------------------------------------------------------------------------
+
+--- Upload one Location row built from current (nil to create) plus changes.
+--- Returns the undo step, or nil when the upload could not start.
+--- @param current nil|RegionMapLocationRecord
+--- @param changes table
+--- @param description string
+--- @param callbacks nil|RegionMapWriteCallbacks told when the server confirms or refuses
+--- @return nil|RegionMapUndoStep
+local function WriteLocation(current, changes, description, callbacks)
+    local record = current and DeepCopy(current) or RegionMapLocationRecord.new { revision = 0 }
+    for key, value in pairs(changes) do
+        -- false clears an optional field (scale, pace); nil cannot sit in a table.
+        if value == false and (key == "scale" or key == "pace") then record[key] = nil else record[key] = value end
+    end
+    local revision = NextRevision(record)
+    if revision == nil then return nil end
+    record.revision = revision
+    Audit(record, current == nil)
+    local function Finish(callback)
+        return function(write)
+            InvalidateIndex()
+            if callback ~= nil then callback(write) end
+        end
+    end
+    local operation = UploadRecord(C.locationTableName, record, description, {
+        success = Finish(callbacks and callbacks.success), failure = Finish(callbacks and callbacks.failure),
+    }, current == nil)
+    if operation == nil then return nil end
+    InvalidateIndex()
+    return {
+        tableName = C.locationTableName, id = record.id,
+        before = current and DeepCopy(current) or nil,
+        afterRevision = revision, afterMutationId = record.mutationId,
+    }
+end
+
+-- Validates and normalizes UpdateLocation changes; nil when any is invalid.
+local function NormalizeChanges(current, changes)
+    local result = {}
+    for key, value in pairs(changes) do
+        if key == "name" then
+            value = R.TrimSingleLine(value)
+            if not ValidName(value) then return nil end
+        elseif key == "u" or key == "v" then
+            if not IsFinite(value) or current.parentId == "" then return nil end
+            value = Clamp(value, 0, 1)
+        elseif key == "pinStyle" then
+            if not R.pinStyles[value] then return nil end
+        elseif key == "importance" then
+            if not R.importances[value] then return nil end
+        elseif key == "icon" then
+            if type(value) ~= "string" or #value > C.journalIdLimit then return nil end
+        elseif key == "visibility" then
+            if not IsDirector() or not R.visibilities[value] or current.parentId == "" then return nil end
+        elseif key == "mapShared" then
+            if not IsDirector() or type(value) ~= "boolean" or current.imageId == "" then return nil end
+        elseif key == "scale" then
+            if not IsDirector() or not (value == false or R.ValidScale(value)) then return nil end
+            if value then value = DeepCopy(value) end
+        elseif key == "pace" then
+            if not IsDirector() or not (value == false or (IsFinite(value) and value > 0)) then return nil end
+        else
+            -- parentId, imageId and hidden change only through their own functions.
+            return nil
+        end
+        result[key] = value
+    end
+    return result
+end
+
+--- How the last write of a Location from this client ended, for the side
+--- panel's Saving / Saved / Not saved line. nil when there was none.
+--- @param id string
+--- @return nil|"pending"|"confirmed"|"failed"
+function RegionMapModel.WriteStatus(id)
+    local operation = R.LastWrite(C.locationTableName, id)
+    return operation and operation.status
+end
+
+--- @param description string
+--- @param steps RegionMapUndoStep[]
+--- @return RegionMapUndoEntry
+local function Entry(description, steps)
+    return { description = description, steps = steps }
+end
+
+--- Apply changed fields to the freshest row of a Location the viewer may edit.
+--- Only the named fields change, so two people editing different fields of one
+--- Location do not undo each other.
+--- @param id string
+--- @param changes {name: nil|string, u: nil|number, v: nil|number, pinStyle: nil|string, importance: nil|string, icon: nil|string, visibility: nil|string, mapShared: nil|boolean, scale: nil|false|RegionMapScale, pace: nil|false|number}
+--- @param description nil|string
+--- @param guard nil|RegionMapGuard
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.UpdateLocation(id, changes, description, guard)
+    local current = Raw(id)
+    if not CanCommit(guard) or current == nil then return false, "invalid", nil end
+    if not CanEdit(current) then return false, "permission", nil end
+    if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
+    local normalized = NormalizeChanges(current, changes)
+    if normalized == nil then return false, "invalid", nil end
+    description = description or "Edit region map location"
+    local step = WriteLocation(current, normalized, description)
+    if step == nil then return false, "unavailable", nil end
+    return true, nil, Entry(description, { step })
+end
+local UpdateLocation = RegionMapModel.UpdateLocation
+
+--- The style a new pin starts with (R10: copied from the last one placed).
+--- @class RegionMapPinStyle
+--- @field icon nil|string
+--- @field importance nil|"major"|"normal"|"minor"
+--- @field pinStyle nil|"iconName"|"plate"|"iconOnly"
+--- @field visibility nil|"hidden"|"revealed" Director only; players' Locations are always revealed
+
+--- Create a Location at a point of a map. Director-made Locations start Hidden
+--- unless style says otherwise; player-made ones are Revealed (R1). The name
+--- starts empty and the UI shows edit.name.fallback until it is named.
+--- @param mapId string
+--- @param u number
+--- @param v number
+--- @param style nil|RegionMapPinStyle
+--- @param callbacks nil|RegionMapWriteCallbacks the new row is readable only after success
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+--- @return nil|string id
+function RegionMapModel.CreateLocation(mapId, u, v, style, callbacks)
+    style = style or {}
+    if not IsFinite(u) or not IsFinite(v) then return false, "invalid", nil, nil end
+    local ok, reason = CanAdd(mapId)
+    if not ok then return false, reason, nil, nil end
+    local director = IsDirector()
+    local visibility = "revealed"
+    if director then visibility = R.visibilities[style.visibility] and style.visibility or "hidden" end
+    local id = dmhub.GenerateGuid()
+    local step = WriteLocation(nil, {
+        id = id, schemaVersion = C.locationSchemaVersion, parentId = mapId, name = "",
+        u = Clamp(u, 0, 1), v = Clamp(v, 0, 1),
+        pinStyle = R.pinStyles[style.pinStyle] and style.pinStyle or "iconName",
+        importance = R.importances[style.importance] and style.importance or "normal",
+        icon = type(style.icon) == "string" and #style.icon <= C.journalIdLimit and style.icon or "",
+        visibility = visibility, imageId = "", imageRevision = 0, mapShared = false,
+        ownerId = dmhub.loginUserid, ownerName = CurrentUserName(), createdByDirector = director,
+        hidden = false,
+    }, "Add region map location", callbacks)
+    if step == nil then return false, "unavailable", nil, nil end
+    return true, nil, Entry("Add region map location", { step }), id
+end
+
+--- Create a top-level map (Atlas "New map"). Starts not shared (R1).
+--- @param name string
+--- @param imageId string
+--- @param callbacks nil|RegionMapWriteCallbacks the new row is readable only after success
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+--- @return nil|string id
+function RegionMapModel.CreateMap(name, imageId, callbacks)
+    name = R.TrimSingleLine(name)
+    if not CanWrite() or not IsDirector() then return false, "permission", nil, nil end
+    if not ValidText(name) or type(imageId) ~= "string" or imageId == "" then return false, "invalid", nil, nil end
+    local id = dmhub.GenerateGuid()
+    local step = WriteLocation(nil, {
+        id = id, schemaVersion = C.locationSchemaVersion, parentId = "", name = name, u = 0.5, v = 0.5,
+        pinStyle = "iconName", importance = "normal", icon = "", visibility = "revealed",
+        imageId = imageId, imageRevision = 1, mapShared = false,
+        ownerId = dmhub.loginUserid, ownerName = CurrentUserName(), createdByDirector = true, hidden = false,
+    }, "Create region map", callbacks)
+    if step == nil then return false, "unavailable", nil, nil end
+    return true, nil, Entry("Create region map", { step }), id
+end
+
+--- @param id string
+--- @param u number
+--- @param v number
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.MoveLocation(id, u, v)
+    return UpdateLocation(id, { u = u, v = v }, "Move region map location")
+end
+
+--- Move a Location (and everything under it) onto another map, at its middle.
+--- @param id string
+--- @param mapId string
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.MoveToMap(id, mapId)
+    local current = Raw(id)
+    if current == nil or current.parentId == "" or IsInSubtree(id, mapId) then return false, "invalid", nil end
+    if not CanEdit(current) then return false, "permission", nil end
+    if current.parentId == mapId then return true, nil, Entry("Move region map location", {}) end
+    local ok, reason = CanAdd(mapId)
+    if not ok then return false, reason, nil end
+    if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
+    local step = WriteLocation(current, { parentId = mapId, u = 0.5, v = 0.5 }, "Move region map location to map")
+    if step == nil then return false, "unavailable", nil end
+    return true, nil, Entry("Move region map location to map", { step })
+end
+
+--- @param id string
+--- @param visibility "hidden"|"revealed"
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.SetVisibility(id, visibility)
+    if not IsDirector() then return false, "permission", nil end
+    return UpdateLocation(id, { visibility = visibility }, "Change location visibility")
+end
+
+--- @param id string
+--- @param shared boolean
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.SetMapShared(id, shared)
+    if not IsDirector() then return false, "permission", nil end
+    return UpdateLocation(id, { mapShared = shared }, "Change map sharing")
+end
+
+-- Sets a Location's image. Every new image bumps imageRevision, so cameras
+-- saved for the old image are not reused.
+local function SetImage(id, imageId, description)
+    local current = Raw(id)
+    if not IsDirector() or not CanWrite() then return false, "permission", nil end
+    if current == nil or type(imageId) ~= "string" or imageId == "" then return false, "invalid", nil end
+    if current.imageRevision >= C.maxRevision then return false, "unavailable", nil end
+    if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
+    local changes = { imageId = imageId, imageRevision = current.imageRevision + 1 }
+    -- New maps start not shared (R1); a replaced image keeps its sharing.
+    if current.imageId == "" then changes.mapShared = false end
+    local step = WriteLocation(current, changes, description)
+    if step == nil then return false, "unavailable", nil end
+    return true, nil, Entry(description, { step })
+end
+
+--- Give a Location without a map its own map image.
+--- @param id string
+--- @param imageId string
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.AddMap(id, imageId)
+    local current = Raw(id)
+    if current ~= nil and current.imageId ~= "" then return false, "invalid", nil end
+    return SetImage(id, imageId, "Add map to location")
+end
+
+--- Replace a map's image. Pins keep their u/v (V1 behavior).
+--- @param id string
+--- @param imageId string
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.ReplaceImage(id, imageId)
+    local current = Raw(id)
+    if current ~= nil and current.imageId == "" then return false, "invalid", nil end
+    return SetImage(id, imageId, "Replace map image")
+end
+
+-- Party -------------------------------------------------------------------------------------
+
+-- The stored party, validated against the tree. At a valid Location it
+-- follows that pin (D4d); otherwise it stays where it was dropped.
+local function StoredParty()
+    local data = StateData()
+    local party = data and data.party
+    if type(party) ~= "table" then return nil end
+    local map = Raw(party.mapId)
+    if map == nil or map.imageId == "" or not R.ValidUnit(party.u) or not R.ValidUnit(party.v) then return nil end
+    --- @type RegionMapPartyView
+    local result = { mapId = party.mapId, u = party.u, v = party.v, locationId = nil, revision = R.RecordRevision(party) }
+    local location = Raw(party.locationId)
+    if location ~= nil and location.parentId ~= "" and Raw(location.parentId) ~= nil then
+        result.mapId, result.u, result.v, result.locationId = location.parentId, location.u, location.v, location.id
+    end
+    return result
+end
+
+--- Where the Party is, as the viewer may know it: nil when it is not placed or
+--- on a map the viewer cannot open; locationId only when they see that pin (R3).
+--- @return nil|RegionMapPartyView
+function RegionMapModel.Party()
+    local party = StoredParty()
+    if party == nil or not CanOpenMap(Raw(party.mapId)) then return nil end
+    if party.locationId ~= nil and not CanSeePin(Raw(party.locationId)) then party.locationId = nil end
+    return party
+end
+local Party = RegionMapModel.Party
+
+--- The Party status for the status chip, relative to the open map.
+--- @param currentMapId nil|string
+--- @return "at"|"traveling"|"elsewhere"|"none" kind
+--- @return nil|RegionMapPartyView party
+--- @return nil|RegionMapLocationRecord location set for "at"
+function RegionMapModel.PartyStatus(currentMapId)
+    local party = Party()
+    if party == nil then return "none", nil, nil end
+    if party.mapId ~= currentMapId then return "elsewhere", party, nil end
+    if party.locationId ~= nil then return "at", party, Raw(party.locationId) end
+    return "traveling", party, nil
+end
+
+--- Whether the viewer may move the Party on this map.
+--- @param mapId string
+--- @return boolean
+function RegionMapModel.CanMovePartyOn(mapId)
+    if not CanWrite() or StateData() == nil or not CanOpenMap(Raw(mapId)) then return false end
+    return IsDirector() or RegionMapModel.PlayersCanMoveParty()
+end
+local CanMovePartyOn = RegionMapModel.CanMovePartyOn
+
+-- Writes the party (or nil to unplace) and returns its undo step.
+local function SetParty(party, description)
+    local doc = StateDocument()
+    local old = doc.data.party
+    -- partyRevision survives an unplace, so revisions never go back and undo
+    -- can tell any later Party write apart from its own.
+    local oldRevision = math.max(R.RecordRevision(old), R.RecordRevision({ revision = doc.data.partyRevision }))
+    if oldRevision >= C.maxRevision then return nil end
+    local revision = oldRevision + 1
+    local mutationId = dmhub.GenerateGuid()
+    local before = type(old) == "table" and DeepCopy(old) or false
+    doc:BeginChange()
+    doc.data.schemaVersion = C.schemaVersion
+    doc.data.partyRevision = revision
+    doc.data.partyMutationId = mutationId
+    if party == nil then
+        doc.data.party = nil
+    else
+        party.revision, party.mutationId = revision, mutationId
+        party.updatedBy, party.updatedByName, party.updatedAt = dmhub.loginUserid, CurrentUserName(), ServerTimestamp()
+        doc.data.party = party
+    end
+    doc:CompleteChange(description, { undoable = false })
+    return { party = before, afterRevision = revision, afterMutationId = mutationId }
+end
+
+--- Move the Party. With locationId it is "at" that Location (snapped to its
+--- pin); without, it is traveling at u/v. A player can never snap it to a pin
+--- they cannot see (R3).
+--- @param args {mapId: string, u: nil|number, v: nil|number, locationId: nil|string, description: nil|string, placed: nil|boolean}
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.WriteParty(args)
+    if StateData() == nil then return false, "unavailable", nil end
+    if not CanMovePartyOn(args.mapId) then return false, "permission", nil end
+    local u, v, locationId = args.u, args.v, nil
+    if args.locationId ~= nil then
+        local location = Raw(args.locationId)
+        if location == nil or location.parentId ~= args.mapId or not CanSeePin(location) then return false, "invalid", nil end
+        u, v, locationId = location.u, location.v, location.id
+    end
+    if not IsFinite(u) or not IsFinite(v) then return false, "invalid", nil end
+    local description = args.description or "Move Party on region map"
+    local before = StoredParty()
+    local after = { mapId = args.mapId, u = Clamp(u --[[@as number]], 0, 1), v = Clamp(v --[[@as number]], 0, 1), locationId = locationId }
+    local step = SetParty(DeepCopy(after), description)
+    if step == nil then return false, "unavailable", nil end
+    -- The session log entry undoes with the move (R3); a failed log write leaves the move standing.
+    local steps = { step }
+    local logStep = RegionMapLog.Record(before, after, args.placed == true)
+    if logStep ~= nil then steps[2] = logStep end
+    return true, nil, Entry(description, steps)
+end
+local WriteParty = RegionMapModel.WriteParty
+
+--- Director: put the Party anywhere on any map (R12 "Place Party here").
+--- @param mapId string
+--- @param u number
+--- @param v number
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.PlaceParty(mapId, u, v)
+    if not IsDirector() then return false, "permission", nil end
+    return WriteParty { mapId = mapId, u = u, v = v, description = "Place Party on region map", placed = true }
+end
+
+-- Deletion ------------------------------------------------------------------------------------
+
+-- Hides each Location (deepest first, so no child outlives its parent on
+-- another client mid-batch) and returns the steps that started.
+local function HideAll(locations, description)
+    local steps = {}
+    for i = #locations, 1, -1 do
+        local step = WriteLocation(locations[i], { hidden = true }, description)
+        if step ~= nil then steps[#steps + 1] = step end
+    end
+    return steps
+end
+
+-- Where the Party goes when these maps are removed: the removed Location's
+-- spot on its parent map, false to unplace it (a top-level map goes), or nil
+-- when it is not on them. Read before the rows are hidden, since hiding drops
+-- them from the tree StoredParty reads.
+local function RescueTarget(location, removedMapIds)
+    local party = StoredParty()
+    if party == nil or StateData() == nil then return nil end
+    local onRemoved = removedMapIds[party.mapId] or party.locationId ~= nil and removedMapIds[party.locationId]
+    if not onRemoved then return nil end
+    if location.parentId == "" then return false end
+    return { mapId = location.parentId, u = location.u, v = location.v }
+end
+
+-- True when any of the rows still has a write in flight (a rename just typed):
+-- writing it again now would fail, and a batch must not go through half done.
+local function AnyPending(locations)
+    for _, location in ipairs(locations) do
+        if R.PendingWrite(C.locationTableName, location.id) then return true end
+    end
+    return false
+end
+
+--- Whether the viewer may delete a Location. Players delete only their own
+--- Locations, and only while they have no map: only the Director adds maps, so
+--- a map and everything pinned on it is Director content (decision 2026-10-07).
+--- @param location nil|RegionMapLocationRecord
+--- @return boolean
+function RegionMapModel.CanDelete(location)
+    if location == nil or not CanEdit(location) then return false end
+    if IsDirector() then return true end
+    return location.parentId ~= "" and location.imageId == ""
+end
+
+--- Delete a Location and its whole subtree in one batch. A Party inside moves
+--- to the deleted Location's spot on its parent map (D7d). Details and notes
+--- rows are left in place: nothing shows them, and undo needs them intact.
+--- @param id string
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+--- @return integer count Locations deleted besides this one
+function RegionMapModel.DeleteLocation(id)
+    local current = Raw(id)
+    if current == nil then return false, "invalid", nil, 0 end
+    if not RegionMapModel.CanDelete(current) then return false, "permission", nil, 0 end
+    local descendants = Descendants(id)
+    local all = { current }
+    for _, location in ipairs(descendants) do all[#all + 1] = location end
+    if AnyPending(all) then return false, "busy", nil, 0 end
+    local removed = {}
+    for _, location in ipairs(all) do removed[location.id] = true end
+    local description = "Delete region map location"
+    local target = RescueTarget(current, removed)
+    local steps = HideAll(all, description)
+    if #steps == 0 then return false, "unavailable", nil, 0 end
+    -- The Party moves only once the rows are on their way, so a failed delete leaves it be.
+    if target ~= nil then
+        local partyStep = SetParty(target or nil, description)
+        if partyStep ~= nil then steps[#steps + 1] = partyStep end
+    end
+    return true, nil, Entry(description, steps), #descendants
+end
+
+--- Remove a Location's map image; the Locations pinned on it (and below) are
+--- deleted (copy 17.5). Top-level maps are deleted instead, never emptied.
+--- @param id string
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+--- @return integer count Locations deleted
+function RegionMapModel.RemoveMap(id)
+    local current = Raw(id)
+    if not IsDirector() or not CanWrite() then return false, "permission", nil, 0 end
+    if current == nil or current.parentId == "" or current.imageId == "" then return false, "invalid", nil, 0 end
+    local descendants = Descendants(id)
+    if R.PendingWrite(C.locationTableName, id) or AnyPending(descendants) then return false, "busy", nil, 0 end
+    local removed = {}
+    for _, location in ipairs(descendants) do removed[location.id] = true end
+    local description = "Remove map from location"
+    -- A Party on the removed map (or below it) goes to this Location's own pin, which stays.
+    -- Decided before the writes, since hiding the rows drops them from the tree.
+    local partyTarget = nil
+    local party = StoredParty()
+    if party ~= nil and (party.mapId == id or removed[party.mapId] or (party.locationId and removed[party.locationId])) then
+        partyTarget = { mapId = current.parentId, u = current.u, v = current.v, locationId = current.id }
+    end
+    -- Pins go before the map (deepest first, see HideAll), so check up front that the
+    -- map's own row can still take a write; the busy check above covers the rest.
+    if NextRevision(current) == nil then return false, "unavailable", nil, 0 end
+    local steps = HideAll(descendants, description)
+    local own = WriteLocation(current, { imageId = "", mapShared = false, scale = false, pace = false }, description)
+    if own == nil then return false, "unavailable", nil, 0 end
+    steps[#steps + 1] = own
+    if partyTarget ~= nil then
+        local partyStep = SetParty(partyTarget, description)
+        if partyStep ~= nil then steps[#steps + 1] = partyStep end
+    end
+    return true, nil, Entry(description, steps), #descendants
+end
+
+-- Undo support ---------------------------------------------------------------------------------
+
+-- The live value a step compares against: the row, or the party document.
+local function StepCurrent(step)
+    if step.tableName ~= nil then
+        local row = (dmhub.GetTable(step.tableName) or {})[step.id]
+        return R.RecordRevision(row), Field(row, "mutationId", nil)
+    end
+    local data = StateData()
+    if data == nil then return -1, nil end
+    if type(data.party) == "table" then return R.RecordRevision(data.party), Field(data.party, "mutationId", nil) end
+    return R.RecordRevision({ revision = data.partyRevision }), data.partyMutationId
+end
+
+--- True when none of an entry's table writes is still waiting for the server.
+--- Undo waits for this: a row with a write in flight cannot be written again.
+--- @param entry RegionMapUndoEntry
+--- @return boolean
+function RegionMapModel.IsSettled(entry)
+    for _, step in ipairs(entry.steps) do
+        if step.tableName ~= nil and R.PendingWrite(step.tableName, step.id) then return false end
+    end
+    return true
+end
+
+--- Whether every step of an entry is still exactly as this client left it.
+--- False after anyone else changed one of the rows (R14).
+--- @param entry RegionMapUndoEntry
+--- @return boolean
+function RegionMapModel.CanRevert(entry)
+    if not CanWrite() or #entry.steps == 0 then return false end
+    for _, step in ipairs(entry.steps) do
+        local revision, mutationId = StepCurrent(step)
+        if revision ~= step.afterRevision or mutationId ~= step.afterMutationId then return false end
+    end
+    return true
+end
+
+--- A row (or the Party) that an undo rewrote: the state it restored, and the
+--- revision that state now carries. Older undo entries that ended in the
+--- restored state are moved onto the new revision, so they stay undoable.
+--- @class RegionMapRebind
+--- @field tableName nil|string nil for the Party
+--- @field id nil|string
+--- @field fromRevision integer
+--- @field fromMutationId nil|string
+--- @field toRevision integer
+--- @field toMutationId string
+
+--- Undo an entry: restore each step's earlier row (a created row is hidden)
+--- with a new revision. All or nothing: refused when any step moved on.
+--- Reverts are not themselves undoable.
+--- @param entry RegionMapUndoEntry
+--- @return boolean ok
+--- @return RegionMapRebind[] rebinds
+function RegionMapModel.Revert(entry)
+    local rebinds = {} --- @type RegionMapRebind[]
+    if not RegionMapModel.CanRevert(entry) then return false, rebinds end
+    local ok = true
+    for i = #entry.steps, 1, -1 do
+        local step = entry.steps[i]
+        if step.tableName ~= nil then
+            local current = (dmhub.GetTable(step.tableName) or {})[step.id]
+            local record
+            if step.before ~= nil then record = DeepCopy(step.before) else record = DeepCopy(current); record.hidden = true end
+            record.revision = NextRevision(current)
+            if record.revision == nil then
+                ok = false
+            else
+                Audit(record, false)
+                local started = UploadRecord(step.tableName, record, "Undo: " .. entry.description,
+                    { success = InvalidateIndex, failure = InvalidateIndex }, false) ~= nil
+                ok = started and ok
+                if started and step.before ~= nil then
+                    rebinds[#rebinds + 1] = {
+                        tableName = step.tableName, id = step.id,
+                        fromRevision = R.RecordRevision(step.before), fromMutationId = Field(step.before, "mutationId", nil),
+                        toRevision = record.revision, toMutationId = record.mutationId,
+                    }
+                end
+            end
+        else
+            local before = step.party
+            if before == false then before = nil else before = DeepCopy(before) end
+            local written = SetParty(before, "Undo: " .. entry.description)
+            ok = written ~= nil and ok
+            if written ~= nil and type(step.party) == "table" then
+                rebinds[#rebinds + 1] = {
+                    fromRevision = R.RecordRevision(step.party), fromMutationId = Field(step.party, "mutationId", nil),
+                    toRevision = written.afterRevision, toMutationId = written.afterMutationId,
+                }
+            end
+        end
+    end
+    InvalidateIndex()
+    return ok, rebinds
+end
+
+--- Game-wide: whether players may move the Party (D11c). Off unless the Director turned it on.
+--- @return boolean
+function RegionMapModel.PlayersCanMoveParty()
+    local data = StateData()
+    return data ~= nil and data.playerCanMoveParty == true
+end
+
+--- @param value boolean
+--- @return boolean written
+function RegionMapModel.SetPlayersCanMoveParty(value)
+    if not IsDirector() then return false end
+    return WriteState("Change who can move the Party", function(data)
+        data.playerCanMoveParty = value == true
+    end)
+end
+
+-- Location content: description, journal link, Director notes ----------------------------------
+
+--- A Location's description and journal link as the viewer may see them.
+--- @class RegionMapDetails
+--- @field description string
+--- @field journal RegionMapJournalView the link resolved for this viewer
+--- @field journalDocId string the stored link; "" for players
+--- @field state "empty"|"available"|"unavailable"
+
+--- @param id string
+--- @return nil|RegionMapDetails nil when the viewer may not see the Location
+function RegionMapModel.Details(id)
+    if RegionMapModel.GetLocation(id) == nil then return nil end
+    local row, state = ReadSidecar(id, false)
+    local docId = Field(row, "journalDocId", "")
+    return {
+        description = Field(row, "description", ""),
+        journal = Journal.ResolveForViewer(docId),
+        journalDocId = IsDirector() and docId or "",
+        state = state,
+    }
+end
+
+--- The Director notes of a Location; nil for anyone but the Director.
+--- @param id string
+--- @return nil|string note
+--- @return nil|"empty"|"available"|"unavailable" state
+function RegionMapModel.DirectorNote(id)
+    if not IsDirector() or Raw(id) == nil then return nil, nil end
+    local row, state = ReadSidecar(id, true)
+    return Field(row, "note", ""), state
+end
+
+-- Writes one sidecar row with only the given fields changed. Rows keep the V1
+-- format (labelId repeats the id), so ReadSidecar accepts both.
+local function SaveSidecar(id, fields, private, callbacks)
+    local tableName, schema, recordType = SidecarSpec(private)
+    if PendingWrite(tableName, id) then return false, "busy" end
+    local current, state = ReadSidecar(id, private)
+    if state == "unavailable" then return false, "unavailable" end
+    local changed = false
+    for key, value in pairs(fields) do
+        if value ~= Field(current, key, "") then changed = true end
+    end
+    if not changed then
+        if callbacks ~= nil and callbacks.success ~= nil then callbacks.success(nil) end
+        return true, nil
+    end
+    local record = current and DeepCopy(current) or recordType.new {
+        id = id, labelId = id, schemaVersion = schema, hidden = false, revision = 0,
+    }
+    if current == nil then
+        if private then record.note = "" else record.description, record.journalDocId = "", "" end
+    end
+    for key, value in pairs(fields) do record[key] = value end
+    local revision = NextRevision(record)
+    if revision == nil then return false, "unavailable" end
+    record.revision = revision
+    Audit(record, current == nil)
+    local operation = UploadRecord(tableName, record, private and "Save Director note" or "Save location details",
+        callbacks, current == nil)
+    if operation == nil then return false, "unavailable" end
+    return true, nil
+end
+
+--- Save a Location's description and/or journal link. Linking is Director only.
+--- @param id string
+--- @param patch {description: nil|string, journalDocId: nil|string}
+--- @param callbacks nil|RegionMapWriteCallbacks
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+function RegionMapModel.SaveDetails(id, patch, callbacks)
+    if not CanEdit(Raw(id)) then return false, "permission" end
+    local fields = {}
+    if patch.description ~= nil then
+        fields.description = NormalizeMultiline(patch.description, C.descriptionLimit, C.descriptionByteLimit)
+        if fields.description == nil then return false, "invalid" end
+    end
+    if patch.journalDocId ~= nil then
+        local docId = patch.journalDocId
+        if not IsDirector() then return false, "permission" end
+        if type(docId) ~= "string" or #docId > C.journalIdLimit then return false, "invalid" end
+        if docId ~= "" and Journal.ResolveForViewer(docId).status ~= "available" then return false, "invalid" end
+        fields.journalDocId = docId
+    end
+    return SaveSidecar(id, fields, false, callbacks)
+end
+
+--- @param id string
+--- @param note string
+--- @param callbacks nil|RegionMapWriteCallbacks
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+function RegionMapModel.SaveDirectorNote(id, note, callbacks)
+    if not IsDirector() or not CanWrite() or Raw(id) == nil then return false, "permission" end
+    local normalized = NormalizeMultiline(note, C.noteLimit, C.noteByteLimit)
+    if normalized == nil then return false, "invalid" end
+    return SaveSidecar(id, { note = normalized }, true, callbacks)
+end
+
+--- How this client's latest writes of one Location (row, details, notes)
+--- stand, for the side panel's Saving / Saved / Not saved line.
+--- @param id string
+--- @return nil|"pending"|"confirmed"|"failed" nil when nothing was written
+function RegionMapModel.SaveStatus(id)
+    local result = nil
+    for _, tableName in ipairs({ C.locationTableName, C.detailsTableName, C.notesTableName }) do
+        local operation = LastWrite(tableName, id)
+        if operation ~= nil then
+            if operation.status == "pending" then return "pending" end
+            if operation.status == "failed" then result = "failed"
+            elseif result == nil then result = "confirmed" end
+        end
+    end
+    return result
+end
+
+--- A name to show for a Location: its own, or edit.name.fallback while unnamed.
+--- @param location RegionMapLocationRecord
+--- @return string plain text; escape it before it reaches a label
+function RegionMapModel.DisplayName(location)
+    if location.name ~= "" then return location.name end
+    return RegionMapCopy.T("edit.name.fallback", nil, true)
+end

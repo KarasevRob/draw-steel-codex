@@ -1,0 +1,2 @@
+-- Retired no-op: the V1 map library pane is replaced by RegionMapAtlas.lua. Remove
+-- this file from the CodeMod in the in-app mod tools, then delete it.
