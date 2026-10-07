@@ -816,7 +816,7 @@ do
     info.fields = {
         { id = "npcName", label = "NPC Name", kind = "string", storage = "document", section = "The NPC",
             placeholder = "As the players hear it" },
-        { id = "npcDesc", label = "Who They Are", kind = "string", storage = "document",
+        { id = "npcDesc", label = "Who They Are", kind = "text", storage = "document",
             placeholder = "In a line (e.g. Town reeve - holds the gate keys)" },
         { id = "portrait", label = "Portrait", kind = "image", storage = "document",
             library = "Avatar", width = 96, height = 120 },
@@ -1738,11 +1738,14 @@ function NegotiationDocument:EditPanel()
     --uploads: debounced autosave, write verification with retry, and the
     --unsaved-changes guard on close (see CreateInterface in DocumentSystem).
     --They used to call doc:Upload() directly, which bypassed all of that.
-    local function textInput(field, placeholder, multiline)
+    --A multiline box grows with its text: a fixed height hides whatever does
+    --not fit, and an input has no scrollbar. minHeight is its height when empty.
+    local function textInput(field, placeholder, multiline, minHeight)
         return gui.Input{
             classes = { "sizeM" },
             width = "94%",
-            height = multiline and 60 or 26,
+            height = multiline and "auto" or 26,
+            minHeight = multiline and (minHeight or 60) or nil,
             halign = "left",
             multiline = multiline,
             --A text input stops taking characters at 256 unless told otherwise,
@@ -1923,7 +1926,9 @@ function NegotiationDocument:EditPanel()
 
     --built ahead of the form: seeding fills an empty descriptor, and the
     --input has to show it.
-    local npcDescInput = textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)")
+    --one line when empty, but a negotiator's "Who They Are" is copied in here
+    --and runs to a sentence or two.
+    local npcDescInput = textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)", true, 26)
 
     return gui.Panel{
         width = "100%", height = "100%", flow = "vertical", vscroll = true,

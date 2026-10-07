@@ -1245,7 +1245,10 @@ do
             return LabelledRow(field.label, gui.Input{
                 classes = { "sizeM" },
                 width = "100%-156",
-                height = kind == "text" and 60 or 26,
+                --a prose box grows with its text: a fixed height hides
+                --whatever does not fit, and an input has no scrollbar.
+                height = kind == "text" and "auto" or 26,
+                minHeight = kind == "text" and 60 or nil,
                 halign = "left",
                 multiline = kind == "text",
                 characterLimit = TextLimit(field),
