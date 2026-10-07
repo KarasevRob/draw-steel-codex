@@ -1617,7 +1617,9 @@ do
                 return column.kind == "enum" and OptionText(column, cell) or tostring(cell)
             end
             local function ListPanel(heading, groupId)
-                local children = { CustomDocument.ReadSectionHeader(heading) }
+                --the heading is made last: a panel built and then dropped is
+                --reported as unparented.
+                local children = {}
                 for _, row in ipairs(value) do
                     if groupColumn == nil or row[groupColumn.id] == groupId then
                         local parts = {}
@@ -1633,9 +1635,10 @@ do
                         end
                     end
                 end
-                if #children == 1 then
+                if #children == 0 then
                     return nil
                 end
+                table.insert(children, 1, CustomDocument.ReadSectionHeader(heading))
                 return gui.Panel{
                     flow = "vertical", width = "100%", height = "auto", halign = "left",
                     children = children,
@@ -1653,7 +1656,7 @@ do
             end
             return CustomDocument.ReadColumns(lists)
         elseif kind == "keyedList" then
-            local children = { CustomDocument.ReadSectionHeader(field.label) }
+            local children = {}
             for _, key in ipairs(field.displayReversed and Reversed(field.keys or {}) or field.keys or {}) do
                 local parts = {}
                 for _, column in ipairs(field.columns or {}) do
@@ -1666,9 +1669,10 @@ do
                     children[#children + 1] = CustomDocument.ReadNamedRow(key.label, table.concat(parts, " - "))
                 end
             end
-            if #children == 1 then
+            if #children == 0 then
                 return nil
             end
+            table.insert(children, 1, CustomDocument.ReadSectionHeader(field.label))
             return gui.Panel{
                 flow = "vertical", width = "100%", height = "auto", halign = "left",
                 children = children,
@@ -1713,8 +1717,8 @@ do
         local header, chips, children = {}, {}, {}
         local inHeader = true
 
-        --a prose page that opens with its own heading already has a title.
-        if #fields > 0 and not string.starts_with(self:GetTextContent(), "#") then
+        --a prose page that opens with its own top-level heading already has a title.
+        if #fields > 0 and string.match(self:GetTextContent(), "^#%s") == nil then
             header[#header + 1] = gui.Label{
                 classes = { "bold", "sizeXl" },
                 width = "auto", height = "auto", halign = "left", vmargin = 4,

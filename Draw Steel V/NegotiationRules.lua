@@ -2069,15 +2069,16 @@ function NegotiationDocument:DisplayPanel()
 
     --want / never-touch, with the voiced lines.
     local function TraitGroup(kind, heading)
-        local children = { SectionHeader(heading) }
+        local children = {}
         for _, t in ipairs(doc:try_get("traits", {})) do
             if t.kind == kind and (t.name or "") ~= "" then
                 children[#children + 1] = CustomDocument.ReadNamedRow(t.name, t.line or "")
             end
         end
-        if #children == 1 then
+        if #children == 0 then
             return nil
         end
+        table.insert(children, 1, SectionHeader(heading))
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
             children = children,
