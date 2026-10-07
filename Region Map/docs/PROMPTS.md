@@ -1,6 +1,6 @@
 # Region Map image generation prompts
 
-Historical generation inputs only. Current behavior and the UI-state guide are maintained in [REGION_MAP.md](../../REGION_MAP.md#5-ui-guide).
+Historical generation inputs only. Current behavior is maintained in [README.md](../README.md#1-behavior).
 
 Generated with the built-in image_gen tool. No reference images were supplied.
 

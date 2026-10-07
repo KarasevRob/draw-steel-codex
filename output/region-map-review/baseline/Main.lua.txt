@@ -1,2 +1,0 @@
--- Compatibility no-op. RegionMap.lua is the registered bootstrap; this file
--- remains because the current CodeMod has it as a separate persisted entry.

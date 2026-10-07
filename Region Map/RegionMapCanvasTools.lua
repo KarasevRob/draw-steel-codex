@@ -1,0 +1,475 @@
+--- Canvas geometry and placement tools: image/screen coordinate math, the Add
+--- and Move tools (a click on the map places), and the map's right-click menu.
+--- The canvas calls these; they report through the context.
+--- @class RegionMapCanvasTools: GameType
+--- @field new fun(o?: table): RegionMapCanvasTools
+RegionMapCanvasTools = RegisterGameType("RegionMapCanvasTools")
+local C = RegionMapConstants
+local Model = RegionMapModel
+local Session = RegionMapSession
+
+local Clamp = Model.Clamp
+local IsFinite = Model.IsFinite
+
+--- Where the image sits inside the canvas, in canvas pixels.
+--- @class RegionMapLayout
+--- @field x number
+--- @field y number
+--- @field width number
+--- @field height number
+--- @field viewWidth number
+--- @field viewHeight number
+
+--- Fit the image into the view, apply zoom and clamp the camera so the image
+--- never leaves a gap it could fill. Writes the clamped values back to camera.
+--- @param viewWidth number
+--- @param viewHeight number
+--- @param imageWidth number
+--- @param imageHeight number
+--- @param camera RegionMapCamera
+--- @return nil|RegionMapLayout
+function RegionMapCanvasTools.CalculateImageLayout(viewWidth, viewHeight, imageWidth, imageHeight, camera)
+    if not IsFinite(viewWidth) or not IsFinite(viewHeight) or not IsFinite(imageWidth) or not IsFinite(imageHeight)
+        or viewWidth <= 0 or viewHeight <= 0 or imageWidth <= 0 or imageHeight <= 0 then
+        return nil
+    end
+    local fitScale = math.min(viewWidth / imageWidth, viewHeight / imageHeight)
+    local zoom = Clamp(camera.zoom or C.minZoom, C.minZoom, C.maxZoom)
+    local width = imageWidth * fitScale * zoom
+    local height = imageHeight * fitScale * zoom
+    local centerX = camera.centerX or 0.5
+    local centerY = camera.centerY or 0.5
+    if width <= viewWidth then
+        centerX = 0.5
+    else
+        local halfVisible = viewWidth / (2 * width)
+        centerX = Clamp(centerX, halfVisible, 1 - halfVisible)
+    end
+    if height <= viewHeight then
+        centerY = 0.5
+    else
+        local halfVisible = viewHeight / (2 * height)
+        centerY = Clamp(centerY, halfVisible, 1 - halfVisible)
+    end
+    camera.zoom = zoom
+    camera.centerX = centerX
+    camera.centerY = centerY
+    return {
+        x = viewWidth * 0.5 - centerX * width,
+        y = viewHeight * 0.5 - centerY * height,
+        width = width,
+        height = height,
+        viewWidth = viewWidth,
+        viewHeight = viewHeight,
+    }
+end
+
+--- @param layout RegionMapLayout
+--- @param u number
+--- @param v number
+--- @return number x, number y
+function RegionMapCanvasTools.ImageToPanel(layout, u, v)
+    return layout.x + u * layout.width, layout.y + v * layout.height
+end
+
+--- @param layout RegionMapLayout
+--- @param x number
+--- @param y number
+--- @return nil|number u, nil|number v nil when the point is off the image (letterbox)
+function RegionMapCanvasTools.PanelToImage(layout, x, y)
+    local u = (x - layout.x) / layout.width
+    local v = (y - layout.y) / layout.height
+    if u < 0 or u > 1 or v < 0 or v > 1 then
+        return nil, nil
+    end
+    return u, v
+end
+
+--- Create a Location at a point of the open map, copying the last pin style
+--- (R10), and open it in the side panel in edit mode once the server has it.
+--- @param ctx RegionMapContext
+--- @param u number
+--- @param v number
+function RegionMapCanvasTools.AddAt(ctx, u, v)
+    local map = ctx.CurrentMap()
+    if map == nil then return end
+    ctx.FlushEdits()
+    -- The server confirms after this returns, so the callback reads newId set below.
+    local newId = nil
+    local ok, reason, _, id = Model.CreateLocation(map.id, u, v, Session.LastPinStyle(), {
+        success = function()
+            if not ctx.IsAlive() or ctx.data.mapId ~= map.id or newId == nil then return end
+            ctx.data.focusName = true
+            ctx.Select(newId, "edit")
+        end,
+        failure = function() ctx.Report(false, "unavailable") end,
+    })
+    newId = id
+    if not ctx.Report(ok, reason) then ctx.SetTool("none") end
+end
+
+--- Put the Location the Move tool carries at a point of the open map.
+--- @param ctx RegionMapContext
+--- @param u number
+--- @param v number
+function RegionMapCanvasTools.MoveTo(ctx, u, v)
+    local location = Model.GetLocation(ctx.data.toolTargetId)
+    if location == nil then
+        ctx.SetTool("none")
+        return
+    end
+    local ok, reason, entry = Model.MoveLocation(location.id, u, v)
+    -- SetTool redraws the canvas, so it goes after the write or the pin stays put.
+    ctx.SetTool("none")
+    if ctx.Report(ok, reason) then
+        ctx.Push(entry, "toast.moved", { name = Model.DisplayName(location) })
+    end
+end
+
+-- Ruler (R7): click a start, then an end; a third click starts over. Local only.
+local function RulerClick(ctx, map, u, v)
+    local ruler = ctx.data.ruler
+    if ruler == nil or ruler.mapId ~= map.id or ruler.u2 ~= nil then
+        ctx.data.ruler = { mapId = map.id, u1 = u, v1 = v }
+    else
+        ruler.u2, ruler.v2 = u, v
+    end
+end
+
+-- Set scale (V2-14): two clicks pick the points, then Settings asks for the distance.
+local function ScaleClick(ctx, map, u, v)
+    local draft = ctx.data.scaleDraft
+    if draft == nil or draft.mapId ~= map.id or draft.u2 ~= nil then
+        ctx.data.scaleDraft = { mapId = map.id, u1 = u, v1 = v }
+        return
+    end
+    draft.u2, draft.v2 = u, v
+    ctx.SetTool("none")
+    ctx.SetPopover("settings")
+end
+
+--- A left click on the map while a tool is active. Letterbox clicks (u nil)
+--- are ignored (V1 rule).
+--- @param ctx RegionMapContext
+--- @param u nil|number
+--- @param v nil|number
+function RegionMapCanvasTools.PlaceAt(ctx, u, v)
+    if u == nil or v == nil then return end
+    local map = ctx.CurrentMap()
+    if map == nil then return end
+    if ctx.data.tool == "add" then
+        RegionMapCanvasTools.AddAt(ctx, u, v)
+    elseif ctx.data.tool == "move" then
+        RegionMapCanvasTools.MoveTo(ctx, u, v)
+    elseif ctx.data.tool == "ruler" then
+        RulerClick(ctx, map, u, v)
+    elseif ctx.data.tool == "scale" then
+        ScaleClick(ctx, map, u, v)
+    end
+end
+
+-- Measuring ---------------------------------------------------------------------------------
+
+-- "9", "2.5", "14": one decimal below 10, whole numbers above.
+local function FormatNumber(value)
+    if value >= 10 then return string.format("%d", math.floor(value + 0.5)) end
+    local text = string.format("%.1f", value)
+    return (text:gsub("%.0$", ""))
+end
+RegionMapCanvasTools.FormatNumber = FormatNumber
+
+-- Length between two map points in image pixels, so a non-square map measures true.
+local function ImageDistance(width, height, u1, v1, u2, v2)
+    return math.sqrt(((u2 - u1) * width) ^ 2 + ((v2 - v1) * height) ^ 2)
+end
+
+--- The ruler label for two points on a map (manifest section 14): distance
+--- and travel time from the map's scale and pace, or a percent of the map's
+--- width when no scale is set.
+--- @param map RegionMapLocationRecord
+--- @param imageWidth number
+--- @param imageHeight number
+--- @param m RegionMapMeasure a complete measure (u2/v2 set)
+--- @return string text
+--- @return boolean calibrated
+function RegionMapCanvasTools.MeasureText(map, imageWidth, imageHeight, m)
+    local T = RegionMapCopy.T
+    local pixels = ImageDistance(imageWidth, imageHeight, m.u1, m.v1, m.u2 or m.u1, m.v2 or m.v1)
+    local scale = Model.Field(map, "scale", nil) --[[@as nil|RegionMapScale]]
+    local reference = scale and ImageDistance(imageWidth, imageHeight, scale.u1, scale.v1, scale.u2, scale.v2) or 0
+    if scale == nil or reference <= 0 then
+        return T("ruler.uncalibrated", { percent = math.floor(pixels / imageWidth * 100 + 0.5) }), false
+    end
+    local distance = pixels / reference * scale.distance
+    local args = { distance = FormatNumber(distance), unitShort = T("ruler.unitShort." .. scale.unit) }
+    local pace = Model.Field(map, "pace", nil)
+    if not IsFinite(pace) or pace <= 0 then return T("ruler.distance", args), true end
+    local days = distance / pace
+    if days < 0.5 then
+        args.time = T("ruler.time.under")
+    else
+        local rounded = math.floor(days * 2 + 0.5) / 2
+        args.time = T("ruler.time.days", { days = FormatNumber(rounded), count = rounded == 1 and 1 or 2 })
+    end
+    return T("ruler.withTime", args), true
+end
+
+-- Overlay: the drawn route and the ruler --------------------------------------------------------
+
+--- Puts a center-aligned panel's middle at canvas point (x, y). The engine's
+--- pivot does not move a panel, so offsets are measured from the canvas center.
+--- @param panel Panel
+--- @param layout RegionMapLayout
+--- @param x number
+--- @param y number
+function RegionMapCanvasTools.PlaceCentered(panel, layout, x, y)
+    panel.selfStyle.x = x - layout.viewWidth * 0.5
+    panel.selfStyle.y = y - layout.viewHeight * 0.5
+end
+local PlaceCentered = RegionMapCanvasTools.PlaceCentered
+
+-- The part of segment a-b inside the rectangle [x0,x1]x[y0,y1], as 0..1
+-- parameters along it (Liang-Barsky), or nil when it misses the rectangle.
+local function ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
+    local t0, t1 = 0, 1
+    local dx, dy = bx - ax, by - ay
+    local checks = { { -dx, ax - x0 }, { dx, x1 - ax }, { -dy, ay - y0 }, { dy, y1 - ay } }
+    for _, check in ipairs(checks) do
+        local p, q = check[1], check[2]
+        if p == 0 then
+            if q < 0 then return nil end
+        else
+            local t = q / p
+            if p < 0 then
+                if t > t1 then return nil end
+                if t > t0 then t0 = t end
+            else
+                if t < t0 then return nil end
+                if t < t1 then t1 = t end
+            end
+        end
+    end
+    return t0, t1
+end
+
+--- The canvas layers that draw the Party's past route (below pins) and the
+--- ruler (above them). The canvas adds route and ruler to its children,
+--- calls Bind when the model changes and Layout whenever it lays out.
+--- @class RegionMapOverlay
+--- @field route Panel non-interactable layer of route dots
+--- @field ruler Panel non-interactable layer with the ruler line and end dots
+--- @field label Panel the ruler's label; a direct canvas child so it can show a tooltip
+--- @field Bind fun()
+--- @field Layout fun(layout: nil|RegionMapLayout, imageWidth: nil|number, imageHeight: nil|number)
+
+--- @param ctx RegionMapContext
+--- @return RegionMapOverlay
+function RegionMapCanvasTools.CreateOverlay(ctx)
+    local data = ctx.data
+    local legs = {} --- @type RegionMapRoutePoint[][]
+    local legsKey = "" -- which route the dots were built from
+    local dots = {} --- @type Panel[]
+    local shownDots = 0
+    local labelTooltip = nil --- @type nil|string
+    -- Like the pin layer, the route layer slides while the map pans; dots are
+    -- placed again only on zoom, after a long pan or when the route changes.
+    local routeRef = nil --- @type nil|RegionMapLayout
+    local routeX, routeY = 0, 0
+
+    -- Sized inline: this layer never changes class, so the engine never re-resolves
+    -- its styles after it is attached and the class size alone left it at 100x100.
+    local route = gui.Panel {
+        classes = { "regionMapOverlay" }, floating = true, interactable = false,
+        width = "100%", height = "100%",
+    }
+    local function Dot(classes)
+        return gui.Panel { classes = classes, floating = true, halign = "center", valign = "center", interactable = false }
+    end
+    local line = Dot({ "regionMapRulerLine" })
+    local startDot = Dot({ "regionMapRulerEnd" })
+    local endDot = Dot({ "regionMapRulerEnd" })
+    local ruler = gui.Panel {
+        classes = { "regionMapOverlay" }, floating = true, interactable = false,
+        line, startDot, endDot,
+    }
+    local label = gui.Label {
+        classes = { "regionMapRulerLabel", "collapsed" }, floating = true, halign = "center", valign = "center",
+        text = "",
+        hover = function(element)
+            if labelTooltip ~= nil then gui.Tooltip(labelTooltip)(element) end
+        end,
+    }
+
+    -- The pool only grows; dots past the count in use are collapsed, not destroyed.
+    local function EnsurePool(count)
+        if count <= #dots then return end
+        for _ = #dots + 1, count do dots[#dots + 1] = Dot({ "regionMapRouteDot" }) end
+        route.children = dots
+    end
+
+    local function SetDotCount(count)
+        EnsurePool(count)
+        for i = 1, math.max(count, shownDots) do
+            local dot = dots[i]
+            if dot ~= nil then
+                local hide = i > count
+                if dot:HasClass("collapsed") ~= hide then dot:SetClass("collapsed", hide) end
+            end
+        end
+        shownDots = count
+    end
+
+    -- Dots every routeDotSpacing screen px along the legs, only on screen and
+    -- half a view around it, so a pan of up to half a view needs no new dots.
+    local function PlaceDots(layout)
+        local count = 0
+        local spacing = C.routeDotSpacing
+        local marginX, marginY = layout.viewWidth / 2 + spacing, layout.viewHeight / 2 + spacing
+        local x0, y0, x1, y1 = -marginX, -marginY, layout.viewWidth + marginX, layout.viewHeight + marginY
+        for _, points in ipairs(legs) do
+            for i = 1, #points - 1 do
+                local ax, ay = RegionMapCanvasTools.ImageToPanel(layout, points[i].u, points[i].v)
+                local bx, by = RegionMapCanvasTools.ImageToPanel(layout, points[i + 1].u, points[i + 1].v)
+                local length = math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2)
+                local t0, t1 = ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
+                if t0 ~= nil and length > 0 then
+                    -- Dots sit at whole multiples of the spacing from the leg's start,
+                    -- so they stay put while the view pans.
+                    local first = math.ceil(t0 * length / spacing)
+                    local last = math.floor(t1 * length / spacing)
+                    for step = first, last do
+                        if count >= C.routeDotLimit then break end
+                        count = count + 1
+                        EnsurePool(count)
+                        local t = step * spacing / length
+                        PlaceCentered(dots[count], layout, ax + (bx - ax) * t, ay + (by - ay) * t)
+                    end
+                end
+            end
+        end
+        SetDotCount(count)
+    end
+
+    local function LayoutRoute(layout)
+        local ref = routeRef
+        if ref == nil or ref.width ~= layout.width or ref.height ~= layout.height
+            or ref.viewWidth ~= layout.viewWidth or ref.viewHeight ~= layout.viewHeight
+            or math.abs(layout.x - ref.x) > layout.viewWidth / 2 or math.abs(layout.y - ref.y) > layout.viewHeight / 2 then
+            ref = layout
+            routeRef = layout
+            PlaceDots(layout)
+        end
+        local x, y = layout.x - ref.x, layout.y - ref.y
+        if x ~= routeX or y ~= routeY then
+            routeX, routeY = x, y
+            route.selfStyle.x, route.selfStyle.y = x, y
+        end
+    end
+
+    local function HideRuler()
+        ruler:SetClass("collapsed", true)
+        if not label:HasClass("collapsed") then label:SetClass("collapsed", true) end
+    end
+
+    local function LayoutRuler(layout, imageWidth, imageHeight)
+        local map = ctx.CurrentMap()
+        local measure = nil --- @type nil|RegionMapMeasure
+        local isScale = false
+        if data.tool == "scale" or (data.scaleDraft ~= nil and data.popover == "settings") then
+            measure, isScale = data.scaleDraft, true
+        elseif data.tool == "ruler" then
+            measure = data.ruler
+        end
+        if map == nil or measure == nil or measure.mapId ~= map.id then
+            HideRuler()
+            return
+        end
+        ruler:SetClass("collapsed", false)
+        local ax, ay = RegionMapCanvasTools.ImageToPanel(layout, measure.u1, measure.v1)
+        PlaceCentered(startDot, layout, ax, ay)
+        local complete = measure.u2 ~= nil and measure.v2 ~= nil
+        line:SetClass("collapsed", not complete)
+        endDot:SetClass("collapsed", not complete)
+        if not complete then
+            if not label:HasClass("collapsed") then label:SetClass("collapsed", true) end
+            return
+        end
+        local bx, by = RegionMapCanvasTools.ImageToPanel(layout, measure.u2 --[[@as number]], measure.v2 --[[@as number]])
+        PlaceCentered(endDot, layout, bx, by)
+        -- A thin panel as long as the measure, centered on its middle and turned to its angle.
+        local length = math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2)
+        line.selfStyle.width = math.max(1, length)
+        PlaceCentered(line, layout, (ax + bx) / 2, (ay + by) / 2)
+        line.selfStyle.rotate = -math.deg(math.atan(by - ay, bx - ax))
+        if isScale or not IsFinite(imageWidth) or not IsFinite(imageHeight) then
+            if not label:HasClass("collapsed") then label:SetClass("collapsed", true) end
+            return
+        end
+        local text, calibrated = RegionMapCanvasTools.MeasureText(map, imageWidth --[[@as number]],
+            imageHeight --[[@as number]], measure)
+        if label.text ~= text then label.text = text end
+        labelTooltip = (not calibrated and Model.IsDirector()) and RegionMapCopy.T("ruler.uncalibrated.hint") or nil
+        if label:HasClass("collapsed") then label:SetClass("collapsed", false) end
+        -- The label sits just above the end point, clear of the end dot.
+        PlaceCentered(label, layout, bx, by - C.rulerEndSize - 12)
+    end
+
+    return {
+        route = route,
+        ruler = ruler,
+        label = label,
+        Bind = function()
+            local map = ctx.CurrentMap()
+            local newLegs = {}
+            if map ~= nil and Session.ShowRoute() then newLegs = RegionMapLog.Route(map.id) end
+            -- Rows are replaced, not edited, when an entry changes, so table identity and size tell a change.
+            local parts = { map and map.id or "" }
+            for _, points in ipairs(newLegs) do parts[#parts + 1] = tostring(points) .. "#" .. #points end
+            local key = table.concat(parts, ",")
+            legs = newLegs
+            if key ~= legsKey then
+                legsKey = key
+                routeRef = nil
+            end
+        end,
+        Layout = function(layout, imageWidth, imageHeight)
+            if layout == nil then
+                routeRef = nil
+                SetDotCount(0)
+                HideRuler()
+                return
+            end
+            LayoutRoute(layout)
+            LayoutRuler(layout, imageWidth, imageHeight)
+        end,
+    }
+end
+
+--- The map's right-click menu entries at a point (manifest section 6).
+--- @param ctx RegionMapContext
+--- @param u number
+--- @param v number
+--- @return table[] gui.ContextMenu entries
+function RegionMapCanvasTools.MapMenu(ctx, u, v)
+    local map = ctx.CurrentMap()
+    local entries = {}
+    if map == nil then return entries end
+    if Model.CanAdd(map.id) then
+        entries[#entries + 1] = {
+            text = RegionMapCopy.T("ctx.map.add"),
+            click = function() RegionMapCanvasTools.AddAt(ctx, u, v) end,
+        }
+    end
+    if Model.IsDirector() and Model.CanMovePartyOn(map.id) then
+        entries[#entries + 1] = {
+            text = RegionMapCopy.T("ctx.map.party"),
+            click = function()
+                local ok, reason, entry = Model.PlaceParty(map.id, u, v)
+                if ctx.Report(ok, reason) then
+                    ctx.Push(entry, "toast.partyPlaced", { map = Model.DisplayName(map) })
+                end
+            end,
+        }
+    end
+    return entries
+end
