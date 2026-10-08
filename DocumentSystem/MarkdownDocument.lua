@@ -5503,7 +5503,8 @@ function MarkdownDocument.DisplayPanel(self, args)
     args.relatedFooter = nil
 
     --Panels a document class puts on the page around its text, so the page
-    --scrolls as one: each is fun(doc): Panel? and is called on every render.
+    --scrolls as one: each is fun(doc, playerView): Panel? and is called on
+    --every render.
     local m_pageHeader = args.pageHeader
     local m_pageFooter = args.pageFooter
     args.pageHeader = nil
@@ -5894,13 +5895,13 @@ function MarkdownDocument.DisplayPanel(self, args)
 
             local children = RenderMarkdownTokens(ctx, tokens)
             if m_pageHeader ~= nil then
-                local header = m_pageHeader(self)
+                local header = m_pageHeader(self, self:IsPlayerView(element))
                 if header ~= nil then
                     table.insert(children, 1, header)
                 end
             end
             if m_pageFooter ~= nil then
-                local footer = m_pageFooter(self)
+                local footer = m_pageFooter(self, self:IsPlayerView(element))
                 if footer ~= nil then
                     children[#children + 1] = footer
                 end

@@ -1707,14 +1707,59 @@ do
         })
     end
 
+    --A field as one viewer reads it. A Director-only field is nothing to a
+    --player, and says what it is to everyone else.
+    local function FieldFor(field, playerView)
+        if not field.directorOnly then
+            return field
+        end
+        if playerView then
+            return nil
+        end
+        return setmetatable({ label = field.label .. " (Director only)" }, { __index = field })
+    end
+
+    --The fields that other pages in this page's folder show on every page of
+    --it (a field's wholeFolder), as { doc, field }: a lair's features on each
+    --of its rooms. The journal's top level is not a folder.
+    local function FolderFields(self, playerView)
+        local result = {}
+        local folder = self:try_get("parentFolder")
+        if not g_documentClassesSetting:Get() or type(folder) ~= "string"
+            or (assets.documentFoldersTable or {})[folder] == nil then
+            return result
+        end
+        local pages = {}
+        for id, other in pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
+            if id ~= self.id and other:try_get("parentFolder") == folder and not other:try_get("hidden", false) then
+                pages[#pages + 1] = other
+            end
+        end
+        table.sort(pages, function(a, b) return a.description < b.description end)
+        for _, other in ipairs(pages) do
+            for _, declared in ipairs(CustomDocument.ClassFields(other)) do
+                local field = declared.wholeFolder and FieldFor(declared, playerView) or nil
+                if field ~= nil then
+                    result[#result + 1] = {
+                        doc = other,
+                        field = setmetatable({ label = string.format("%s - %s", other.description, field.label) }, { __index = field }),
+                    }
+                end
+            end
+        end
+        return result
+    end
+
     --The fields of the generated read view: every field that has a value. The
     --page opens with its name; the first image field sits beside it as the
     --portrait, and number, enum and bool fields gather into one row of chips
     --under the name. Fields ahead of the first list join that header, the rest
-    --follow at full width. nil for a class with no fields.
-    local function FieldsHeaderPanel(self)
+    --follow at full width, and its folder's fields close it. nil when there
+    --are none of either.
+    local function FieldsHeaderPanel(self, playerView)
         local fields = CustomDocument.ClassFields(self)
-        if #fields == 0 then
+        local folderFields = FolderFields(self, playerView)
+        if #fields == 0 and #folderFields == 0 then
             return nil
         end
         local portrait, portraitWidth = nil, 0
@@ -1723,7 +1768,7 @@ do
         local hasTitle = false
 
         --a prose page that opens with its own top-level heading already has a title.
-        if string.match(self:GetTextContent(), "^#%s") == nil then
+        if #fields > 0 and string.match(self:GetTextContent(), "^#%s") == nil then
             hasTitle = true
             header[#header + 1] = gui.Label{
                 classes = { "bold", "sizeXl" },
@@ -1732,10 +1777,13 @@ do
             }
         end
 
-        for _, field in ipairs(fields) do
-            local kind = field.kind
-            local value = self:GetFieldValue(field)
-            if kind == "image" and portrait == nil and value ~= "" then
+        for _, declared in ipairs(fields) do
+            local field = FieldFor(declared, playerView)
+            local kind = field ~= nil and field.kind or nil
+            local value = field ~= nil and self:GetFieldValue(field) or nil
+            if field == nil then
+                --the Director's, and this is a player.
+            elseif kind == "image" and portrait == nil and value ~= "" then
                 portraitWidth = (field.width or 96) + 12
                 portrait = gui.Panel{
                     classes = { "image" },
@@ -1766,6 +1814,9 @@ do
         if #chips > 0 then
             table.insert(header, hasTitle and 2 or 1, CustomDocument.StatChips(chips))
         end
+        for _, entry in ipairs(folderFields) do
+            children[#children + 1] = FieldDisplay(entry.doc, entry.field)
+        end
 
         table.insert(children, 1, gui.Panel{
             flow = "horizontal", width = "100%", height = "auto", halign = "left",
@@ -1784,11 +1835,11 @@ do
 
     --What closes the generated read view: the page's exits and its class's
     --actions. nil when it has neither.
-    local function FieldsFooterPanel(self)
+    local function FieldsFooterPanel(self, playerView)
         local children = {}
         --exits are run furniture: the Director's, never the players'. RichExit
         --loads after this file, hence rawget.
-        if dmhub.isDM and rawget(_G, "RichExit") ~= nil then
+        if dmhub.isDM and not playerView and rawget(_G, "RichExit") ~= nil then
             for _, exit in ipairs(CustomDocument.DeclaredExits(self)) do
                 children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
             end
@@ -1806,10 +1857,19 @@ do
     end
 
     function CustomDocument:FieldsDisplayPanel()
+        local function Parts(playerView)
+            local parts = {}
+            parts[#parts + 1] = FieldsHeaderPanel(self, playerView)
+            parts[#parts + 1] = FieldsFooterPanel(self, playerView)
+            return parts
+        end
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
-            FieldsHeaderPanel(self),
-            FieldsFooterPanel(self),
+            children = Parts(not self:HaveEditPermissions()),
+            --Preview as Player redraws the page through this.
+            refreshDocument = function(element)
+                element.children = Parts(self:IsPlayerView(element))
+            end,
         }
     end
 
@@ -1862,7 +1922,7 @@ do
     --page carries them itself, fields first and exits last, so it scrolls as
     --one; a fields-only class has no text to share the page with.
     function CustomDocument.ReadPanel(doc)
-        if not HasDeclaredForm(doc) or HasOwnForm(doc) then
+        if HasOwnForm(doc) or not (HasDeclaredForm(doc) or #FolderFields(doc, not dmhub.isDM) > 0) then
             return doc:DisplayPanel{ relatedFooter = true }
         end
         if CustomDocument.DocTypeInfo(doc).body == "none" then
@@ -2193,6 +2253,26 @@ do
                     change = function(element)
                         SetDetail(field, element.text)
                         element.text = DetailText(field)
+                        onChange()
+                    end,
+                },
+                gui.Check{
+                    classes = { "sizeS" }, width = 120, height = 22, minWidth = 0, valign = "center", lmargin = 8,
+                    text = "Director only",
+                    value = field.directorOnly == true,
+                    linger = gui.Tooltip("Hidden from players who open the page."),
+                    change = function(element)
+                        field.directorOnly = element.value or nil
+                        onChange()
+                    end,
+                },
+                gui.Check{
+                    classes = { "sizeS" }, width = 120, height = 22, minWidth = 0, valign = "center", lmargin = 4,
+                    text = "Whole folder",
+                    value = field.wholeFolder == true,
+                    linger = gui.Tooltip("Also shown on every other page in this page's folder."),
+                    change = function(element)
+                        field.wholeFolder = element.value or nil
                         onChange()
                     end,
                 },
