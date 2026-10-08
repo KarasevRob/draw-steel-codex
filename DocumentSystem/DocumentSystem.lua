@@ -1142,6 +1142,18 @@ do
         }
     end
 
+    --Prose on a read page. It carries glossary hints while a class page's
+    --fields are being built with hints on (FieldsHeaderPanel).
+    local g_proseHints = false
+    local g_proseDoc = nil
+    local function ProseLabel(args)
+        args.markdown = true
+        if g_proseHints then
+            MarkdownDocument.GlossaryLabelArgs(args, g_proseDoc)
+        end
+        return gui.Label(args)
+    end
+
     --One entry of a read-view list: a name with its detail indented under it.
     --- @param name string
     --- @param detail string markdown; "" for none
@@ -1156,11 +1168,11 @@ do
                 textWrap = true, textAlignment = "topleft",
                 text = name,
             },
-            (detail ~= "") and gui.Label{
+            (detail ~= "") and ProseLabel{
                 classes = { "sizeS" },
                 width = "100%-40", height = "auto", halign = "left",
                 lmargin = 16, tmargin = 1,
-                markdown = true, textWrap = true, textAlignment = "topleft",
+                textWrap = true, textAlignment = "topleft",
                 text = detail,
             } or nil,
         }
@@ -1947,10 +1959,10 @@ do
                     width = "auto", height = "auto", halign = "left",
                     text = field.label,
                 },
-                gui.Label{
+                ProseLabel{
                     classes = { "sizeS" },
                     width = "95%", height = "auto", halign = "left",
-                    markdown = true, textWrap = true, textAlignment = "topleft",
+                    textWrap = true, textAlignment = "topleft",
                     text = text,
                 },
             }
@@ -2009,7 +2021,25 @@ do
     --under the name. Fields ahead of the first list join that header, the rest
     --follow at full width, and its folder's fields close it. nil when there
     --are none of either.
-    local function FieldsHeaderPanel(self, playerView)
+    local FieldsHeaderContent
+    --`hints`: whether its prose carries glossary hints; nil follows the setting.
+    local function FieldsHeaderPanel(self, playerView, hints)
+        if hints == nil then
+            hints = dmhub.GetSettingValue("glossaryhints") ~= "off"
+        end
+        g_proseHints = hints
+        --the page's creatures are marked for the Director only.
+        g_proseDoc = (not playerView) and self or nil
+        local ok, result = pcall(FieldsHeaderContent, self, playerView)
+        g_proseHints = false
+        g_proseDoc = nil
+        if not ok then
+            error(result, 0)
+        end
+        return result
+    end
+
+    FieldsHeaderContent = function(self, playerView)
         local fields = CustomDocument.ClassFields(self)
         local folderFields = FolderFields(self, playerView)
         if #fields == 0 and #folderFields == 0 then
