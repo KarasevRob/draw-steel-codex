@@ -3270,7 +3270,8 @@ local GLOSSARY_HIDE_GRACE = 0.30   --card survives this much dehover.
 --layout is identical to the plain span. Spans are ASCII by construction
 --(the matcher's word pattern), so byte slicing is safe. Spaces are never
 --underlined; they read as natural breaks in multi-word terms.
-local function GlossaryBrokenUnderline(span)
+local function GlossaryBrokenUnderline(span, open)
+    open = open or "<u>"
     local out = {}
     local i = 1
     local n = #span
@@ -3283,7 +3284,7 @@ local function GlossaryBrokenUnderline(span)
             if string.sub(span, j, j) == " " then
                 j = i
             end
-            out[#out + 1] = "<u>" .. string.sub(span, i, j) .. "</u>"
+            out[#out + 1] = open .. string.sub(span, i, j) .. "</u>"
             i = j + 1
             --one-character gap between runs.
             if i <= n and string.sub(span, i, i) ~= " " then
@@ -3297,11 +3298,16 @@ end
 
 --The hinted-term treatment for the current setting step: Subtle = broken
 --underline, Bold = solid underline.
-local function GlossaryUnderlineForm(span)
+--A creature's name is underlined in its own colour, so it reads apart from
+--a rules term.
+local CREATURE_UNDERLINE = "<u color=#c9783c>"
+
+local function GlossaryUnderlineForm(span, creature)
+    local open = creature and CREATURE_UNDERLINE or "<u>"
     if g_glossaryHintsSetting:Get() == "bold" then
-        return "<u>" .. span .. "</u>"
+        return open .. span .. "</u>"
     end
-    return GlossaryBrokenUnderline(span)
+    return GlossaryBrokenUnderline(span, open)
 end
 
 --Term index: lowercase first word -> candidate entries sorted longest
@@ -3350,6 +3356,111 @@ local function GlossaryTermById(id)
         return nil
     end
     return dataTable[id]
+end
+
+--Creature hints. A page that embeds an encounter marks that encounter's
+--monsters by name the way rules terms are marked, for the Director only.
+--They ride the glossary machinery as terms with the id "creature:<bestiary
+--id>", and are scoped to the page's own encounters: a bestiary-wide index
+--would mark ordinary words ("Knight", "Wave") on every page.
+local CREATURE_ID_PREFIX = "creature:"
+
+--- @param termid string
+--- @return nil|table the bestiary entry a creature hint names
+local function CreatureForHint(termid)
+    if not string.starts_with(termid, CREATURE_ID_PREFIX) then
+        return nil
+    end
+    return assets.monsters[string.sub(termid, #CREATURE_ID_PREFIX + 1)]
+end
+
+local function LowerWords(text)
+    local words = {}
+    for w in string.gmatch(string.lower(text or ""), "[%w']+") do
+        words[#words + 1] = w
+    end
+    return words
+end
+
+--The glossary index with a page's creatures laid over it, or nil when the
+--page has none to mark. A creature answers to its full name and to its name
+--without the leading words it shares with its band or keywords ("Angulotl
+--Needler" is also "needler"), which is how the prose refers to it.
+--- @param doc table|nil
+--- @return table|nil
+function MarkdownDocument.CreatureHintIndex(doc)
+    if doc == nil or not dmhub.isDM then
+        return nil
+    end
+    local monsterids = {}
+    for _, annotation in pairs(doc:try_get("annotations", {})) do
+        local encounter = type(annotation) == "table" and rawget(annotation, "encounter") or nil
+        for _, group in ipairs(encounter ~= nil and encounter:try_get("groups", {}) or {}) do
+            for monsterid, _ in pairs(group.monsters or {}) do
+                monsterids[monsterid] = true
+            end
+        end
+    end
+
+    local base = GetGlossaryIndex()
+    local overlay = {}
+    local bands = dmhub.GetTable(MonsterGroup.tableName) or {}
+    local function Add(words, id)
+        if #words == 0 then
+            return
+        end
+        local bucket = overlay[words[1]]
+        if bucket == nil then
+            bucket = {}
+            for _, entry in ipairs(base[words[1]] or {}) do
+                bucket[#bucket + 1] = entry
+            end
+            overlay[words[1]] = bucket
+        end
+        bucket[#bucket + 1] = { words = words, id = id, creature = true }
+    end
+    for monsterid, _ in pairs(monsterids) do
+        local asset = assets.monsters[monsterid]
+        if asset ~= nil and asset.properties ~= nil then
+            local id = CREATURE_ID_PREFIX .. monsterid
+            local words = LowerWords(asset.name)
+            Add(words, id)
+
+            local shared = {}
+            for keyword, _ in pairs(asset.properties:try_get("keywords", {})) do
+                shared[string.lower(keyword)] = true
+            end
+            local band = bands[asset.properties:try_get("groupid", "")]
+            for _, w in ipairs(LowerWords(band ~= nil and band.name or "")) do
+                shared[w] = true
+                shared[w .. "s"] = true
+                if string.sub(w, -1) == "s" then
+                    shared[string.sub(w, 1, -2)] = true
+                end
+            end
+            local short = {}
+            for i, w in ipairs(words) do
+                if #short > 0 or not shared[w] then
+                    short[#short + 1] = w
+                end
+            end
+            if #short > 0 and #short < #words then
+                Add(short, id)
+            end
+        end
+    end
+    if next(overlay) == nil then
+        return nil
+    end
+    for _, bucket in pairs(overlay) do
+        table.sort(bucket, function(a, b)
+            if #a.words ~= #b.words then
+                return #a.words > #b.words
+            end
+            return (a.creature or false) and not b.creature
+        end)
+    end
+    return setmetatable(overlay, { __index = base })
 end
 
 local function IsCapitalized(word)
@@ -3426,7 +3537,7 @@ local function GlossaryMatchRanges(seg, index, washed)
             end
         end
 
-        if matched ~= nil and #matched.words == 1 and IsCapitalized(w.text) then
+        if matched ~= nil and #matched.words == 1 and IsCapitalized(w.text) and not matched.creature then
             --proper-noun guard: a capitalized single-word term adjacent to
             --another capitalized word is probably part of a name ("The
             --Winded Man"); skip it - the hint falls through to the next
@@ -3445,6 +3556,7 @@ local function GlossaryMatchRanges(seg, index, washed)
                 to = lastWord.e,
                 id = matched.id,
                 underline = not washed[matched.id],
+                creature = matched.creature,
             }
             washed[matched.id] = true
             k = k + #matched.words
@@ -3497,7 +3609,7 @@ local function GlossaryMarkSegment(seg, index, washed)
         local span = string.sub(seg, m.from, m.to)
         if m.underline then
             out[#out + 1] = string.format("<link=glossary:%s>%s</link>",
-                m.id, GlossaryUnderlineForm(span))
+                m.id, GlossaryUnderlineForm(span, m.creature))
         else
             out[#out + 1] = string.format("<link=glossary:%s>%s</link>", m.id, span)
         end
@@ -3551,11 +3663,13 @@ end
 --anything inside an existing <link> or <size> run (size = skinned
 --headings), and raw markdown heading lines (# ...) which the engine
 --renders as headings in default-skin documents.
-local function ApplyGlossaryHints(text)
+--`index`: the term index to mark from, when the page lays its creatures
+--over the glossary (MarkdownDocument.CreatureHintIndex).
+local function ApplyGlossaryHints(text, index)
     if text == nil or text == "" then
         return text
     end
-    local index = GetGlossaryIndex()
+    index = index or GetGlossaryIndex()
     if index == nil or next(index) == nil then
         return text
     end
@@ -3776,6 +3890,93 @@ function MarkdownDocument.CreateGlossaryCard(term, options)
     }
 end
 
+--A creature hint's card. Hovering shows the creature at a glance; pinned
+--(clicked), it is the whole stat block.
+local function CreateCreatureCard(asset, options)
+    local stats = asset.properties
+    local children
+    if options.pinned then
+        children = {
+            gui.Label{
+                floating = true,
+                width = "auto", height = "auto", halign = "right", valign = "top",
+                fontSize = 16, color = "#ffffff99", hpad = 4,
+                bgimage = "panels/square.png", bgcolor = "#00000000",
+                text = "x",
+                hover = function(element) element.selfStyle.color = "#ffffff" end,
+                dehover = function(element) element.selfStyle.color = "#ffffff99" end,
+                click = function(element)
+                    if options.close ~= nil then
+                        options.close()
+                    end
+                end,
+            },
+            asset:Render{
+                width = 560,
+                maxHeight = math.floor(dmhub.screenDimensionsBelowTitlebar.y * 0.6),
+                vscroll = true,
+                rpad = 12,
+                borderBox = true,
+            },
+        }
+    else
+        local keywords = {}
+        for keyword, _ in pairs(stats:try_get("keywords", {})) do
+            keywords[#keywords + 1] = ActivatedAbility.CanonicalKeyword(keyword)
+        end
+        table.sort(keywords)
+        children = {
+            gui.Label{
+                width = "100%", height = "auto",
+                fontSize = 18, bold = true, color = "white",
+                text = asset.name,
+            },
+            gui.Label{
+                width = "100%", height = "auto",
+                fontSize = 14, color = "#e8e8e8",
+                text = string.format("%s\n%s", stats:RoleDescription(), table.concat(keywords, ", ")),
+            },
+            gui.Label{
+                width = "100%", height = "auto", tmargin = 6,
+                fontSize = 15, color = "#e8e8e8",
+                text = string.format("Stamina %d    Speed %d    EV %d",
+                    stats:MaxHitpoints(), stats:WalkingSpeed(), stats:EV()),
+            },
+            gui.Label{
+                width = "100%", height = "auto", tmargin = 8,
+                fontSize = 13, color = "#ffffff77",
+                text = "Click for the stat block",
+            },
+        }
+    end
+    return gui.Panel{
+        width = options.pinned and "auto" or 300,
+        height = "auto",
+        flow = "vertical",
+        pad = 10,
+        borderBox = true,
+        bgimage = "panels/square.png",
+        bgcolor = "#101010f2",
+        border = 1,
+        borderColor = "#ffffff47",
+        swallowPress = true,
+        children = children,
+    }
+end
+
+--The card for a hinted term, rules term or creature; nil when it names neither.
+local function GlossaryCardFor(termid, options)
+    local asset = CreatureForHint(termid)
+    if asset ~= nil then
+        return CreateCreatureCard(asset, options)
+    end
+    local term = GlossaryTermById(termid)
+    if term == nil then
+        return nil
+    end
+    return MarkdownDocument.CreateGlossaryCard(term, options)
+end
+
 --Hover state machine: dwell with hysteresis, hide grace, wash brighten.
 --Module-level: there is one cursor.
 local g_glossHover = {
@@ -3854,7 +4055,8 @@ local function GlossaryHintHover(element, link)
         g_glossHover.shown = false
     end
 
-    if GlossaryTermById(string.sub(link, 10)) == nil then
+    local termid = string.sub(link, 10)
+    if GlossaryTermById(termid) == nil and CreatureForHint(termid) == nil then
         return
     end
 
@@ -3924,6 +4126,7 @@ local function StripGlossaryMarks(root)
             newText = string.gsub(newText, "<mark=#%x+><link=glossary:[^>]*>(.-)</link></mark>", "%1")
             --underline form: unwrap the link and its <u> runs.
             newText = string.gsub(newText, "<link=glossary:[^>]*>(.-)</link>", function(inner)
+                inner = string.gsub(inner, "<u color=#%x+>", "")
                 return (string.gsub(inner, "</?u>", ""))
             end)
             pcall(function() panel.text = newText end)
@@ -4718,7 +4921,7 @@ local function RenderMarkdownTokens(ctx, tokens)
 
                 local finalText = ApplySkinToText(ApplyInlineClasses(text, resolvedClasses), resolvedSkin)
                 if ctx.render.glossaryHints then
-                    finalText = ApplyGlossaryHints(finalText)
+                    finalText = ApplyGlossaryHints(finalText, ctx.render.creatureIndex)
                 end
                 textPanel.text = finalText
                 newTextPanels[#newTextPanels + 1] = textPanel
@@ -4834,7 +5037,7 @@ local function RenderMarkdownTokens(ctx, tokens)
                         resolvedSkin,
                         { ruledLevels = ruledLevels })
                     if ctx.render.glossaryHints then
-                        finalText = ApplyGlossaryHints(finalText)
+                        finalText = ApplyGlossaryHints(finalText, ctx.render.creatureIndex)
                     end
                     label.text = finalText
                     newTextPanels[#newTextPanels + 1] = label
@@ -5498,9 +5701,10 @@ end
 --page's fields): marks the terms in args.text and adds the handlers that
 --show and pin the definition card. The label must be markdown.
 --- @param args table arguments for gui.Label
+--- @param doc table|nil the page, when its creatures are to be marked too
 --- @return table args
-function MarkdownDocument.GlossaryLabelArgs(args)
-    args.text = ApplyGlossaryHints(args.text)
+function MarkdownDocument.GlossaryLabelArgs(args, doc)
+    args.text = ApplyGlossaryHints(args.text, MarkdownDocument.CreatureHintIndex(doc))
     args.links = true
     args.hoverLink = function(element, link)
         if string.starts_with(link, "glossary:") then
@@ -5630,11 +5834,13 @@ function MarkdownDocument.DisplayPanel(self, args)
     --hosted here rather than as an engine tooltip because tooltips anchor
     --to the whole paragraph label, which reads as center-screen.
     local function ShowGlossaryHoverCard(termid)
-        local term = (dmhub.GetTable("glossaryTerms") or {})[termid]
-        if term == nil or resultPanel == nil or not resultPanel.valid then
+        if resultPanel == nil or not resultPanel.valid then
             return
         end
-        local card = MarkdownDocument.CreateGlossaryCard(term, {})
+        local card = GlossaryCardFor(termid, {})
+        if card == nil then
+            return
+        end
 
         g_glossHover.gen = (g_glossHover.gen or 0) + 1
         local wrapper
@@ -5718,17 +5924,19 @@ function MarkdownDocument.DisplayPanel(self, args)
     end
 
     BuildGlossaryPin = function(termid, src)
-        local term = (dmhub.GetTable("glossaryTerms") or {})[termid]
         local srcValid = false
         pcall(function() srcValid = src ~= nil and src.valid end)
-        if term == nil or not srcValid then
+        if not srcValid then
             return
         end
         CloseGlossaryPin()
-        local card = MarkdownDocument.CreateGlossaryCard(term, {
+        local card = GlossaryCardFor(termid, {
             pinned = true,
             close = CloseGlossaryPin,
         })
+        if card == nil then
+            return
+        end
         --click-away dismissal is the engine's popup behaviour; escape is ours.
         local wrapper = gui.Panel{
             width = "auto",
@@ -5925,6 +6133,8 @@ function MarkdownDocument.DisplayPanel(self, args)
                 usesAlign = SkinUsesAlign(resolvedSkin),
                 pageColor = pageColor,
                 glossaryHints = glossaryOn,
+                creatureIndex = glossaryOn and (not self:IsPlayerView(element))
+                    and MarkdownDocument.CreatureHintIndex(self) or nil,
             }
 
             local children = RenderMarkdownTokens(ctx, tokens)

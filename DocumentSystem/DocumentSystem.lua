@@ -1145,10 +1145,11 @@ do
     --Prose on a read page. It carries glossary hints while a class page's
     --fields are being built with hints on (FieldsHeaderPanel).
     local g_proseHints = false
+    local g_proseDoc = nil
     local function ProseLabel(args)
         args.markdown = true
         if g_proseHints then
-            MarkdownDocument.GlossaryLabelArgs(args)
+            MarkdownDocument.GlossaryLabelArgs(args, g_proseDoc)
         end
         return gui.Label(args)
     end
@@ -2027,8 +2028,11 @@ do
             hints = dmhub.GetSettingValue("glossaryhints") ~= "off"
         end
         g_proseHints = hints
+        --the page's creatures are marked for the Director only.
+        g_proseDoc = (not playerView) and self or nil
         local ok, result = pcall(FieldsHeaderContent, self, playerView)
         g_proseHints = false
+        g_proseDoc = nil
         if not ok then
             error(result, 0)
         end
