@@ -3359,11 +3359,22 @@ local function GlossaryTermById(id)
 end
 
 --Creature hints. A page that embeds an encounter marks that encounter's
---monsters by name the way rules terms are marked, for the Director only.
---They ride the glossary machinery as terms with the id "creature:<bestiary
---id>", and are scoped to the page's own encounters: a bestiary-wide index
---would mark ordinary words ("Knight", "Wave") on every page.
+--monsters, and the bands they belong to, by name the way rules terms are
+--marked, for the Director only. They ride the glossary machinery as terms
+--with the id "creature:<bestiary id>" or "band:<band id>", and are scoped to
+--the page's own encounters: a bestiary-wide index would mark ordinary words
+--("Knight", "Wave") on every page.
 local CREATURE_ID_PREFIX = "creature:"
+local BAND_ID_PREFIX = "band:"
+
+--- @param termid string
+--- @return nil|MonsterGroup the band a band hint names
+local function BandForHint(termid)
+    if not string.starts_with(termid, BAND_ID_PREFIX) then
+        return nil
+    end
+    return MonsterGroup.Get(string.sub(termid, #BAND_ID_PREFIX + 1))
+end
 
 --- @param termid string
 --- @return nil|table the bestiary entry a creature hint names
@@ -3405,6 +3416,7 @@ function MarkdownDocument.CreatureHintIndex(doc)
     local base = GetGlossaryIndex()
     local overlay = {}
     local bands = dmhub.GetTable(MonsterGroup.tableName) or {}
+    local bandids = {}
     local function Add(words, id)
         if #words == 0 then
             return
@@ -3431,6 +3443,9 @@ function MarkdownDocument.CreatureHintIndex(doc)
                 shared[string.lower(keyword)] = true
             end
             local band = bands[asset.properties:try_get("groupid", "")]
+            if band ~= nil and band:IsBand() and not band:IsDefaultMaliceGroup() then
+                bandids[band.id] = true
+            end
             for _, w in ipairs(LowerWords(band ~= nil and band.name or "")) do
                 shared[w] = true
                 shared[w .. "s"] = true
@@ -3448,6 +3463,16 @@ function MarkdownDocument.CreatureHintIndex(doc)
                 Add(short, id)
             end
         end
+    end
+    for bandid, _ in pairs(bandids) do
+        --the matcher folds a plural onto a singular term, not the reverse,
+        --and bands are named in the plural ("Angulotls").
+        local words = LowerWords(bands[bandid].name)
+        local last = words[#words]
+        if last ~= nil and #last > 1 and string.sub(last, -1) == "s" then
+            words[#words] = string.sub(last, 1, -2)
+        end
+        Add(words, BAND_ID_PREFIX .. bandid)
     end
     if next(overlay) == nil then
         return nil
@@ -3964,11 +3989,66 @@ local function CreateCreatureCard(asset, options)
     }
 end
 
---The card for a hinted term, rules term or creature; nil when it names neither.
+--A band hint's hover card: its Malice features and how it fights. Clicking
+--a band opens its compendium page rather than pinning a card.
+local function CreateBandCard(band)
+    local malice = {}
+    for _, ability in ipairs(band.maliceAbilities) do
+        malice[#malice + 1] = string.format("%s (%s Malice)", ability.name, tostring(ability:try_get("resourceNumber", "?")))
+    end
+    local children = {
+        gui.Label{
+            width = "100%", height = "auto",
+            fontSize = 18, bold = true, color = "white",
+            text = band.name,
+        },
+    }
+    if #malice > 0 then
+        children[#children + 1] = gui.Label{
+            width = "100%", height = "auto", tmargin = 4,
+            fontSize = 14, color = "#e8e8e8",
+            text = table.concat(malice, "\n"),
+        }
+    end
+    --the opening of the tactics is the gist of how the band fights.
+    local tactics = string.match(band:try_get("tactics", ""), "^%s*(.-[%.!?])%s") or band:try_get("tactics", "")
+    if tactics ~= "" then
+        children[#children + 1] = gui.Label{
+            width = "100%", height = "auto", tmargin = 6,
+            fontSize = 14, color = "#e8e8e8",
+            text = tactics,
+        }
+    end
+    children[#children + 1] = gui.Label{
+        width = "100%", height = "auto", tmargin = 8,
+        fontSize = 13, color = "#ffffff77",
+        text = "Click to open the band",
+    }
+    return gui.Panel{
+        width = 340,
+        height = "auto",
+        flow = "vertical",
+        pad = 10,
+        borderBox = true,
+        bgimage = "panels/square.png",
+        bgcolor = "#101010f2",
+        border = 1,
+        borderColor = "#ffffff47",
+        swallowPress = true,
+        children = children,
+    }
+end
+
+--The card for a hinted term, rules term, creature or band; nil when it
+--names none of them.
 local function GlossaryCardFor(termid, options)
     local asset = CreatureForHint(termid)
     if asset ~= nil then
         return CreateCreatureCard(asset, options)
+    end
+    local band = BandForHint(termid)
+    if band ~= nil then
+        return CreateBandCard(band)
     end
     local term = GlossaryTermById(termid)
     if term == nil then
@@ -4056,7 +4136,7 @@ local function GlossaryHintHover(element, link)
     end
 
     local termid = string.sub(link, 10)
-    if GlossaryTermById(termid) == nil and CreatureForHint(termid) == nil then
+    if GlossaryTermById(termid) == nil and CreatureForHint(termid) == nil and BandForHint(termid) == nil then
         return
     end
 
@@ -5930,6 +6010,11 @@ function MarkdownDocument.DisplayPanel(self, args)
             return
         end
         CloseGlossaryPin()
+        local band = BandForHint(termid)
+        if band ~= nil then
+            Compendium.Open{ contentType = MonsterGroup.tableName, search = band.name, targetKey = band.id }
+            return
+        end
         local card = GlossaryCardFor(termid, {
             pinned = true,
             close = CloseGlossaryPin,
