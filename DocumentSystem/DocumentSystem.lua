@@ -1916,8 +1916,10 @@ do
         if #children == 0 then
             return nil
         end
+        --narrower than the page: an exit card is a bordered box, and the
+        --scrollbar would sit on its edge.
         return gui.Panel{
-            flow = "vertical", width = "100%", height = "auto", halign = "left", valign = "top", tmargin = 8,
+            flow = "vertical", width = "100%-14", height = "auto", halign = "left", valign = "top", tmargin = 8,
             children = children,
         }
     end
