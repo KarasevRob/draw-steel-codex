@@ -5494,6 +5494,38 @@ local function ScrollFindTargetIntoView(target)
     return true
 end
 
+--Glossary hints for a label drawn outside the markdown renderer (a class
+--page's fields): marks the terms in args.text and adds the handlers that
+--show and pin the definition card. The label must be markdown.
+--- @param args table arguments for gui.Label
+--- @return table args
+function MarkdownDocument.GlossaryLabelArgs(args)
+    args.text = ApplyGlossaryHints(args.text)
+    args.links = true
+    args.hoverLink = function(element, link)
+        if string.starts_with(link, "glossary:") then
+            GlossaryHintHover(element, link)
+        end
+    end
+    args.dehoverLink = function(element, link)
+        if string.starts_with(link, "glossary:") then
+            GlossaryHintDehover(element, link)
+        end
+    end
+    args.glossaryDwell = function(element)
+        GlossaryDwellEvent(element)
+    end
+    args.glossaryHideGrace = function(element)
+        GlossaryHideGraceEvent(element)
+    end
+    args.press = function(element)
+        if element.linkHovered ~= nil and string.starts_with(element.linkHovered, "glossary:") then
+            GlossaryHintPress(element, element.linkHovered)
+        end
+    end
+    return args
+end
+
 function MarkdownDocument.DisplayPanel(self, args)
     args = args or {}
     local embedDepth = args.embedDepth or 0
@@ -5897,7 +5929,7 @@ function MarkdownDocument.DisplayPanel(self, args)
 
             local children = RenderMarkdownTokens(ctx, tokens)
             if m_pageHeader ~= nil then
-                local header = m_pageHeader(self, self:IsPlayerView(element))
+                local header = m_pageHeader(self, self:IsPlayerView(element), glossaryOn)
                 if header ~= nil then
                     table.insert(children, 1, header)
                 end
