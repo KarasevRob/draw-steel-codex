@@ -34,7 +34,7 @@ if #missing > 0 then
     dmhub.Schedule(1, function()
         local notify = rawget(_G, "SendTitledChatMessage")
         if mod.unloaded or notify == nil then return end
-        pcall(notify, message, "Region Map", nil, { dmhub.loginUserid })
+        pcall(notify, message, RegionMapCopy.T("window.title", nil, true), nil, { dmhub.loginUserid })
     end)
     return
 end
