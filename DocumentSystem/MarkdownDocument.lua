@@ -3215,10 +3215,10 @@ end
 
 --------------------------------------------------------------------------------
 -- Glossary hints: rules terms in rendered documents get the design
--- system's broken-underline treatment (solid on hover/Bold) and act as
+-- theme's accent-colour underline (ink-coloured on Bold) and act as
 -- glossary: link regions. Hovering (with dwell) shows the definition
 -- card; clicking pins it. Design brief: glossary-hints-brief.md (locked
--- 2026-07-12; visual updated to the broken underline 2026-07-13).
+-- 2026-07-12; visual updated to the accent underline 2026-10-08).
 --
 -- The pass runs at label-text assembly time inside RenderMarkdownTokens'
 -- MakeTextLabel path only (never a whole-tree walk), display mode only,
@@ -3234,8 +3234,8 @@ local g_glossaryToastSeen = setting{
     storage = "preference",
 }
 
---Off / Subtle / Bold. Subtle (broken underline) is the default; Bold is
---a solid underline.
+--Off / Subtle / Bold. Subtle (accent-colour underline) is the default;
+--Bold underlines in the text's own colour.
 local g_glossaryHintsSetting
 g_glossaryHintsSetting = setting{
     id = "glossaryhints",
@@ -3264,50 +3264,20 @@ local GLOSSARY_DWELL = 0.35        --hover time before the card shows.
 local GLOSSARY_HYSTERESIS = 0.15   --hover gaps shorter than this accumulate.
 local GLOSSARY_HIDE_GRACE = 0.30   --card survives this much dehover.
 
---Broken underline (the design system's treatment for term hints): TMP has
---no dashed-underline tag, so the break is literal - alternate 2-character
---<u> runs with 1-character gaps. No characters are added or removed, so
---layout is identical to the plain span. Spans are ASCII by construction
---(the matcher's word pattern), so byte slicing is safe. Spaces are never
---underlined; they read as natural breaks in multi-word terms.
-local function GlossaryBrokenUnderline(span, open)
-    open = open or "<u>"
-    local out = {}
-    local i = 1
-    local n = #span
-    while i <= n do
-        if string.sub(span, i, i) == " " then
-            out[#out + 1] = " "
-            i = i + 1
-        else
-            local j = math.min(i + 1, n)
-            if string.sub(span, j, j) == " " then
-                j = i
-            end
-            out[#out + 1] = open .. string.sub(span, i, j) .. "</u>"
-            i = j + 1
-            --one-character gap between runs.
-            if i <= n and string.sub(span, i, i) ~= " " then
-                out[#out + 1] = string.sub(span, i, i)
-                i = i + 1
-            end
-        end
-    end
-    return table.concat(out)
-end
-
---The hinted-term treatment for the current setting step: Subtle = broken
---underline, Bold = solid underline.
+--The hinted-term treatment for the current setting step: Subtle = accent
+--underline, Bold = ink underline.
 --A creature's name is underlined in its own colour, so it reads apart from
 --a rules term.
 local CREATURE_UNDERLINE = "<u color=#c9783c>"
 
 local function GlossaryUnderlineForm(span, creature)
-    local open = creature and CREATURE_UNDERLINE or "<u>"
-    if g_glossaryHintsSetting:Get() == "bold" then
-        return open .. span .. "</u>"
+    local open = "<u>"
+    if creature then
+        open = CREATURE_UNDERLINE
+    elseif g_glossaryHintsSetting:Get() ~= "bold" then
+        open = ThemeEngine.ResolveTokens("<u color=@accent>")
     end
-    return GlossaryBrokenUnderline(span, open)
+    return open .. span .. "</u>"
 end
 
 --Term index: lowercase first word -> candidate entries sorted longest
@@ -3590,32 +3560,6 @@ local function GlossaryMatchRanges(seg, index, washed)
         end
     end
     return matches
-end
-
---Broken-underline runs for a span, as inclusive (from, to) offsets relative
---to the span (1-based): alternating 2-character underlined runs with
---1-character gaps, spaces never underlined. The same geometry as
---GlossaryBrokenUnderline; the seamless editor emits these as style
---decorations while the display path rewrites the string.
-local function GlossaryUnderlineRuns(span)
-    local runs = {}
-    local i = 1
-    local n = #span
-    while i <= n do
-        if string.sub(span, i, i) == " " then
-            i = i + 1
-        else
-            local j = math.min(i + 1, n)
-            if string.sub(span, j, j) == " " then
-                j = i
-            end
-            runs[#runs + 1] = { i, j }
-            --one-character gap between runs (a following space serves as
-            --the gap itself, same net advance).
-            i = j + 2
-        end
-    end
-    return runs
 end
 
 --Mark glossary terms inside one plain-text segment (no tags). washed maps
@@ -6201,7 +6145,7 @@ function MarkdownDocument.DisplayPanel(self, args)
             --Glossary hints: top-level interactive documents only (no
             --embeds, no preview panels), gated by the setting and the
             --per-view mute. Suspended while find-in-page has a term: the
-            --broken-underline runs would split hinted words so find could
+            --hint markup would split hinted phrases so find could
             --never match them (find wins; hints return when cleared).
             local glossaryOn = embedDepth == 0
                 and (not m_noninteractive)
@@ -8629,7 +8573,8 @@ function Seamless.CompileDecorations(doc, text)
         end
     end
     local glossaryWashed = {}
-    local glossaryBold = g_glossaryHintsSetting:Get() == "bold"
+    local glossaryUnderlineOpen = g_glossaryHintsSetting:Get() == "bold" and "<u>"
+        or ThemeEngine.ResolveTokens("<u color=@accent>")
 
 
     local group = 0
@@ -9127,21 +9072,8 @@ function Seamless.CompileDecorations(doc, text)
                         if m.underline then
                             local g = G()
                             local mFrom = segStart + m.from - 1
-                            if glossaryBold then
-                                decs[#decs + 1] = { kind = "style", from = A(mFrom), to = A(segStart + m.to - 1),
-                                    open = "<u>", close = "</u>", group = g }
-                            else
-                                --broken underline: one short style run per
-                                --underlined pair, same geometry as the
-                                --display treatment.
-                                local span = segText:sub(m.from, m.to)
-                                for _, run in ipairs(GlossaryUnderlineRuns(span)) do
-                                    decs[#decs + 1] = { kind = "style",
-                                        from = A(mFrom + run[1] - 1),
-                                        to = A(mFrom + run[2] - 1),
-                                        open = "<u>", close = "</u>", group = g }
-                                end
-                            end
+                            decs[#decs + 1] = { kind = "style", from = A(mFrom), to = A(segStart + m.to - 1),
+                                open = glossaryUnderlineOpen, close = "</u>", group = g }
                         end
                     end
                 end
