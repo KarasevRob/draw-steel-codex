@@ -888,8 +888,8 @@ M4, with the user's choice of hover preview plus right-click.
   (`RegionMapJournal.ResolveForViewer` uses `dmhub.isDM`); Show to players over another
   feature's presentation shows that feature's internal dialog name and has no manifest copy;
   a Party move that writes no log entry (delete rescue, Move to map carrying the Party, undo)
-  leaves the next merged route leg starting at the old point; `window.title` and
-  `search.result.path` are unused. Players may still Move to map a Location of theirs that
+  leaves the next merged route leg starting at the old point; `search.result.path` is
+  unused (`window.title` is used since 2026-10-08). Players may still Move to map a Location of theirs that
   carries Director content (a move, not a delete).
 
 **Cloud cleanup, 2026-10-08.**
@@ -900,8 +900,14 @@ M4, with the user's choice of hover preview plus right-click.
 - **CodeMod renamed.** The user renamed the CodeMod to "Overland Map" (id
   `ec447c62-03db-4416-a5a2-0b013c0f3893`). The app now reads it from the dev-mod folder
   `Overland Map\`. The rename filled that folder with one-line placeholder files, and they
-  were replaced with the real files. The repo folder, the panel name and every on-screen
-  string still say Region Map.
+  were replaced with the real files.
+- **On-screen name renamed too** (asked by the user). `C.panelName` and the copy strings
+  `window.title`, `tb.settings`, `set.title` and `load.missing` say Overland Map. The
+  load.missing chat title now reads `window.title` instead of a literal, so `window.title`
+  is no longer unused. The panel's name is also its window title and the key for saved
+  window placement, so a window placed under the old name opens at its default. The repo
+  folder, the `RegionMap*` code names and the stored table and document names are
+  unchanged.
 - **Checked:**
   - Read through `code.GetMod(id).files`, the cloud list is the 18 files of section 3.1 in
     order.

@@ -9,7 +9,7 @@ RegionMapCopy = RegisterGameType("RegionMapCopy")
 -- one automatically when args.count == 1, so callers always pass the plural ID.
 RegionMapCopy.strings = {
     -- 3. Window and toolbar
-    ["window.title"] = "Region Map",
+    ["window.title"] = "Overland Map",
     ["tb.search"] = "Search locations",
     ["tb.add"] = "Add location",
     ["tb.lock.on"] = "Pins locked - click to unlock",
@@ -21,7 +21,7 @@ RegionMapCopy.strings = {
     ["tb.log"] = "Session log",
     ["tb.expand.off"] = "Expand",
     ["tb.expand.on"] = "Restore window size",
-    ["tb.settings"] = "Region Map settings",
+    ["tb.settings"] = "Overland Map settings",
 
     -- 4. Breadcrumb and Atlas
     ["crumb.root"] = "Atlas",
@@ -177,7 +177,7 @@ RegionMapCopy.strings = {
     ["search.hint"] = "Enter opens the top result.",
 
     -- 13. Settings popover
-    ["set.title"] = "Region Map settings",
+    ["set.title"] = "Overland Map settings",
     ["set.party"] = "Party",
     ["set.party.name"] = "Party name",
     ["set.party.image"] = "Party image",
@@ -232,7 +232,7 @@ RegionMapCopy.strings = {
 
     -- 16. Limits and load (migrate.done was dropped with the V1 migration, brief R17)
     ["limit.locations"] = "This map has 250 locations, the most it can hold. Delete some to add more.",
-    ["load.missing"] = "Region Map needs a newer Draw Steel Codex and was not loaded. Missing: {list}",
+    ["load.missing"] = "Overland Map needs a newer Draw Steel Codex and was not loaded. Missing: {list}",
 }
 
 -- Month names for log.day.date, indexed 1..12. Not locale-aware: the manifest is US English.
