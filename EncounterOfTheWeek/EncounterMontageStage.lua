@@ -82,7 +82,16 @@ local SCENE_EMOTE_FADE = 0.3
 local SCENE_SHAKE_TIME = 1.4
 local SCENE_SHAKE_PX = 7
 
-local TIER_RANGES = { "11 or lower", "12-16", "17+", "19-20" }
+--tier 4 is the critical: a natural 19-20, not a total.
+local TIER_RANGES = { "11 or lower", "12-16", "17+", "Critical" }
+
+--"tier 2", or "critical" for tier 4 (capitalized = true for "Tier 2").
+local function TierName(tier, capitalized)
+    if tier == 4 then
+        return capitalized and "Critical" or "critical"
+    end
+    return string.format(capitalized and "Tier %d" or "tier %d", tier or 0)
+end
 
 --the montage haul: one icon per distinct item a hero has been granted,
 --stacked down a reserved gutter to the LEFT of their card. The gutter is
@@ -106,6 +115,23 @@ local ENTRY_APPEAR_TIME = 0.5
 local ENTRY_APPEAR_STAGGER = 0.15
 local ENTRY_FADE_TIME = 0.5
 local ENTRY_APPEAR_OFFSET = 30
+
+--The hero who took the entry on, as a small portrait slot down the card's
+--right edge under its outcome icons. It keeps the proportions of the
+--montage's hero cards (EotwHeroCard at 132 wide by 176 + 12 + 46 tall, the
+--stats-bearing card) so the same crop of the artwork shows, at a
+--thumbnail's size. The text column gives up the slot's width plus a gap.
+local ENTRY_HERO_SLOT_WIDTH = 56
+local ENTRY_HERO_SLOT_HEIGHT = math.floor(ENTRY_HERO_SLOT_WIDTH * 234 / 132 + 0.5)
+local ENTRY_HERO_SLOT_GAP = 10
+--how far down the slot sits when the outcome icons are above it.
+local ENTRY_HERO_SLOT_ICON_CLEARANCE = 26
+--the bar drawn through the title of an entry that is out of contention:
+--how long it takes to sweep across, and how thick it is.
+local ENTRY_STRIKE_TIME = 0.45
+local ENTRY_STRIKE_THICKNESS = 2
+--the entry card's padding; the hero slot's minimum card height counts it.
+local ENTRY_CARD_PAD = 10
 
 --the mounted stage (one per client) and the hero picked by a click, for
 --the click-a-hero-then-click-an-entry alternative to dragging.
@@ -411,6 +437,80 @@ local function StageRules()
             width = "100%",
             height = "auto",
             textAlignment = "left",
+        },
+        --the bar through the title of an entry out of contention, in the
+        --title's own white. Its width is driven from the card (it sweeps
+        --left to right), so the rule only carries its look.
+        {
+            selectors = {"eotwEntryStrike"},
+            bgcolor = "#ffffff",
+            cornerRadius = 1,
+        },
+        --the slot for the hero who took the entry on: an empty frame until
+        --someone does, then their portrait with their name along the
+        --bottom and the tier they rolled across the top.
+        {
+            selectors = {"eotwEntryHeroSlot"},
+            bgcolor = "#ffffff0a",
+            border = 1,
+            borderColor = "#ffffff30",
+            cornerRadius = 5,
+        },
+        {
+            selectors = {"eotwEntryHeroSlot", "filled"},
+            borderColor = "#ffffff90",
+        },
+        {
+            selectors = {"eotwEntryHeroSlot", "filled", "hover"},
+            borderColor = "#ffd66bff",
+        },
+        {
+            selectors = {"eotwEntryHeroArt"},
+            bgcolor = "white",
+            cornerRadius = 5,
+            transitionTime = 0.6,
+        },
+        --done with the entry: the portrait stays, drained of colour.
+        {
+            selectors = {"eotwEntryHeroArt", "finished"},
+            saturation = 0,
+            brightness = 0.75,
+            transitionTime = 0.6,
+        },
+        {
+            selectors = {"eotwEntryHeroName"},
+            fontSize = 10,
+            bold = true,
+            color = "#ffffff",
+            bgcolor = "#000000c0",
+            width = "100%",
+            height = "auto",
+            textAlignment = "center",
+            hpad = 2,
+            vpad = 1,
+        },
+        {
+            selectors = {"eotwEntryHeroTier"},
+            fontSize = 10,
+            bold = true,
+            color = "#ffffff",
+            bgcolor = "#000000c0",
+            width = "100%",
+            height = "auto",
+            textAlignment = "center",
+            vpad = 1,
+        },
+        {
+            selectors = {"eotwEntryHeroTier", "tier1"},
+            bgcolor = "#8f2a22e6",
+        },
+        {
+            selectors = {"eotwEntryHeroTier", "tier2"},
+            bgcolor = "#8a6d14e6",
+        },
+        {
+            selectors = {"eotwEntryHeroTier", "tier3"},
+            bgcolor = "#2c7a3ae6",
         },
         {
             selectors = {"eotwEntryDesc"},
@@ -1404,13 +1504,15 @@ local function TierText(roll, t, landed, dim)
     return EncounterScript.MarkupRules(text, string.format("<color=%s>", color), "</color>")
 end
 
+--The critical tier (4) gets no row until a critical has landed: every test
+--has one, and what it gives is a surprise until it is rolled.
 local function TierRows(roll, landedTier, dimOthers)
     local rows = {}
     for t in ipairs(roll.tiers) do
-        local range = TIER_RANGES[t] or ""
-        if #roll.tiers == 4 and t == 3 then
-            range = "17-18"
+        if t > 3 and landedTier ~= t then
+            break
         end
+        local range = TIER_RANGES[t] or ""
         local landed = landedTier == t
         local dim = dimOthers and landedTier ~= nil and not landed
         local tierText = TierText(roll, t, landed, dim)
@@ -1644,6 +1746,177 @@ end
 
 --- entry cards ---------------------------------------------------------------------
 
+--Who the entry's hero slot shows: the hero at it right now, or else the
+--last hero whose turn there has finished (from the montage log, so a failed
+--threat shows the latest hero to try it). Returns the turn or log record
+--and whether that hero is finished with it; nil when nobody has been.
+local function EntryHeroRecord(m, entry)
+    local t = m.turn
+    if t ~= nil and t.entryId == entry.id and t.status ~= "resolved" then
+        return t, false
+    end
+    local logs = m.log or {}
+    for i = #logs, 1, -1 do
+        local rec = logs[i]
+        if rec.entryId == entry.id and rec.heroid ~= nil and not rec.consequence then
+            return rec, true
+        end
+    end
+    return nil, false
+end
+
+--What the slot says across the top of a finished hero's portrait.
+local function EntryHeroResultText(rec)
+    if rec.passed then
+        return "Passed"
+    elseif rec.delve then
+        return "Delved"
+    elseif (rec.tier or 0) > 0 then
+        return TierName(rec.tier, true)
+    end
+    return "Done"
+end
+
+--The hover text for the slot: who it was and everything their turn there
+--came to, the same facts the round summary reads out.
+local function EntryHeroTooltip(rec, finished)
+    local name = rec.heroName or "A hero"
+    if not finished then
+        return string.format("<b>%s</b> is dealing with this now.", name)
+    end
+    local lines = {}
+    if rec.passed then
+        lines[#lines + 1] = string.format("<b>%s</b> approached and did nothing.", name)
+    elseif rec.delve and rec.ordered then
+        lines[#lines + 1] = string.format("<b>%s</b> took this on: %d of %s.", name, rec.depth or 0,
+            EncounterScript.Plural(rec.steps or 0, "step"))
+    elseif rec.delve then
+        lines[#lines + 1] = string.format("<b>%s</b> delved in: %s met, %s opened.", name,
+            EncounterScript.Plural(rec.depth or 0, "obstacle"), EncounterScript.Plural(rec.chests or 0, "chest"))
+    else
+        lines[#lines + 1] = string.format("<b>%s</b>: %s", name, rec.optionName or "")
+        if (rec.tier or 0) > 0 then
+            if rec.total ~= nil then
+                lines[#lines + 1] = string.format("<b>%s</b> (rolled %s)", TierName(rec.tier, true), tostring(rec.total))
+            else
+                lines[#lines + 1] = string.format("<b>%s</b>", TierName(rec.tier, true))
+            end
+        else
+            lines[#lines + 1] = "No roll"
+        end
+        if (rec.tierText or "") ~= "" then
+            lines[#lines + 1] = string.format("<i>%s</i>", rec.tierText)
+        end
+    end
+    if rec.knack ~= nil then
+        lines[#lines + 1] = string.format("Knack: %s", rec.knack)
+    end
+    if rec.assistName ~= nil then
+        local outcome = ({ bane = "a bane", edge = "an edge", doubleedge = "a double edge", none = "no change" })[rec.assistOutcome or "none"]
+        lines[#lines + 1] = string.format("Assisted by %s (%s)", rec.assistName, outcome or "no change")
+    end
+    for _, line in ipairs(rec.applied or {}) do
+        lines[#lines + 1] = string.format("- %s", line)
+    end
+    return table.concat(lines, "\n")
+end
+
+--The slot itself: an empty frame until a hero approaches the entry, then
+--their portrait (in colour while they are there, desaturated once they are
+--done), their name along the bottom and, after the roll, the tier across
+--the top. `top` clears the outcome icons when the card has any.
+local function CreateEntryHeroSlot(entry, top)
+    local art = gui.Panel{
+        classes = {"eotwEntryHeroArt", "hidden"},
+        width = "100%",
+        height = "100%",
+        bgimage = "panels/square.png",
+        interactable = false,
+    }
+    local tierLabel = gui.Label{
+        classes = {"eotwEntryHeroTier", "hidden"},
+        floating = true,
+        valign = "top",
+        text = "",
+        interactable = false,
+    }
+    local nameLabel = gui.Label{
+        classes = {"eotwEntryHeroName", "hidden"},
+        floating = true,
+        valign = "bottom",
+        text = "",
+        interactable = false,
+    }
+    return gui.Panel{
+        classes = {"eotwEntryHeroSlot"},
+        floating = true,
+        halign = "right",
+        valign = "top",
+        y = top,
+        width = ENTRY_HERO_SLOT_WIDTH,
+        height = ENTRY_HERO_SLOT_HEIGHT,
+        bgimage = "panels/square.png",
+        flow = "none",
+        data = { heroid = nil, tooltip = nil },
+        children = { art, tierLabel, nameLabel },
+
+        linger = function(element)
+            if element.data.tooltip ~= nil then
+                gui.Tooltip(element.data.tooltip)(element)
+            end
+        end,
+
+        refreshMontage = function(element, m)
+            local rec, finished = EntryHeroRecord(m, entry)
+            local filled = rec ~= nil
+            element:SetClass("filled", filled)
+            art:SetClass("hidden", not filled)
+            nameLabel:SetClass("hidden", not filled)
+            if rec == nil then
+                tierLabel:SetClass("hidden", true)
+                element.data.heroid = nil
+                element.data.tooltip = nil
+                return
+            end
+            --a new hero (a failed threat taken up by someone else) brings
+            --their own artwork; the same hero keeps what is already there.
+            if element.data.heroid ~= rec.heroid then
+                element.data.heroid = rec.heroid
+                local tok = dmhub.GetCharacterById(rec.heroid)
+                local portrait = nil
+                local rect = nil
+                if tok ~= nil and tok.valid then
+                    --a narrowed local: the nil check does not reach into the closure.
+                    local heroTok = tok
+                    pcall(function()
+                        portrait = heroTok.offTokenPortrait
+                        rect = heroTok:GetPortraitRectForAspect(ENTRY_HERO_SLOT_WIDTH / ENTRY_HERO_SLOT_HEIGHT, portrait)
+                    end)
+                end
+                if portrait ~= nil and portrait ~= "" then
+                    art.bgimage = portrait
+                    art.selfStyle.imageRect = rect
+                else
+                    art.bgimage = "panels/square.png"
+                    art.selfStyle.imageRect = nil
+                end
+            end
+            art:SetClass("finished", finished)
+            nameLabel.text = rec.heroName or ""
+            tierLabel:SetClass("hidden", not finished)
+            if finished then
+                tierLabel.text = EntryHeroResultText(rec)
+                --a critical wears tier 3's colour.
+                local shownTier = math.min(rec.tier or 0, 3)
+                for tier = 1, 3 do
+                    tierLabel:SetClass("tier" .. tier, shownTier == tier and not rec.passed and not rec.delve)
+                end
+            end
+            element.data.tooltip = EntryHeroTooltip(rec, finished)
+        end,
+    }
+end
+
 --One entry's card. An entry is only ever carded from the round it enters
 --onwards (the columns used to carry every entry of the beat, greyed out
 --with an "Appears in round N" line; user direction 2026-09-19: an entry
@@ -1652,11 +1925,6 @@ end
 --up with the stage itself, a stagger offset for the ones a new round
 --introduces.
 local function CreateEntryCard(entry, appearIn)
-    local statusLabel = gui.Label{
-        classes = {"eotwEntryStatus"},
-        text = "",
-        interactable = false,
-    }
     --The name is a DIRECT child of the card: while a hero is dragged the
     --engine marks valid drops "drag-target", the theme turns them light,
     --and its "parent:drag-target" rule darkens only the card's direct
@@ -1668,11 +1936,75 @@ local function CreateEntryCard(entry, appearIn)
         halign = "right",
         valign = "top",
     })
+    --the text column leaves the hero slot's width free down the right; the
+    --title, beside the icons rather than the slot when there are any, gives
+    --up whichever is wider.
+    local slotTop = cond(#outcomes > 0, ENTRY_HERO_SLOT_ICON_CLEARANCE, 0)
+    local textWidth = string.format("100%%-%d", ENTRY_HERO_SLOT_WIDTH + ENTRY_HERO_SLOT_GAP)
+    local nameReserve = math.max(ENTRY_HERO_SLOT_WIDTH + ENTRY_HERO_SLOT_GAP, cond(#outcomes > 0, #outcomes * 22 + 8, 0))
+    --the title is only as wide as its text (up to the column), so the bar
+    --that crosses it out can be sized to the words rather than the column.
+    local nameLabel = gui.Label{ classes = {"eotwEntryName"}, text = entry.name, interactable = false, halign = "left",
+        width = "auto", maxWidth = string.format("100%%-%d", nameReserve) }
+    --the bar through the title once the entry is out of contention (taken,
+    --vanquished, or carried off by the round). It sweeps left to right over
+    --ENTRY_STRIKE_TIME from `start`; a card built already struck draws it
+    --whole. It floats over the title, so it is sized off the title's own
+    --rendered box each frame of the sweep.
+    local strike = gui.Panel{
+        classes = {"eotwEntryStrike", "hidden"},
+        floating = true,
+        halign = "left",
+        valign = "top",
+        width = 0,
+        height = ENTRY_STRIKE_THICKNESS,
+        bgimage = "panels/square.png",
+        interactable = false,
+        data = { start = nil },
+        think = function(element)
+            local w = nameLabel.renderedWidth
+            local h = nameLabel.renderedHeight
+            if w == nil or w <= 0 then
+                return
+            end
+            local p = 1
+            if element.data.start ~= nil then
+                p = math.min(1, (dmhub.Time() - element.data.start) / ENTRY_STRIKE_TIME)
+            end
+            --ease in and out, so the stroke reads as drawn by hand.
+            local eased = p * p * (3 - 2 * p)
+            element.selfStyle.width = w * eased
+            --the font draws the title's letters low in the label's line box
+            --(h = 22.8 at 19pt, the lowercase body around 17-19 down), so the
+            --bar sits below the box's centre to run through the letters
+            --rather than over their tops. Measured live on the stage.
+            element.selfStyle.y = math.floor(h * 0.8 - ENTRY_STRIKE_THICKNESS / 2 + 1)
+            if p >= 1 then
+                element.thinkTime = nil
+            end
+        end,
+    }
+    local function StrikeTitle(animate)
+        if strike.data.struck then
+            return
+        end
+        strike.data.struck = true
+        strike.data.start = cond(animate, dmhub.Time(), nil)
+        strike:SetClass("hidden", false)
+        strike.thinkTime = 0.01
+    end
+    local heroSlot = CreateEntryHeroSlot(entry, slotTop)
+    local statusLabel = gui.Label{
+        classes = {"eotwEntryStatus"},
+        text = "",
+        interactable = false,
+        width = textWidth,
+        halign = "left",
+    }
     ---@type Panel[]
     local cardChildren = {
-        gui.Label{ classes = {"eotwEntryName"}, text = entry.name, interactable = false, halign = "left",
-            width = cond(#outcomes > 0, string.format("100%%-%d", #outcomes * 22 + 8), "100%") },
-        gui.Label{ classes = {"eotwEntryDesc"}, text = entry.description, interactable = false },
+        nameLabel,
+        gui.Label{ classes = {"eotwEntryDesc"}, text = entry.description, interactable = false, width = textWidth, halign = "left" },
     }
     if outcomeRow ~= nil then
         cardChildren[#cardChildren + 1] = outcomeRow
@@ -1689,22 +2021,30 @@ local function CreateEntryCard(entry, appearIn)
             classes = {"eotwEntryStatus", "deadline"},
             text = deadline,
             interactable = false,
+            width = textWidth,
+            halign = "left",
         }
     end
     cardChildren[#cardChildren + 1] = statusLabel
+    --the slot and the strike float, so they go last: later siblings draw on top.
+    cardChildren[#cardChildren + 1] = heroSlot
+    cardChildren[#cardChildren + 1] = strike
 
     local card = gui.Panel{
         classes = {"eotwEntryCard", entry.kind},
         width = "100%",
         height = "auto",
         flow = "vertical",
-        pad = 10,
+        pad = ENTRY_CARD_PAD,
         borderBox = true,
+        --the hero slot floats, so it does not grow the card by itself: a
+        --card with little text is still tall enough to hold it.
+        minHeight = ENTRY_CARD_PAD * 2 + slotTop + ENTRY_HERO_SLOT_HEIGHT,
         vmargin = 5,
         bgimage = "panels/square.png",
         dragTarget = true,
         dragTargetPriority = 10,
-        data = { entryId = entry.id, kind = entry.kind, available = false },
+        data = { entryId = entry.id, kind = entry.kind, available = false, refreshed = false },
         children = cardChildren,
 
         --the click alternative to dragging: a hero picked by a click on
@@ -1758,20 +2098,39 @@ local function CreateEntryCard(entry, appearIn)
                 status = "Drag a hero here"
             end
             element.data.available = available and not active
+            --dealt with: cross the title out. It sweeps across when it
+            --happens in front of the party; a card that comes up already
+            --done (a rebuild, a late joiner) is simply drawn struck.
+            if done then
+                StrikeTitle(element.data.refreshed)
+            end
+            element.data.refreshed = true
             element:SetClass("done", done)
             element:SetClass("active", active)
             element:SetClass("droppable", m_selectedHero ~= nil and m_selectMode == "approach" and element.data.available)
             statusLabel.text = status
         end,
 
-        --the round ended and this entry was dealt with: fade the card away
-        --and drop it, so the columns carry only what is still in play.
+        --the round ended and this entry was dealt with (or, a "(Temporary)"
+        --one, carried off): fade the card away and drop it, so the columns
+        --carry only what is still in play. A title not yet crossed out is
+        --struck first and the fade waits for the stroke; returns that wait
+        --through element.data.leaveDelay for the caller to stagger after.
         leave = function(element)
             if element.data.leaving then
                 return
             end
             element.data.leaving = true
             element.data.available = false
+            local delay = 0
+            if not strike.data.struck then
+                StrikeTitle(true)
+                delay = ENTRY_STRIKE_TIME + 0.15
+            end
+            element.data.leaveDelay = delay
+            element:ScheduleEvent("fadeOut", delay)
+        end,
+        fadeOut = function(element)
             element:SetClassTree("eotwEntryLeave", true)
             element:ScheduleEvent("gone", ENTRY_FADE_TIME + 0.05)
         end,
@@ -3085,11 +3444,15 @@ local function CreateSceneStage()
                 speakerLabel:SetClass("collapsed", false)
                 narration:SetClass("speech", true)
                 narration:SetClass("garbled", step.garbled == true)
+                --words the hero can't understand appear in the language's
+                --own script (Dwarvish runes, Tengwar, ...).
+                narration.selfStyle.fontFace = cond(step.garbled == true, Language.UnreadableFontForName(step.lang), nil)
                 SetSpeaking(side, step.speaker)
             else
                 speakerLabel:SetClass("collapsed", true)
                 narration:SetClass("speech", false)
                 narration:SetClass("garbled", false)
+                narration.selfStyle.fontFace = nil
                 SetSpeaking(nil)
             end
             StartTyping(narration, step.text or "", instant)
@@ -3351,7 +3714,7 @@ local function BuildTurnChildren(m, beat)
             elseif (last.tier or 0) == 0 then
                 Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s: %s (%s, no roll)", last.heroName or "", last.entryName or "", last.optionName or "") })
             else
-                Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s: %s (%s, tier %d)", last.heroName or "", last.entryName or "", last.optionName or "", last.tier or 0) })
+                Add(gui.Label{ classes = {"eotwTurnText"}, text = string.format("%s: %s (%s, %s)", last.heroName or "", last.entryName or "", last.optionName or "", TierName(last.tier or 0)) })
             end
             if last.knack ~= nil then
                 Add(gui.Label{ classes = {"eotwAppliedLine"}, text = string.format("Knack: %s", last.knack) })
@@ -4248,6 +4611,8 @@ local function CreateStage(args)
         local vanquished = m.vanquished or {}
         local expired = m.expired or {}
         local n = 0
+        --the longest any leaving card waits on its title strike before fading.
+        local maxDelay = 0
         for id, card in pairs(m_cards) do
             if not card.valid then
                 m_cards[id] = nil
@@ -4256,9 +4621,10 @@ local function CreateStage(args)
                 m_cards[id] = nil
                 card:FireEvent("leave")
                 n = n + 1
+                maxDelay = math.max(maxDelay, card.data.leaveDelay or 0)
             end
         end
-        return n
+        return n, maxDelay
     end
 
     --Bring the columns into line with the round (and the phase: the last
@@ -4295,8 +4661,8 @@ local function CreateStage(args)
             --the old cards to finish fading and the columns to close up,
             --so the two animations read as one hand-over rather than a
             --scramble.
-            local leaving = RetireDoneEntries(m)
-            local startDelay = cond(leaving > 0, ENTRY_FADE_TIME + 0.1, 0)
+            local leaving, strikeDelay = RetireDoneEntries(m)
+            local startDelay = cond(leaving > 0, strikeDelay + ENTRY_FADE_TIME + 0.1, 0)
             for r = m_entryRound + 1, round do
                 AddEntriesForRound(beat, r, true, m, true, startDelay)
             end

@@ -1807,8 +1807,10 @@ local function StripSpoilers(text, ink)
 
                     if markDepth == 1 and not canSpeak then
                         --Guarded: an unavailable font id leaks the literal <font> tag into the text.
-                        if FontAvailable("tengwar") then
-                            result = result .. "<font=\"tengwar\">"
+                        --The font is the language's script (Dwarvish runes, ...); availableFonts ids are lowercase.
+                        local font = string.lower(bestLanguage ~= nil and bestLanguage:UnreadableFont() or Language.UnreadableFontForId(nil))
+                        if FontAvailable(font) then
+                            result = result .. string.format("<font=\"%s\">", font)
                             markEnd = "</font>"
                             --bestLanguage is nil when the {:Name:} does not resolve to a
                             --known language; canSpeak is false either way, so we still

@@ -8491,6 +8491,55 @@ function CreateTitlescreen(dialog, options)
                         height = "85%",
                         width = "100%",
 
+                        --How many players are in Blackbottom right now, read over
+                        --HTTP so being on the titlescreen does not count you as in
+                        --town. Collapsed until the first answer, and while nobody is there.
+                        gui.Label {
+                            classes = { "collapsed" },
+                            bgimage = true,
+                            bgcolor = "#000000aa",
+                            cornerRadius = 4,
+                            fontSize = 20,
+                            fontFace = "newzald",
+                            color = "white",
+                            width = "auto",
+                            height = "auto",
+                            hpad = 12,
+                            vpad = 4,
+                            borderBox = true,
+                            halign = "center",
+                            valign = "bottom",
+                            bmargin = 10,
+                            text = "",
+
+                            data = { fetching = false },
+
+                            create = function(element)
+                                element:FireEvent("think")
+                            end,
+
+                            thinkTime = 60,
+                            think = function(element)
+                                local roster = rawget(_G, "EotwRoster")
+                                if element.data.fetching or roster == nil or not EotwCardEnabled() then
+                                    return
+                                end
+                                element.data.fetching = true
+                                roster.FetchHeadcount(function(count)
+                                    if mod.unloaded or not element.valid then
+                                        return
+                                    end
+                                    element.data.fetching = false
+                                    if count == nil then
+                                        --keep the last good count through a failed poll.
+                                        return
+                                    end
+                                    element:SetClass("collapsed", count < 1)
+                                    element.text = string.format("%d adventurer%s in Blackbottom", count, cond(count == 1, "", "s"))
+                                end)
+                            end,
+                        },
+
                     },
 
                     gui.Panel {

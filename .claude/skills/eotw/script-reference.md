@@ -198,7 +198,7 @@ is a journal power-roll block:
 |<tier 1 text: 11 or lower>
 |<tier 2 text: 12-16>
 |<tier 3 text: 17+>
-|<optional 4th line: critical>
+|<optional 4th line: critical, a natural 19-20>
 |<optional rider lines>
 ```
 
@@ -215,6 +215,11 @@ is a journal power-roll block:
   header -- is taken without a test: its clauses apply at once. Lines above
   its rules are its own scene; lines below are its outcome scene.
 - Tier text is clauses (see the table). Make every tier say something.
+- **Every test has a critical** (natural 19 or 20). Leave the 4th line out
+  and it is built for you: tier 3's full text plus "The party gains an
+  additional hero token." Write a 4th line only when a critical should give
+  something different. Players never see the critical tier (stage, roll
+  dialog, outcome icons) until one is rolled; then the stage reveals it.
 
 **Teasers.** `|<teaser> => <full text>` on a tier line: players see the teaser
 until that tier lands; tiers never reached keep their teaser. Only the full

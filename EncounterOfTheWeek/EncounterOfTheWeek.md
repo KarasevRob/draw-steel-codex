@@ -12,11 +12,12 @@ The player's path:
    (`/toggle dev:encounteroftheweek` in chat), a link in the top-right corner
    opens the EotW screen: an overview, a lobby chat, who is present, and the
    list of joinable games.
-2. **Game lobby.** A player creates a game (public or private, and which of
-   the week's encounters to play) or joins a public one, then fills hero
-   slots with their own titlescreen heroes or the module's pregens: up to 4
+2. **Game lobby.** At the Town Gate a player forms a party for **the**
+   Encounter of the Week (or one of the past ones) or joins a public one;
+   community-made encounters play in the **Danger Rooms** instead, as
+   practice. Hero slots are filled from the player's town roster: up to 4
    heroes per player, 4-6 per game. The creator is the host and may kick
-   players.
+   players. (See "The Encounter of the Week and the Danger Rooms".)
 3. **Begin.** The host presses Begin; the host enters and sets the game up,
    then everyone else enters.
 4. **The script.** The week's journal document is a script of beats. Story
@@ -38,7 +39,7 @@ write-ups, superseded designs, old module versions) was removed on
 
 ---
 
-# Where things stand (2026-10-05)
+# Where things stand (2026-10-06)
 
 **Everything in the flow above is built**, from the lobby server to the
 victory screen, and most of it has been played in real EotW games at some
@@ -98,6 +99,8 @@ handovers on a non-host screen.
 | **Dwarvish Bandits script features** (2026-10-04; see "Script features added for The Dwarvish Bandits") | Core: `DMHub Game Rules/TestRiders.lua` (movement/wealth requirements, `(Round N)` riders), `Draw Steel UI/DSVictoryScreen.lua` (`RegisterHeroCardNote`), `Codex Titlescreen/EotwRoster.lua` (treasure home). EotW: `EncounterScript.lua` (new clauses, entry dice tables, round scenes, bystander setup line) + `tests/encounter_script_test.lua` (503), `EncounterMontage.lua` (effects, `MontageSceneImage`, round in `HeroFacts`), `EncounterMontageStage.lua` (`SetBackdropScene`: video loop, round scenes), `EncounterZones.lua` (object reveals, `UnlockedStartZones`), `EncounterOfTheWeek.lua` (extra start zones, bystanders out of initiative, arrival item snapshot, `TreasureGained`, treasure on the outcome + victory card) | luac + parser tests (503) + typing clean. VERIFIED 2026-10-04 by an MCP-driven single-client playtest in game `1e3c159e` (via `codex-eotwauthor`): day video backdrop playing, night backdrop in round 2, Zaliac speech/branch, the Zaliac edge chip, a tier-3 double table roll, Start2 + 2 hero tokens, chest reveal, a lost consumable with and without consumables (silent recovery), the max-Stamina curse, the rolled-damage boon (a live power modifier), recovery value +2, the locked mother -> trail -> cave chain (+3 tokens), the Wolf ally, a party-wide damage boon, all three end-of-montage consequences, Civilians out of initiative, freed on contact, walking 4 per hero turn, the scripted victory (2/2) and "Treasure: Bastion Belt" on the victory card. NOT seen: the Wealth / climb-fly edges with a qualifying hero (none of the pregens qualifies; unit-tested), the treasure reaching the town, a multi-client run |
 | **The authoring test** (2026-10-05; see "The authoring test"): Game menu rows to play the map's encounter as a player host from the start, the montage or the combat, with a pregen picker and End Test | Engine: `GameController.cs` (`playerHostModeForced`, `directorlessPlay`), `LuaInterface.cs` (`dmhub.playerHostModeForced`, `dmhub.directorlessPlay`), `GameHarness.cs` (carried across the refresh), `LevelObject.cs` (trap freeze); stub `Definitions/dmhub.lua`. Codex: `EncounterOfTheWeek.lua` (`IsTestPlayer` in `IsEotwGame`, "the authoring test" section, conclusion + proceed + host-tick gates), NEW `EncounterTest.lua` (registered in the EncounterOfTheWeek codemod after `EncounterMontageStage.lua`, Firebase confirmed), `EncounterMontageStage.lua` (`ShowStoryScreen` `buttonText`/`busyText`) | C# NEEDS BUILD; luac + typing clean; needs an app restart; UNTESTED |
 | **Reinforcements + clear-the-map victory** (2026-10-05, user direction; see "Reinforcements and the clear-the-map victory"): `## Reinforcements: <Name>` sections (`Arrive:` / `Enter:` / `Shout:` + islands that take turns) and `Victory: every Dwarf on the map is defeated`. Applied to The Dwarvish Bandits in game `1e3c159e` | NEW `EncounterReinforcements.lua` (registered in the EncounterOfTheWeek codemod after `EncounterZones.lua`, Firebase confirmed); `EncounterScript.lua` (grammar), `EncounterOfTheWeek.lua` (host tick + victory OR), `EncounterZones.lua` (victory setup entry), `EncounterMontage.lua` (reset), `EncounterScriptValidator.lua` (rows; bystander lines no longer reported as unrecognized); core `DMHub Game Rules/Creature.lua` (`eotwReinforcement` field annotation); `tests/encounter_script_test.lua` (909); skill `script-reference.md` | luac + parser tests + typing clean; the live document parsed offline with the new parser (no warnings; gunners round 2, trappers round 3, alternating). NOT run in the app: needs an app RESTART (new codemod file), then the authoring test (Combat) to see a wave arrive, the shout, the clear-map win. UNCOMMITTED |
+| **One Encounter of the Week + the Danger Rooms** (2026-10-06, user direction; see "The Encounter of the Week and the Danger Rooms"): a single scheduled Encounter of the Week at the Gate (blurb from its `# Town Gate`) + Past Encounters; community encounters moved to a new **Danger Rooms** location (practice: no Victory, treasure or outcome; a town-side debrief: vote, feedback for the creator, nomination); Danger Rooms unlock after a first Encounter of the Week win; admin rotation (Codex menu dialog, `SetWeek`, `tools/eotw_week.py`, `/eotw-rotate` skill); Goblin Ambush to be the first week, Angry Dwarves retired | Server: `cloudflare-game-server/src/city-core.ts` (schedule, debriefs, nominations, unlocks), `src/city.ts` (tables `city_settings`, `city_danger_feedback`, `city_nominations`; actions; `/city/week`; admin HTTP `/admin/city/{id}/week`), `src/index.ts` (route, `CITY_ADMINS` env), `wrangler.toml` + `wrangler.dmhub.toml` (`CITY_ADMINS`), `test/city-core.test.ts` (315 total pass). Codex: `Codex Titlescreen/EncounterOfTheWeek.lua` (schedule API, `CityRequest`, `ShowWeekDialog`, the two party boards, `WeekBanner`, Past Encounters, Danger Rooms board + location + art, creator feedback, debrief), `Codex Titlescreen/EotwRoster.lua` (`DangerRoomsUnlocked`), `EncounterOfTheWeek/EncounterOfTheWeek.lua` (`practice` stamp, `IsPracticeGame`, no award / outcome / treasure, `eotw-practice` card note, `eotw:pendingDebrief`). Tools: NEW `tools/eotw_week.py`, NEW skill `.claude/skills/eotw-rotate/`; `/eotw` skill text. Art: core image `92f3f806-...` from `~/Downloads/Steel Draw monsters cover.psd` | Server unit tests + tsc pass; luac + typing clean. **Worker DEPLOYED to staging 2026-10-06** (version `97d3fe50`; `/api/city/blackbottom/doc` shows `city.week = null`). Schedule SEEDED: Goblin Ambush (now week 3 after a test rotation and restore). VERIFIED 2026-10-06 single client, titlescreen town: see that section's "Verified". NOT seen: a practice game played (game side), the locked Danger Rooms node (this account is unlocked), a second client, `tools/eotw_week.py` (no admin secret here). UNCOMMITTED |
+| **Every test has a critical** (2026-10-07, user direction; see "Montage beats"): a missing 4th tier is built as tier 3 + an additional hero token; the critical stays hidden (roll dialog, stage rows, icons) until a natural 19-20 lands, then the stage shows a "Critical" row | `EncounterScript.lua` (`AutoCriticalText`, `critAuto`, hero-token "additional"/"extra", `OptionEffectLists` `includeCritical`), `EncounterMontage.lua` (`TeaserTiers` 1-3 only), `EncounterMontageStage.lua` (`TierName`, `TierRows`, "Critical" labels), `EncounterScriptValidator.lua`; `tests/encounter_script_test.lua` (923); skill `script-reference.md` | luac + parser tests + typing clean. UNTESTED in the app (needs an app restart; check: a forced natural 19-20 shows tiers 1-3 while rolling, then the Critical row with the bonus token, +1 hero token in the pool). Modules NOT republished (the change is code only; no script edits needed). UNCOMMITTED |
 | This document | | |
 
 The codex working copy also holds plenty of unrelated uncommitted work, so
@@ -225,6 +228,13 @@ In a real EotW game with **at least two clients** and the current week:
    to the spawn and Draw Steel), From the Start, End Test mid-montage and
    mid-combat, and RESUME after an app restart mid-test.
 
+13. **The Encounter of the Week and the Danger Rooms** (BUILT and town side
+   VERIFIED 2026-10-06; see that section's "Verified"). Still owed: play a
+   real Danger Rooms game (4 heroes from the Danger Rooms board) and check the
+   game side -- no Victory award, "Danger Rooms: practice only" on the cards,
+   no treasure, the debrief on return; see the locked node with an account
+   that has never won (the New Player Window's secondary account); commit.
+
 12. **Reinforcements** (BUILT 2026-10-05, untested live; see "Reinforcements
    and the clear-the-map victory"). Restart the app (new codemod file), open
    The Dwarvish Bandits (`1e3c159e`) and run Test Encounter: Combat. Check:
@@ -260,6 +270,9 @@ In a real EotW game with **at least two clients** and the current week:
 | Publisher (official module) | `tools/eotw_publish/` (`publish_eotw.py`, README) |
 | Community Encounter of the Week modules (publish-dialog type + checks) | `DMHub Core Panels/ModShare.lua` (`eotw` in `g_moduleTypes`, `CheckEncounterModule`) |
 | Encounter pool, encounter keys, admin pull | `Codex Titlescreen/EncounterOfTheWeek.lua` ("the encounter pool" section, `ShowPoolDialog`) |
+| The week's schedule, the Gate and Danger Rooms boards, Past Encounters, the debrief, the admin week dialog | `Codex Titlescreen/EncounterOfTheWeek.lua` ("the week's schedule" section, `ShowWeekDialog`; in `CreateScreen`: `PartyBoard`, `BoardChildren`, `WeekBanner`, `DangerEncounterRow`, `ShowPastEncountersDialog`, `ShowCreatorFeedbackDialog`, `ShowDebriefDialog`) |
+| The schedule, debriefs, nominations and unlocks on the server | `cloudflare-game-server/src/city-core.ts` ("The Encounter of the Week and the Danger Rooms"), `src/city.ts` |
+| Weekly assessment + rotation tooling | `tools/eotw_week.py` (admin HTTP), `.claude/skills/eotw-rotate/` (MCP) |
 | Authoring content | `C:\dev\eotw` (git repo, no remote) + the Local authoring game `e96656f3-a11c-477b-89f1-978452983324` |
 
 Codemod gotchas that apply to all of it:
@@ -434,13 +447,16 @@ All in `Codex Titlescreen/EncounterOfTheWeek.lua`, mounted on
   `contentSummary` write to the owner, and stops retrying 401/403 writes.
 - While in the game nobody heartbeats the roster record, so it expires about
   5 minutes after launch.
-- **Choosing the encounter.** A map named exactly `Encounter` is the
-  default; any map named `Encounter: <title>` is an alternative. The
-  create dialog lists the whole **encounter pool**: the official module's
-  maps, plus every Public or Unlisted community Encounter of the Week
-  module's maps,
-  one flyout per module (see "Community encounter modules and the
-  encounter pool"). Names come from each module record's `contentSummary`
+- **Choosing the encounter.** Since 2026-10-06 the party's encounter is
+  chosen by WHERE it is formed, not from a dropdown: the Gate's Form a Party
+  sets out for the Encounter of the Week, Past Encounters for an earlier
+  one, and a Danger Rooms row for that encounter (see "The Encounter of the
+  Week and the Danger Rooms"). The maps are still found by name: a map named
+  exactly `Encounter` is a module's default and any map named
+  `Encounter: <title>` is another; the **encounter pool** is the official
+  module's maps plus every Public or Unlisted community Encounter of the
+  Week module's maps (see "Community encounter modules and the encounter
+  pool"). Names come from each module record's `contentSummary`
   via `module.DownloadModuleInfo`, with no snapshot download. The choice
   rides the roster record as `encounter`, an **encounter key** (string,
   120 chars, opaque to the DO). The publisher, the titlescreen's
@@ -966,9 +982,11 @@ holds.
   Hero and Recruit a Hero (a grid of the week's pregens, then a name prompt
   prefilled with the pregen's name). `EotwRoster.GuildPanel(host)` returns
   the card's body (it was the `ShowGuild` dialog).
-- **Gate**: the old games list, retitled. It groups "Parties Forming" and
-  "Encounters Underway"; Form a Party opens the old create dialog,
-  renamed. The add-hero picker lists your living roster heroes that are
+- **Gate**: since 2026-10-06 a "This Week's Encounter" banner (title,
+  creator credit, the `# Town Gate` blurb), then "Parties Forming" and
+  "Encounters Underway" for Gate parties; Form a Party (this week's) and
+  Past Encounters along the bottom. The Danger Rooms are a second board of
+  the same kind; see "The Encounter of the Week and the Danger Rooms". The add-hero picker lists your living roster heroes that are
   neither claimed nor away, active ones first, as `{kind = "roster"}`.
   - **Active heroes join by default** (user direction 2026-10-03). Forming a
     party, or joining one, sends a `set-heroes` with your active heroes right
@@ -1135,6 +1153,215 @@ progression rules can be applied after the fact. Run the design with the
    roster id.
 4. ~~City DO skeleton~~ DONE 2026-10-02 (deployed to staging, smoke-tested
    there).
+
+---
+
+# The Encounter of the Week and the Danger Rooms (BUILT 2026-10-06; town side verified)
+
+User direction (2026-10-06): at any time there is ONE specific encounter that
+is **the** Encounter of the Week. It stays so until it is rotated by hand
+(a script or a Claude skill). The Town Gate describes it from its published
+blurb and parties form for it; a **Past Encounters** option offers the
+earlier ones, but this week's is the default and focus. User-made encounters
+never appear at the Gate: they play in a new town location, the **Danger
+Rooms** -- experimental, no Victories, no treasure, nothing durable, otherwise
+a normal encounter (a practice ground). After a Danger Room game each player
+can up- or downvote it, write feedback for its creator, and nominate their
+overall choice for next week's Encounter of the Week; the team assesses that
+weekly and picks the next one. The Danger Rooms are locked until the player
+first defeats the Encounter of the Week, then open for good. The background
+is the cover side of the Draw Steel: Monsters cover PSD. Goblin Ambush is the
+first Encounter of the Week; Angry Dwarves is retired.
+
+## The schedule
+
+- The City stores `{week, current, past, since}` (`city_settings` row
+  `week`), encounter KEYS as everywhere else (`Encounter: Goblin Ambush`;
+  `<moduleid>|<map name>` for a community map). It rides the subscribed
+  lobby document as **`/city/week`**, so a rotation reaches every open town
+  at once (the town's monitor re-renders on `/city/week`).
+- **`set-week {current, past?}`** (city admins only): without `past` it
+  rotates -- the old current becomes the newest past, the week number goes
+  up, `since` is stamped (the same current again is a no-op); with `past` it
+  replaces the schedule (repairs). Admins = the userids in the worker env
+  `CITY_ADMINS` (wrangler.toml, both environments; David's
+  `4V4KWXdW7ScFIiEyuknO4bqmQSc2`). On staging `ALLOW_UNAUTHENTICATED_DEV`
+  makes userids self-reported, so there the gate is a courtesy.
+- **Rotating** (any one of):
+  - the admin's Codex menu -> **Encounter of the Week...** (town open):
+    every pool encounter except the current, most nominated first, with
+    votes, plays and all feedback, each with "Make Encounter of the Week"
+    (second click confirms);
+  - Lua, anywhere (titlescreen or a game; over MCP):
+    `EncounterOfTheWeek.SetWeek(key, cb)` / `EncounterOfTheWeek.DangerReport(cb)`
+    (`CityRequest` uses the town's connection, else a short-lived one);
+  - the skill **`/eotw-rotate`** (`.claude/skills/eotw-rotate/`): reads the
+    report over MCP, summarizes it, and rotates only after the user picks;
+  - `python tools/eotw_week.py report|rotate <key>|set <key> --past "a;b"`
+    over **`/admin/city/blackbottom/week`** (GET = report, POST = set-week),
+    which needs the worker's `ADMIN_SECRET` (not on this machine as of
+    2026-10-06).
+- **Which board an encounter belongs to** (`IsScheduledEncounter`,
+  `IsDangerRoomEncounter`): scheduled (current or past) -> the Gate; a
+  community encounter never scheduled -> the Danger Rooms; an official
+  module map never scheduled -> nowhere (this is how Angry Dwarves is
+  retired; it can still be scheduled again). A community encounter that
+  becomes the Encounter of the Week moves to the Gate; no Victory was ever
+  recorded for it in the Danger Rooms, so heroes can still earn it.
+- **Seeding:** the schedule starts empty, and the Gate then says the guild
+  has not posted this week's encounter. After the City deploy, an admin runs
+  `EncounterOfTheWeek.SetWeek("Encounter: Goblin Ambush")` once.
+
+## The Town Gate
+
+- The board opens with a **"This Week's Encounter"** banner: the title (the
+  pool entry's, so the module record must be loaded), the creator credit for
+  a community encounter, and the `# Town Gate` blurb, which reaches the town
+  through the module record (`publishingProperties.eotwEncounters`, written
+  by the publisher / ModShare) -- a script edit shows only after a publish.
+- Then "Parties Forming" / "Encounters Underway" for Gate parties only.
+- Bottom: **Form a Party** (this week's; an error line if none is posted)
+  and **Past Encounters** (a dialog of every past encounter, newest first,
+  with title, credit, blurb and its own Form a Party). Past encounters award
+  the Victory as before (once per hero per key).
+- **Form a Party** no longer has an encounter dropdown: `ShowCreateDialog(key)`
+  shows where the party is going (title, credit, blurb, and for a Danger
+  Room the practice note). The key rides `create-game` as before.
+
+## The Danger Rooms
+
+- **Location** `danger` (`CITY_LOCATIONS`): "Danger Rooms",
+  `phosphor/skull-fill.png`, at (0.74, 0.42) on the map, level with the
+  Guild (at the first try, (0.6, 0.56), the hero cards along the bottom
+  covered it). Locked with "Defeat the Encounter of the Week to unlock the
+  Danger Rooms." until `EotwRoster.DangerRoomsUnlocked()`, and like the Gate
+  it needs a living hero.
+- **Unlock.** `list-heroes` now returns `unlocks = {dangerRooms}`: true once
+  any of the account's heroes has a completion of a scheduled encounter
+  (current or past). Completions are never deleted (a dismissed hero keeps
+  them) and the schedule only grows on rotation, so it never re-locks.
+  Judgment calls (not asked): a past Encounter of the Week counts, not only
+  the current one (it also makes a win near a rotation count); it is
+  derived, not stored, so it is retroactive; and since completions are
+  written only for heroes alive at the end, a player whose every hero died
+  in a winning party does not unlock it.
+- **Scene**: core image `92f3f806-327b-498c-9705-49972311c3e3`, the front
+  cover of Draw Steel: Monsters rendered from
+  `~/Downloads/Steel Draw monsters cover.psd` with the `text` group, spine
+  group, text shadow (`Layer 16`) and guides hidden (Background + Final
+  Cover + bleed `Layer 15`), cropped at x 7073..13627 (the front cover), then
+  a 16:9 band (y 1900..5586) scaled to 3840x2160 around the beholder. Sources
+  in `C:/dev/eotw/art/` (`danger-rooms-monsters-cover-front.png` full
+  front, `danger-rooms-scene-3840x2160.jpg`). MCDM's own art: no creator
+  badge. The card is 900 wide (the Gate's 1000) to keep the monster clear.
+- **Board** (`PartyBoard("danger")`): the practice note, the resume row,
+  Danger Room parties forming / underway, then **Encounters to Try**: one
+  row per Danger Room encounter (title, "<module> by <author>", "N up, M
+  down -- played P times", "your nomination this week", the blurb, Form a
+  Party). Votes come from `danger-stats` when the location opens.
+- **Feedback on Your Encounters** (bottom button, shown when the pool holds
+  a module this account published -- `ourModule`): votes and every
+  feedback line per encounter, newest first (`danger-feedback-for`). The
+  server cannot check who made a module, so the feedback is not private;
+  the client only asks for its own.
+- **Both boards are built once and kept** (the Gate was already, because
+  `RefreshGames` must stay live to notice a launched game); `RefreshGames`
+  renders each board, and a party view renders on its party's board (by
+  `PartyMode(record)`) while the other board keeps its lists. Errors show
+  on both boards.
+
+## Practice games (game side)
+
+- `EnterWorld` adds `practice = IsDangerRoomEncounter(key)` to the arrival;
+  the host stamps `eotwstate.practice = true` at setup (`RecordPracticeMode`,
+  set only, so a resume keeps it). `EncounterOfTheWeekGame.IsPracticeGame()`.
+- In a practice game: `AutoAwardVictories` awards nothing (the victory
+  screen's award controls are Director-only and never show), the treasure
+  card note is suppressed, `RecordPendingOutcomes` writes nothing (no
+  Victories, treasure or completion go home), and every hero card says
+  "Danger Rooms: practice only" (`eotw-practice` note). Hero death does not
+  carry home yet for any game (burial is unbuilt); when it is built, decide
+  whether a Danger Room death buries a hero -- the user's "nothing durable"
+  suggests not.
+- On leaving (victory or defeat) each client writes
+  **`eotw:pendingDebrief`** (`{[userid] = {gameid, encounter, result}}`,
+  machine-local, one game per player).
+
+## The debrief (town side)
+
+- Back in town, once connected (`MaybeShowDebrief` on `/` and on connect),
+  the **Danger Rooms Debrief** dialog: the encounter's title, the result and
+  "It was practice: nothing was awarded", **Upvote / Downvote** toggles
+  (`phosphor/thumbs-up-fill.png` / `thumbs-down-fill.png`), a multiline **feedback for its creator** (2000
+  chars), and **Your pick for next week's Encounter of the Week** (a
+  dropdown of every Danger Room encounter, preselected with this week's
+  nomination). **Send** -> `danger-feedback`; **Skip** or Escape clears it.
+- City: `danger-feedback {encounter, gameid, vote, feedback, nominate?}`
+  stores one row per (player, encounter, game) and one nomination per
+  (player, week) (a new one replaces the old; rotation starts a new week).
+  Refused for a scheduled encounter. Votes count each player once per
+  encounter with their latest up/down; plays count every debrief.
+  `danger-stats {encounters?}` -> `{stats, week, nomination}`;
+  `danger-report` (admin) -> `{week, encounters (best net vote first, with
+  feedback), nominations (most first)}`. Debrief writes share the hero write
+  bucket.
+
+## Verified (2026-10-06, single client, the titlescreen town)
+
+City deployed to staging (`97d3fe50`); the week seeded with
+`SetWeek("Encounter: Goblin Ambush")` from INSIDE the authoring game (so
+`CityRequest`'s short-lived connection and the `CITY_ADMINS` check work).
+Then, in the town: the Danger Rooms node (unlocked: Ampeth had won Goblin
+Ambush); the Gate's banner with the Goblin Ambush blurb; Past Encounters
+(empty, then listing Goblin Ambush after a rotation, and its Form a Party
+opening the create dialog for it); Form a Party with the encounter, blurb and
+no dropdown; the Danger Rooms scene (art, crop, practice note, The Dwarvish
+Bandits row, Feedback on Your Encounters shown for the module's publisher);
+the debrief raised automatically from a staged `eotw:pendingDebrief` on
+reopening the town, Upvote toggling, feedback typed, the nomination picked,
+Send -> the pending entry cleared and `danger-report` holding the vote, text
+and nomination; the row's "1 up, 0 down -- played 1 time -- your nomination
+this week"; Feedback on Your Encounters; the admin dialog; a live rotation to
+The Dwarvish Bandits from the dialog (both boards re-rendered at once, the
+Bandits left the Danger Rooms, the Gate showed them, nominations reset), then
+restored with the repair form (`set-week` with `past = {}`), now week 3.
+Fixed on the way: the node position, and `EncounterDisplayName` reading
+"The Dwarvish Bandits (The Dwarvish Bandits)" when a module is named after its
+encounter. The staging City keeps one test debrief of The Dwarvish Bandits
+(an upvote, "[test from Claude, ignore] Debrief flow check.", game
+`claudetest-debrief-1`); there is no delete action.
+
+Gotcha: `dmhub.LeaveGame()` QUITS an app launched with `--gameid` (the MCP
+restart does that), so reach the titlescreen with a plain start instead.
+
+## Known gaps
+
+- The game side (practice stamp, no award, card note, pending debrief) has
+  not run: no Danger Rooms game has been played.
+- A player who never returns to the town (crash, quits at the titlescreen)
+  keeps the debrief pending until the next town visit; a second Danger Room
+  game replaces it.
+- Feedback is readable by anyone who asks for an encounter's key.
+- `LOADING_SCREEN_ART` is still the Delian Tomb art for every encounter.
+
+## To test (after the City deploy, the Lua deploy and a restart)
+
+1. As admin, `EncounterOfTheWeek.SetWeek("Encounter: Goblin Ambush")`; the
+   Gate's banner shows Goblin Ambush and its blurb; Past Encounters says
+   none; Angry Dwarves is offered nowhere.
+2. Without a scheduled win, the Danger Rooms node is locked with its
+   tooltip. Win Goblin Ambush (or a past one) with a roster hero; back in
+   town it unlocks.
+3. Danger Rooms: the scene art and crop, the practice note, The Dwarvish
+   Bandits under Encounters to Try; Form a Party shows the practice note; the
+   party appears on the Danger Rooms board, not the Gate's.
+4. Play it: no Victory award, "Danger Rooms: practice only" on the cards, no
+   treasure; back in town the debrief appears; send a vote, feedback and a
+   nomination; the row's counts update; Feedback on Your Encounters (as the
+   module's publisher) shows it; the admin dialog shows it all.
+5. Rotate to The Dwarvish Bandits from the admin dialog: both boards update
+   live, Goblin Ambush moves to Past Encounters, the Bandits leave the
+   Danger Rooms. Rotate back if wanted.
 
 ---
 
@@ -1546,7 +1773,10 @@ detail pane get their usual classes. It is re-merged on `OnThemeChanged`.
   - Anything else falls back to `CBOptionWrapper:Panel()` plus the option's
     description.
 - **Footer**: a message line (fill results, "Still to do: ..."), **Back**,
-  **Fill in the Rest** (disabled on a complete page), and **Next**. Next
+  **Fill in the Rest** (disabled on a complete page; after it fills a page
+  it turns into **For All Tabs?**, which fills every remaining tab via
+  `EotwBuild.FillAll` -- changing page or any other edit turns it back), and
+  **Next**. Next
   reads "Skip for Now" on an incomplete page and "Finish" on the last step.
   Finish with steps incomplete lists them and jumps to the first.
 - **Changing a main pick** that has dependent picks asks first
@@ -1968,7 +2198,7 @@ the `monsterKnowledge` document). A Director hide still wins.
   `subjectToPlayerMovementRules`, so it binds the host's own hero but not the
   monsters it runs.
 - Monster rolls are shared to every client's sidebar
-  (`AcquireAbilityRollDialog` begins sharing for `_tmp_aicontrol` casts).
+  (`AcquireAbilityRollDialog` begins sharing for casts by AI-controlled tokens).
   AI casts with no power roll still do not share.
 
 ---
@@ -2485,7 +2715,19 @@ Consequence: You begin the encounter surprised
     `Consequence:` (threats) = applied at the end if never vanquished.
 - `### <Option>`: an option, whose test is the journal's power-roll block:
   `|Name: Attr (Skill, Skill)` plus three tier lines (an optional fourth is
-  the critical), matched with `MarkdownDocument`'s own regexes. `Attr` maps
+  the critical), matched with `MarkdownDocument`'s own regexes.
+- **Every test has a critical** (user direction 2026-10-07): a natural 19-20
+  lands on tier 4 (`TierIndexForRoll`, also after an assist). A roll written
+  with three tiers gets a built one: tier 3's full text plus "The party gains
+  an additional hero token." (`EncounterScript.AutoCriticalText`;
+  `roll.critAuto`; the hero-token clause accepts "an additional"/"an extra").
+  So `roll.tiers` always has four entries. The critical is **secret until
+  rolled**: the roll dialog and remote card get tiers 1-3 only
+  (`TeaserTiers`), the stage's tier rows (`TierRows`) add a "Critical" row
+  only once tier 4 has landed, outcome icons ignore it
+  (`OptionEffectLists(option, includeKnacks, includeCritical)`), and the
+  hero slot / tooltip / last-turn line read "Critical". Tier 3's range always
+  reads "17+". The validator labels a built one "critical (automatic)". `Attr` maps
   to characteristics and skills the way `PowerRollDisplay` does it. **Skill
   names must match `Skill.skillsDropdownOptions` exactly** (`Track`, not
   "Tracking"; `Handle Animals`), and **every roll needs a `###` option
@@ -2889,7 +3131,7 @@ forgets -- without destroying -- a dialog presented twice, so
   | red sword | harm | `stamina`, `loserecovery` |
   | "?" | anything else, including unreadable clauses | white "May lead to a mysterious reward." on opportunities; red "Beware, this threat has an unknown consequence." on a threat (consequence only) |
 
-  Teased tiers count, `{hidden}` clauses do not, and a `Delve:` option takes
+  Teased tiers count, `{hidden}` clauses and the critical tier do not, and a `Delve:` option takes
   every obstacle test and chest row. Most opportunities show the "?" because
   flavour prose counts as unreadable. Presses pass through the icons, so
   click and drag are unaffected.
@@ -3249,6 +3491,13 @@ a playtest write-back and the authoring game edit the same files.
 
 ## Community encounter modules and the encounter pool (BUILT 2026-10-03, untested)
 
+**Superseded in part (2026-10-06):** the pool no longer feeds the Town Gate's
+Form a Party. A community encounter plays in the **Danger Rooms** until an
+admin makes it the Encounter of the Week; only scheduled encounters appear at
+the Gate. The publishing, discovery, encounter keys, pulling and the host's
+module install below are unchanged. See "The Encounter of the Week and the
+Danger Rooms".
+
 **Authoring module `codex-eotwauthor`** (created 2026-10-04 by the user in
 the app): the EncounterOfTheWeek (`cdc19d98`) and Monster AI (`263594e2`)
 codemods. Authors install it in their authoring game instead of
@@ -3600,6 +3849,18 @@ initiative, the clear-the-map OR, reset cleanup) -- needs a restart and a live
 run; [~] 81 The Dwarvish Bandits reworked to use it (in game `1e3c159e`);
 [ ] 82 show the extra victory on the objective strip; [ ] 83 publisher check
 that `Enter:` zone keywords ship.
+
+**Phase 15 -- one Encounter of the Week + the Danger Rooms (built 2026-10-06).**
+[x] 84 design with the user (see the section); [~] 85 City: schedule
+(`set-week`, `/city/week`), debriefs (`danger-feedback`), stats, creator
+feedback, nominations, admin report + HTTP route, unlock derived from
+completions -- unit-tested, deployed to staging 2026-10-06; [x] 86 town: the Gate's week banner +
+Past Encounters, the Danger Rooms location, art and board, the debrief,
+creator feedback, the admin week dialog -- verified live; [~] 87
+game side: practice stamp, no award / outcome / treasure, practice card note,
+pending debrief -- never run; [x] 88 seed the week with Goblin Ambush; [~] 89 the section's test list (town
+side verified; a practice game and the locked node not yet); [ ] 90 republish the official module
+without Angry Dwarves (optional: it is already offered nowhere).
 
 **Launch readiness (not started).** [ ] lobby on the release worker and games on
 release DOs, [ ] non-owner module access verified, [ ] disconnected-player

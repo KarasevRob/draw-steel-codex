@@ -8,8 +8,11 @@ local mod = dmhub.GetModLoading()
 --with a tooltip naming them, that opens their site when clicked.
 --
 --To credit a new creator:
---  1. Upload their logo as a core image asset: white (or light) on a
---     transparent background, since it is drawn over art.
+--  1. Upload their logo as a core image asset on a transparent background,
+--     since it is drawn over art: white (or light), or dark with darkLogo set
+--     so the art behind it is lightened instead of shaded. If their licence
+--     supplies a watermark, use that, and set widthFraction to the share of
+--     the art's width their licence says it must span.
 --  2. Add a CreatorCredit.Register call at the bottom of this file.
 --  3. Either pass creator = "<id>" wherever their art is shown, or tag the
 --     art once with CreatorCredit.RegisterArt(imageid, "<id>") and let
@@ -25,6 +28,8 @@ local mod = dmhub.GetModLoading()
 --- @field logo string Image id of the logo, light on transparent.
 --- @field logoWidth number The logo image's pixel size, for its aspect ratio.
 --- @field logoHeight number
+--- @field darkLogo boolean True for a dark logo, which Backdrop lightens the art behind instead of shading it.
+--- @field widthFraction nil|number The share of the art's width the logo must span (a licence term); nil for a fixed-size badge.
 --- @field url nil|string The creator's site; the badge opens it when clicked.
 
 CreatorCredit = {
@@ -43,7 +48,7 @@ CreatorCredit = {
 
 --- Adds (or replaces) a creator.
 --- @param id string
---- @param info {name: string, logo: string, logoWidth: number, logoHeight: number, url: nil|string}
+--- @param info {name: string, logo: string, logoWidth: number, logoHeight: number, darkLogo: nil|boolean, widthFraction: nil|number, url: nil|string}
 function CreatorCredit.Register(id, info)
     CreatorCredit.creators[id] = {
         id = id,
@@ -51,6 +56,8 @@ function CreatorCredit.Register(id, info)
         logo = info.logo,
         logoWidth = info.logoWidth,
         logoHeight = info.logoHeight,
+        darkLogo = info.darkLogo == true,
+        widthFraction = info.widthFraction,
         url = info.url,
     }
 end
@@ -119,8 +126,10 @@ end
 
 local BADGE_STYLES = {
     {
+        --full strength: a creator's licence may require the watermark
+        --to be plainly visible.
         selectors = { "creatorCreditLogo" },
-        opacity = 0.8,
+        opacity = 1,
         transitionTime = 0.15,
     },
     {
@@ -130,10 +139,14 @@ local BADGE_STYLES = {
     },
 }
 
---- A creator's logo as a small badge, by default floating in the bottom-right
+--- A creator's logo as a badge, by default floating in the bottom-right
 --- corner of the panel it is added to. Hovering names the creator; clicking
 --- opens their site (through the app's usual confirm-before-opening prompt).
 --- Returns nil for an unknown creator, so callers can add it unconditionally.
+---
+--- A creator registered with widthFraction gets a badge that wide a share of
+--- the panel it is added to (options.width is ignored), so that panel must
+--- be exactly the visible art: the callers cover-fit the art to it.
 --- @param options {creator: string, width: nil|number, halign: nil|string, valign: nil|string, hmargin: nil|number, vmargin: nil|number}
 --- @return nil|Panel
 function CreatorCredit.Badge(options)
@@ -142,8 +155,14 @@ function CreatorCredit.Badge(options)
         return nil
     end
     local url = info.url
-    local width = options.width or 170
-    local height = math.floor(width * info.logoHeight / info.logoWidth + 0.5)
+    local width, height
+    if info.widthFraction ~= nil then
+        width = string.format("%f%%", 100 * info.widthFraction)
+        height = string.format("%f%% width", 100 * info.logoHeight / info.logoWidth)
+    else
+        width = options.width or 170
+        height = math.floor(width * info.logoHeight / info.logoWidth + 0.5)
+    end
 
     local tooltip = string.format("Art by %s", info.name)
     if url ~= nil then
@@ -182,6 +201,23 @@ function CreatorCredit.Badge(options)
             bgcolor = "white",
         },
     }
+end
+
+--- The width a creator's badge takes in a panel boxWidth wide (see Badge), so
+--- other controls can be laid out clear of it. 0 for an unknown creator.
+--- @param creator nil|string
+--- @param boxWidth number
+--- @param width nil|number The options.width given to Badge, if any.
+--- @return number
+function CreatorCredit.BadgeWidth(creator, boxWidth, width)
+    local info = CreatorCredit.Get(creator)
+    if info == nil then
+        return 0
+    end
+    if info.widthFraction ~= nil then
+        return boxWidth * info.widthFraction
+    end
+    return width or 170
 end
 
 --The imageRect that shows an image of aspect imageAspect covering a box of
@@ -313,25 +349,41 @@ function CreatorCredit.Backdrop(options)
 
     local info = CreatorCredit.Get(options.creator) or CreatorCredit.ForArt(options.video) or CreatorCredit.ForArt(options.image)
     if info ~= nil and options.badge ~= false then
-        --darkens the bottom-right corner under the logo; transparent by the
-        --middle of the screen so the art is otherwise untouched.
+        --shades the bottom-right corner under the logo (lightens it for a
+        --dark logo); transparent by the middle of the screen so the art is
+        --otherwise untouched.
+        local shadeStops = {
+            { position = 0, color = core.Color{ r = 1, g = 1, b = 1, a = 0.6 } },
+            { position = 0.45, color = core.Color{ r = 1, g = 1, b = 1, a = 0.2 } },
+            { position = 0.8, color = core.Color{ r = 1, g = 1, b = 1, a = 0 } },
+        }
+        local shadeHeight = 260
+        if info.darkLogo then
+            --a white haze: blending is in linear color, where even a faint
+            --white shows, so it eases to nothing by 0.5, which is where the
+            --panel's top and left edges start; a taller panel keeps the logo
+            --well inside the haze.
+            shadeHeight = 420
+            shadeStops = {}
+            for i = 0, 8 do
+                local t = i / 8
+                local ease = t * t * (3 - 2 * t)
+                shadeStops[#shadeStops+1] = { position = 0.5 * t, color = core.Color{ r = 1, g = 1, b = 1, a = 0.55 * (1 - ease) } }
+            end
+        end
         children[#children+1] = gui.Panel{
             floating = true,
             halign = "right",
             valign = "bottom",
             width = math.min(width, 900),
-            height = math.min(height, 260),
+            height = math.min(height, shadeHeight),
             interactable = false,
             bgimage = "panels/square.png",
-            bgcolor = "black",
+            bgcolor = cond(info.darkLogo, "white", "black"),
             gradient = gui.Gradient{
                 point_a = { x = 1, y = 0 },
                 point_b = { x = 0, y = 1 },
-                stops = {
-                    { position = 0, color = core.Color{ r = 1, g = 1, b = 1, a = 0.6 } },
-                    { position = 0.45, color = core.Color{ r = 1, g = 1, b = 1, a = 0.2 } },
-                    { position = 0.8, color = core.Color{ r = 1, g = 1, b = 1, a = 0 } },
-                },
+                stops = shadeStops,
             },
         }
         local badgeOptions = { creator = info.id }
@@ -362,10 +414,16 @@ end
 
 --- Creators whose art ships with the app. ---------------------------------
 
+--Czepeku's commercial use licence (czepeku.com/blog/commercial-use-licence)
+--requires their watermark in the bottom-right corner of the art, at least a
+--quarter of its width. The logo is their official black watermark (they
+--also publish a white one).
 CreatorCredit.Register("czepeku", {
     name = "Czepeku Scenes",
-    logo = "4e3b9a3b-b6bb-4e85-b626-9536b1c2585a",
-    logoWidth = 242,
-    logoHeight = 79,
-    url = "https://czepeku.com",
+    logo = "95efaeaa-6055-4269-937b-eda919907d02",
+    logoWidth = 1032,
+    logoHeight = 101,
+    darkLogo = true,
+    widthFraction = 0.25,
+    url = "https://www.czepeku.com",
 })

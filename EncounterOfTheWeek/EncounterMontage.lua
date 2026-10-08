@@ -2600,15 +2600,20 @@ end
 --- host tick ----------------------------------------------------------------
 
 --The tier table to hand the roll dialog: each tier's teaser where it has
---one, its full text otherwise (EncounterScript.TierDisplayText).
+--one, its full text otherwise (EncounterScript.TierDisplayText). Only tiers
+--1-3: the critical is kept secret until one is rolled, and the stage
+--reveals it then.
 function EncounterMontage.TeaserTiers(roll)
     local tiers = {}
     for t in ipairs(roll.tiers) do
-        tiers[t] = EncounterScript.TierDisplayText(roll, t, false)
+        if t <= 3 then
+            tiers[t] = EncounterScript.TierDisplayText(roll, t, false)
+        end
     end
     return tiers
 end
 
+--A natural 19-20 is the critical tier (4), whatever the modifiers say.
 local function TierIndexForRoll(roll, tier, natural)
     tier = tonumber(tier) or 1
     if tier < 1 then tier = 1 end
@@ -2863,6 +2868,8 @@ local function ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, user
         optionName = option.name,
         tier = tierIndex,
         total = t.total,
+        --the landed tier's own words, for the hero slot's hover on the stage.
+        tierText = t.tierText,
         applied = applied,
         knack = t.knackReason,
         assistName = a ~= nil and a.heroName or nil,

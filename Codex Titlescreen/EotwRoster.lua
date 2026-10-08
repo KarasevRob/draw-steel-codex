@@ -29,6 +29,23 @@ EotwRoster = {}
 EotwRoster.CITY_ID = "blackbottom"
 EotwRoster.CITY_OPTIONS = { staging = true, route = "city" }
 
+--Ask the city how many users are connected, without connecting: callback(count),
+--or callback(nil) on failure. Only open city sockets count as presence, so the
+--titlescreen can show the town's headcount without being counted in it.
+function EotwRoster.FetchHeadcount(callback)
+    local host = cond(EotwRoster.CITY_OPTIONS.staging, "https://game-server-staging.codexback.com", "https://game-server.codexback.com")
+    net.Get{
+        url = string.format("%s/api/%s/%s/presence", host, EotwRoster.CITY_OPTIONS.route, EotwRoster.CITY_ID),
+        success = function(result)
+            local count = type(result) == "table" and result.count or nil
+            callback(cond(type(count) == "number", count, nil))
+        end,
+        error = function(message)
+            callback(nil)
+        end,
+    }
+end
+
 --Server-enforced limits (city-core.ts); these only drive the UI.
 EotwRoster.MAX_LIVING = 12
 EotwRoster.MAX_ACTIVE = 4
@@ -58,6 +75,9 @@ local m_conn = nil
 --this account's living heroes as the city last listed them (hero views:
 --{heroid, rev, status, active, summary, ...}); nil until the first list.
 local m_heroes = nil
+--What this account has unlocked in town (list-heroes' `unlocks`), or nil
+--while not yet listed: { dangerRooms = bool }.
+local m_unlocks = nil
 local m_refreshing = false
 local m_refreshAgain = false
 --heroids being imported right now, so a second refresh does not import twice.
@@ -200,6 +220,7 @@ end
 function EotwRoster.Attach(conn)
     m_conn = conn
     m_heroes = nil
+    m_unlocks = nil
     EotwRoster.lastError = nil
     Bump()
 end
@@ -241,6 +262,16 @@ function EotwRoster.ActiveHeroes()
         end
     end
     return result
+end
+
+--Has this account unlocked the Danger Rooms? The city opens them for good
+--once any of the account's heroes has won an Encounter of the Week (the
+--current one or a past one). nil while the roster has not been listed.
+function EotwRoster.DangerRoomsUnlocked()
+    if m_unlocks == nil then
+        return nil
+    end
+    return m_unlocks.dangerRooms == true
 end
 
 --Has this hero (a hero view from list-heroes) won the named encounter (a
@@ -656,6 +687,7 @@ function EotwRoster.Refresh()
                 heroes[#heroes+1] = hero
             end
             m_heroes = heroes
+            m_unlocks = type(result.unlocks) == "table" and result.unlocks or {}
             Bump()
             SyncWorkingCopies()
             if m_refreshAgain then
@@ -1088,12 +1120,13 @@ local function Button(text, click, width)
 end
 
 --A portrait thumbnail from a character's portrait id (or a silhouette).
-local function Portrait(portrait, width, height)
+local function Portrait(portrait, width, height, halign)
     if type(portrait) == "string" and portrait ~= "" then
         return gui.Panel{
             interactable = false,
             width = width,
             height = height,
+            halign = halign,
             valign = "center",
             bgimage = portrait,
             bgcolor = "white",
@@ -1104,6 +1137,7 @@ local function Portrait(portrait, width, height)
         interactable = false,
         width = width,
         height = height,
+        halign = halign,
         valign = "center",
         bgimage = "panels/square.png",
         bgcolor = "#ffffff10",
@@ -1262,7 +1296,7 @@ local function ShowRecruitPicker(host, onDone)
                 dlg:DestroySelf()
                 ShowRecruitNamePrompt(host, pregen, onDone)
             end,
-            Portrait(portrait, 150, 190),
+            Portrait(portrait, 150, 190, "center"),
             gui.Label{
                 interactable = false,
                 text = pregen.name,
@@ -1610,6 +1644,11 @@ local function GuildRow(hero, away, host)
                 shownPortrait = portrait
                 portraitPanel.bgimage = portrait or "panels/square.png"
                 portraitPanel.selfStyle.bgcolor = cond(portrait ~= nil, "white", "#ffffff10")
+                --the panel was built as a silhouette; its user icon child would
+                --otherwise sit on top of the real portrait.
+                for _, child in ipairs(portraitPanel.children) do
+                    child:SetClass("hidden", portrait ~= nil)
+                end
             end
             --crop the art to the frame's 3:4 rather than squashing it in.
             --Needs the character, so it lands once the hero has loaded.

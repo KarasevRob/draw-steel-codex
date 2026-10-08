@@ -32,6 +32,9 @@ EncounterOfTheWeekGame = {}
 --                       town says they already won this encounter; each
 --                       owner stamps its own at arrival. The automatic
 --                       Victory award skips them.)
+--  data.practice      = true  (host-stamped at setup: a Danger Rooms game.
+--                       Practice only -- no Victory, no treasure, no
+--                       outcome goes home; players debrief it in town.)
 --  data.abilityBusy   = { [userid] = serverTime }  (that client has an
 --                       ability cast/prompt in flight; refreshed while busy,
 --                       cleared when idle. The host defers the
@@ -97,6 +100,16 @@ setting{
 --The titlescreen re-declares it.
 setting{
     id = "eotw:pendingOutcomes",
+    default = "",
+    storage = "preference",
+}
+
+--Handoff to the town after a Danger Rooms game: the town asks the player to
+--debrief it (vote, feedback for its creator, next week's nomination). JSON
+--text: { [userid] = {gameid, encounter, result} }, one game per player.
+--Machine-local; the titlescreen re-declares it.
+setting{
+    id = "eotw:pendingDebrief",
     default = "",
     storage = "preference",
 }
@@ -236,6 +249,30 @@ local function RecordEncounterMap(key, mapid)
     doc.data.encounterMap = key
     doc.data.encounterMapId = mapid
     doc:CompleteChange("Encounter of the Week: encounter map", {undoable = false})
+end
+
+--Host only, at setup: a party from the Danger Rooms plays for practice (the
+--town decides, from the week's schedule, and says so in the arrival). Only
+--ever set, never cleared: a resume has no arrival flag and keeps the stamp.
+local function RecordPracticeMode(practice)
+    if practice ~= true then
+        return
+    end
+    local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
+    if doc.data.practice == true then
+        return
+    end
+    doc:BeginChange()
+    doc.data.practice = true
+    doc:CompleteChange("Encounter of the Week: Danger Rooms practice", {undoable = false})
+end
+
+--Is this a Danger Rooms game? Practice only: the host awards no Victory,
+--nothing goes home, and each player debriefs the encounter back in town.
+function EncounterOfTheWeekGame.IsPracticeGame()
+    local practice = false
+    pcall(function() practice = mod:GetDocumentSnapshot(STATE_DOC_ID).data.practice == true end)
+    return practice
 end
 
 --Host only, at setup: the party's Hero Tokens for the session. Draw Steel
@@ -957,6 +994,10 @@ local function AutoAwardVictories(live, now)
     if live:try_get("victoriesAwarded", false) then
         return
     end
+    --the Danger Rooms award nothing that lasts.
+    if EncounterOfTheWeekGame.IsPracticeGame() then
+        return
+    end
     if m_victorySeenAt == nil then
         m_victorySeenAt = dmhub.serverTime
     end
@@ -1088,11 +1129,25 @@ pcall(function()
         if outcome ~= "victory" or token.properties:IsDead() then
             return nil
         end
+        --practice: nothing found here goes home (see "eotw-practice").
+        if EncounterOfTheWeekGame.IsPracticeGame() then
+            return nil
+        end
         local treasure = EncounterOfTheWeekGame.TreasureGained(token)
         if #treasure == 0 then
             return nil
         end
         return "Treasure: " .. DescribeTreasure(treasure)
+    end)
+end)
+
+--In the Danger Rooms every hero's card says why nothing was awarded.
+pcall(function()
+    DSVictoryScreen.RegisterHeroCardNote("eotw-practice", function(live, token)
+        if not EncounterOfTheWeekGame.IsPracticeGame() then
+            return nil
+        end
+        return "Danger Rooms: practice only"
     end)
 end)
 
@@ -1107,6 +1162,11 @@ local function RecordPendingOutcomes()
         return
     end
     m_outcomesRecorded = true
+
+    --a Danger Rooms game sends nothing home: the debrief replaces it.
+    if EncounterOfTheWeekGame.IsPracticeGame() then
+        return
+    end
 
     local encounter = nil
     pcall(function() encounter = mod:GetDocumentSnapshot(STATE_DOC_ID).data.encounterMap end)
@@ -1168,6 +1228,35 @@ local function RecordPendingOutcomes()
     end
     dmhub.SetSettingValue("eotw:pendingOutcomes", dmhub.ToJson(all))
     printf("EotW: %d hero outcome(s) saved for the town", #entries)
+end
+
+--After a Danger Rooms game, ask the town to have this player debrief it
+--(eotw:pendingDebrief). Victory or defeat alike; a later game replaces it.
+local function RecordPendingDebrief(outcome)
+    if not EncounterOfTheWeekGame.IsPracticeGame() then
+        return
+    end
+    local encounter = nil
+    pcall(function() encounter = mod:GetDocumentSnapshot(STATE_DOC_ID).data.encounterMap end)
+    if type(encounter) ~= "string" or encounter == "" then
+        return
+    end
+    local all = {}
+    local text = dmhub.GetSettingValue("eotw:pendingDebrief")
+    if type(text) == "string" and text ~= "" then
+        --FromJson answers {success, result}, not the decoded value.
+        local parsed = dmhub.FromJson(text)
+        if type(parsed) == "table" and parsed.success and type(parsed.result) == "table" then
+            all = parsed.result
+        end
+    end
+    all[dmhub.loginUserid] = {
+        gameid = dmhub.gameid,
+        encounter = encounter,
+        result = outcome or "",
+    }
+    dmhub.SetSettingValue("eotw:pendingDebrief", dmhub.ToJson(all))
+    printf("EotW: Danger Rooms debrief of %s waiting for the town", encounter)
 end
 
 --The script's story section for an outcome ("# Conclusion" after a victory,
@@ -1269,6 +1358,7 @@ local function UpdateEncounterConclusion()
         if m_outcomeKind == "victory" then
             RecordPendingOutcomes()
         end
+        RecordPendingDebrief(m_outcomeKind)
 
         --hand the finished game to the titlescreen: it destroys the game /
         --clears the account slot on its next refresh, so a decided
@@ -3627,6 +3717,7 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
             --stamp it, so members arriving after the lobby record expires,
             --and every resume, land on the same map.
             RecordEncounterMap(encounterKey, encounterMapId)
+            RecordPracticeMode(args.practice)
 
             --an opening montage goes up before the heroes land, so it is
             --the stage that the held loading screen reveals.
@@ -3991,6 +4082,7 @@ local function ClearTestArrival(data)
     data.arrivalItems = nil
     data.alreadyCompleted = nil
     data.abilityBusy = nil
+    data.practice = nil
 end
 
 --The test's arrival (host, inside a coroutine, already in player-host mode).

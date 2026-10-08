@@ -385,4 +385,5 @@ end, failure = function(m) print("FAILED", m) end }
 ```
 
 `moduleType` must be `eotw` and `published` true for the encounters to join the
-pool. Then check in the town: Town Gate -> Form a Party lists the module.
+pool. Then check in the town: the Danger Rooms list the encounter under
+"Encounters to Try" (the Town Gate shows only the Encounter of the Week).
