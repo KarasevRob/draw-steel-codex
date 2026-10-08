@@ -1963,7 +1963,7 @@ do
     end
 
     --The fields that other pages in this page's folder show on every page of
-    --it (a field's wholeFolder), as { doc, field }: a lair's features on each
+    --it (a field's wholeFolder), as { doc, field }: a delve's features on each
     --of its rooms. The journal's top level is not a folder.
     local function FolderFields(self, playerView)
         local result = {}
@@ -2103,7 +2103,10 @@ do
         --loads after this file, hence rawget.
         if dmhub.isDM and not playerView and rawget(_G, "RichExit") ~= nil then
             for _, exit in ipairs(CustomDocument.DeclaredExits(self)) do
-                children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
+                --an exit that leads nowhere and writes nothing has nothing to take.
+                if exit.nextDocid or #exit.writes > 0 then
+                    children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
+                end
             end
         end
         for _, entry in ipairs(CustomDocument.ClassActions(self, "read")) do
