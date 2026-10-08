@@ -1,6 +1,8 @@
 # Region Map V2 - Copy Manifest
 
-Status: SIGNED OFF by the user 2026-10-05. Companion to [V2_BRIEF.md](V2_BRIEF.md).
+Status: sections 1-17 SIGNED OFF by the user 2026-10-05. Sections 18-25 (V2.1, companion to
+[V2_1_BRIEF.md](V2_1_BRIEF.md)) SIGNED OFF by the user 2026-10-08.
+Companion to [V2_BRIEF.md](V2_BRIEF.md).
 Every user-facing string in V2 is listed here. A string that is not in this file does not
 ship. IDs are the keys the code will use, so a wording change touches this file and one
 lookup table only.
@@ -43,7 +45,7 @@ lookup table only.
 
 | ID | String | When / notes |
 |---|---|---|
-| window.title | Region Map | Rail button and window title (unchanged from V1) |
+| window.title | Overland Map | Rail button and window title (the panel's registered name, `RegionMapConstants.panelName`) and the title of the load.missing chat message. Was "Region Map" until 2026-10-08 |
 | tb.search | Search locations | Tooltip |
 | tb.add | Add location | Tooltip |
 | tb.lock.on | Pins locked - click to unlock | Tooltip, default state |
@@ -55,7 +57,7 @@ lookup table only.
 | tb.log | Session log | Tooltip |
 | tb.expand.off | Expand | Tooltip |
 | tb.expand.on | Restore window size | Tooltip |
-| tb.settings | Region Map settings | Tooltip, Director only |
+| tb.settings | Overland Map settings | Tooltip, Director only |
 
 ## 4. Breadcrumb and Atlas
 
@@ -237,7 +239,7 @@ Players see Move, Move to map..., and Delete on their own locations only.
 
 | ID | String | When / notes |
 |---|---|---|
-| set.title | Region Map settings | |
+| set.title | Overland Map settings | |
 | set.party | Party | Section |
 | set.party.name | Party name | Default value "Party" (D11b) |
 | set.party.image | Party image | |
@@ -295,7 +297,7 @@ Players see Move, Move to map..., and Delete on their own locations only.
 | ID | String | When / notes |
 |---|---|---|
 | limit.locations | This map has 250 locations, the most it can hold. Delete some to add more. | Creation guard (D13f) |
-| load.missing | Region Map needs a newer Draw Steel Codex and was not loaded. Missing: {list} | Unchanged from V1 |
+| load.missing | Overland Map needs a newer Draw Steel Codex and was not loaded. Missing: {list} | As V1, with the new name |
 | ~~migrate.done~~ | ~~Region Map updated: your maps and labels are now locations. Nothing was removed.~~ | Dropped 2026-10-06 with the migration (brief R17) |
 
 ## 17. Choices made in this manifest
@@ -315,3 +317,222 @@ signs these off too.
    mockup's "Added by the Director" is dropped.
 8. A one-time migration notice to the Director.
 9. Travel pace is optional and has no default; without it the ruler shows distance only.
+
+---
+
+# V2.1 additions (signed off 2026-10-08)
+
+Same conventions and glossary as sections 1-2. New placeholders:
+- `{path}`: a path's display name, which is its name, else its type's name;
+- `{type}`: a path type's name;
+- `{time}`: a travel time formatted by section 22;
+- `{from}`, `{to}`, `{a}`, `{b}`, `{dest}`: Location names;
+- `{width}`, `{height}`, `{min}`, `{recommended}`, `{max}`: pixel numbers;
+- `{n}`: an entry number in an import file;
+- `{by}`: the piece `leg.by`, or empty when the path has no name and no type.
+
+New glossary rows:
+
+| Concept | UI term | Do not use |
+|---|---|---|
+| A connection between two locations | path | route, road, edge, link |
+| A path's kind (Road, River...) | path type | category, style |
+| A map whose Party moves along paths | Point crawl map | pointcrawl, node map, graph |
+| A map with free Party moves | Free map | normal map, open map |
+| One move of the Party along one path | travel (verb); leg in the log | trip, journey, hop |
+
+## 18. Map mode
+
+| ID | String | When / notes |
+|---|---|---|
+| mode.title | What kind of map? | Step 1 of the Atlas New map card and of Add map (A1) |
+| mode.free | Free map | Button |
+| mode.free.desc | Drag the Party anywhere on it. | Under the button |
+| mode.pointcrawl | Point crawl map | Button |
+| mode.pointcrawl.desc | The Party travels along paths you draw. | Under the button |
+| mode.permanent | You can't change this later. | Under both buttons (A4, Q21) |
+| mode.back | Back | Step 2, returns to step 1 |
+| side.addMap.title | Add a map to {name} | Side panel heading while choosing the kind and the image |
+| chip.pointcrawl | Point crawl | Chip on the Atlas card and in the side panel map meta (A2) |
+| hint.pointcrawl.empty | Add locations, then join them with the Path tool. | Director, point crawl map with fewer than 2 locations (Q21) |
+
+## 19. Image size guidance and border
+
+| ID | String | When / notes |
+|---|---|---|
+| image.hint | Best at {recommended} px wide. Under {min} px it blurs when zoomed in; over {max} px it loads slowly. | Always visible under the side panel image picker, and the Atlas New map card tooltip (J2). Numbers from J1 |
+| toast.image.small | This image is {width} x {height} px. Maps look best at {recommended} px wide; smaller images blur when zoomed in. | After picking; no Undo (J3) |
+| toast.image.large | This image is {width} x {height} px and may load slowly. {recommended} px wide is enough. | After picking; no Undo |
+| toast.replaceImage | Replace image... | Button on both size toasts (Q25) |
+| set.map.border | Map border | Row in "This map" |
+| set.map.border.hint | New maps start with the border you picked last. | Under the tiles (K5) |
+| set.border.none | None | Tile |
+| set.border.fade | Soft fade | Tile |
+| set.border.torn | Torn edge | Tile |
+| set.border.frame | Frame | Tile |
+| set.border.needsArt | Not available yet: this border needs its art. | Tooltip on a disabled tile (K3) |
+| set.game | Whole game | Settings section (Q22) |
+
+## 20. Import
+
+| ID | String | When / notes |
+|---|---|---|
+| menu.import | Import locations... | Director; entry point confirmed at the start of the build (IM1) |
+| import.picker | Choose a JSON file of locations | File dialog prompt |
+| import.title | Import locations | Preview and error card title |
+| import.summary | Import {count} locations into {map}? | `.one`: "Import 1 location into {map}?" |
+| import.skipped | {count} entries will be skipped: | `.one`: "1 entry will be skipped:" |
+| import.skip.noName | Entry {n}: it has no name. | |
+| import.skip.name | Entry {n}: its name is over 80 characters or has a line break. | |
+| import.skip.position | Entry {n}: u and v must both be between 0 and 1, or both left out. | |
+| import.skip.field | Entry {n}: {field} is not a valid value. | pinStyle, importance, visibility, icon |
+| import.skip.tooLong | Entry {n}: {field} is too long. | description over 4000, note over 8000 |
+| import.duplicates | {count} names are already on this map; they will be added again: | `.one`: "1 name is already on this map; it will be added again:" |
+| import.placement | Locations without a position are set out in rows near the center of the map. Unlock pins to place them exactly. One Undo removes the whole import. | Q24 |
+| import.ok | Import {count} locations | `.one`: "Import 1 location" |
+| import.tooMany | This file has {count} locations, but {map} has room for {room} more (a map holds up to 250). Nothing will be imported; split the file and import it in parts. | IM6 |
+| import.error.json | This file isn't valid JSON, so nothing was imported. | Error card |
+| import.error.empty | This file has no locations in it. | Error card |
+| import.error.allSkipped | None of the entries in this file can be imported: | Error card, then the reasons |
+| dlg.close | Close | Error and refusal cards |
+| toast.imported | {count} locations imported into {map} | Undo: yes. `.one`: "1 location imported into {map}" |
+
+## 21. Paths
+
+| ID | String | When / notes |
+|---|---|---|
+| tb.path | Path tool | Tooltip, Director, point crawl maps only |
+| tb.path.disabled | Add at least two locations to draw a path. | Tooltip while disabled (Q7) |
+| hint.path.start | Click the location the path starts from. Esc to stop. | Path tool, no draft |
+| hint.path.next | Click the map to add a bend, or click the location the path ends at. Right-click or Backspace removes the last bend. Esc cancels this path. | Path tool, draft started |
+| hint.redraw | Redraw {path}: click the map to add bends, then click {name}. Esc cancels. | Redraw line (Q6) |
+| menu.connect | Connect to... | Pin "..." menu and right-click, Director, point crawl maps (E1) |
+| picker.connect.title | Connect {name} to... | Picker heading |
+| picker.connect.none | No other locations on this map. | |
+| menu.redraw | Redraw line | Path "..." menu |
+| path.title.noType | Path: {a} - {b} | Panel title of a path with no name and no type |
+| path.title.unnamed | {type}: {a} - {b} | Panel title of a path with a type but no name |
+| path.label | {path} - {time} | Label on the map (F3, Q11) |
+| path.ends | Between {a} and {b} | Read mode |
+| path.time | {time} | Read mode, same both ways |
+| path.time.both | {time} from {a}, {backTime} from {b} | Different time (W2) |
+| path.time.oneWay | {time}, from {a} to {b} only | Not possible the other way (W2) |
+| path.type.none | No type | Chip and label of a path whose type was deleted (N3) |
+| path.waits | Revealed - players see it once {name} is revealed. | Director, an end is hidden (H1) |
+| path.note | Danger or requirement | Read and edit, Director only (C5) |
+| path.note.sub | Players don't see this | Under the heading |
+| path.note.placeholder | Only you see this. | |
+| edit.path.name.placeholder | Name this path (optional) | Empty name shows the type |
+| edit.path.type | Type | |
+| edit.path.time | Travel time | |
+| edit.path.unit.hint | The unit is set in Settings. | |
+| edit.path.timeRange | Enter a time of 0 or more. | Invalid number |
+| edit.path.back | The other way | W2 |
+| edit.path.back.same | Same | Segment |
+| edit.path.back.different | Different time | Segment |
+| edit.path.back.none | Not possible | Segment |
+| edit.path.backTime | Time from {b} | Shown with "Different time" |
+| edit.path.bends | Unlock pins to drag the line's bends. Right-click a bend to remove it; drag a + to add one. | Under the form (Q5) |
+| panel.paths | Paths | Section in a location's read mode, point crawl maps (Q10) |
+| panel.paths.row | {dest} by {path} - {time} | Row; hidden paths get the eye-slash |
+| panel.paths.none | No paths yet. | |
+| toast.pathDeleted | {path} deleted | Undo: yes (E3) |
+| dlg.delete.paths | This also deletes {count} paths. | Added to the delete and remove-map confirms (B5); `.one`: "This also deletes 1 path." A location with paths always asks |
+| dlg.moveToMap.title | Move {name} to {map}? | Only when it has paths |
+| dlg.moveToMap.body | Its {count} paths on this map are deleted. | `.one`: "Its 1 path on this map is deleted." |
+| dlg.moveToMap.ok | Move | |
+
+Hide and reveal use `menu.hide`, `menu.reveal`, `toast.hid`, `toast.revealed` and the
+`panel.eye.*` tooltips, with `{name}` as the path's display name. Delete uses `menu.delete`.
+Name, Description and Visibility reuse `edit.name`, `edit.desc`, `edit.desc.placeholder` and
+`edit.visibility.*`.
+
+## 22. Path types and travel time
+
+| ID | String | When / notes |
+|---|---|---|
+| set.timeUnit | Travel time | Row in "Whole game" (C9) |
+| set.timeUnit.days | Days | Segment |
+| set.timeUnit.watches | Watches | Segment |
+| set.timeUnit.hint | A watch is 4 hours; 6 watches make a day. | |
+| set.pathTypes | Path types | Row in "Whole game" (C6) |
+| set.pathTypes.hint | Each type has its own line on the map. | |
+| set.pathType.edit | Edit | Row button |
+| set.pathType.name | Name | |
+| set.pathType.newName | New type | Name of an added type |
+| set.pathType.pattern | Line | |
+| set.pathType.color | Color | |
+| set.pathType.width | Width | |
+| set.pathType.sameLook | Looks the same as {type}. Change the line or width to tell them apart. | Q3 |
+| set.pathType.delete | Delete type | Danger color |
+| set.pathType.add | Add path type | |
+| pattern.solid / .dashed / .dotted / .double / .dashDot / .longDash | Solid / Dashed / Dotted / Double / Dash-dot / Long dash | Line choices (N1, Q3) |
+| color.parchment / .blue / .ochre / .violet / .rust / .ink | Parchment / Blue / Ochre / Violet / Rust / Ink | Swatch tooltips (Q26) |
+| width.thin / .normal / .thick | Thin / Normal / Thick | Segments |
+| type.road / .trail / .river / .sea / .underground / .secret | Road / Trail / River / Sea / Underground / Secret | Starter type names (C4); editable content |
+| dlg.deleteType.title | Delete {type}? | Only when paths use it (N3) |
+| dlg.deleteType.body | {count} paths use it. They stay on the map as a plain line with no type. | `.one`: "1 path uses it. It stays on the map as a plain line with no type." |
+| dlg.deleteType.ok | Delete type | Danger |
+| toast.typeDeleted | {type} deleted | Undo: yes |
+| time.days | {count} days | `.one`: "1 day" |
+| time.watches | {count} watches | `.one`: "1 watch" |
+| time.daysWatches | {days} and {watches} | Days unit, not whole days: "1 day and 2 watches" |
+| time.none | no time | A time of 0 |
+
+## 23. Travel
+
+| ID | String | When / notes |
+|---|---|---|
+| party.section | Party | Side panel heading, point crawl maps (G1) |
+| party.status.at | {party} is at {name} | |
+| party.status.onPath | {party} is on {path}, {time} from {name} | |
+| party.travelTo | Travel to | List heading |
+| party.travel.row | {dest} by {path} | Row; the time on its second line (Q18) |
+| party.travel.none | No paths lead on from here. | |
+| party.travel.offPath | {party} is not on a location or a path. Right-click a path or a location to place it. | Director (G6) |
+| party.travel.offPath.player | {party} is not on a path. | Player |
+| party.travel.noPermission | Only the Director can move {party}. | Player, switch off |
+| party.tooltip.travel | {party} - click to travel | Banner on point crawl maps, viewer may move it (Q17) |
+| hint.dragTravel | On this map {party} travels along paths. Click it to travel. | Toast after a drag snaps back; no Undo |
+| ctx.party.travelMenu | Travel to | Right-click submenu, if the menu supports one |
+| ctx.party.travel | Travel to {dest} by {path} ({time}) | Flat right-click entry otherwise |
+| ctx.path.place | Place Party on {path} | Director, right-click near a path (Q4) |
+| dlg.stop.title | Stop {party} on {path} | G3 |
+| dlg.stop.field | Time already spent from {name} | Q14 |
+| dlg.stop.of | of {time} | After the field |
+| dlg.stop.swap | Count from {name} instead | Swap button |
+| dlg.stop.hint | Going on takes the rest of the time; turning back takes the time spent. | |
+| dlg.stop.range | Enter a time above 0 and under {time}. | |
+| dlg.stop.ok | Place Party | |
+| dlg.hiddenTravel.title | {path} is hidden | W1 |
+| dlg.hiddenTravel.body | Players don't know this path yet. Reveal it before {party} travels? | |
+| dlg.hiddenTravel.reveal | Reveal and travel | |
+| dlg.hiddenTravel.keep | Travel without revealing | Players see the leg with no path name and no line |
+| toast.traveled | {party} traveled from {from} to {to}{by} - {time} | Undo: yes |
+| toast.stopped | {party} stopped on {path} | Undo: yes |
+| status.onPath | {party} on {path} | Status chip |
+
+## 24. Session log
+
+| ID | String | When / notes |
+|---|---|---|
+| log.leg | Traveled from {from} to {to}{by} - {time} | One leg (I1, Q19) |
+| log.leg.on | Traveled on to {to}{by} - {time} | Leaving from partway, forward; the rest of the time (Q15) |
+| log.leg.back | Turned back to {to}{by} - {time} | Leaving from partway, back |
+| leg.by | by {path} | The `{by}` piece, with a leading space; empty when the path has no name and no type, or for players on a secret leg |
+| log.stopped | Stopped on {path}, {time} from {name} | Partway stop (N2) |
+| log.stopped.noPath | Stopped on the way, {time} from {name} | Players, secret or hidden path |
+
+## 25. Choices made in the V2.1 additions
+
+1. "Travel without revealing" replaces the ledger's working label "Travel in secret": the
+   glossary bans "secret" for visibility. "Secret" survives only as a starter type name,
+   which is content the Director can rename.
+2. A leg reads "from {from} to {to} by {path}" everywhere (Q19). A path with no name uses its
+   type's name. With neither, "by ..." is dropped, so there is never "the The Ferry Run".
+3. Times in the Days unit that are not whole days read "1 day and 2 watches".
+4. Import says "locations" in lowercase, matching "Add location" (Q20).
+5. The Party menu uses one "Travel to" submenu if the engine's context menu has submenus,
+   and flat "Travel to {dest} by {path} ({time})" entries if it does not.
+6. A Location with paths always confirms before Delete, Remove map or Move to map, and the
+   confirm names the path count (B5).
