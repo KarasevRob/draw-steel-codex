@@ -77,7 +77,9 @@ CustomDocument.docTypeInfo = {
     --Heroic Test: one skill test prepped as a beat (Draw Steel: Encounters ch.4).
     --dice-six is a PLACEHOLDER icon -- it reads as "a roll" and is confirmed
     --imported; swap it when a distinct glyph is commissioned.
-    heroictest  = { text = "Heroic Test", icon = "phosphor/dice-six.png",             beat = true,  glyph = "T", ord = 45 },
+    --Not offered as a new page with dev:documentclasses: heroic tests are kept
+    --in the compendium.
+    heroictest  = { text = "Heroic Test", icon = "phosphor/dice-six.png",             beat = true,  glyph = "T", ord = 45, showInNewMenu = false },
     negotiation = { text = "Negotiation", icon = "phosphor/handshake.png",            beat = true,  glyph = "G", ord = 50 },
     location    = { text = "Location",    icon = "phosphor/map-pin-simple.png",       beat = false, glyph = "L", ord = 60 },
     npc         = { text = "NPC",         icon = "phosphor/person-simple-circle.png", beat = false, glyph = "P", ord = 70 },
@@ -330,6 +332,42 @@ do
         return result
     end
 
+    --The Director's templates as the new-page menu uses them. A prose type
+    --with exactly one template opens with it (starters, by type id); every
+    --other template of a prose type is a menu entry of its own (extras). A
+    --template of a type with its own form is left out: its copy would be a
+    --prose page that only looks like the type.
+    local function TemplatesForNewMenu()
+        local starters, extras = {}, {}
+        if not dmhub.isDM then
+            --the Templates folder is the Director's.
+            return starters, extras
+        end
+        local prose = {}
+        for _, entry in ipairs(CustomDocument.PlainDocTypes()) do
+            prose[entry.id] = true
+        end
+        local byType = {}
+        for _, template in ipairs(CustomDocument.Templates()) do
+            local id = CustomDocument.DocTypeId(template)
+            if prose[id] then
+                byType[id] = byType[id] or {}
+                table.insert(byType[id], template)
+            end
+        end
+        for id, templates in pairs(byType) do
+            if #templates == 1 then
+                starters[id] = templates[1]
+            else
+                for _, template in ipairs(templates) do
+                    extras[#extras + 1] = template
+                end
+            end
+        end
+        table.sort(extras, function(a, b) return a.description < b.description end)
+        return starters, extras
+    end
+
     --The types offered when creating a document, in menu order. Each entry has
     --name (the bare type name), text ("New ..."), icon and create().
     function CustomDocument.NewDocumentTypes()
@@ -342,6 +380,7 @@ do
             return result
         end
 
+        local starters, extras = TemplatesForNewMenu()
         local registered = {}
         for _, v in pairs(CustomDocument.documentTypes) do
             registered[v.docType or v.id] = v
@@ -349,7 +388,13 @@ do
         for id, info in pairs(CustomDocument.docTypeInfo) do
             local v = registered[id]
             if v ~= nil and info.showInNewMenu ~= false then
-                result[#result + 1] = { id = id, name = info.text, text = v.text, icon = info.icon, ord = info.ord, create = v.create }
+                local starter = starters[id]
+                result[#result + 1] = {
+                    id = id, name = info.text, text = v.text, icon = info.icon, ord = info.ord,
+                    create = starter == nil and v.create or function()
+                        return CustomDocument.CreateFromTemplate(starter)
+                    end,
+                }
             end
         end
         for _, class in ipairs(DocumentClasses()) do
@@ -358,7 +403,9 @@ do
                 result[#result + 1] = {
                     id = id, name = info.text, text = "New " .. info.text, icon = info.icon, ord = info.ord,
                     create = function()
-                        local doc = MarkdownDocument.new{ content = "", annotations = {}, docType = id }
+                        local starter = starters[id]
+                        local doc = starter ~= nil and CustomDocument.CreateFromTemplate(starter)
+                            or MarkdownDocument.new{ content = "", annotations = {}, docType = id }
                         if info.hiddenFromPlayers then
                             doc.hiddenFromPlayers = true
                         end
@@ -368,6 +415,25 @@ do
             end
         end
         table.sort(result, CompareTypeEntries)
+
+        --after the types, and never under a name the menu already has.
+        local taken = {}
+        for _, entry in ipairs(result) do
+            taken[string.lower(entry.name)] = true
+        end
+        for _, template in ipairs(extras) do
+            local key = string.lower(template.description)
+            if not taken[key] then
+                taken[key] = true
+                result[#result + 1] = {
+                    id = "template:" .. template.id, name = template.description,
+                    text = "New " .. template.description, icon = CustomDocument.DocTypeIcon(template), ord = 1000,
+                    create = function()
+                        return CustomDocument.CreateFromTemplate(template)
+                    end,
+                }
+            end
+        end
         return result
     end
 

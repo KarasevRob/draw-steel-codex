@@ -2522,24 +2522,9 @@ CreateJournalPanel = function(options)
                                 end,
                             }
                         end
+                        --one list: the Director's templates are folded into it.
                         if #typeEntries > 0 then
                             entries[#entries + 1] = { text = "New by Type", submenu = typeEntries }
-                        end
-
-                        --The Templates folder is the Director's.
-                        local templateEntries = {}
-                        if dmhub.isDM then
-                            for _, template in ipairs(CustomDocument.Templates()) do
-                                templateEntries[#templateEntries + 1] = {
-                                    text = template.description,
-                                    click = function()
-                                        OpenNewDocument(CustomDocument.CreateFromTemplate(template))
-                                    end,
-                                }
-                            end
-                        end
-                        if #templateEntries > 0 then
-                            entries[#entries + 1] = { text = "New from Template", submenu = templateEntries }
                         end
                     end
 
