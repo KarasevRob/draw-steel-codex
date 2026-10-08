@@ -871,6 +871,7 @@ do
         { id = "bool", text = "Checkbox" },
         { id = "enum", text = "Dropdown" },
         { id = "image", text = "Image" },
+        { id = "map", text = "Map" },
         { id = "recordList", text = "List of rows" },
         { id = "keyedList", text = "Fixed rows" },
         { id = "stringList", text = "Read-only list" },
@@ -1490,6 +1491,53 @@ do
                     CustomDocument.NotifyEdited(element)
                 end,
             })
+        elseif kind == "map" then
+            --a map in this game, or one found by searching the Map Library.
+            local dropdown
+            local function Options(found)
+                local options = { { id = "", text = "None" } }
+                local value = doc:GetFieldValue(field)
+                local library = CustomDocument.ParseLibraryMap(value)
+                if library ~= nil then
+                    options[#options + 1] = { id = value, text = library.name .. " (Map Library)" }
+                end
+                for _, entry in ipairs(found or {}) do
+                    local id = CustomDocument.LibraryMapValue(entry)
+                    if entry.variantIndex == 0 and id ~= value then
+                        options[#options + 1] = { id = id, text = entry.name .. " (Map Library)" }
+                    end
+                end
+                for _, map in ipairs(game.maps) do
+                    options[#options + 1] = { id = map.id, text = map.description }
+                end
+                return options
+            end
+            dropdown = gui.Dropdown{
+                classes = { "sizeM" }, width = 300, height = 30, valign = "center",
+                options = Options(),
+                idChosen = doc:GetFieldValue(field),
+                change = function(element)
+                    ---@cast element Dropdown
+                    doc:SetFieldValue(field, element.idChosen)
+                    CustomDocument.NotifyEdited(element)
+                end,
+            }
+            return LabelledRow(field.label, gui.Panel{
+                flow = "horizontal", width = "100%-156", height = "auto", halign = "left",
+                dropdown,
+                gui.Input{
+                    classes = { "sizeM" }, width = 240, height = 26, valign = "center", lmargin = 8,
+                    placeholderText = "Search the Map Library",
+                    change = function(element)
+                        local found = {}
+                        if element.text ~= "" and rawget(_G, "mappacks") ~= nil then
+                            found = mappacks.Search{ text = element.text, maxResults = 40 }
+                        end
+                        dropdown.options = Options(found)
+                        dropdown.idChosen = doc:GetFieldValue(field)
+                    end,
+                },
+            })
         elseif kind == "recordList" then
             return gui.Panel{
                 flow = "vertical", width = "100%", height = "auto", halign = "left",
@@ -1646,6 +1694,89 @@ do
         return tostring(id)
     end
 
+    --A picture on a read page. Clicking it opens it large (`full`, when the
+    --large picture is a different image).
+    local function PicturePanel(image, args, full)
+        args.bgimage = image
+        args.bgcolor = "white"
+        args.click = function()
+            GameHud.instance:ViewJournalEntry{ image = full or image }
+        end
+        args.linger = gui.Tooltip("Click to enlarge")
+        return gui.Panel(args)
+    end
+
+    --A map field holds the id of a map in this game, or names a Map Library
+    --map as "pack|<pack>|<map id>|<name>": the library is the same for every
+    --game, so an imported page can name its map before anyone has added it.
+    function CustomDocument.LibraryMapValue(entry)
+        return string.format("pack|%s|%s|%s", entry.pack, entry.id, entry.name)
+    end
+
+    --@return nil|{pack: string, mapid: string, name: string}
+    function CustomDocument.ParseLibraryMap(value)
+        if type(value) ~= "string" then
+            return nil
+        end
+        local pack, mapid, name = string.match(value, "^pack|([^|]*)|([^|]*)|(.*)$")
+        if pack == nil then
+            return nil
+        end
+        return { pack = pack, mapid = mapid, name = name }
+    end
+
+    --The library is searchable once it has synced, which happens once a session.
+    local g_mapLibrarySync = "none"
+    local function SyncMapLibrary()
+        if g_mapLibrarySync ~= "none" or rawget(_G, "mappacks") == nil then
+            return
+        end
+        g_mapLibrarySync = "running"
+        local function done()
+            g_mapLibrarySync = "done"
+        end
+        mappacks.Sync{ success = done, error = done }
+    end
+
+    --What a map field points at: { name, map (the map in this game, if it is
+    --here), library (if it names a library map), thumb and full (pictures, if
+    --any), pending (the library has not synced yet) }. nil for an empty field.
+    local function FieldMapInfo(doc, field)
+        local value = doc:GetFieldValue(field)
+        if value == "" then
+            return nil
+        end
+        local library = CustomDocument.ParseLibraryMap(value)
+        local info = { library = library, name = library ~= nil and library.name or nil }
+        for _, map in ipairs(game.maps) do
+            local source = map.packSource
+            if (library == nil and map.id == value)
+                or (library ~= nil and source ~= nil and source.pack == library.pack and source.mapid == library.mapid) then
+                info.map = map
+                info.name = map.description
+                break
+            end
+        end
+        if library ~= nil and rawget(_G, "mappacks") ~= nil then
+            SyncMapLibrary()
+            for _, entry in ipairs(mappacks.Search{ text = library.name, pack = library.pack, maxResults = 50 }) do
+                if entry.id == library.mapid and entry.variantIndex == 0 then
+                    info.thumb = "md5:" .. entry.thumb
+                    info.full = "md5:" .. entry.image
+                    info.aspect = (tonumber(entry.tilesH) or 1) / math.max(1, tonumber(entry.tilesW) or 1)
+                end
+            end
+            info.pending = info.thumb == nil and g_mapLibrarySync == "running"
+        end
+        if info.thumb == nil and info.map ~= nil and (info.map.loadingScreenImage or "") ~= "" then
+            info.thumb = info.map.loadingScreenImage
+        end
+        if info.name == nil then
+            return nil
+        end
+        return info
+    end
+
     --The read view of one field, or nil when it has nothing to show.
     local function FieldDisplay(doc, field)
         local kind = field.kind
@@ -1659,9 +1790,55 @@ do
             if value == "" then
                 return nil
             end
-            return LabelledRow(field.label, gui.Panel{
+            return LabelledRow(field.label, PicturePanel(value, {
                 width = field.width or 96, height = field.height or 96, halign = "left",
-                bgimage = value, bgcolor = "white",
+            }))
+        elseif kind == "map" then
+            --travelling to a map, or adding one, is the Director's.
+            local info = dmhub.isDM and FieldMapInfo(doc, field) or nil
+            if info == nil or (info.map == nil and info.library == nil) then
+                return nil
+            end
+            local adding = false
+            return LabelledRow(field.label, gui.Button{
+                classes = { "sizeS" }, width = "auto", height = 24, hpad = 12, halign = "left",
+                text = info.map ~= nil and string.format("Go to %s", info.name)
+                    or string.format("Add %s to this game", info.name),
+                click = function(element)
+                    local now = FieldMapInfo(doc, field)
+                    if now ~= nil and now.map ~= nil then
+                        now.map:Travel()
+                    elseif not adding then
+                        adding = true
+                        element.text = "Adding the map..."
+                        mappacks.AddMapToGame{
+                            pack = info.library.pack, mapid = info.library.mapid,
+                            success = function()
+                                adding = false
+                                if element.valid then
+                                    element.text = string.format("Go to %s", info.name)
+                                end
+                            end,
+                            error = function(message)
+                                adding = false
+                                if element.valid then
+                                    element.text = string.format("Could not add the map: %s", message)
+                                end
+                            end,
+                        }
+                    end
+                end,
+                --the library syncs once a session; redraw when it has, for the picture.
+                thinkTime = info.pending and 0.5 or nil,
+                think = function(element)
+                    if g_mapLibrarySync == "done" then
+                        element.thinkTime = nil
+                        local host = element:FindParentWithClass("documentPanel")
+                        if host ~= nil then
+                            host:FireEventTree("refreshDocument")
+                        end
+                    end
+                end,
             })
         elseif kind == "recordList" then
             --Each row reads as a name with the other columns under it; a
@@ -1851,13 +2028,11 @@ do
                 --the Director's, and this is a player.
             elseif kind == "image" and portrait == nil and value ~= "" then
                 portraitWidth = (field.width or 96) + 12
-                portrait = gui.Panel{
+                portrait = PicturePanel(value, {
                     classes = { "image" },
                     width = field.width or 96, height = field.height or 120,
                     valign = "top", rmargin = 12,
-                    bgcolor = "white",
-                    bgimage = value,
-                }
+                })
             elseif kind == "number" then
                 chips[#chips + 1] = string.format("%s **%s**", field.label, tostring(value))
             elseif kind == "enum" then
@@ -1880,18 +2055,39 @@ do
         if #chips > 0 then
             table.insert(header, hasTitle and 2 or 1, CustomDocument.StatChips(chips))
         end
+        --with no picture of its own, the page shows its map's: on the right,
+        --in the map's shape, no wider than 240 and no taller than 300.
+        local portraitRight = false
+        for _, declared in ipairs(fields) do
+            local info = portrait == nil and declared.kind == "map" and FieldMapInfo(self, declared) or nil
+            if info ~= nil and info.thumb ~= nil then
+                local aspect = info.aspect or (9 / 16)
+                local width = math.floor(math.min(240, 300 / aspect))
+                --clear of the scrollbar on its right.
+                portraitWidth = width + 26
+                portraitRight = true
+                portrait = PicturePanel(info.thumb, {
+                    classes = { "image" },
+                    width = width, height = math.floor(width * aspect), valign = "top", lmargin = 12, rmargin = 14,
+                }, info.full)
+            end
+        end
         for _, entry in ipairs(folderFields) do
             children[#children + 1] = FieldDisplay(entry.doc, entry.field)
         end
 
+        local headerColumn = gui.Panel{
+            flow = "vertical", height = "auto", valign = "top",
+            width = string.format("100%%-%d", portraitWidth),
+            children = header,
+        }
+        local top = { headerColumn }
+        if portrait ~= nil then
+            table.insert(top, portraitRight and 2 or 1, portrait)
+        end
         table.insert(children, 1, gui.Panel{
             flow = "horizontal", width = "100%", height = "auto", halign = "left",
-            portrait,
-            gui.Panel{
-                flow = "vertical", height = "auto", valign = "top",
-                width = string.format("100%%-%d", portraitWidth),
-                children = header,
-            },
+            children = top,
         })
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left", valign = "top", bmargin = 8,
