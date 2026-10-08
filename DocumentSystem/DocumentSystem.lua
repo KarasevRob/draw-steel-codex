@@ -1699,8 +1699,18 @@ do
     local function PicturePanel(image, args, full)
         args.bgimage = image
         args.bgcolor = "white"
-        args.click = function()
-            GameHud.instance:ViewJournalEntry{ image = full or image }
+        --the frame is a child: a border does not draw on a picture.
+        args[#args + 1] = gui.Panel{
+            classes = { "docPictureFrame" },
+            styles = ThemeEngine.MergeStyles({
+                { selectors = { "docPictureFrame" }, bgcolor = "clear", borderColor = "@border" },
+            }),
+            width = "100%", height = "100%", interactable = false,
+            bgimage = "panels/square.png",
+            border = 1,
+        }
+        args.click = function(element)
+            GameHud.instance:ViewJournalEntry{ image = full or image, owner = element }
         end
         args.linger = gui.Tooltip("Click to enlarge")
         return gui.Panel(args)
@@ -1994,8 +2004,8 @@ do
     end
 
     --The fields of the generated read view: every field that has a value. The
-    --page opens with its name; the first image field sits beside it as the
-    --portrait, and number, enum and bool fields gather into one row of chips
+    --page opens with its name; the first image field sits to its right as the
+    --picture, and number, enum and bool fields gather into one row of chips
     --under the name. Fields ahead of the first list join that header, the rest
     --follow at full width, and its folder's fields close it. nil when there
     --are none of either.
@@ -2027,11 +2037,32 @@ do
             if field == nil then
                 --the Director's, and this is a player.
             elseif kind == "image" and portrait == nil and value ~= "" then
-                portraitWidth = (field.width or 96) + 12
+                --in the picture's own shape, within the size the field declares.
+                local maxWidth, maxHeight = field.width or 240, field.height or 300
+                local function Fit(dims)
+                    local scale = math.min(maxWidth / dims.width, maxHeight / dims.height)
+                    return math.floor(dims.width * scale), math.floor(dims.height * scale)
+                end
+                local dims = gui.TryGetImageDimensions(value)
+                local width, height = maxWidth, math.min(maxWidth, maxHeight)
+                if dims ~= nil then
+                    width, height = Fit(dims)
+                end
+                portraitWidth = maxWidth + 26
                 portrait = PicturePanel(value, {
                     classes = { "image" },
-                    width = field.width or 96, height = field.height or 120,
-                    valign = "top", rmargin = 12,
+                    width = width, height = height,
+                    halign = "right", valign = "top", lmargin = 12, rmargin = 14,
+                    create = function(element)
+                        if dims ~= nil then
+                            return
+                        end
+                        gui.GetImageDimensionsCallback(value, function(loaded)
+                            if element.valid and loaded ~= nil then
+                                element.selfStyle.width, element.selfStyle.height = Fit(loaded)
+                            end
+                        end)
+                    end,
                 })
             elseif kind == "number" then
                 chips[#chips + 1] = string.format("%s **%s**", field.label, tostring(value))
@@ -2055,17 +2086,14 @@ do
         if #chips > 0 then
             table.insert(header, hasTitle and 2 or 1, CustomDocument.StatChips(chips))
         end
-        --with no picture of its own, the page shows its map's: on the right,
-        --in the map's shape, no wider than 240 and no taller than 300.
-        local portraitRight = false
+        --with no picture of its own, the page shows its map's, in the map's
+        --shape, no wider than 240 and no taller than 300.
         for _, declared in ipairs(fields) do
             local info = portrait == nil and declared.kind == "map" and FieldMapInfo(self, declared) or nil
             if info ~= nil and info.thumb ~= nil then
                 local aspect = info.aspect or (9 / 16)
                 local width = math.floor(math.min(240, 300 / aspect))
-                --clear of the scrollbar on its right.
                 portraitWidth = width + 26
-                portraitRight = true
                 portrait = PicturePanel(info.thumb, {
                     classes = { "image" },
                     width = width, height = math.floor(width * aspect), valign = "top", lmargin = 12, rmargin = 14,
@@ -2081,13 +2109,11 @@ do
             width = string.format("100%%-%d", portraitWidth),
             children = header,
         }
-        local top = { headerColumn }
-        if portrait ~= nil then
-            table.insert(top, portraitRight and 2 or 1, portrait)
-        end
+        --the picture sits on the right, clear of the scrollbar.
         table.insert(children, 1, gui.Panel{
             flow = "horizontal", width = "100%", height = "auto", halign = "left",
-            children = top,
+            headerColumn,
+            portrait,
         })
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left", valign = "top", bmargin = 8,
@@ -6274,6 +6300,7 @@ function CustomDocument.GetOrCreateTabbedViewer()
         --diverged from its baseline, so firing it at every realized tab costs nothing
         --for the tabs nobody edited. Unrealized tabs have no panel and no edits.
         nativeWindowClosed = function(element)
+            element.data.popoutTeardownReason = "windowClosed"  --POPOUT-DIAG
             for _, tab in ipairs(element.data.tabs or {}) do
                 if tab.contentPanel ~= nil and tab.contentPanel.valid then
                     tab.contentPanel:FireEvent("saveDocument")
