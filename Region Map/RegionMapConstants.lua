@@ -6,7 +6,10 @@
 RegionMapConstants = RegisterGameType("RegionMapConstants")
 
 -- Identity
-RegionMapConstants.panelName = "Region Map"
+-- The panel's registered name is also the title on its window and rail button; keep it equal
+-- to the copy string window.title. Renamed from "Region Map" 2026-10-08, so saved window
+-- placement under the old name no longer applies.
+RegionMapConstants.panelName = "Overland Map"
 RegionMapConstants.panelIcon = "phosphor/map-trifold.png"
 RegionMapConstants.openHandlerId = "00-regionmap"   -- sorts before the icon rail's "iconrail" handler
 

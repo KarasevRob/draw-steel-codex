@@ -1,10 +1,13 @@
-# Region Map
+# Overland Map (Region Map)
 
-An opt-in CodeMod for DMHub / Draw Steel Codex, listed as **Overland Map** in the in-app mod
-tools (id `ec447c62-03db-4416-a5a2-0b013c0f3893`). In the app and in this repo the feature
-and its window are still called Region Map. The Director builds a tree of image-based
-maps and Locations; the group reads them, adds their own places and follows one shared
-Party across the maps. Region Map owns its own window, canvas and data. It does not touch
+An opt-in CodeMod for DMHub / Draw Steel Codex, named **Overland Map** in the in-app mod tools
+(id `ec447c62-03db-4416-a5a2-0b013c0f3893`) and on screen. Until 2026-10-08 it was called
+Region Map. The code still uses that name: this folder, the `RegionMap*` files and
+namespaces, and the table and document names, which are stored and never renamed.
+
+The Director builds a tree of image-based maps and Locations; the group reads them, adds
+their own places and follows one shared Party across the maps. The mod owns its own window,
+canvas and data. It does not touch
 tactical maps, tokens, combat rules or character content.
 
 This is V2. The design is [docs/V2_BRIEF.md](docs/V2_BRIEF.md) (locked), the on-screen text
@@ -17,7 +20,7 @@ in [IDEAS.md](IDEAS.md).
 
 ### Window
 
-- One registered panel, `Region Map` (game menu and icon rail). Default window 1000x800,
+- One registered panel, `Overland Map` (game menu and icon rail). Default window 1000x800,
   minimum 720x480. In icon-rail mode the rail hosts the window; with the rail off, the mod
   hosts its own floating window.
 - **Expand** (toolbar) fills the play area between the icon rails; the toggle or Esc
