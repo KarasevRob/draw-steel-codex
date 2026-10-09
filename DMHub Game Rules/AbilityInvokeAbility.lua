@@ -724,11 +724,14 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
     local rangeOrigin = self:try_get("rangeOrigin", "")
 
     local targetChoices = {}
+    --What was already happening before this started, so we can tell which triggers it set off.
+    local castsBeforeInvoke = nil
     if promptWhenResolving then
         for _,target in ipairs(targets or {}) do
             local targetToken = target.token
             targetChoices[#targetChoices+1] = targetToken
         end
+        castsBeforeInvoke = ActivatedAbility.GetActiveCastSnapshot()
     end
 
     repeat
@@ -747,6 +750,20 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
         end
 
         if promptWhenResolving and #targetChoices > 0 then
+
+            --Finish any triggers the last target set off before asking for the next one.
+            --Pulling a creature into a hazard used to cancel both the hazard's teleport
+            --and the pull on the next target (7A3ZZEPE).
+            coroutine.yield()
+            coroutine.yield()
+            while (gamehud.rollDialog.valid and gamehud.rollDialog.data.IsShown())
+                or (gamehud.actionBarPanel.valid and gamehud.actionBarPanel.data.IsCastingSpell())
+                or ActivatedAbility.HasCoroutinesNotInSnapshot(castsBeforeInvoke) do
+                coroutine.yield(0.1)
+                if casterToken == nil or not casterToken.valid or casterToken.properties == nil then
+                    break
+                end
+            end
 
             print("INVOKE:: ChooseTarget:: prompting...")
             targets = nil
