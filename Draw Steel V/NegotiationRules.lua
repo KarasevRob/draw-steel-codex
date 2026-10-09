@@ -840,8 +840,8 @@ do
         { id = "traits", label = "Motivations & Pitfalls", kind = "recordList", storage = "document", groupBy = "kind",
             columns = {
                 { id = "kind", label = "Kind", kind = "enum", options = {
-                    { id = "motivation", text = "Motivation", heading = "What they want (motivations)" },
-                    { id = "pitfall", text = "Pitfall", heading = "Never touch (pitfalls)" },
+                    { id = "motivation", text = "Motivation", heading = "Motivations" },
+                    { id = "pitfall", text = "Pitfall", heading = "Pitfalls" },
                 } },
                 { id = "name", label = "Name", kind = "string" },
                 { id = "line", label = "Line", kind = "text", placeholder = "What they say about it (their voice)" },
@@ -979,8 +979,8 @@ CustomDocument.docTypeInfo.negotiator = {
         { id = "traits", label = "Motivations & Pitfalls", kind = "recordList", groupBy = "kind",
             columns = {
                 { id = "kind", label = "Kind", kind = "enum", options = {
-                    { id = "motivation", text = "Motivation", heading = "What they want (motivations)" },
-                    { id = "pitfall", text = "Pitfall", heading = "Never touch (pitfalls)" },
+                    { id = "motivation", text = "Motivation", heading = "Motivations" },
+                    { id = "pitfall", text = "Pitfall", heading = "Pitfalls" },
                 } },
                 { id = "name", label = "Name", kind = "string" },
                 { id = "line", label = "Line", kind = "text", placeholder = "What they say about it (their voice)" },
@@ -1791,7 +1791,7 @@ function NegotiationDocument:EditPanel()
             children[#children + 1] = gui.Label{
                 classes = { "bold" },
                 width = "auto", height = "auto", halign = "left", vmargin = 4,
-                text = kind == "motivation" and "What they want (motivations)" or "Never touch (pitfalls)",
+                text = kind == "motivation" and "Motivations" or "Pitfalls",
             }
             for _, t in ipairs(doc:try_get("traits", {})) do
                 if t.kind == kind then
@@ -2074,7 +2074,7 @@ function NegotiationDocument:DisplayPanel()
 
     local SectionHeader = CustomDocument.ReadSectionHeader
 
-    --want / never-touch, with the voiced lines.
+    --motivations / pitfalls, with the voiced lines.
     local function TraitGroup(kind, heading)
         local children = {}
         for _, t in ipairs(doc:try_get("traits", {})) do
@@ -2093,8 +2093,8 @@ function NegotiationDocument:DisplayPanel()
     end
 
     local traitGroups = {}
-    traitGroups[#traitGroups + 1] = TraitGroup("motivation", "What they want")
-    traitGroups[#traitGroups + 1] = TraitGroup("pitfall", "Never touch")
+    traitGroups[#traitGroups + 1] = TraitGroup("motivation", "Motivations")
+    traitGroups[#traitGroups + 1] = TraitGroup("pitfall", "Pitfalls")
     local traitsPanel = CustomDocument.ReadColumns(traitGroups)
 
     local loopColumns = {}
