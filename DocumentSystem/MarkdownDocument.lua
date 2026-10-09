@@ -4136,7 +4136,8 @@ end
 --hints off (mute/setting): pooled labels can occasionally survive a render
 --without text reassignment, so stale washes are removed positively rather
 --than trusting the reassignment path. Mirrors the ApplyFindMarks walk.
-local function StripGlossaryMarks(root)
+--`keep`: remember each label's marked text, for RestoreGlossaryMarks.
+local function StripGlossaryMarks(root, keep)
     local function walk(panel)
         local ok, valid = pcall(function() return panel.valid end)
         if not ok or not valid then
@@ -4153,7 +4154,12 @@ local function StripGlossaryMarks(root)
                 inner = string.gsub(inner, "<u color=#%x+>", "")
                 return (string.gsub(inner, "</?u>", ""))
             end)
-            pcall(function() panel.text = newText end)
+            pcall(function()
+                if keep then
+                    panel.data.glossaryMarked = text
+                end
+                panel.text = newText
+            end)
         end
         local kids = nil
         pcall(function() kids = panel.children end)
@@ -4161,6 +4167,28 @@ local function StripGlossaryMarks(root)
             for _, c in ipairs(kids) do
                 walk(c)
             end
+        end
+    end
+    walk(root)
+end
+
+--Put back the marks StripGlossaryMarks(root, true) took out.
+local function RestoreGlossaryMarks(root)
+    local function walk(panel)
+        local kids = nil
+        pcall(function()
+            if not panel.valid then
+                return
+            end
+            local marked = panel.data.glossaryMarked
+            if marked ~= nil then
+                panel.data.glossaryMarked = nil
+                panel.text = marked
+            end
+            kids = panel.children
+        end)
+        for _, c in ipairs(kids or {}) do
+            walk(c)
         end
     end
     walk(root)
@@ -5754,101 +5782,19 @@ function MarkdownDocument.GlossaryLabelArgs(args, doc)
     return args
 end
 
-function MarkdownDocument.DisplayPanel(self, args)
-    args = args or {}
-    local embedDepth = args.embedDepth or 0
-    args.embedDepth = nil
-
-    --Related-entries footer: opt-in by the top-level viewer only, so page
-    --embeds, hover previews, and template previews stay clean.
-    local m_relatedFooter = args.relatedFooter or false
-    args.relatedFooter = nil
-
-    --Panels a document class puts on the page around its text, so the page
-    --scrolls as one: each is fun(doc, playerView): Panel? and is called on
-    --every render.
-    local m_pageHeader = args.pageHeader
-    local m_pageFooter = args.pageFooter
-    args.pageHeader = nil
-    args.pageFooter = nil
-
-    --Find-in-page state (driven by the findInPage event below).
-    local m_findTerm = nil
-    local m_findIndex = 1
-    local m_findCallback = nil
-    local m_findGeneration = 0
-
-    -- Host page color handed down to an embedded document. When this embed has
-    -- no page background of its own, it falls back to this so it blends into
-    -- the host page. nil for top-level documents and for embeds whose host has
-    -- no page color. Captured as a closure local so it survives re-renders,
-    -- exactly like embedDepth above.
-    local m_hostPageColor = args.hostPageColor
-    args.hostPageColor = nil
-
-    --TODO: respect this parameter.
-    local m_noninteractive = args.noninteractive or false
-    args.noninteractive = nil
-
-    local resultPanel
-
-    --Glossary hints: per-view mute (toolbar eye), a floating host for the
-    --one-time teach toast, and the hover / pinned definition cards. Both
-    --cards are engine popups positioned at the mouse: popups live on the
-    --top-level layer, so they render above the journal panel and never
-    --scroll away with, or get clipped by, the document view. The hover
-    --card is owned by the document panel and the pinned card by the label
-    --that was clicked, so hovering another term never replaces a pin.
-    local m_glossaryMuted = false
-    local m_glossaryToastHost = nil
-    local m_glossaryPinSource = nil  --label whose popup is the pinned card.
-    local m_glossaryPinPending = nil --{termid, src} awaiting the deferred build.
-
-    local BuildGlossaryPin
-
-    --Pixels the document view is currently scrolled by. The floating hosts
-    --below are children of the scrolled content panel, so they are laid out
-    --at the TOP of the content (viewport-sized) and scroll away with it. A
-    --card placed in a host must therefore be offset by this to land in the
-    --visible window, and clamped against [offset, offset + viewport].
-    --Primary source: the host and its scroller both report mousePoint
-    --relative to their own rect, and the difference is exactly the scroll.
-    --Fallback (mouse outside the view): content extent vs scrollbar position.
-    local function GlossaryScrollOffset(host)
-        local scroller = nil
-        pcall(function() scroller = host.parent end)
-        if scroller == nil or not scroller.valid then
-            return 0
-        end
-        local viewH = scroller.renderedHeight or 0
-        local offset = nil
-        pcall(function()
-            local ps = scroller.mousePoint
-            local ph = host.mousePoint
-            if ps ~= nil and ph ~= nil and (ps.x ~= 0 or ps.y ~= 0) then
-                offset = (1 - ph.y) * (host.renderedHeight or 0) - (1 - ps.y) * viewH
-            end
-        end)
-        if offset == nil then
-            local contentH = 0
-            pcall(function()
-                for _, c in ipairs(scroller.children) do
-                    if not c.floating then
-                        local bottom = -c.renderpos.y + (c.renderedHeight or 0) / 2
-                        if bottom > contentH then
-                            contentH = bottom
-                        end
-                    end
-                end
-                offset = (1 - (scroller.vscrollPosition or 1)) * (contentH - viewH)
-            end)
-        end
-        return math.max(0, offset or 0)
-    end
+--The hover and pinned definition cards of one page. Both are engine popups
+--positioned at the mouse: popups live on the top-level layer, so they render
+--above the journal panel and never scroll away with, or get clipped by, the
+--page. The hover card is owned by the page's panel and the pinned card by
+--the label that was clicked, so hovering another term never replaces a pin.
+local function NewGlossaryCards()
+    local cards = {}
+    local m_pinSource = nil  --label whose popup is the pinned card.
+    local m_pinPending = nil --{termid, src} awaiting the deferred build.
 
     --Spawn card as owner's popup at the current mouse point. Popups are
     --their own style island by default; inheriting keeps the theme cascade.
-    local function SpawnGlossaryPopup(owner, card)
+    local function Spawn(owner, card)
         owner.popupsInheritStyles = true
         owner.popupPositioning = "mouse"
         owner.popup = card
@@ -5857,8 +5803,8 @@ function MarkdownDocument.DisplayPanel(self, args)
     --Hover card: a non-interactive popup off the document panel. It is
     --hosted here rather than as an engine tooltip because tooltips anchor
     --to the whole paragraph label, which reads as center-screen.
-    local function ShowGlossaryHoverCard(termid)
-        if resultPanel == nil or not resultPanel.valid then
+    function cards.ShowHover(panel, termid)
+        if panel == nil or not panel.valid then
             return
         end
         local card = GlossaryCardFor(termid, {})
@@ -5906,9 +5852,190 @@ function MarkdownDocument.DisplayPanel(self, args)
         }
         wrapper:MakeNonInteractiveRecursive()
         GlossaryDestroyFrame()
-        SpawnGlossaryPopup(resultPanel, wrapper)
+        Spawn(panel, wrapper)
         g_glossHover.frame = wrapper
-        g_glossHover.owner = resultPanel
+        g_glossHover.owner = panel
+    end
+
+    function cards.ClosePin()
+        local src = m_pinSource
+        m_pinSource = nil
+        pcall(function()
+            if src ~= nil and src.valid then
+                src.popup = nil
+            end
+        end)
+    end
+
+    --Single pin: pinning a new term replaces the old card. Creation is
+    --deferred past the pinning click's release: buttons fire on mouse-up,
+    --so a card materializing during the click could have a button eat it.
+    function cards.Pin(panel, termid, src)
+        if panel == nil or not panel.valid then
+            return
+        end
+        m_pinPending = { termid = termid, src = src }
+        panel:ScheduleEvent("glossaryPinDeferred", 0.12)
+    end
+
+    local function BuildPin(termid, src)
+        local srcValid = false
+        pcall(function() srcValid = src ~= nil and src.valid end)
+        if not srcValid then
+            return
+        end
+        cards.ClosePin()
+        local band = BandForHint(termid)
+        if band ~= nil then
+            Compendium.Open{ contentType = MonsterGroup.tableName, search = band.name, targetKey = band.id }
+            return
+        end
+        local card = GlossaryCardFor(termid, {
+            pinned = true,
+            close = cards.ClosePin,
+        })
+        if card == nil then
+            return
+        end
+        --click-away dismissal is the engine's popup behaviour; escape is ours.
+        local wrapper = gui.Panel{
+            width = "auto",
+            height = "auto",
+            halign = "right",
+            valign = "bottom",
+            captureEscape = true,
+            escapePriority = EscapePriority.DMHUB_POPUP,
+            escape = function(element)
+                cards.ClosePin()
+            end,
+            card,
+        }
+        m_pinSource = src
+        Spawn(src, wrapper)
+    end
+
+    --The pin a press asked for, once its click has been released.
+    function cards.BuildPending()
+        local pending = m_pinPending
+        m_pinPending = nil
+        if pending ~= nil then
+            BuildPin(pending.termid, pending.src)
+        end
+    end
+
+    return cards
+end
+
+--The definition cards for a page drawn outside the markdown renderer: add
+--these handlers to the arguments of a panel above its GlossaryLabelArgs
+--labels. The page's mute button hides the marks and puts them back.
+--- @param args table arguments for gui.Panel
+--- @return table args
+function MarkdownDocument.GlossaryHostArgs(args)
+    local cards = NewGlossaryCards()
+    args.pinGlossaryTerm = function(element, termid, src)
+        cards.Pin(element, termid, src)
+    end
+    args.glossaryPinDeferred = function(element)
+        cards.BuildPending()
+    end
+    args.hoverGlossaryTerm = function(element, termid)
+        cards.ShowHover(element, termid)
+    end
+    args.glossaryMute = function(element, muted)
+        cards.ClosePin()
+        GlossaryClearHoverCard()
+        if muted then
+            StripGlossaryMarks(element, true)
+        else
+            RestoreGlossaryMarks(element)
+        end
+    end
+    return args
+end
+
+function MarkdownDocument.DisplayPanel(self, args)
+    args = args or {}
+    local embedDepth = args.embedDepth or 0
+    args.embedDepth = nil
+
+    --Related-entries footer: opt-in by the top-level viewer only, so page
+    --embeds, hover previews, and template previews stay clean.
+    local m_relatedFooter = args.relatedFooter or false
+    args.relatedFooter = nil
+
+    --Panels a document class puts on the page around its text, so the page
+    --scrolls as one: each is fun(doc, playerView): Panel? and is called on
+    --every render.
+    local m_pageHeader = args.pageHeader
+    local m_pageFooter = args.pageFooter
+    args.pageHeader = nil
+    args.pageFooter = nil
+
+    --Find-in-page state (driven by the findInPage event below).
+    local m_findTerm = nil
+    local m_findIndex = 1
+    local m_findCallback = nil
+    local m_findGeneration = 0
+
+    -- Host page color handed down to an embedded document. When this embed has
+    -- no page background of its own, it falls back to this so it blends into
+    -- the host page. nil for top-level documents and for embeds whose host has
+    -- no page color. Captured as a closure local so it survives re-renders,
+    -- exactly like embedDepth above.
+    local m_hostPageColor = args.hostPageColor
+    args.hostPageColor = nil
+
+    --TODO: respect this parameter.
+    local m_noninteractive = args.noninteractive or false
+    args.noninteractive = nil
+
+    local resultPanel
+
+    --Glossary hints: per-view mute (toolbar eye), a floating host for the
+    --one-time teach toast, and the hover / pinned definition cards.
+    local m_glossaryMuted = false
+    local m_glossaryToastHost = nil
+    local m_glossaryCards = NewGlossaryCards()
+
+    --Pixels the document view is currently scrolled by. The floating hosts
+    --below are children of the scrolled content panel, so they are laid out
+    --at the TOP of the content (viewport-sized) and scroll away with it. A
+    --card placed in a host must therefore be offset by this to land in the
+    --visible window, and clamped against [offset, offset + viewport].
+    --Primary source: the host and its scroller both report mousePoint
+    --relative to their own rect, and the difference is exactly the scroll.
+    --Fallback (mouse outside the view): content extent vs scrollbar position.
+    local function GlossaryScrollOffset(host)
+        local scroller = nil
+        pcall(function() scroller = host.parent end)
+        if scroller == nil or not scroller.valid then
+            return 0
+        end
+        local viewH = scroller.renderedHeight or 0
+        local offset = nil
+        pcall(function()
+            local ps = scroller.mousePoint
+            local ph = host.mousePoint
+            if ps ~= nil and ph ~= nil and (ps.x ~= 0 or ps.y ~= 0) then
+                offset = (1 - ph.y) * (host.renderedHeight or 0) - (1 - ps.y) * viewH
+            end
+        end)
+        if offset == nil then
+            local contentH = 0
+            pcall(function()
+                for _, c in ipairs(scroller.children) do
+                    if not c.floating then
+                        local bottom = -c.renderpos.y + (c.renderedHeight or 0) / 2
+                        if bottom > contentH then
+                            contentH = bottom
+                        end
+                    end
+                end
+                offset = (1 - (scroller.vscrollPosition or 1)) * (contentH - viewH)
+            end)
+        end
+        return math.max(0, offset or 0)
     end
 
     local function GetGlossaryToastHost()
@@ -5924,63 +6051,6 @@ function MarkdownDocument.DisplayPanel(self, args)
             interactable = false,
         }
         return m_glossaryToastHost
-    end
-
-    local function CloseGlossaryPin()
-        local src = m_glossaryPinSource
-        m_glossaryPinSource = nil
-        pcall(function()
-            if src ~= nil and src.valid then
-                src.popup = nil
-            end
-        end)
-    end
-
-    --Single pin: pinning a new term replaces the old card. Creation is
-    --deferred past the pinning click's release: buttons fire on mouse-up,
-    --so a card materializing during the click could have a button eat it.
-    local function PinGlossaryCard(termid, src)
-        if resultPanel == nil or not resultPanel.valid then
-            return
-        end
-        m_glossaryPinPending = { termid = termid, src = src }
-        resultPanel:ScheduleEvent("glossaryPinDeferred", 0.12)
-    end
-
-    BuildGlossaryPin = function(termid, src)
-        local srcValid = false
-        pcall(function() srcValid = src ~= nil and src.valid end)
-        if not srcValid then
-            return
-        end
-        CloseGlossaryPin()
-        local band = BandForHint(termid)
-        if band ~= nil then
-            Compendium.Open{ contentType = MonsterGroup.tableName, search = band.name, targetKey = band.id }
-            return
-        end
-        local card = GlossaryCardFor(termid, {
-            pinned = true,
-            close = CloseGlossaryPin,
-        })
-        if card == nil then
-            return
-        end
-        --click-away dismissal is the engine's popup behaviour; escape is ours.
-        local wrapper = gui.Panel{
-            width = "auto",
-            height = "auto",
-            halign = "right",
-            valign = "bottom",
-            captureEscape = true,
-            escapePriority = EscapePriority.DMHUB_POPUP,
-            escape = function(element)
-                CloseGlossaryPin()
-            end,
-            card,
-        }
-        m_glossaryPinSource = src
-        SpawnGlossaryPopup(src, wrapper)
     end
 
     local function ShowGlossaryToast()
@@ -6233,24 +6303,20 @@ function MarkdownDocument.DisplayPanel(self, args)
         --labels (pin), the hover machinery (toast), and the document
         --toolbar (mute).
         pinGlossaryTerm = function(element, termid, src)
-            PinGlossaryCard(termid, src)
+            m_glossaryCards.Pin(element, termid, src)
         end,
         glossaryPinDeferred = function(element)
-            local pending = m_glossaryPinPending
-            m_glossaryPinPending = nil
-            if pending ~= nil then
-                BuildGlossaryPin(pending.termid, pending.src)
-            end
+            m_glossaryCards.BuildPending()
         end,
         hoverGlossaryTerm = function(element, termid)
-            ShowGlossaryHoverCard(termid)
+            m_glossaryCards.ShowHover(element, termid)
         end,
         glossaryToast = function(element)
             ShowGlossaryToast()
         end,
         glossaryMute = function(element, muted)
             m_glossaryMuted = muted and true or false
-            CloseGlossaryPin()
+            m_glossaryCards.ClosePin()
             GlossaryClearHoverCard()
             element:FireEvent("refreshDocument")
         end,

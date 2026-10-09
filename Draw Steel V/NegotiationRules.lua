@@ -2055,18 +2055,17 @@ function NegotiationDocument:EditPanel()
     }
 end
 
-function NegotiationDocument:DisplayPanel()
-    local doc = self
+local function NegotiationReadPanel(doc)
     local resultPanel
 
     local interest, patience = doc:StartingMeters()
     local att = NegotiationRules.AttitudeById(doc:try_get("attitude", "suspicious"))
 
     local function md(text, classes)
-        return gui.Label{
+        return CustomDocument.ReadProse{
             classes = classes or { "sizeS" },
             width = "95%", height = "auto", halign = "left",
-            markdown = true, textWrap = true, textAlignment = "topleft",
+            textWrap = true, textAlignment = "topleft",
             vmargin = 2,
             text = text,
         }
@@ -2205,7 +2204,7 @@ function NegotiationDocument:DisplayPanel()
         gui.Panel{ width = 1, height = 12 },
     }
 
-    resultPanel = gui.Panel{
+    resultPanel = gui.Panel(MarkdownDocument.GlossaryHostArgs{
         width = "100%", height = "100%", flow = "vertical",
         body,
         --marks where the scrolling page ends
@@ -2218,9 +2217,13 @@ function NegotiationDocument:DisplayPanel()
                 doc:BeginFromPage(element, resultPanel)
             end,
         } or nil,
-    }
+    })
 
     return resultPanel
+end
+
+function NegotiationDocument:DisplayPanel()
+    return CustomDocument.ReadWithGlossaryHints(NegotiationReadPanel, self, not dmhub.isDM)
 end
 
 --Begin Negotiation as the page's button does it: present the stage, then

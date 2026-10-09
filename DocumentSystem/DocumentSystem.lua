@@ -1142,8 +1142,8 @@ do
         }
     end
 
-    --Prose on a read page. It carries glossary hints while a class page's
-    --fields are being built with hints on (FieldsHeaderPanel).
+    --Prose on a read page. It carries glossary hints while the page is being
+    --built with hints on (BuildWithProseHints).
     local g_proseHints = false
     local g_proseDoc = nil
     local function ProseLabel(args)
@@ -1152,6 +1152,35 @@ do
             MarkdownDocument.GlossaryLabelArgs(args, g_proseDoc)
         end
         return gui.Label(args)
+    end
+    CustomDocument.ReadProse = ProseLabel
+
+    --`hints`: whether the prose carries glossary hints; nil follows the setting.
+    local function BuildWithProseHints(build, doc, playerView, hints)
+        if hints == nil then
+            hints = dmhub.GetSettingValue("glossaryhints") ~= "off"
+        end
+        g_proseHints = hints
+        --the page's creatures are marked for the Director only.
+        g_proseDoc = (not playerView) and doc or nil
+        local ok, result = pcall(build, doc, playerView)
+        g_proseHints = false
+        g_proseDoc = nil
+        if not ok then
+            error(result, 0)
+        end
+        return result
+    end
+
+    --For a type that draws its own read view: build(doc, playerView) with
+    --glossary hints on its ReadProse and ReadNamedRow text. The panel it
+    --returns needs MarkdownDocument.GlossaryHostArgs for the cards to show.
+    --- @param build fun(doc: table, playerView: boolean): Panel
+    --- @param doc table
+    --- @param playerView boolean
+    --- @return Panel
+    function CustomDocument.ReadWithGlossaryHints(build, doc, playerView)
+        return BuildWithProseHints(build, doc, playerView)
     end
 
     --One entry of a read-view list: a name with its detail indented under it.
@@ -2024,19 +2053,7 @@ do
     local FieldsHeaderContent
     --`hints`: whether its prose carries glossary hints; nil follows the setting.
     local function FieldsHeaderPanel(self, playerView, hints)
-        if hints == nil then
-            hints = dmhub.GetSettingValue("glossaryhints") ~= "off"
-        end
-        g_proseHints = hints
-        --the page's creatures are marked for the Director only.
-        g_proseDoc = (not playerView) and self or nil
-        local ok, result = pcall(FieldsHeaderContent, self, playerView)
-        g_proseHints = false
-        g_proseDoc = nil
-        if not ok then
-            error(result, 0)
-        end
-        return result
+        return BuildWithProseHints(FieldsHeaderContent, self, playerView, hints)
     end
 
     FieldsHeaderContent = function(self, playerView)
