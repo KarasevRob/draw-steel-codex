@@ -4813,7 +4813,8 @@ local g_definitionCache = {}
 --- Follows the AbilityScript.lua precedent: load(code, name, "t", env) with an
 --- environment that reads globals but keeps writes local to the chunk.
 --- @param code string
---- @return table|nil, string|nil definition, error
+--- @return table|nil definition
+--- @return string|nil error
 function EncounterScript.CompileDefinition(code)
     if code == nil or code == "" then
         return nil, "The script is empty"
@@ -4960,7 +4961,8 @@ function EncounterScriptInstance:GetCode()
 end
 
 --- Resolve + compile this instance's definition.
---- @return table|nil, string|nil definition, error
+--- @return table|nil definition
+--- @return string|nil error
 function EncounterScriptInstance:GetDefinition()
     local code, err = self:GetCode()
     if code == nil then
@@ -5107,7 +5109,8 @@ end
 --- The cached victory text of the first attached script that declares a
 --- victory condition, or nil. This is the CACHED string (safe on player
 --- clients); the live check is GetScriptVictory/EvaluateVictoryCheck.
---- @return string|nil, table|nil text, instance
+--- @return string|nil text
+--- @return table|nil instance
 function Encounter:ScriptVictoryText()
     for _, instance in ipairs(self:try_get("scripts", {})) do
         local text = instance:try_get("victoryText")
@@ -5134,7 +5137,8 @@ end
 --- The cached defeat text of the first attached script that declares a defeat
 --- condition, or nil. Like ScriptVictoryText this is the CACHED string (safe
 --- on player clients); the live check is GetScriptDefeat/EvaluateDefeatCheck.
---- @return string|nil, table|nil text, instance
+--- @return string|nil text
+--- @return table|nil instance
 function Encounter:ScriptDefeatText()
     for _, instance in ipairs(self:try_get("scripts", {})) do
         local text = instance:try_get("defeatText")
@@ -5469,10 +5473,9 @@ local function RunInstanceTick(liveEncounter, instance, q, isLive)
     if st.state == nil then
         st.state = {}
     end
-    local ok, before = pcall(dmhub.ToJson, st)
-    if not ok then
-        before = nil
-    end
+    local ok, json = pcall(dmhub.ToJson, st)
+    --nil when the state could not be serialized.
+    local before = ok and json or nil
 
     local ctx = g_runtime.contexts[guid]
     if ctx == nil then

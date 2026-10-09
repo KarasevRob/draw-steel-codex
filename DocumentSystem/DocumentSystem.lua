@@ -600,7 +600,8 @@ do
             idChosen = class.icon or "",
             change = function(element)
                 ---@cast element Dropdown
-                local id = element.idChosen
+                --every IconOptions id is a string (an icon path, or "" for Inherit).
+                local id = element.idChosen --[[@as string]]
                 class.icon = id ~= "" and id or false
                 UploadClass(class)
                 RefreshPreview()
@@ -1410,6 +1411,7 @@ do
         local keys = field.keys or {}
         local rows = {}
         for _, key in ipairs(field.displayReversed and Reversed(keys) or keys) do
+            ---@type Panel[]
             local cells = {
                 gui.Label{ width = 150, height = 24, valign = "top", text = key.label },
             }
@@ -2728,7 +2730,10 @@ function CustomDocument.OnDeserialize(self)
     end
 end
 
-function CustomDocument:Render()
+--- Render the document for display; nil on the base type (subclasses override it).
+--- @param options? table Render options, e.g. {summary = ...}; meaning is per subclass.
+--- @return Panel|nil
+function CustomDocument:Render(options)
     return nil
 end
 
@@ -2807,7 +2812,8 @@ function CustomDocument:ShowCreateDialog()
     self:ShowDocument{edit = true}
 end
 
-function CustomDocument:EditPanel()
+--- @param args? table Editor options from ShowDocument; unused by the base editor (MarkdownDocument reads them).
+function CustomDocument:EditPanel(args)
     local editInput = gui.TextEditor {
         width = "90%",
         height = "90%",
@@ -3028,14 +3034,14 @@ end
 local g_journalTreeExpanded = {}
 
 --- Builds a popup tree view of the journal hierarchy
---- @param currentDocId string The ID of the currently displayed document
---- @param dialogPanel Panel The dialog panel with navigation handlers
+--- @param currentDocId string|nil The ID of the currently displayed document, if any
+--- @param dialogPanel Panel|nil The dialog panel with navigation handlers (nil when opts.onPick handles picks)
 --- @param opts nil|{onPick: fun(docId: string), onNewDocument: fun(typeInfo: table), bare?: boolean}
 ---   onPick: picking a document calls this instead of navigating dialogPanel
 ---   (the tab bar's + uses it to open the pick in a new tab). onNewDocument:
 ---   when set, a "New Document" entry heads the popup; it expands to the
 ---   registered document types and picking one calls this.
---- @return Panel The popup panel
+--- @return Panel|nil The popup panel; nil when there is nothing to list or create
 local function buildJournalTree(currentDocId, dialogPanel, opts)
     --pick-once latch: a single physical click can deliver press more than
     --once while the popup is being torn down mid-dispatch (observed with the
@@ -6748,8 +6754,9 @@ end
 function CustomDocument:PresentDocument(args)
     args = args or {}
 
-    local dialogWidth = args.width or 1100
-    local dialogHeight = args.height or 940
+    --placement sizes are pixel numbers (see the args notes above).
+    local dialogWidth = (args.width or 1100) --[[@as number]]
+    local dialogHeight = (args.height or 940) --[[@as number]]
 
     local loc = {
         x = 1920 * 0.5 * ((dmhub.screenDimensionsBelowTitlebar.x / dmhub.screenDimensionsBelowTitlebar.y) / (1920 / 1080)) - dialogWidth / 2,
@@ -6781,8 +6788,10 @@ function CustomDocument:PresentDocument(args)
         loc.y = args.y
     end
 
-    dialogWidth = loc.width
-    dialogHeight = loc.height
+    --a remembered size is the window's own selfStyle size, which this
+    --function only ever sets to pixel numbers.
+    dialogWidth = loc.width --[[@as number]]
+    dialogHeight = loc.height --[[@as number]]
 
     local dialog
 
@@ -9038,6 +9047,7 @@ function PanelDocument:CreateInterface(args)
     --there the header sits in the middle of somebody else's window, not
     --along its top edge.
     local themeCornerRadius = ThemeEngine.ResolveStyleProperty({"framedPanel"}, "cornerRadius", 0)
+    ---@type number|Vector4Arg
     local headerCornerRadius = 0
     if tabbed and type(themeCornerRadius) == "number" and themeCornerRadius > 0 then
         headerCornerRadius = {x1 = themeCornerRadius, y1 = themeCornerRadius, x2 = 0, y2 = 0}
@@ -23805,7 +23815,8 @@ end
 --own iconRailIcon rules by selector count, so the accent wins at rest
 --and under the pointer.
 function MapButtons.Styles()
-    local styles = IconRailStyles()
+    --MergeTokens returns nil only for a nil rule list; IconRailStyles passes a literal.
+    local styles = IconRailStyles() --[[@as table[] ]]
     local extra = ThemeEngine.MergeTokens({
         {
             selectors = {"iconRailIcon", "mapButtonIcon"},

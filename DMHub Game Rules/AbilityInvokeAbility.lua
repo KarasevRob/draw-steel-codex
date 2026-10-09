@@ -16,6 +16,7 @@ ActivatedAbilityInvokeAbilityBehavior = RegisterGameType("ActivatedAbilityInvoke
 --- @field standardAbilityParams table?
 --- @field abilityAttr table?
 --- @field targetingOverride string?
+--- @field timestamp number|string Server time once the server resolves it; the ServerTimestamp() placeholder string until then.
 AbilityInvocation = RegisterGameType("AbilityInvocation")
 
 AbilityUtils = {
@@ -103,8 +104,11 @@ AbilityUtils = {
 
 	--utility to scan for an <<expression>> in a string and evaluate it as goblin script.
 	--Useful to evaluate in the context of the caster.
+	---@param str string
+	---@param symbols any Symbol lookup for the GoblinScript.
+	---@return string
 	SubstituteAbilityParameters = function(str, symbols)
-        str = StringInterpolateGoblinScript(str, symbols)
+        str = StringInterpolateGoblinScript(str, symbols) --[[@as string]]
 		local result = ""
 		for i=1,8 do
 			local match = regex.MatchGroups(str, "^(?<head>.*)?<<(?<expression>.*?)>>(?<tail>.*)$")
@@ -1145,6 +1149,12 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                             end
                         end
 
+                        --A modifier on the invoker (e.g. Suppress Abilities) removed the
+                        --invoked ability, so there is nothing to cast for this target.
+                        if abilityClone == nil then
+                            goto skip_invoked_ability
+                        end
+
                         --When inheritRoll is set, force the invoked ability's power roll(s)
                         --to reuse the parent cast's raw d10 result instead of rolling fresh.
                         --PowerRollBehavior reads this off symbols.forcedroll and substitutes
@@ -1307,6 +1317,7 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                             invokerToken.properties._tmp_squadParticipants = nil
                             invokerToken.properties._tmp_squadParticipantsTurn = nil
                         end
+                        ::skip_invoked_ability::
                     end
                 end
 
@@ -1539,14 +1550,16 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
             end
         end
 
-        print("AI:: PUSH:: IN INVOKE token", creature.GetTokenDescription(invokerToken), "targeting =", targeting, "ai", invokerToken.properties._tmp_aicontrol, "promptCallback =", invokerToken.properties._tmp_aipromptCallback, "for", abilityClone.name, coroutine.running())
+        --false unless the Monster AI controls the invoker.
+        local aiPromptCallback = creature.GetTokenAIPromptCallback(invokerToken.charid)
+        print("AI:: PUSH:: IN INVOKE token", creature.GetTokenDescription(invokerToken), "targeting =", targeting, "ai", creature.IsTokenAIControlled(invokerToken.charid), "promptCallback =", aiPromptCallback, "for", abilityClone.name, coroutine.running())
         --Set when an AI prompt callback answered the prompt: the targets are already
         --resolved, so the cast below must NOT be routed through the action bar UI
         --(which would wait for player clicks that will never come).
         local aiResolvedTargeting = false
-        if (targeting == "prompt" or targeting == "prompt_inherit") and invokerToken.properties._tmp_aicontrol > 0 and invokerToken.properties._tmp_aipromptCallback then
+        if (targeting == "prompt" or targeting == "prompt_inherit") and aiPromptCallback then
             print("PUSH:: INVOKING!!!!!")
-            targeting = invokerToken.properties._tmp_aipromptCallback(invokerToken, casterToken, abilityClone, symbols, options)
+            targeting = aiPromptCallback(invokerToken, casterToken, abilityClone, symbols, options)
             aiResolvedTargeting = (targeting ~= "prompt" and targeting ~= "prompt_inherit")
         end
 
@@ -2469,10 +2482,10 @@ function AbilityInvocation:Invoke()
 		local allParameters = {}
 		AbilityUtils.ExtractAbilityParameters(abilityClone, allParameters)
 
-        lookupSymbols = invokerToken.properties:LookupSymbol(lookupSymbols)
+        local symbolLookup = invokerToken.properties:LookupSymbol(lookupSymbols)
 		for k,v in pairs(self:try_get("standardAbilityParams", {})) do
             allParameters[k] = nil
-			local str = AbilityUtils.SubstituteAbilityParameters(v, lookupSymbols)
+			local str = AbilityUtils.SubstituteAbilityParameters(v, symbolLookup)
 			AbilityUtils.DeepReplaceAbility(abilityClone, "<<"..k..">>", str)
 		end
 
@@ -2740,6 +2753,8 @@ function AbilityInvocation.ActivateInvocationPrompt(casterToken, triggerid)
     --Resolve "charid:"/"tokenid:" refs in the stored record back to live
     --objects, the same way PumpRemoteInvokes does for remote invocations.
     local invoke = DeserializeEventValue(DeepCopy(invocation))
+    --invocation is a non-nil table (checked above), so this is its deserialized copy.
+    ---@cast invoke -nil
 
     dmhub.Coroutine(function()
         local invoked = invoke:Invoke()

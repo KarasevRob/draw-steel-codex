@@ -101,6 +101,7 @@ handovers on a non-host screen.
 | **Reinforcements + clear-the-map victory** (2026-10-05, user direction; see "Reinforcements and the clear-the-map victory"): `## Reinforcements: <Name>` sections (`Arrive:` / `Enter:` / `Shout:` + islands that take turns) and `Victory: every Dwarf on the map is defeated`. Applied to The Dwarvish Bandits in game `1e3c159e` | NEW `EncounterReinforcements.lua` (registered in the EncounterOfTheWeek codemod after `EncounterZones.lua`, Firebase confirmed); `EncounterScript.lua` (grammar), `EncounterOfTheWeek.lua` (host tick + victory OR), `EncounterZones.lua` (victory setup entry), `EncounterMontage.lua` (reset), `EncounterScriptValidator.lua` (rows; bystander lines no longer reported as unrecognized); core `DMHub Game Rules/Creature.lua` (`eotwReinforcement` field annotation); `tests/encounter_script_test.lua` (909); skill `script-reference.md` | luac + parser tests + typing clean; the live document parsed offline with the new parser (no warnings; gunners round 2, trappers round 3, alternating). NOT run in the app: needs an app RESTART (new codemod file), then the authoring test (Combat) to see a wave arrive, the shout, the clear-map win. UNCOMMITTED |
 | **One Encounter of the Week + the Danger Rooms** (2026-10-06, user direction; see "The Encounter of the Week and the Danger Rooms"): a single scheduled Encounter of the Week at the Gate (blurb from its `# Town Gate`) + Past Encounters; community encounters moved to a new **Danger Rooms** location (practice: no Victory, treasure or outcome; a town-side debrief: vote, feedback for the creator, nomination); Danger Rooms unlock after a first Encounter of the Week win; admin rotation (Codex menu dialog, `SetWeek`, `tools/eotw_week.py`, `/eotw-rotate` skill); Goblin Ambush to be the first week, Angry Dwarves retired | Server: `cloudflare-game-server/src/city-core.ts` (schedule, debriefs, nominations, unlocks), `src/city.ts` (tables `city_settings`, `city_danger_feedback`, `city_nominations`; actions; `/city/week`; admin HTTP `/admin/city/{id}/week`), `src/index.ts` (route, `CITY_ADMINS` env), `wrangler.toml` + `wrangler.dmhub.toml` (`CITY_ADMINS`), `test/city-core.test.ts` (315 total pass). Codex: `Codex Titlescreen/EncounterOfTheWeek.lua` (schedule API, `CityRequest`, `ShowWeekDialog`, the two party boards, `WeekBanner`, Past Encounters, Danger Rooms board + location + art, creator feedback, debrief), `Codex Titlescreen/EotwRoster.lua` (`DangerRoomsUnlocked`), `EncounterOfTheWeek/EncounterOfTheWeek.lua` (`practice` stamp, `IsPracticeGame`, no award / outcome / treasure, `eotw-practice` card note, `eotw:pendingDebrief`). Tools: NEW `tools/eotw_week.py`, NEW skill `.claude/skills/eotw-rotate/`; `/eotw` skill text. Art: core image `92f3f806-...` from `~/Downloads/Steel Draw monsters cover.psd` | Server unit tests + tsc pass; luac + typing clean. **Worker DEPLOYED to staging 2026-10-06** (version `97d3fe50`; `/api/city/blackbottom/doc` shows `city.week = null`). Schedule SEEDED: Goblin Ambush (now week 3 after a test rotation and restore). VERIFIED 2026-10-06 single client, titlescreen town: see that section's "Verified". NOT seen: a practice game played (game side), the locked Danger Rooms node (this account is unlocked), a second client, `tools/eotw_week.py` (no admin secret here). UNCOMMITTED |
 | **Every test has a critical** (2026-10-07, user direction; see "Montage beats"): a missing 4th tier is built as tier 3 + an additional hero token; the critical stays hidden (roll dialog, stage rows, icons) until a natural 19-20 lands, then the stage shows a "Critical" row | `EncounterScript.lua` (`AutoCriticalText`, `critAuto`, hero-token "additional"/"extra", `OptionEffectLists` `includeCritical`), `EncounterMontage.lua` (`TeaserTiers` 1-3 only), `EncounterMontageStage.lua` (`TierName`, `TierRows`, "Critical" labels), `EncounterScriptValidator.lua`; `tests/encounter_script_test.lua` (923); skill `script-reference.md` | luac + parser tests + typing clean. UNTESTED in the app (needs an app restart; check: a forced natural 19-20 shows tiers 1-3 while rolling, then the Critical row with the bonus token, +1 hero token in the pool). Modules NOT republished (the change is code only; no script edits needed). UNCOMMITTED |
+| **Companions + pre-roll assists + roll button pings** (2026-10-08, user direction; see "Turn lifecycle (montage)", "What companions bring", the stage's "The hero group" and "Roll button pings"): after an approach other heroes join through an "Accompany them" box (once a round each, Teamwork twice in round 1) and stack behind the hero; their knacks, secret options and languages count (edge/bane riders still read only the roller); the assist moved BEFORE the roll (companions step forward, pick an unused listed skill, never the hero's last; results are edge/bane chips; Make the test / automatic); Pardon My Friend implemented; Ritualist limited to the group; companions follow into delves (one assist per event); the old post-roll assist window, its 30s timeout and the old Teamwork rule removed. Ghost Accept / Re-roll on other players' roll cards ping the button for everyone with a pulse in the pinger's colour | `EncounterMontage.lua`, `EncounterMontageStage.lua`, `EncounterScript.lua` (`AssistSkillChoices`, `MainTestSkill`) + `tests/encounter_script_test.lua` (934); core `Timeline/EmbeddedRollDialog.lua` (ping helpers on `CharacterPanel`, `pingButtons`, broadcast, pulse watcher), `Timeline/AbilitySidebar.lua` (`CreateGhostRollButtons`); docs `KNACKS_REFERENCE.md`, skill `script-reference.md` / `lua-toolkit.md` | luac + parser tests + typing clean (all 5 files 0). VERIFIED 2026-10-08 single client in the live EotW game `HugeWretchedFireyDragon` (four heroes, one player): gathering view, drag into the box twice (new box each time, x on companions, "Ampeth +2" on the entry), Continue -> stack, intro, choose, pre-roll assist with only the eligible companion offered (Nature protected as the hero's last skill), assist roll (Presence + Skilled in Empathize), edge chip on the main roll (Skilled in Nature + assist edge), automatic roll once nobody else could assist, resolve + log/summary lines, the roller's dialog broadcasting `pingButtons` and the Re-roll button pulsing on a ping. The 90s claim timeout fired during testing -> raised to 300s (needs a restart to take effect). NOT seen: the ghost buttons on a second client, Pardon My Friend, Ritualist from a companion, stay-behind x, companions in a delve, a companion knack/secret option/language actually unlocking something, Teamwork's second go-along, the wider stack peek (100, changed after the test). UNCOMMITTED |
 | This document | | |
 
 The codex working copy also holds plenty of unrelated uncommitted work, so
@@ -154,7 +155,10 @@ In a real EotW game with **at least two clients** and the current week:
    across real players), and an individual section.
 3. Montage on the split document: each player drags their own heroes, a
    non-host player's roll with the remote card and the live tier highlight on
-   the other screen, an assist, scenes paging for the acting player only, a
+   the other screen, a second player sending a hero along (the "Accompany
+   them" box) and assisting before the roll, the ghost Accept / Re-roll on
+   the watching screen pinging the roller's buttons (pulse in that player's
+   colour), scenes paging for the acting player only, a
    delve with a chest roll seen by both, the haul strip and item hand-over,
    locked/temporary entries, outcome icons.
 4. Stage cursors: each player sees the other's pointer on the stage.
@@ -178,6 +182,13 @@ In a real EotW game with **at least two clients** and the current week:
    without `--force`.
 4. Publisher validation of the script grammar (plan steps 35 and 45).
 5. Decide the disconnected-player rule (montage and narrative share it).
+   The gathering and the assists add two more waits on the acting player
+   (Continue / Make the test); same rule.
+5a. **Companions** (BUILT 2026-10-08, see the status table): restart the
+   app (the 300s claim timeout and the stack peek of 100 were changed after
+   the live test), then check what the table lists as NOT seen -- above all
+   the ghost buttons from a second client, Pardon My Friend and a companion
+   unlocking a knack / secret option / language line.
 6. Before opening EotW beyond the dev machine: verify a non-owner account can
    fetch the unlisted module and create a game from it; deploy the lobby to
    release and switch `LOBBY_OPTIONS`/`GAME_BACKEND` off staging.
@@ -439,12 +450,21 @@ All in `Codex Titlescreen/EncounterOfTheWeek.lua`, mounted on
   `/admin/delete-game/{gameid}`, which closes every socket with
   `1001 "game-deleted"` and deletes the DO's storage. A non-owner just leaves.
   `DOConnection` treats `game-deleted` as terminal.
-- **Launch protocol.** Begin sends `launch-game`. The **host** enters on
-  `launched`, installs the module and runs setup, then the game-side codemod
-  sends `ready-game`. **Members enter on `ready`.** Entering together made
-  joiners run the module install themselves and spam Firebase permission
-  denials; the engine also now restricts the starting-module install and the
-  `contentSummary` write to the owner, and stops retrying 401/403 writes.
+- **Launch protocol (fast launch, 2026-10-08).** Begin sends `launch-game`.
+  **Everyone enters on `launched`**: the host installs the module and runs
+  setup while the members load alongside it. The engine keeps a member's load
+  waiting until the host's install lands (only the owner installs: the
+  starting-module install and the `contentSummary` write are owner-only, and
+  401/403 writes are not retried). A member's setup then waits, behind the
+  held loading screen, for the host's `eotwstate.setupReady` stamp
+  (`WaitForHostSetup`, renewing the hold). The host stamps it, and sends
+  `ready-game` over a connection it opened at the start of setup, as soon as
+  the encounter map is stamped and the opening beat has begun. `ready` still
+  matters for late joiners and Re-join. `/toggle eotw:fastlaunch` restores
+  the old order (members enter on `ready`), for timing the two.
+  Measured 2026-10-08 (two clients on one machine, `/debug` off; Begin to
+  loading screen gone): host 5.2s -> 3.9s, member 11.8s (bare map, heroes
+  at 13.8s) -> 4.5s (straight onto the stage). See "Launch timing" below.
 - While in the game nobody heartbeats the roster record, so it expires about
   5 minutes after launch.
 - **Choosing the encounter.** Since 2026-10-06 the party's encounter is
@@ -2020,7 +2040,53 @@ placing heroes. The stage's `create` releases the hold, so the loading screen
 dissolves straight onto the stage. A week with no opening stage releases
 after hero placement. **A new engine with an old game-side module never
 releases and eats the 20s timeout**, so ship the codemod with or before such
-a build.
+a build. Each further `HoldLoadingScreen()` call re-arms the timeout (engine
+2026-10-08), which is how a fast-launch member waits out the host's setup.
+
+**The reveal waits for the whole party (2026-10-08).** Releasing on the
+stage's `create` showed the host's heroes alone, with the others' heroes and
+the beat's `Unlock:` features (Intelligence) popping in seconds later. Now the
+stage's release is gated on `EncounterOfTheWeekGame.RevealReady()`: no
+narrative or montage beat still in `"arriving"`. The host opens that beat
+(`OpenOpeningBeatWhenPartyIn`, a direct call of the beat's `HostTick`, not
+waiting for the map-script driver's first tick) the moment
+`AllPlayersArrived()`, and opening it applies the first section's unlocks in
+the same write. A member's characters reach every client before its arrival
+stamp (one DO, ordered broadcasts), so the opening implies every hero is
+there. `AllPlayersArrived` skips its 3s settle while an opening stage is
+arriving (nobody can load into the middle of anything). Each client renews
+its hold while it waits and reveals anyway after 45s
+(`REVEAL_WAIT_MAX_SECONDS`), so a player who never arrives cannot trap the
+rest. A week with no opening stage releases once `AllPlayersArrived()`.
+
+## Launch timing
+
+Every step of a launch logs an `[EOTWPROF]` line with `dmhub.serverTime`
+(shared by all clients, so the host's `Player.log` and a player window's
+`dmhub_player.log` merge onto one clock): Begin, `launched`/`ready` seen,
+`lobby:EnterGame`, the arrival callback, each `SetupOnArrival` step, the
+ready-game connection and ack, and the stage's create/release. The engine's
+`[LOADPROF]` lines cover the load itself (milestones, each `InstallModule`
+stage, the hud build, the loading-screen hold); launch the app with
+`--no-load-opt` to turn the engine's load speedups off for an A/B.
+Measure with `/debug` off: it makes every panel ~60us slower, and the hud
+build goes from ~0.6s to ~2s.
+
+What the 2026-10-08 work changed, besides the fast launch:
+- engine: a whole dictionary arriving on a game-record stream (e.g. the
+  host's `codeModsFromModules` write) was silently dropped by
+  `PatchObject`, so a member who entered before the install never loaded
+  the EotW codemod; fixed in `GWSerialization.PatchObject`.
+- engine: the install now registers the module's code mods as it writes
+  them (`SyncGameCodeMods`), so they load during the install instead of
+  after the hud is built (which then rebuilt the hud).
+- engine: start on the party's map (`lobby:EnterGame(..., {startMap})`) instead
+  of the module's first map and travelling; no 1s update embargo on the
+  WebSocket backends; the module snapshot is cached on disk by its content
+  hash; the map uploads go out together; the two asset reloads of the
+  first game update are coalesced into one.
+- Lua: pregens paste in one batch; the character sheet's Inventory tab is
+  built when first shown.
 
 ## Setup on arrival (`SetupOnArrival`)
 
@@ -2064,7 +2130,14 @@ On every member's client, inside the arrival coroutine:
    of the default party into the pregens' party, elected by majority),
    `AttachMapScript`, then `SignalGameReady` (sends `ready-game` over its own
    lobby connection).
-4. Every member stamps `arrived[userid]` once its heroes exist.
+4. Every member stamps `arrived[userid]` once its heroes exist (on the host,
+   after the game-wide writes of step 3), THEN runs `UnstackPlacedHeroes`
+   (its 1s+ wait for other clients' pastes is off the reveal's path; the stage
+   covers the map while it moves anyone). Since 2026-10-08 the host sends
+   `ready-game` and attaches the map script right after the opening stage
+   begins, before placing its own heroes; and a fast-launch member already on
+   the party's official map places its heroes before waiting for the host's
+   `setupReady` stamp.
 
 Loc gotcha: a Loc's floor reads as `loc.floor`; `loc.floorIndex` is the
 constructor argument and reads nil, and a floorless Loc teleports to floor 0.
@@ -2777,7 +2850,9 @@ Consequence: You begin the encounter surprised
     `|1-2: <clauses>`);
   - `## Continue`, `## Leave` (or `## Turn Back`) and `## Forced Out`.
 
-  The whole delve is the approaching hero's one turn, alone (no assists). The
+  The whole delve is the approaching hero's one turn. Their companions
+  (gathered at the approach) go in with them: each may assist one obstacle
+  test in the whole delve, and their knacks and languages count. The
   hero meets random unmet obstacles, a chest comes due every 1-2 obstacles
   (real dice, rolled by the delving player and followed on every screen;
   unfound rows read `???` until first landed, remembered per game in
@@ -2980,9 +3055,11 @@ Everything lives in the `eotwscript` mod document (next to `eotwstate`):
 ```
 beat                       -- current beat index (host-stamped)
 montage   = { beatIndex, round, phase = "arriving"|"rounds"|"consequences"|"done",
-              acted, taken, vanquished, removed, removedForPartySize, unlocked = {key=round},
-              expired, testmods, turn, consequences, consequenceIndex,
-              requests, handled, log, seq }
+              acted, accompanied, taken, vanquished, removed, removedForPartySize,
+              unlocked = {key=round}, expired, testmods, turn, consequences,
+              consequenceIndex, requests, handled, log, seq }
+             -- turn carries companions, assisted, assists, assist, testAttrid,
+             -- pardon (the field list is in EncounterMontage.lua's header)
 montageScene = { id, index }   -- the scene page cursor (the one player-written key)
 narrative = { beatIndex, sectionIndex, phase, choices, decision, result,
               announce, requests, handled, log, seq }
@@ -3012,32 +3089,79 @@ reinforcements = { arrived = { ["<sectionId>-r<round>"] = {round, at, island, co
 1. `approach {heroid, entryId}`: the hero is the requester's (or
    party-owned), has not acted this round, the entry is available, and no
    turn is in flight.
-2. Scene intro (status `scene`).
-3. `choosing`: `choose {optionIndex}` (gated by riders) or `pass` (Leave,
+2. **Gathering** (status `gathering`; companions, user direction
+   2026-10-08): the stage shows "<Hero> approaches <Entry>..." with the
+   hero's portrait and an empty dashed **"Accompany them"** box. Any player
+   drags one of their heroes onto it (or clicks the card, then the box):
+   `accompany {heroid}`. Each join adds a new empty box beside the last
+   companion; a companion's own player (or the approaching one) can send
+   them back with the little x (`stayBehind`, refunds the go-along). The
+   approaching player presses Continue (`setOff`). The gathering is skipped
+   when nobody could come along, and ends by itself once the last possible
+   companion has joined (host tick). **Each hero goes along once a round**
+   on top of their own approach (`m.accompanied`, reset each round;
+   Teamwork: twice in round 1, `EncounterMontage.AccompanyLimit`).
+   Companions stay with the hero for the whole turn, a delve included.
+3. Scene intro (status `scene`); the companions now stack behind the hero.
+4. `choosing`: `choose {optionIndex}` (gated by riders) or `pass` (Leave,
    which passes the turn; not offered inside a delve).
-4. The option's pre-roll scene.
-5. `rolling`: **the owning client rolls**, not the host. The test shows as
+5. The option's pre-roll scene.
+6. **Assists, before the roll** (status `assist`, `StartTest`): the host
+   fixes the test's characteristic (`t.testAttrid`, the hero's best listed
+   one) and the companions who can assist **step forward**. A companion may
+   assist one test per event (`t.assisted`; matters in a delve) with a
+   listed skill they are trained in that nobody has used on this test yet,
+   and never the LAST listed skill the hero making the test is trained in
+   (`EncounterScript.AssistSkillChoices`, unit-tested; a hero trained in
+   none reserves nothing -- user decision 2026-10-08). Each one's player
+   picks a skill button (`assist {heroid, skillid}` -> status `assisting`,
+   one assist roll at a time): the test's characteristic + their own
+   Skilled +2 against the fixed table -- 11 or lower a bane, 12-16 an edge,
+   17+ a double edge (Put Your Back Into It!: no bane). Each result
+   (`t.assists`) becomes a pre-ticked chip on the hero's roll ("Edge: Mira
+   assisted (Persuade)"); the dialog's own boon arithmetic combines them.
+   The hero's player presses "Make the test" (`proceedTest`) whenever
+   satisfied; the roll comes out by itself once nobody else can assist. A
+   claimed assist that is never accepted is handed back after 5 minutes
+   (`ASSIST_ROLL_SECONDS`; the table may stop to talk about a hero token).
+   Assisting costs a companion nothing else.
+7. `rolling`: **the owning client rolls**, not the host. The test shows as
    a synthetic test ability in the timeline sidebar with the roll dialog
-   embedded: 2d10 + best listed characteristic, Skilled +2 for a listed
-   skill, the normal edges/banes, rider and standing-edge chips. The roll is
-   shared to every other client's sidebar as a read-only card. Once the dice
-   are thrown the roll cannot be cancelled (`noCancelOnceThrown`); a cancel
-   before that returns the turn to choosing.
-6. `rolled {tier, total, attrid, skillid}`.
-7. **Assist window** when the roll is below tier 3 and someone is eligible: a
-   hero who has not acted, trained in a listed skill other than the one the
-   roller used. They roll the same characteristic with their own Skilled +2
-   against a fixed table -- tier 1 bane (-2), tier 2 edge (+2), tier 3 double
-   edge (+1 tier, max 3) -- which shifts the test's result. It costs their
-   turn; one assist per test. "Take the result", a 30s window timeout and a
-   90s claimed-roll timeout keep it from wedging. An empty window is never
-   shown. No assists in a delve.
-8. Outcome scene, then **resolve** (`ApplyResolution`, elevated): apply the
-   tier's clauses, mark acted/taken/vanquished, log it. A resolved turn
-   never blocks the next approach.
-9. Round end when every hero has acted or nothing is left; then the
+   embedded: 2d10 + the characteristic, Skilled +2 for a listed skill no
+   assist used, the normal edges/banes, rider, standing-edge, perk and
+   assist chips. The roll is shared to every other client's sidebar as a
+   read-only card, whose Accept / Re-roll appear there as pingable ghosts
+   (see "Roll button pings" under the stage). Once the dice are thrown the
+   roll cannot be cancelled (`noCancelOnceThrown`); a cancel before that
+   returns the turn to choosing and drops its assists (the companions who
+   made them have still had their assist).
+8. `rolled {tier, total, attrid, skillid}`, then perk offers on a failed
+   test (status `perk`): Brawny, Lucky Dog, Put Your Back Into It!, and
+   **Pardon My Friend** -- on a failed Presence test a companion with the
+   perk makes the test instead (status `pardon`, `pardonRolled`): Presence
+   + their own skill, edges and perks, plus a bane, on the test's table;
+   their roll replaces the hero's (the hero's assists and blessing do not
+   carry over). Once per test.
+9. Outcome scene, then **resolve** (`ApplyResolution`, elevated): apply the
+   tier's clauses, mark acted/taken/vanquished, log it (with `companions`
+   and `assists`). A resolved turn never blocks the next approach.
+10. Round end when every hero has acted or nothing is left; then the
    consequences phase (each unvanquished, unremoved, unexpired threat, one at
    a time; anyone presses Continue), then done.
+
+**What companions bring** (user decisions 2026-10-08): their knacks
+(`#### If ...` versions), secret options (`Allow` riders) and languages
+count for the turn -- `EncounterMontage.TurnGroup(t)` is passed to
+`KnackIndex` / `KnackReason` / `RiderVerdict` / `OptionVisible`, and
+`SceneEnv` answers `speaks` (garbling and `PC speaks X`) for the group. A
+knack or secret option a companion unlocks reads "..., thanks to Mira".
+**Edge and bane riders still read only the hero making the test**, as do
+the other scene conditions (`PC is`, `PC has`). The hero in front always
+makes the roll and is "PC" in the scene, even when a companion enabled the
+knack version. The Ritualist's blessing is limited to the group: the hero
+blesses their own test or a companion blesses it (the ritual needs a
+touch). Put Your Back Into It! stays open to any hero (inside a delve, only
+companions).
 
 **Effect application** (`EncounterMontage.ApplyEffects(ctx)`, shared by
 montage, narrative, delve chests and prep): items via `SetItemQuantity`
@@ -3138,10 +3262,16 @@ forgets -- without destroying -- a dialog presented twice, so
 - **Hero cards** (`CreateHeroCard` with `showStats`, uiscale 1.2):
   characteristics down the right edge, trained skills under the name, the
   controlling player, and the hero taking or assisting the test in gold with
-  the characteristic and skill in use highlighted. Acted heroes are dimmed.
-  A card is `draggable` only while its hero can act
-  (`LocalUserCanAct`). Drag a card onto an entry, or click the card then the
-  entry (droppable targets light up). Ally mini-cards stack against the
+  the characteristic and skill in use highlighted; the turn's companions
+  wear a softer gold border (`companion`). A hero who has approached is half
+  dimmed (`approached`) while they can still go along with someone, fully
+  dimmed (`acted`) once that is spent too. A badge pulses over every card
+  that can act on the moment: "+" (could go along with the hero gathering)
+  or "!" (a companion who could assist). A card is `draggable` only while
+  its hero can act (`LocalUserCanAct`) or go along
+  (`LocalUserCanAccompany`). Drag a card onto an entry (or into the
+  "Accompany them" box), or click the card then the target (droppable
+  targets light up). Ally mini-cards stack against the
   card's right edge. The **haul strip** down the left edge holds one icon per
   item with a tooltip; new items drop in with the pickup sound.
 - **Scene stage** (`CreateSceneStage`, the centre during a turn): the hero on
@@ -3156,6 +3286,32 @@ forgets -- without destroying -- a dialog presented twice, so
   highlighted and teasers stay hidden until the roll settles (`LiveTierRows`
   subscribes to the shared roll's dice events). The chest card and the delve
   haul card appear mid-stage.
+- **The hero group** (CreateSceneStage's `heroSlot`, laid out by hand, flow
+  none): each figure is placed with x/y and shrunk with a transform `scale`
+  from its bottom-left corner, and a change of layout glides (the slot's
+  think). Three layouts (`GroupMode`): **gather** -- the hero full size, the
+  companions in a row beside them at `SCENE_ROW_SCALE` (shrinking to fit,
+  never below `SCENE_ROW_MIN_SCALE`) and the dashed "Accompany them" box
+  (`eotwAccompanySlot`, a drag target) after them; **stack** -- the
+  companions behind the hero, each `SCENE_STACK_SCALE`, `SCENE_STACK_PEEK`
+  further right and a little higher, dimmed (`behind`); **assist** -- the
+  companions who can assist (and those who have) step forward into a row,
+  the rest stay stacked. Only the hero in front speaks or emotes;
+  companions sink back while anyone talks. Box contents per status:
+  `GatheringChildren`, `AssistChildren`, `PardonChildren`.
+- **Roll button pings** (core, `Timeline/EmbeddedRollDialog.lua` +
+  `Timeline/AbilitySidebar.lua`; user direction 2026-10-08): a roll shown
+  with the ShowDialog option `pingButtons` (every montage roll, from
+  `ShowMontageRoll`) broadcasts its Accept Result and Re-roll (caption,
+  hero-token icon, enabled) in `dialogState.pingButtons` once the dice land.
+  Everyone else's read-only card (`CreateReadOnlyRollInfo`) shows them as
+  ghosts with a dotted outline (`borderStyle = "dotted"`). Clicking a ghost
+  writes `[userid] = {rollId, button, at}` to the Timeline mod's
+  `rollbuttonpings` document (each user writes only their own key); every
+  client's copy of that button -- the roller's real one and every ghost --
+  pulses with a ring in the pinger's `displayColor`, three times
+  (`CharacterPanel.PulseRollButton`). Only pings made after a card (or the
+  roll) appeared pulse on it. A ghost does nothing to the roll.
 - **Narrative body**: a centred panel with the text, the prompt, option cards
   (buttons in an agreed section, drop targets in an individual one), the
   hero row with each hero's choice ("Ready" while an agreed vote is open, a
@@ -3708,8 +3864,7 @@ EotW codemod all changed):
   untested).
 - Montage stage vs narrative/prep stages lay the hero row out differently
   (the montage row is ~80px lower). Unify?
-- Not built: a click-to-select alternative to dragging; an assisting hero on
-  the scene stage; voice/sound per line; keyboard paging; scenes in
+- Not built: voice/sound per line; keyboard paging; scenes in
   narratives; a portrait override for a cast member; per-hero rider weighing
   in the Director's Request Rolls.
 
@@ -3750,7 +3905,8 @@ with allies (spawn and cards verified; AI/victory in real combat not), [ ] 34
 two-client live playthrough of the scripted week, [ ] 35 publisher validation
 of the grammar, [x] 36 initiative clauses, [x] 37 boon clauses, [x] 37b
 loading-screen hold, [x] 38 surprise immunity, [x] 38b stray-pregen sweep, [~]
-39 assists (never run live), [x] 46 entries come and go with the rounds, [x]
+39 assists (superseded 2026-10-08 by companions + pre-roll assists: run
+live single-client), [x] 46 entries come and go with the rounds, [x]
 47 sticky surprise, [x] 48 losing recoveries, [~] 49 traps + zone reveals
 (headless only), [~] 50 scenes (single client), [~] 51 delves (played once,
 tuning untested), [~] 52 sub-documents (montage on the split document

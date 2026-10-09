@@ -61,10 +61,24 @@ RollDialog = {
 --are not the player choosing to spend -- but they do count towards maxRerolls,
 --because "you must use the new roll" applies however the new roll was got.
 
+--- A re-roll rule, as described above. Every field is optional.
+--- @class RollDialogRerollRule
+--- @field text? string
+--- @field icon? string
+--- @field iconColor? string
+--- @field tooltip? string
+--- @field maxRerolls? number
+--- @field spentTooltip? string
+--- @field CanReroll? fun(state: table): boolean, string|nil
+--- @field Pay? fun(state: table): boolean
+--- @field fontSize? number
+--- @field Applies? fun(state: table): boolean
+--- @field Perform? fun(state: table)
+
 --The rule in force for a roll: the roll's own, else the game system's default
 --for a roll of this kind, else nil for the plain unlimited Re-roll.
 --- @param options table ShowDialog options
---- @return table|nil
+--- @return RollDialogRerollRule|nil
 function RollDialog.ResolveRerollRule(options)
     if options == nil then
         return nil
@@ -82,7 +96,7 @@ function RollDialog.ResolveRerollRule(options)
 end
 
 --Whether a rule's re-roll can be pressed right now, and the tooltip to show.
---- @param rule table|nil
+--- @param rule RollDialogRerollRule|nil
 --- @param state table {options, creature, rerollsUsed}
 --- @return boolean enabled
 --- @return string|nil tooltip
@@ -625,7 +639,6 @@ function GameHud.CreateRollDialog(self)
         classes = { "hiddenWhenRolling", "hideWhenMinimized" },
         width = 300,
         height = 32,
-        valign = "center",
         fontSize = 18,
         idChosen = dmhub.GetSettingValue("privaterolls"),
         options = cond(dmhub.isDM, g_rollOptionsDM, g_rollOptionsPlayer),
@@ -666,6 +679,8 @@ function GameHud.CreateRollDialog(self)
     --- @field modifiers nil|DSRollDialogModifierEntry[]
     --- @field rollProperties nil|RollProperties
     --- @field targetCreature nil|creature
+    --- @field noCancelOnceThrown nil|boolean once the dice are thrown, no close (X) or ESC back to the options.
+    --- @field aiRoll nil|boolean the running Monster AI rolls and accepts this roll itself.
 
     --- @type DSRollDialogOptions
     local m_options = nil
@@ -674,6 +689,7 @@ function GameHud.CreateRollDialog(self)
     -- unlimited Re-roll button), and how many times that roll has been
     -- re-rolled so far. Both are reset by ShowDialog. See the "Re-roll rules"
     -- block at the top of this file for what a rule is.
+    --- @type RollDialogRerollRule|nil
     local m_rerollRule = nil
     local m_rerollsUsed = 0
 
@@ -731,6 +747,7 @@ function GameHud.CreateRollDialog(self)
         local enabledModifiers = {}
         for i, mod in ipairs(m_options.modifiers or {}) do
             if mod.modifier then
+                ---@type boolean|string a hint may carry a string result; only truthiness matters
                 local ischecked = false
                 local force = mod.modifier:try_get("force", false)
                 if mod.override ~= nil then
@@ -906,7 +923,6 @@ function GameHud.CreateRollDialog(self)
     local RecalculateMultiTargets
 
     local rollInputContainer = gui.Panel {
-        width = "auto",
         flow = "horizontal",
         width = '80%',
         halign = 'center',
@@ -916,6 +932,9 @@ function GameHud.CreateRollDialog(self)
     }
 
     local CreateTriggerPanel = function(info)
+        --Trigger tiles are only built for multi-target rolls, and every caller
+        --of a multi-target roll passes the roller as options.creature.
+        ---@cast creature -nil
         local m_info = info
         local token = dmhub.GetTokenById(info.charid)
         local triggerPanel
@@ -1754,6 +1773,8 @@ function GameHud.CreateRollDialog(self)
                             end
                             element:SetClass("activated", (m_multitargets[i].surges or 0) >= surgeNum)
 
+                            --Every caller of a multi-target roll passes the roller as options.creature.
+                            ---@cast creature -nil
                             local surgesAvailable = creature:GetAvailableSurges()
                             for i = 1, #m_multitargets do
                                 surgesAvailable = surgesAvailable - (m_multitargets[i].surges or 0)
@@ -1874,8 +1895,8 @@ function GameHud.CreateRollDialog(self)
                 press = function(element)
                     local delta = (i - 3) - m_currentBoons
                     m_boons = m_boons + delta
-                    if GetCurrentMultiTarget() ~= nil then
-                        local index = GetCurrentMultiTarget()
+                    local index = GetCurrentMultiTarget()
+                    if index ~= nil and m_multitargets ~= nil then
                         m_multitargets[index].boonsOverride = (m_multitargets[index].boonsOverride or 0) + delta
                     end
                     CalculateRollText()
@@ -1911,8 +1932,8 @@ function GameHud.CreateRollDialog(self)
             prepare = function(element, options)
                 element:SetClass("collapsed", not GameSystem.AllowBoonsForRoll(options))
 
-                if GetCurrentMultiTarget() ~= nil then
-                    local index = GetCurrentMultiTarget()
+                local index = GetCurrentMultiTarget()
+                if index ~= nil and m_multitargets ~= nil then
                     m_boons = (m_multitargets[index].boonsOverride or 0)
                 end
             end,
@@ -1970,6 +1991,8 @@ function GameHud.CreateRollDialog(self)
                     element:SetClass("inactive",
                         (calculationOptions.surges or rollProperties:try_get("surges", 0)) < index)
                     if (not element:HasClass("inactive")) then
+                        --The icon is collapsed above whenever creature is nil.
+                        ---@cast creature -nil
                         local mods = GetEnabledModifiers()
                         local newSurgeDamage
                         for _, mod in ipairs(mods) do
@@ -2198,7 +2221,8 @@ function GameHud.CreateRollDialog(self)
 
                         local tooltip = mod.modifier:GetSummaryText()
                         if creature ~= nil then
-                            tooltip = StringInterpolateGoblinScript(tooltip, creature)
+                            --nil only for a nil input, and GetSummaryText returns a string.
+                            tooltip = StringInterpolateGoblinScript(tooltip, creature) --[[@as string]]
                         end
                         tooltip = CharacterModifier.AppendSourceText(tooltip, mod.context)
                         for i, justification in ipairs(mod.hint.justification) do
@@ -2293,7 +2317,7 @@ function GameHud.CreateRollDialog(self)
                                     valign = "center",
                                 },
                                 gui.Input {
-                                    text = mod.context.charges,
+                                    text = tostring(mod.context.charges),
                                     characterLimit = 2,
                                     width = 24,
                                     height = 14,
@@ -2302,7 +2326,7 @@ function GameHud.CreateRollDialog(self)
                                     change = function(element)
                                         local num = tonumber(element.text)
                                         if num == nil then
-                                            element.text = mod.context.charges
+                                            element.text = tostring(mod.context.charges)
                                             return
                                         end
 
@@ -2553,7 +2577,7 @@ function GameHud.CreateRollDialog(self)
 
             local icon = rule ~= nil and rule.icon or nil
             rerollIcon:SetClass("collapsed", icon == nil)
-            if icon ~= nil then
+            if icon ~= nil and rule ~= nil then
                 rerollIcon.bgimage = icon
                 rerollIcon.selfStyle.bgcolor = rule.iconColor or "white"
             end
@@ -3016,6 +3040,17 @@ function GameHud.CreateRollDialog(self)
                     end
                 end
 
+                --While the Monster AI runs it plays every Director-run creature, so
+                --their rolls roll and accept on their own (see MonsterAI.RollsForCreature).
+                --rawget: the Monster AI module may not be loaded.
+                if options.aiRoll == nil and options.creature ~= nil then
+                    local monsterAI = rawget(_G, "MonsterAI")
+                    local rollsForCreature = monsterAI ~= nil and rawget(monsterAI, "RollsForCreature") or nil
+                    if rollsForCreature ~= nil and rollsForCreature(options.creature) then
+                        options.aiRoll = true
+                    end
+                end
+
                 if coroutine.GetCurrentId() ~= nil then
                     if resultPanel.data.coroutineOwner == nil then
                         resultPanel.data.coroutineOwner = coroutine.GetCurrentId()
@@ -3032,6 +3067,9 @@ function GameHud.CreateRollDialog(self)
 
                 if options.delay ~= nil then
                     local a, b = coroutine.running()
+                    --Declared out here so the coroutine branch sees it too: it read
+                    --an undefined global `delay` and errored on the arithmetic.
+                    local delay = options.delay
 
                     if dmhub.inCoroutine then
                         local t = dmhub.Time()
@@ -3039,8 +3077,6 @@ function GameHud.CreateRollDialog(self)
                             coroutine.yield(0.02)
                         end
                     else
-                        local delay = options.delay
-
                         local optionsCopy = {}
                         for k, v in pairs(options) do
                             optionsCopy[k] = v
@@ -3119,7 +3155,9 @@ function GameHud.CreateRollDialog(self)
 
                         local tokenid = nil
                         if options.creature ~= nil then
-                            tokenid = dmhub.LookupTokenId(creature)
+                            --options.creature, not the creature upvalue: that is only
+                            --assigned further down and still holds the previous roll's.
+                            tokenid = dmhub.LookupTokenId(options.creature)
                         end
 
                         --insert the castid into this roll so that we know
@@ -3263,7 +3301,7 @@ function GameHud.CreateRollDialog(self)
 
                 RecalculateMultiTargets()
 
-                resultPanel:SetClass("ai", (creature ~= nil and creature._tmp_aicontrol > 0) or false)
+                resultPanel:SetClass("ai", (creature ~= nil and creature:IsAIControlled()) or options.aiRoll == true)
 
                 if options.numPrompts ~= nil and options.numPrompts > 1 then
                     rollAllPromptsCheck.value = true
@@ -3280,7 +3318,7 @@ function GameHud.CreateRollDialog(self)
                         delayRoll = options.delayInstant
                     end
                     rollDiceButton:FireEventTree("press")
-                elseif options.autoroll == true or dmhub.GetSettingValue("autorollall") or options.aiRoll or (options.creature ~= nil and options.creature._tmp_aicontrol > 0) then
+                elseif options.autoroll == true or dmhub.GetSettingValue("autorollall") or options.aiRoll or (options.creature ~= nil and options.creature:IsAIControlled()) then
                     if options.delayInstant ~= nil then
                         delayRoll = options.delayInstant or 0
                     else
@@ -3366,8 +3404,11 @@ function GameHud.CreateRollDialog(self)
                         showingDialog = false
                     end
 
-                    print("AI:: Dialog SETTING UP EVENT", creature ~= nil and creature._tmp_aicontrol or 0)
-                    if creature ~= nil and creature._tmp_aicontrol > 0 then
+                    --aiRoll: a roll the running Monster AI plays (see ShowDialog)
+                    --waits out hero triggers and proceeds the same way.
+                    local aiProceeds = (creature ~= nil and creature:IsAIControlled()) or (m_options ~= nil and m_options.aiRoll == true)
+                    print("AI:: Dialog SETTING UP EVENT", aiProceeds)
+                    if aiProceeds then
                         local TryToProceed
                         local m_timerState = nil
                         --wait state for an accepted trigger whose before-action
@@ -3430,6 +3471,8 @@ function GameHud.CreateRollDialog(self)
                                     --Director can click the dice to pause or push through.
                                     local t = dmhub.Time()
                                     if m_resolveState == nil then
+                                        --set together with resolvingTrigger, checked above.
+                                        ---@cast resolvingToken -nil
                                         local ownerName = resolvingToken.name
                                         if ownerName == nil or ownerName == "" then
                                             ownerName = "a player"
@@ -3705,6 +3748,8 @@ function GameHud.CreateRollDialog(self)
                                         if rollProperties ~= nil then
                                             rollSymbols = rollProperties:GetSymbols(m_rollInfo, target.token.properties)
                                         end
+                                        --Every caller of a multi-target roll passes the roller as options.creature.
+                                        ---@cast creatureUsed -nil
                                         modifier:InstallSymbolsFromContext {
                                             triggerer = c:LookupSymbol {},
                                             abilitytarget = target.token.properties:LookupSymbol {},
@@ -3732,7 +3777,7 @@ function GameHud.CreateRollDialog(self)
                                 end
                             end
                         end
-                    else
+                    elseif creatureUsed ~= nil then
                         for i, modifier in ipairs(modifiersUsed) do
                             local tokenUsed = dmhub.LookupToken(creatureUsed)
                             if tokenUsed ~= nil then
@@ -3749,6 +3794,9 @@ function GameHud.CreateRollDialog(self)
                     end
 
                     if surgesUsed ~= 0 then
+                        --Only multi-target rolls spend surges, and every caller of
+                        --one passes the roller as options.creature.
+                        ---@cast creatureUsed -nil
                         resourceConsumed = true
                         local tokenUsed = dmhub.LookupToken(creatureUsed)
                         if tokenUsed ~= nil then
@@ -3772,15 +3820,23 @@ function GameHud.CreateRollDialog(self)
                         end
                     end
 
-                    if resourceConsumed or #ongoingEffects > 0 then
-                        local creatureToken = dmhub.LookupToken(creatureUsed)
+                    --Resources and surges were uploaded by their own ModifyProperties above; this
+                    --only has the ongoing effects the used modifiers apply to the roller to send.
+                    if creatureUsed ~= nil and #ongoingEffects > 0 then
+                        local roller = creatureUsed
+                        local creatureToken = dmhub.LookupToken(roller)
                         if creatureToken ~= nil then
-                            for i, cond in ipairs(ongoingEffects) do
-                                creatureUsed:ApplyOngoingEffect(cond.ongoingEffect, cond.duration, nil, {
-                                    untilEndOfTurn = cond.durationUntilEndOfTurn,
-                                })
-                            end
-                            creatureToken:Upload('Used resource')
+                            creatureToken:ModifyProperties {
+                                description = "Used resource",
+                                undoable = false,
+                                execute = function()
+                                    for i, cond in ipairs(ongoingEffects) do
+                                        roller:ApplyOngoingEffect(cond.ongoingEffect, cond.duration, nil, {
+                                            untilEndOfTurn = cond.durationUntilEndOfTurn,
+                                        })
+                                    end
+                                end,
+                            }
                         end
                     end
 
@@ -3854,7 +3910,7 @@ function GameHud.CreateRollDialog(self)
                             end
 
                             print("AI:: Dialog ROLL COMPLETE...")
-                            if (creature ~= nil and creature._tmp_aicontrol > 0) or (dicetower and not dmhub.isDM) then
+                            if (creature ~= nil and creature:IsAIControlled()) or (m_options ~= nil and m_options.aiRoll) or (dicetower and not dmhub.isDM) then
                             print("AI:: Dialog ROLL PRESS PROCEED...")
                                 proceedAfterRollButton:FireEvent("press")
                             end

@@ -9,8 +9,9 @@ local mod = dmhub.GetModLoading()
 --
 --To credit a new creator:
 --  1. Upload their logo as a core image asset on a transparent background,
---     since it is drawn over art: white (or light), or dark with darkLogo set
---     so the art behind it is lightened instead of shaded. If their licence
+--     in white, since it is drawn straight over the art with no backing:
+--     badges show it black (brightness 0) unless the caller passes
+--     light = true for dark art. If their licence
 --     supplies a watermark, use that, and set widthFraction to the share of
 --     the art's width their licence says it must span.
 --  2. Add a CreatorCredit.Register call at the bottom of this file.
@@ -25,10 +26,9 @@ local mod = dmhub.GetModLoading()
 --- @class CreatorCreditInfo
 --- @field id string
 --- @field name string Shown in the badge's tooltip ("Art by <name>").
---- @field logo string Image id of the logo, light on transparent.
+--- @field logo string Image id of the logo, white on transparent (Badge darkens it to black unless light is set).
 --- @field logoWidth number The logo image's pixel size, for its aspect ratio.
 --- @field logoHeight number
---- @field darkLogo boolean True for a dark logo, which Backdrop lightens the art behind instead of shading it.
 --- @field widthFraction nil|number The share of the art's width the logo must span (a licence term); nil for a fixed-size badge.
 --- @field url nil|string The creator's site; the badge opens it when clicked.
 
@@ -48,7 +48,7 @@ CreatorCredit = {
 
 --- Adds (or replaces) a creator.
 --- @param id string
---- @param info {name: string, logo: string, logoWidth: number, logoHeight: number, darkLogo: nil|boolean, widthFraction: nil|number, url: nil|string}
+--- @param info {name: string, logo: string, logoWidth: number, logoHeight: number, widthFraction: nil|number, url: nil|string}
 function CreatorCredit.Register(id, info)
     CreatorCredit.creators[id] = {
         id = id,
@@ -56,7 +56,6 @@ function CreatorCredit.Register(id, info)
         logo = info.logo,
         logoWidth = info.logoWidth,
         logoHeight = info.logoHeight,
-        darkLogo = info.darkLogo == true,
         widthFraction = info.widthFraction,
         url = info.url,
     }
@@ -147,7 +146,10 @@ local BADGE_STYLES = {
 --- A creator registered with widthFraction gets a badge that wide a share of
 --- the panel it is added to (options.width is ignored), so that panel must
 --- be exactly the visible art: the callers cover-fit the art to it.
---- @param options {creator: string, width: nil|number, halign: nil|string, valign: nil|string, hmargin: nil|number, vmargin: nil|number}
+---
+--- The logo is drawn black by default; pass light = true to show it white,
+--- for a badge over dark art.
+--- @param options {creator: string, width: nil|number, halign: nil|string, valign: nil|string, hmargin: nil|number, vmargin: nil|number, light: nil|boolean}
 --- @return nil|Panel
 function CreatorCredit.Badge(options)
     local info = CreatorCredit.Get(options.creator)
@@ -199,6 +201,8 @@ function CreatorCredit.Badge(options)
             height = "100%",
             bgimage = info.logo,
             bgcolor = "white",
+            --the logo image is white; brightness 0 turns it black.
+            brightness = cond(options.light, 1, 0),
         },
     }
 end
@@ -260,7 +264,7 @@ end
 
 --- A full-bleed art backdrop: the art cover-fitted to width x height on black,
 --- fading in once it has loaded, with the creator's badge in the bottom-right
---- corner over a soft shade that keeps the logo legible on bright art.
+--- corner.
 ---
 --- options:
 ---   width, height  the backdrop's size in the parent's units (required).
@@ -349,43 +353,6 @@ function CreatorCredit.Backdrop(options)
 
     local info = CreatorCredit.Get(options.creator) or CreatorCredit.ForArt(options.video) or CreatorCredit.ForArt(options.image)
     if info ~= nil and options.badge ~= false then
-        --shades the bottom-right corner under the logo (lightens it for a
-        --dark logo); transparent by the middle of the screen so the art is
-        --otherwise untouched.
-        local shadeStops = {
-            { position = 0, color = core.Color{ r = 1, g = 1, b = 1, a = 0.6 } },
-            { position = 0.45, color = core.Color{ r = 1, g = 1, b = 1, a = 0.2 } },
-            { position = 0.8, color = core.Color{ r = 1, g = 1, b = 1, a = 0 } },
-        }
-        local shadeHeight = 260
-        if info.darkLogo then
-            --a white haze: blending is in linear color, where even a faint
-            --white shows, so it eases to nothing by 0.5, which is where the
-            --panel's top and left edges start; a taller panel keeps the logo
-            --well inside the haze.
-            shadeHeight = 420
-            shadeStops = {}
-            for i = 0, 8 do
-                local t = i / 8
-                local ease = t * t * (3 - 2 * t)
-                shadeStops[#shadeStops+1] = { position = 0.5 * t, color = core.Color{ r = 1, g = 1, b = 1, a = 0.55 * (1 - ease) } }
-            end
-        end
-        children[#children+1] = gui.Panel{
-            floating = true,
-            halign = "right",
-            valign = "bottom",
-            width = math.min(width, 900),
-            height = math.min(height, shadeHeight),
-            interactable = false,
-            bgimage = "panels/square.png",
-            bgcolor = cond(info.darkLogo, "white", "black"),
-            gradient = gui.Gradient{
-                point_a = { x = 1, y = 0 },
-                point_b = { x = 0, y = 1 },
-                stops = shadeStops,
-            },
-        }
         local badgeOptions = { creator = info.id }
         if type(options.badge) == "table" then
             for k,v in pairs(options.badge) do
@@ -423,7 +390,6 @@ CreatorCredit.Register("czepeku", {
     logo = "95efaeaa-6055-4269-937b-eda919907d02",
     logoWidth = 1032,
     logoHeight = 101,
-    darkLogo = true,
     widthFraction = 0.25,
     url = "https://www.czepeku.com",
 })

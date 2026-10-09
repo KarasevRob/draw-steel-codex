@@ -1065,7 +1065,8 @@ local function AddInitiativeEntryPanel (element, info, playerControlled)
 
 	for _,tok in ipairs(tokens) do
 		local initiativeId = InitiativeQueue.GetInitiativeId(tok)
-		if info.initiativeQueue ~= nil and not info.initiativeQueue:HasInitiative(initiativeId) then
+		--nil for a token without properties; it has no initiative entry to add.
+		if initiativeId ~= nil and info.initiativeQueue ~= nil and not info.initiativeQueue:HasInitiative(initiativeId) then
 			if entries[initiativeId] == nil then
 				count = count + 1
 			end
@@ -4699,7 +4700,10 @@ function GameHud.CreateInitiativeBarChoicePanel(self, info)
             local tokens = dmhub.selectedTokens
             for _,token in ipairs(tokens) do
                 local initiativeid = InitiativeQueue.GetInitiativeId(token)
-                initiativeids[initiativeid] = true
+                --nil for a token without properties.
+                if initiativeid ~= nil then
+                    initiativeids[initiativeid] = true
+                end
             end
 
 			local playerChildren = {playerContainer.data.label.parent, playerContainer.data.bar}

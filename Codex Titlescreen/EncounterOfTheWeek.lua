@@ -23,6 +23,17 @@ local mod = dmhub.GetModLoading()
 
 EncounterOfTheWeek = {}
 
+--Launch-timing marker: grep Player.log for "[EOTWPROF]". server= is
+--dmhub.serverTime, which every client shares, so the host's and the members'
+--logs line up on one clock. The game-side codemod logs the same way. Never
+--throws: it runs inside the arrival callback, which must not fail.
+local function EotwProf(fmt, ...)
+    local args = table.pack(...)
+    pcall(function()
+        printf("[EOTWPROF] server=%.3f app=%.3f " .. fmt, dmhub.serverTimeMilliseconds * 0.001, dmhub.Time(), table.unpack(args, 1, args.n))
+    end)
+end
+
 --Dev gate. No editor entry, so it never appears in the settings UI;
 --toggle from chat with: /toggle dev:encounteroftheweek
 EncounterOfTheWeek.enabledSetting = setting{
@@ -30,6 +41,21 @@ EncounterOfTheWeek.enabledSetting = setting{
     default = false,
     storage = "preference",
 }
+
+--Fast launch: members enter the game on "launched", loading alongside the
+--host, and wait behind the loading screen for the host's setup stamp; every
+--client starts directly on the encounter map. Off = the old order (members
+--enter on "ready", after the host has loaded and set up). No editor entry;
+--kept for timing the two against each other: /toggle eotw:fastlaunch
+EncounterOfTheWeek.fastLaunchSetting = setting{
+    id = "eotw:fastlaunch",
+    default = true,
+    storage = "preference",
+}
+
+function EncounterOfTheWeek.FastLaunch()
+    return dmhub.GetSettingValue("eotw:fastlaunch") ~= false
+end
 
 --True if the Encounter of the Week mode is available to this user at all.
 function EncounterOfTheWeek.Enabled()
@@ -2601,8 +2627,22 @@ CreateScreen = function(args)
             --a Danger Rooms party: the host stamps the game as practice, so
             --no Victory or treasure is awarded and players debrief it in town.
             practice = encounterMap ~= nil and EncounterOfTheWeek.IsDangerRoomEncounter(encounterMap),
+            --members entered alongside the host (see fastLaunchSetting): the
+            --game side waits for the host's setup stamp before placing heroes.
+            fastLaunch = EncounterOfTheWeek.FastLaunch(),
         }
         _G.EotwPendingArrival = arrival
+
+        --start directly on the encounter map rather than on the module's
+        --first map and travelling. Only for the official module's maps: a
+        --Danger Rooms module is installed by the host's setup, after load.
+        local enterOptions = nil
+        if arrival.fastLaunch and encounterMap ~= nil then
+            local moduleid, mapName = EncounterOfTheWeek.ParseEncounterKey(encounterMap)
+            if moduleid == STARTING_MODULE then
+                enterOptions = { startMap = mapName }
+            end
+        end
 
         --Hold the loading screen through arrival setup: the engine then runs
         --the callback below BEHIND the loading screen and keeps it up until
@@ -2613,10 +2653,13 @@ CreateScreen = function(args)
         --Older engines lack the call and simply show the map as before.
         pcall(function() dmhub.HoldLoadingScreen() end)
 
-        lobby:EnterGame(gameid, function()
+        EotwProf("lobby:EnterGame called game=%s", gameid)
+        local onArrive
+        onArrive = function()
             --the engine fires this only once the game has finished loading,
             --so the stamp doubles as the game side's guarantee that running
             --setup -- travelling maps, pasting tokens -- is safe now.
+            EotwProf("arrival callback (engine load finished) game=%s", gameid)
             arrival.ready = true
 
             local eotwGame = rawget(_G, "EncounterOfTheWeekGame")
@@ -2632,7 +2675,8 @@ CreateScreen = function(args)
                 _G.EotwPendingArrival = nil
                 eotwGame.SetupOnArrival(arrival)
             end
-        end)
+        end
+        lobby:EnterGame(gameid, onArrive, enterOptions)
     end
 
     --The host's Begin marks the roster record "launched" server-side. The
@@ -2670,8 +2714,10 @@ CreateScreen = function(args)
         for gameid,record in pairs(games) do
             local isHost = record.hostUserid == myUserid
             local isMember = isHost or (record.players ~= nil and record.players[myUserid] ~= nil)
-            if isMember and (record.status == "ready" or (record.status == "launched" and isHost))
+            local fast = EncounterOfTheWeek.FastLaunch()
+            if isMember and (record.status == "ready" or (record.status == "launched" and (isHost or fast)))
                     and m_initialGameStatus[gameid] ~= record.status then
+                EotwProf("saw status=%s (%s); entering game=%s", tostring(record.status), isHost and "host" or "member", gameid)
                 m_enteringWorld = true
                 EnterWorld(gameid)
                 return
@@ -3548,6 +3594,7 @@ CreateScreen = function(args)
                     if m_conn == nil then
                         return
                     end
+                    EotwProf("Begin pressed (launch-game sent) game=%s", gameid)
                     m_conn:Request{
                         action = "launch-game",
                         args = { gameid = gameid },
@@ -5639,7 +5686,8 @@ CreateScreen = function(args)
             image = scene.art,
             aspect = scene.aspect,
             focusX = scene.focusX,
-            badge = { hmargin = SCENE_BADGE_HMARGIN, vmargin = 24 },
+            --the Town Gate's art is dark, so its credit shows the logo white.
+            badge = { hmargin = SCENE_BADGE_HMARGIN, vmargin = 24, light = loc.id == "gate" },
             children = {
                 gui.Panel{
                     floating = true,

@@ -2788,7 +2788,8 @@ local function ShowDiceTryRoll(item)
 
 		--The dice cage: rolled dice tumble inside this panel, and dragging
 		--inside it grabs + throws them (mirrors the embedded roll dialog).
-		gui.Panel{
+		--Must be a gui.DicePreview: SetAsDicePreviewPanel exists only on that type.
+		gui.DicePreview{
 			width = "92%",
 			height = 210,
 			halign = "center",
@@ -2800,9 +2801,11 @@ local function ShowDiceTryRoll(item)
 			thinkTime = 0.01,
 
 			create = function(element)
+				---@cast element DicePreview
 				element:SetAsDicePreviewPanel(true)
 			end,
 			destroy = function(element)
+				---@cast element DicePreview
 				element:SetAsDicePreviewPanel(false)
 			end,
 			hover = function(element) dice.MouseEnter() end,
@@ -3464,7 +3467,7 @@ local ShowItemDetailsInternal = function(args)
 	--trick as detailsBackingGradient below -- bgcolor supplies the hue, the
 	--gradient supplies the alpha. Note position 0 is the BOTTOM of the panel,
 	--not the top, so the dark stop comes first.
-	local heroTextScrim = core.Gradient{
+	local heroTextScrim = gui.Gradient{
 		point_a = {x = 0.5, y = 0},
 		point_b = {x = 0.5, y = 1},
 		stops = {
@@ -3563,7 +3566,7 @@ local ShowItemDetailsInternal = function(args)
 	--shadowed look). The gradient holds solid through the body and softly fades
 	--out at the very bottom so the band dissolves rather than ending on a hard
 	--line. bgcolor sets the hue; the gradient supplies the alpha.
-	local detailsBackingGradient = core.Gradient{
+	local detailsBackingGradient = gui.Gradient{
 		point_a = {x = 0.5, y = 0},
 		point_b = {x = 0.5, y = 1},
 		stops = {
@@ -3659,6 +3662,9 @@ local ShowItemDetailsInternal = function(args)
 				--setting/clearing them twice is harmless. All of it is torn down on
 				--destroy so nothing leaks into in-game rolls once the shop closes.
 				create = function(element)
+					--Built by gui.DicePreview; the gui.Panel fallback (older binary)
+					--lacks these members, which is why every use is pcall-guarded.
+					---@cast element DicePreview
 					pcall(function() dice.SetPreviewRollScreenBounds(true) end)
 					pcall(function() element:SetAsDicePreviewPanel(true) end)
 					--Pull a pair of try-dice a little closer together than the default
@@ -3767,6 +3773,7 @@ local ShowItemDetailsInternal = function(args)
 					pcall(function() element:DicePreviewMouseLeave() end)
 				end,
 				click = function(element)
+					---@cast element DicePreview
 					pcall(function() element:DicePreviewClick() end)
 				end,
 				dragging = function(element)
@@ -4562,7 +4569,7 @@ local function CreateShopScreenInternal(arguments)
 			},
 	}
 
-	local dividerGradient = core.Gradient{
+	local dividerGradient = gui.Gradient{
 		point_a = {x=0,y=0},
 		point_b = {x=1,y=0},
 		stops = {
@@ -5531,7 +5538,6 @@ local function CreateShopScreenInternal(arguments)
 								halign = "center",
 								textAlignment = "center",
 								height = 24,
-								halign = "center",
 								vmargin = 4,
 
 								showgift = function(element, item)

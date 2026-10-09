@@ -31,7 +31,7 @@ end
 --- @field grantedToTokenId nil|string Charid of the creature a granted clone belongs to (its caster).
 --- @field aimCasterAtTarget boolean An object caster turns to face its target while this is aimed, and keeps that facing (a Field Ballista's Release Bolt).
 --- @field _tmp_boundCaster nil|creature The creature a temporary clone was generated for.
---- @field lineDistance number|string|table Length for line-area targeting.
+--- @field lineDistance number|string Length for line-area targeting: a number or a GoblinScript formula.
 --- @field rangeDisadvantage string|number|table GoblinScript: if truthy, ranged attacks have disadvantage.
 --- @field selfTarget boolean If true, the ability always targets the caster.
 --- @field castImmediately boolean If true, auto-casts when there are no targeting choices.
@@ -55,6 +55,7 @@ end
 --- @field actionNumber number|string|table Number of action resources consumed.
 --- @field resourceCost string|nil Secondary resource id cost ("none" if free).
 --- @field resourceNumber number|string|table Amount of the secondary resource cost.
+--- @field numTargets number|string Number of targets: a number, or a GoblinScript formula string (default "1").
 --- @field targetFilter string|number|table GoblinScript formula to filter valid targets.
 --- @field channeledResource string|nil Resource id that can be channeled into this ability for variable power ("none" if unused).
 --- @field channelDescription string Description shown when channeling resource into the ability.
@@ -1217,7 +1218,8 @@ function ActivatedAbility:GetNumTargets(casterToken, symbols)
             return numericTargets
         end
 
-        local m = regex.MatchGroups(self.numTargets, "^(?<num>\\d+)")
+        --tonumber failed above, so numTargets is a formula string here.
+        local m = regex.MatchGroups(self.numTargets --[[@as string]], "^(?<num>\\d+)")
         local leadingNumber = m ~= nil and tonumber(m.num) or nil
         if leadingNumber ~= nil then
             return leadingNumber
@@ -1667,6 +1669,13 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
 	end
 
 	if targetToken.properties:CalculateNamedCustomAttribute("Untargetable") > 0 then
+		return false
+	end
+
+	--An object hidden from players (a concealed Snare Trap) is not a target
+	--outside the Director experience, like an invisible creature. Targeting it
+	--would reveal it.
+	if targetToken.isObject and targetToken.objectInvisibleToPlayers and not dmhub.isDM then
 		return false
 	end
 
@@ -2239,7 +2248,7 @@ function ActivatedAbility:GetCost(casterToken, options)
 		return Spell.GetCost(self --[[@as Spell]], casterToken, options)
 	end
 
-	local creature = casterToken:GetCreature()
+	local creature = casterToken.properties
 	if creature == nil then
 		return { canAfford = false, details = {}}
 	end
@@ -3894,13 +3903,10 @@ function ActivatedAbility:RequireSavingThrowsCo(behavior, casterToken, tokenids,
 
 	local dcresult = {}
 
-	if self.silent then
-        print("AWAIT:: silent requested...")
-		AwaitRequestedActionCoroutine(actionid, dcresult)
-	else
-        print("AWAIT:: show summary...")
-		gamehud:ShowRollSummaryDialog(actionid, dcresult)
-	end
+	--A Monster AI caster accepts the rolls itself; otherwise a silent ability
+	--waits quietly and the Director gets the summary dialog.
+	print("AWAIT:: awaiting rolls, silent =", self.silent)
+	AwaitCastRollRequest(casterToken, actionid, dcresult, self.silent)
 
 	while dcresult.result == nil do
 		coroutine.yield(0.1)
@@ -5823,11 +5829,8 @@ function ActivatedAbilityContestedAttackBehavior:Cast(ability, casterToken, targ
 
 	local dcresult = {}
 
-	if self.silent then
-		AwaitRequestedActionCoroutine(actionid, dcresult)
-	else
-		gamehud:ShowRollSummaryDialog(actionid, dcresult)
-	end
+	--A Monster AI caster accepts the rolls itself (AwaitCastRollRequest).
+	AwaitCastRollRequest(casterToken, actionid, dcresult, self.silent)
 
 	while dcresult.result == nil do
 		coroutine.yield(0.1)
@@ -5888,9 +5891,9 @@ function ActivatedAbilityForcedMovementBehavior:Cast(ability, casterToken, targe
 	local sign = 1
 	--when pushing process tokens furthest away first, when pulling process nearest tokens first.
 	if self.moveType == "push" then
-		table.sort(targetsSorted, function(a,b) return casterToken:DistanceInFeet(a) > casterToken:DistanceInFeet(b) end)
+		table.sort(targetsSorted, function(a,b) return casterToken:Distance(a) > casterToken:Distance(b) end)
 	else
-		table.sort(targetsSorted, function(a,b) return casterToken:DistanceInFeet(a) < casterToken:DistanceInFeet(b) end)
+		table.sort(targetsSorted, function(a,b) return casterToken:Distance(a) < casterToken:Distance(b) end)
 		sign = -1
 	end
 

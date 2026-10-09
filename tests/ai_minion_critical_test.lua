@@ -8,6 +8,8 @@ local function section(first, last)
     return source:sub(start, assert(source:find(last, start + #first, true)) - 1)
 end
 local function noop() end
+--The AI profiler's file locals are no-ops here.
+ProfBegin, ProfEnd, ProfCount, ProfPhaseBegin, ProfPhaseEnd, ProfRequestReport = noop, noop, noop, noop, noop, noop
 --Exercise the actual manual-targeting rule as well as the AI planner.
 local rulesFile = assert(io.open("Draw Steel Core Rules/MCDMActivatedAbility.lua", "r"))
 local rulesSource = rulesFile:read("*a")

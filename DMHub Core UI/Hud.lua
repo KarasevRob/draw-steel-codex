@@ -809,6 +809,7 @@ end
 --- @field interactionQueue fun()[] Pending popup interactions, run one per Think when the player is free; set by the hud constructors.
 --- @field openInventoryDialogs Panel[] Inventory dialogs currently open; set by the hud constructors.
 --- @field CreateRollResultPanel fun(self: GameHud): Panel Defined in the engine TextAsset roll-display.txt.
+--- @field shopPanel Panel|false Fullscreen shop host; false on the lobby hud (see the default below).
 GameHud = RegisterGameType("GameHud", "Hud")
 
 -- Fullscreen host panel for the shop/inventory screen. Set by

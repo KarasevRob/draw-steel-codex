@@ -25,8 +25,9 @@ g_devInventorySetting:Set(true)
 -- the titlescreen is gone, so we host it on the game hud's dedicated
 -- fullscreen shopPanel instead.
 local function OpenShopScreen(inventory)
-    if dmhub.inGame and not dmhub.isLobbyGame and GameHud.instance and GameHud.instance.shopPanel then
-        local host = GameHud.instance.shopPanel
+    local hud = GameHud.instance
+    local host = hud and hud.shopPanel
+    if dmhub.inGame and not dmhub.isLobbyGame and host then
         host:AddChild(CreateShopScreen{ titlescreen = host, inventory = inventory })
     elseif CodexTitlescreenRoot ~= nil and CodexTitlescreenRoot.valid then
         CodexTitlescreenRoot:AddChild(CreateShopScreen{ titlescreen = CodexTitlescreenRoot, inventory = inventory })
@@ -1666,6 +1667,7 @@ end
 --string; white means "unset". Same normalization as the Map Markup
 --panel's KeywordColor.
 function g_tileIndicator.KeywordColor(kw)
+    ---@type Color|string|nil
     local color = nil
     pcall(function()
         local display = kw:try_get("display")
@@ -1675,7 +1677,8 @@ function g_tileIndicator.KeywordColor(kw)
     end)
 
     if type(color) == "userdata" then
-        local ok, str = pcall(function() return color.tostring end)
+        local colorValue = color --[[@as Color]]
+        local ok, str = pcall(function() return colorValue.tostring end)
         if ok and type(str) == "string" then
             color = str
         else
@@ -3046,6 +3049,7 @@ local function CreateSearchBar()
         -- merged onto the right-hand type chip: Draw Steel villain/signature
         -- ability names are full sentences, so merging would clip the majority
         -- of monster-ability rows at the search box width.
+        ---@type Panel[]
         local blockChildren = { nameLabel }
 
         if result.subLabel ~= nil then
@@ -4194,7 +4198,7 @@ local g_searchHandlers = {}
 TopBar = {}
 
 
---- @param documentids {string}
+--- @param documentids string[]
 TopBar.SetAdventureDocuments = function(info, documentids)
     if g_adventureDocumentsBar ~= nil and g_adventureDocumentsBar.valid then
         if info then
@@ -5033,14 +5037,15 @@ local function CreateTopBar()
             if type(ms) ~= "number" then
                 return ""
             end
-            return os.date("%b %d, %Y", math.floor(ms / 1000))
+            --a format other than "*t" makes os.date return a string
+            return os.date("%b %d, %Y", math.floor(ms / 1000)) --[[@as string]]
         end
 
         local function FormatTime(ms)
             if type(ms) ~= "number" then
                 return ""
             end
-            return os.date("%b %d, %Y %H:%M", math.floor(ms / 1000))
+            return os.date("%b %d, %Y %H:%M", math.floor(ms / 1000)) --[[@as string]]
         end
 
         --messages arrive as a map keyed by chronologically sortable strings;
@@ -5665,13 +5670,27 @@ local function CreateTopBar()
     --dmhub.SubmitSurveyResponse. A user who already responded is thanked and
     --offered the chance to change their answers, which arrive prefilled from
     --their previous response.
+
+    --The survey definition dmhub.GetSurvey delivers (see its stub).
+    ---@class CodexSurveyDefinition
+    ---@field id string
+    ---@field title? string
+    ---@field intro? string
+    ---@field completedMessage? string
+    ---@field thanks? string
+    ---@field questions table[] each has id, type, prompt and type-specific fields
+
     local function CreateSurveyDialog()
         local m_dialog = nil
         local m_titlescreenModal = nil
 
-        local m_survey = nil     --survey definition table from the cloud.
+        --survey definition table from the cloud; nil if none is published. The
+        --pages that read it are only built once CheckLoadingComplete saw it non-nil.
+        ---@type CodexSurveyDefinition|nil
+        local m_survey = nil
         local m_response = nil   --the user's previous response record, if any.
         local m_answers = {}     --working answers, keyed by question id.
+        ---@type string|integer
         local m_page = "loading" --"loading", "error", "intro", "finished", or a question index.
         local m_errorMessage = nil
         local m_submitting = false
@@ -5748,6 +5767,8 @@ local function CreateTopBar()
         end
 
         local function BuildIntroPage()
+            --only reached once CheckLoadingComplete saw a survey (m_page "intro")
+            ---@cast m_survey -nil
             local alreadyCompleted = (m_response ~= nil)
 
             local message
@@ -5839,6 +5860,8 @@ local function CreateTopBar()
         end
 
         local function BuildFinishedPage()
+            --only reached after submitting the loaded survey (m_page "finished")
+            ---@cast m_survey -nil
             return gui.Panel{
                 width = "100%",
                 height = "100%",
@@ -6224,6 +6247,7 @@ local function CreateTopBar()
                     if not otherInput.valid then
                         return
                     end
+                    ---@type string|nil
                     local text = otherInput.text
                     if text == "" then
                         text = nil
@@ -6281,6 +6305,8 @@ local function CreateTopBar()
         end
 
         local function BuildQuestionPage(index)
+            --question pages follow the intro page, so the survey has loaded
+            ---@cast m_survey -nil
             local questions = m_survey.questions
             local q = questions[index]
             local nquestions = #questions
@@ -6348,6 +6374,7 @@ local function CreateTopBar()
 
             --the question block: prompt (plus an Optional note) and the answer
             --control, gathered into one column centered in the page.
+            ---@type Panel[]
             local questionChildren = {
                 gui.Label{
                     fontSize = 22,
@@ -7092,6 +7119,14 @@ local function CreateTopBar()
                                 menuItems[#menuItems+1] = entry
                             end
                         end
+                    end
+                end
+                --Encounter of the Week's situational rows (e.g. Skip to
+                --Combat during a montage). rawget: the EotW file may not load.
+                local eotwGame = rawget(_G, "EncounterOfTheWeekGame")
+                if eotwGame ~= nil and eotwGame.DeveloperMenuItems ~= nil then
+                    for _,item in ipairs(eotwGame.DeveloperMenuItems()) do
+                        menuItems[#menuItems+1] = item
                     end
                 end
                 return menuItems

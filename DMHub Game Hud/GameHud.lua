@@ -503,10 +503,8 @@ function GameHud.TooltipPlacementOutsideBox(minx, miny, maxx, maxy)
 	--the map. (This used dmhub.mouseLoc, which does not exist, so it never ran.)
 	local mouseLoc = dmhub.GetMouseWorldPoint()
 	local usable = dmhub.cameraUsableBounds
-	if usable ~= nil and (mouseLoc.x < usable.x1 or mouseLoc.x > usable.x2 or mouseLoc.y < usable.y1 or mouseLoc.y > usable.y2) then
-		mouseLoc = nil
-	end
-	if mouseLoc ~= nil then
+	local mouseOnMap = usable == nil or not (mouseLoc.x < usable.x1 or mouseLoc.x > usable.x2 or mouseLoc.y < usable.y1 or mouseLoc.y > usable.y2)
+	if mouseOnMap then
 		local cursorPad = 1.2
 		if mouseLoc.x - cursorPad < minx then minx = mouseLoc.x - cursorPad end
 		if mouseLoc.x + cursorPad > maxx then maxx = mouseLoc.x + cursorPad end
@@ -644,7 +642,7 @@ function GameHud.TokenMoving(self, token, path)
 	local diagonals = dmhub.GetSettingValue("truediagonals") and math.floor(path.numDiagonals/2) or 0
 
 	local distance = path.numSteps + diagonals
-	distance = distance * dmhub.FeetPerTile
+	distance = distance * dmhub.unitsPerSquare
 
     local forcedText = ""
 
@@ -681,20 +679,20 @@ function GameHud.TokenMoving(self, token, path)
 		local moveType = token.properties:CurrentMoveType()
 		if moveType == "walk" or moveType == "swim" then
 
-			local waterSteps = math.floor(path.waterSteps) * dmhub.FeetPerTile
+			local waterSteps = math.floor(path.waterSteps) * dmhub.unitsPerSquare
 			if waterSteps > 0 and waterSteps < distance then
 				text = string.format("%s; swim %s %s", text, MeasurementSystem.NativeToDisplayString(waterSteps), string.lower(MeasurementSystem.UnitName()))
 				walkAndSwim = true
 			end
 
-			local difficultDistance = math.floor(path.difficultSteps) * dmhub.FeetPerTile
+			local difficultDistance = math.floor(path.difficultSteps) * dmhub.unitsPerSquare
 			if difficultDistance == distance and distance > 0 then
 				text = string.format("%s; all in difficult terrain", text)
 			elseif difficultDistance > 0 then
 				text = string.format("%s; %s %s in difficult terrain", text, MeasurementSystem.NativeToDisplayString(difficultDistance), string.lower(MeasurementSystem.UnitName()))
 			end
 
-			local squeezeDistance = math.floor(path.squeezeSteps) * dmhub.FeetPerTile
+			local squeezeDistance = math.floor(path.squeezeSteps) * dmhub.unitsPerSquare
 			if squeezeDistance == distance and distance > 0 then
 				text = string.format("%s; squeezing through a tight space", text)
 			elseif squeezeDistance > 0 then
@@ -749,7 +747,7 @@ function GameHud.TokenMoving(self, token, path)
 
 		local distMoved = creature:DistanceMovedThisTurn()
 		if distMoved > 0 then
-			text = string.format("%s\nAlready moved %s %s this turn.", text, MeasurementSystem.NativeToDisplayString(distMoved*dmhub.FeetPerTile), string.lower(MeasurementSystem.UnitName()))
+			text = string.format("%s\nAlready moved %s %s this turn.", text, MeasurementSystem.NativeToDisplayString(distMoved*dmhub.unitsPerSquare), string.lower(MeasurementSystem.UnitName()))
 		end
 	end
 
