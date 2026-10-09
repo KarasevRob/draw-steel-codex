@@ -1222,7 +1222,6 @@ CharacterModifier.TypeInfo.power = {
                     visible = not spoilered,
                     hmargin = 6,
                     valign = "center",
-                    hoverCursor = "hand",
                     click = function(element)
                         local name = modifier.name or ""
                         if spoilers.HasSpoiler(name) then

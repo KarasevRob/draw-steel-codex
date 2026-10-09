@@ -1854,7 +1854,6 @@ local function HarnessButton(text, onclick)
         cornerRadius = 6,
         hmargin = 4,
         valign = "center",
-        hoverCursor = "hand",
         styles = {
             { selectors = {"hover"}, brightness = 1.4, transitionTime = 0.1 },
             { selectors = {"press"}, brightness = 0.7 },

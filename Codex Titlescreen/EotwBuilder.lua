@@ -411,7 +411,6 @@ local function Card(args)
         vmargin = 4,
         hpad = 8,
         borderBox = true,
-        hoverCursor = cond(args.unavailable, nil, "pressbutton"),
         hover = function()
             if args.hover ~= nil then
                 args.hover()
@@ -686,6 +685,9 @@ function EotwBuilder.Open(args)
         --what the detail pane shows; nil = the step's own overview
         detail = nil,
         message = "",
+        --true after Fill in the Rest filled this page: the button then offers
+        --to fill every other tab too. Any other action disarms it.
+        fillAllArmed = false,
         --the page's blocks by key: {signature, panel} (see BuildPage)
         blocks = {},
         stepperSignature = nil,
@@ -706,6 +708,7 @@ function EotwBuilder.Open(args)
         if tok == nil then
             return
         end
+        state.fillAllArmed = false
         local ok, err = pcall(fn, tok)
         if not ok then
             state.message = "Something went wrong: " .. tostring(err)
@@ -890,7 +893,6 @@ function EotwBuilder.Open(args)
                 flow = "horizontal",
                 hpad = 10,
                 borderBox = true,
-                hoverCursor = "pressbutton",
                 press = function()
                     audio.FireSoundEvent("Mouse.Click")
                     state.step = stepid
@@ -1121,7 +1123,6 @@ function EotwBuilder.Open(args)
                 height = 92,
                 hmargin = 5,
                 flow = "vertical",
-                hoverCursor = cond(locked, nil, "hand"),
                 data = { attrid = attrid },
                 draggable = not locked,
                 dragTarget = not locked,
@@ -1845,7 +1846,6 @@ function EotwBuilder.Open(args)
             vmargin = 4,
             hpad = 8,
             borderBox = true,
-            hoverCursor = cond(clickable, "pressbutton", nil),
             hover = function()
                 ShowDetail(PoolEntryDetail(kind, entry))
             end,
@@ -2195,7 +2195,11 @@ function EotwBuilder.Open(args)
         local index = StepIndex(state.step)
         local stepStatus = status.steps[index]
         backButton:SetClass("hidden", index == 1)
-        fillButton:SetClass("disabled", stepStatus.complete and not stepStatus.stale)
+        if status.complete then
+            state.fillAllArmed = false
+        end
+        fillButton.text = cond(state.fillAllArmed, "For All Tabs?", "Fill in the Rest")
+        fillButton:SetClass("disabled", not state.fillAllArmed and stepStatus.complete and not stepStatus.stale)
         if index == #EotwBuild.STEPS then
             nextButton.text = "Finish"
         elseif stepStatus.complete then
@@ -2255,6 +2259,7 @@ function EotwBuilder.Open(args)
         state.step = stepid
         state.detail = nil
         state.swapAttr = nil
+        state.fillAllArmed = false
         Refresh(true)
     end
 
@@ -2388,22 +2393,36 @@ function EotwBuilder.Open(args)
         height = 48,
         hmargin = 8,
         linger = function(element)
-            gui.Tooltip("Fill every choice on this page you have not made yet with a sensible default or a random pick. Your own choices are kept.")(element)
+            if state.fillAllArmed then
+                gui.Tooltip("Fill every choice you have not made yet on all the other tabs too, completing the hero. Your own choices are kept.")(element)
+            else
+                gui.Tooltip("Fill every choice on this page you have not made yet with a sensible default or a random pick. Your own choices are kept.")(element)
+            end
         end,
+        --First click fills this page and arms the button as "For All Tabs?";
+        --a second click fills every remaining tab.
         click = function(element)
             local tok = Tok()
             if tok == nil or element:HasClass("disabled") then
                 return
             end
-            local ok, picks = pcall(EotwBuild.Fill, tok, state.step)
+            local allTabs = state.fillAllArmed
+            local ok, picks
+            if allTabs then
+                ok, picks = pcall(EotwBuild.FillAll, tok)
+            else
+                ok, picks = pcall(EotwBuild.Fill, tok, state.step)
+            end
             if not ok then
                 state.message = "Something went wrong: " .. tostring(picks)
                 printf("EotW builder: %s", tostring(picks))
             elseif picks == nil or #picks == 0 then
-                state.message = "Nothing left to fill on this page."
+                state.message = cond(allTabs, "Nothing left to fill.", "Nothing left to fill on this page.")
             else
-                state.message = string.format("Filled %d choice%s.", #picks, cond(#picks == 1, "", "s"))
+                state.message = string.format("Filled %d choice%s%s.", #picks, cond(#picks == 1, "", "s"), cond(allTabs, " across all tabs", ""))
             end
+            --UpdateFooter disarms it again once the whole hero is complete.
+            state.fillAllArmed = ok and not allTabs
             state.detail = nil
             state.swapAttr = nil
             --the Appearance page's inputs show the filled name, so rebuild it.

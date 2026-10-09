@@ -11,36 +11,39 @@ local function track(eventType, fields)
     analytics.Event(fields)
 end
 
---- @field creature.minion boolean
-creature.minion = false
-
---- @field creature.minionDead boolean
-creature.minionDead = false
-
---- @field creature.initiativeGrouping false|string
-creature.initiativeGrouping = false
-
---- @field creature.skipTurnInitiativeId string The initiative id for which this creature's turn was skipped.
-creature.skipTurnInitiativeId = ""
-
---- @field creature.skipTurnRoundId string The round ID in which this creature's turn was skipped.
-creature.skipTurnRoundId = ""
-
---- @field creature.skipTurnTurnsTaken number The turnsTaken value for the entry at the time of the skip.
-creature.skipTurnTurnsTaken = 0
+--Draw Steel fields this file adds to creature (the class itself is declared in
+--Creature.lua). The defaults are set on the prototype below.
+--- @class creature
+--- @field minion boolean
+--- @field minionDead boolean
+--- @field initiativeGrouping? false|string Initiative group id; writing nil clears it back to the false default.
+--- @field skipTurnInitiativeId string The initiative id for which this creature's turn was skipped.
+--- @field skipTurnRoundId string The round ID in which this creature's turn was skipped.
+--- @field skipTurnTurnsTaken number The turnsTaken value for the entry at the time of the skip.
+--- @field _tmp_minionSquad SquadInfo
+--- @field summonedMinions table List of { charid, squad, monsterType } entries tracking this creature's active summons.
+--- @field sharesSurgesWithSummoner boolean If true, surges granted to this summoned creature are redirected to its summoner.
+--- @field sharesHeroicResourceWithSummoner boolean If true, heroic resource consumed/granted on this summoned creature is redirected to its summoner.
+--- @field minionDamageTime number|string Server time this minion was last damaged; a ServerTimestamp() placeholder string until the server fills it in.
 
 --- @alias SquadInfo table
 
+creature.minion = false
 
---- @field creature._tmp_minionSquad SquadInfo
+creature.minionDead = false
 
---- @field creature.summonedMinions table List of { charid, squad, monsterType } entries tracking this creature's active summons.
+creature.initiativeGrouping = false
+
+creature.skipTurnInitiativeId = ""
+
+creature.skipTurnRoundId = ""
+
+creature.skipTurnTurnsTaken = 0
+
 creature.summonedMinions = {}
 
---- @field creature.sharesSurgesWithSummoner boolean If true, surges granted to this summoned creature are redirected to its summoner.
 creature.sharesSurgesWithSummoner = false
 
---- @field creature.sharesHeroicResourceWithSummoner boolean If true, heroic resource consumed/granted on this summoned creature is redirected to its summoner.
 creature.sharesHeroicResourceWithSummoner = false
 
 function creature:MinionSquad()
@@ -1008,7 +1011,9 @@ function monster.OnCreateFromBestiary(self, token, groupid)
     --get the encounter this is being spawned from (if any).
     local assignToSquad = self.minion
     local numSquads = 1
-    local encounter = dmhub.GetSelectedEncounter()
+    --The codex's GetSelectedEncounter (EncounterPanel.lua) returns an Encounter clone;
+    --the engine stub types it as a bare {groups} table.
+    local encounter = dmhub.GetSelectedEncounter() --[[@as Encounter?]]
     if encounter ~= nil and (encounter.groups or {})[g_groupIndex] ~= nil then
         local group = encounter.groups[g_groupIndex]
         if group.minHeroes then
@@ -1210,6 +1215,8 @@ function creature:RefreshSquadInfo(token)
         self._tmp_minionSquad.captain = nil
 
         local squad = self:MinionSquad()
+        --MinionSquad only returns nil for non-minions, which returned at the top.
+        ---@cast squad -nil
         local tokens = dmhub.GetTokens {
             haveProperties = true,
         }
@@ -1311,11 +1318,12 @@ function creature:RefreshSquadInfo(token)
                         damage_taken_minion_count = tok.properties:try_get("damage_taken_minion_count")
                     end
 
-                    if damage_time_pending or type(tok.properties.minionDamageTime) ~= "number" then
+                    local minionDamageTime = tok.properties.minionDamageTime
+                    if damage_time_pending or type(minionDamageTime) ~= "number" then
                         damage_time_pending = true
-                    elseif tok.properties.minionDamageTime >= damage_time then
-                        damage_time = tok.properties.minionDamageTime
-                        if tok.properties.minionDamageTime > damage_time then
+                    elseif minionDamageTime >= damage_time then
+                        damage_time = minionDamageTime
+                        if minionDamageTime > damage_time then
                             num_recently_damaged = 0
                         end
                         num_recently_damaged = num_recently_damaged + 1
@@ -2464,8 +2472,8 @@ function creature:GetFlankingTokens(tokensOverride)
     bottomRight = bottomRight:dir(1, 1)
 
     GetFlankingCreaturesFromOpposingSides(token, allowedTokenIds, { topLeft }, { bottomRight }, result)
-    GetFlankingCreaturesFromOpposingSides(token, allowedTokenIds, { topLeft:dir(bottomRight.x - topLeft.x) },
-        { bottomRight:dir(topLeft.x - bottomRight.x) }, result)
+    GetFlankingCreaturesFromOpposingSides(token, allowedTokenIds, { topLeft:dir(bottomRight.x - topLeft.x, 0) },
+        { bottomRight:dir(topLeft.x - bottomRight.x, 0) }, result)
 
     local topLocs = {}
     local botLocs = {}
@@ -2663,7 +2671,7 @@ end
 
 --- @return number
 function creature:Stability()
-    return math.tointeger(math.max(0, self:CalculateAttribute("forcedmoveresistance", self:BaseForcedMoveResistance())))
+    return math.floor(math.max(0, self:CalculateAttribute("forcedmoveresistance", self:BaseForcedMoveResistance())))
 end
 
 --- If the creature can teleport.
@@ -3271,6 +3279,7 @@ function creature:GetActivatedAbilities(options)
 
     local result = {}
 
+    ---@type creature|nil
     local boundCaster = self
     if not options.bindCaster then
         boundCaster = nil
@@ -4489,10 +4498,10 @@ end
 
 --- @param conditionid string
 --- @param maxInstances number
---- @param newTokenid string
+--- @param newTokenid string|nil Token of the creature just given the condition; nil when it has no token.
 function creature:CheckConditionInstances(conditionid, maxInstances, newTokenid)
     --Not redundant with RefreshToken, which records targets too late for a multi-target cast to count its own.
-    local newToken = dmhub.GetTokenById(newTokenid)
+    local newToken = newTokenid and dmhub.GetTokenById(newTokenid)
     if newToken ~= nil then
         self:NotifyConditionCaster(newToken, conditionid)
     end
@@ -5205,9 +5214,9 @@ function creature.SetCurrentHitpoints(self, amount, note)
     g_creatureSetCurrentHitpoints(self, amount, note)
 end
 
---- @field creature.temporary_hitpoints_source nil|string Tokenid of whoever granted the
---- current temporary stamina, so damage it absorbs can be credited to them as
---- damagePrevention. A creature has at most one temp-stamina source at a time.
+--creature.temporary_hitpoints_source (declared in Creature.lua) is the tokenid of whoever
+--granted the current temporary stamina, so damage it absorbs can be credited to them as
+--damagePrevention. A creature has at most one temp-stamina source at a time.
 local g_creatureSetTemporaryHitpoints = creature.SetTemporaryHitpoints
 function creature.SetTemporaryHitpoints(self, amount, note, options)
     options = options or {}
@@ -6360,7 +6369,8 @@ function creature.TakeDamage(self, amount, note, info)
             attackerClassInfo = info.attacker:IsHero() and info.attacker:GetClass() or nil
             attackerLabel = attackerClassInfo and attackerClassInfo.name or info.attacker:try_get("monster_type", "monster")
         end
-        local targetClassInfo = self:IsHero() and self:GetClass() or nil
+        --IsHero is true only for character, which is where GetClass lives.
+        local targetClassInfo = self:IsHero() and (self --[[@as character]]):GetClass() or nil
         local abilityName = nil
         if info.ability ~= nil then
             abilityName = info.ability.name
@@ -6456,7 +6466,8 @@ function creature.TakeDamage(self, amount, note, info)
             if self:IsHero() then
                 audio.DispatchSoundEvent("Notify.Status_Dead_Hero", {})
 
-                local heroClass = self:GetClass()
+                --IsHero is true only for character, which is where GetClass lives.
+                local heroClass = (self --[[@as character]]):GetClass()
                 local attackerLabel = nil
                 if eventArg.attacker ~= nil then
                     local aClassInfo = eventArg.attacker:IsHero() and eventArg.attacker:GetClass() or nil
@@ -6491,7 +6502,8 @@ function creature.TakeDamage(self, amount, note, info)
             audio.DispatchSoundEvent("Notify.Status_Dying_Hero", {})
 
             if self:IsHero() then
-                local heroClass = self:GetClass()
+                --IsHero is true only for character, which is where GetClass lives.
+                local heroClass = (self --[[@as character]]):GetClass()
                 local attackerLabel = nil
                 if eventArg.attacker ~= nil then
                     local aClassInfo = eventArg.attacker:IsHero() and eventArg.attacker:GetClass() or nil
@@ -7098,7 +7110,7 @@ function creature:PersistentAbilities()
                     local targetToken = dmhub.GetTokenById(targetid)
                     local usable = targetToken ~= nil and targetToken.valid and targetToken.properties ~= nil
                         and (not targetToken.properties:IsDead())
-                    if usable and persistence.inrange == true and selfToken ~= nil then
+                    if usable and targetToken ~= nil and persistence.inrange == true and selfToken ~= nil then
                         local range = ability:GetRange(self)
                         if type(range) == "number" and selfToken:Distance(targetToken) > range then
                             usable = false

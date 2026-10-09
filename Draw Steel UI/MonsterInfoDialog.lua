@@ -168,7 +168,6 @@ local function CreateEye(ctx, entryKey, options)
         valign = "center",
         rmargin = 6,
         swallowPress = true,
-        hoverCursor = "hand",
         click = function(element)
             local visible = playersCanSee()
             setVisible(not visible)

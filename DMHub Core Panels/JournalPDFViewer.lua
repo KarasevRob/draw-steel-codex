@@ -4776,7 +4776,6 @@ function ImageDocument:Render(options)
             width = panelWidth,
             height = string.format("%f%% width", 100 * self.height / self.width),
             bgcolor = "white",
-            hoverCursor = cond(summary, "hand"),
             bgimage = self.imageid,
             click = function(element)
                 if summary then
@@ -4823,7 +4822,6 @@ function PDFWrapper:Render(options)
             width = panelWidth,
             height = string.format("%f%% width", 100 * self.height / self.width),
             bgcolor = "white",
-            hoverCursor = cond(summary, "hand"),
             bgimage = string.format("#PDF:%s|0", self.docid),
             click = function(element)
                 if summary then
@@ -4951,7 +4949,6 @@ function PDFFragment:Render(options)
             width = panelWidth,
             height = string.format("%f%% width", 100 * self.height / self.width),
             bgcolor = "white",
-            hoverCursor = cond(summary, "hand"),
             bgimage = string.format("#PDF-Fragment:%s|%d,%f,%f,%f,%f", self.refid, self.page, self.area[1], self.area[2], self.area[3], self.area[4]),
             click = function(element)
                 if summary then

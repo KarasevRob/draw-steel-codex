@@ -138,7 +138,7 @@ CharacterAttribute.baseValue = 10
 --- Gets the value of the attribute
 --- @return number
 function CharacterAttribute:Value()
-	return math.tointeger(self.baseValue)
+	return math.floor(self.baseValue)
 end
 
 --- Gets the modifier for the attribute
@@ -244,6 +244,7 @@ end
 --- @field persistentAbilities? Persistence[] Persistent abilities this creature is maintaining.
 --- @field damageEntries? table<string, {id: string, damage: number, heal: nil|number, attackerid: nil|string, damage_type: nil|string, sound: nil|string, timestamp: number|string, seq: nil|integer}> Recent damage records keyed by id.
 --- @field concentrationList? Concentration[] Active concentration entries.
+--- @field activeReactions? {guid: string, ability: string, targets: table, timestamp: number|string}[] Recently activated reactions (creature:ActivateReaction); entries older than 60s are pruned on the next activation.
 --- @field temporary_hitpoints_effect? string Ongoing effect id that granted the current temporary hitpoints.
 --- @field tempHitpointsEndEffect? boolean End temporary_hitpoints_effect when the temporary hitpoints run out.
 --- @field temporary_hitpoints_source? string Tokenid of whoever granted the current temporary stamina.
@@ -274,8 +275,6 @@ monster = RegisterGameType("monster", "creature")
 --- @alias Creature creature
 --- @alias Monster monster
 
-creature._tmp_aicontrol = 0
-creature._tmp_aipromptCallback = false
 creature._tmp_debug = false
 creature._tmp_concealed = false
 
@@ -808,8 +807,8 @@ end
 
 --- Get a list of modifications to our speed.
 --- Returns a list of descriptions of active speed modifications for the given movement type.
---- @param movementType string
---- @return {key: string, value: string}[]
+--- @param movementType? string nil (or 'walk') describes the base speed.
+--- @return {key: string, value: string, previous: number, current: number, temporal: nil|boolean}[]
 function creature.DescribeSpeedModifications(self, movementType)
 	if movementType == 'walk' or movementType == nil then
 		movementType = 'speed'
@@ -1382,7 +1381,6 @@ function creature:FillCalculatedStatusIcons(result)
                     local tokenid = dmhub.LookupTokenId(self)
                     if tokenid ~= nil and casterToken ~= nil and casterToken.valid and casterToken.canControl then
                         local condid = k
-                        result[#result].hoverCursor = "hand"
                         result[#result].click = function()
                             local token = dmhub.GetTokenById(tokenid)
                             if token ~= nil and token.valid and conditionInfo:has_key("casterClickAbility") then
@@ -1966,7 +1964,7 @@ function creature.CurrentHitpoints(self)
 		result = math.max(0, result)
 	end
 
-	return math.tointeger(result)
+	return math.floor(result)
 end
 
 --- Sets the creature's current hitpoints and records the change in stat history.
@@ -6618,7 +6616,7 @@ function creature:OnMove(path)
         return
     end
 
-    local aiActivityId = self:try_get("_tmp_aiActivityId")
+    local aiActivityId = creature.GetTokenAIActivity(ourToken.charid)
     local function MovementEventInfo(info)
         if aiActivityId ~= nil and aiActivityId ~= false then
             info.aiActivityId = aiActivityId
@@ -10364,6 +10362,116 @@ function creature.GetAIActivityInProgress()
     return g_aiActivityInProgress
 end
 
+--Monster AI control of individual tokens, keyed by charid. It lives here, not
+--in _tmp_ fields on the token's properties, because the engine nils every _tmp_
+--field on every token whenever it rebuilds the aura index (a markup zone edit,
+--dmhub.RefreshMapAuras, an object finishing loading) -- which can land in the
+--middle of an AI action, and once made a Malice cast's later prompts and rolls
+--fall back to the Director. Only the client running the AI writes these; the
+--AI thread clears them on start and stop.
+--charid -> {count = integer, promptCallback = function|false}
+local g_aiTokenControl = {}
+--charid -> the AI activity this token's own movement and casts belong to.
+local g_aiTokenActivity = {}
+
+--- Raises the Monster AI's control of a token (it nests) and makes
+--- promptCallback answer the prompts its invokes raise. Pair with
+--- creature.EndAIControl.
+--- @param charid string
+--- @param promptCallback function
+--- @return function|false previousCallback
+function creature.BeginAIControl(charid, promptCallback)
+    local control = g_aiTokenControl[charid]
+    if control == nil then
+        control = {count = 0, promptCallback = false}
+        g_aiTokenControl[charid] = control
+    end
+    local previousCallback = control.promptCallback
+    control.count = control.count + 1
+    control.promptCallback = promptCallback
+    return previousCallback
+end
+
+--- Releases one level of creature.BeginAIControl, handing prompts back to
+--- previousCallback if promptCallback is still the one answering them.
+--- @param charid string
+--- @param promptCallback function
+--- @param previousCallback function|false
+function creature.EndAIControl(charid, promptCallback, previousCallback)
+    local control = g_aiTokenControl[charid]
+    if control == nil then
+        return
+    end
+    control.count = control.count - 1
+    if control.count <= 0 then
+        g_aiTokenControl[charid] = nil
+    elseif control.promptCallback == promptCallback then
+        control.promptCallback = previousCallback
+    end
+end
+
+--- True while the Monster AI controls the token with this charid.
+--- @param charid string|nil
+--- @return boolean
+function creature.IsTokenAIControlled(charid)
+    return charid ~= nil and g_aiTokenControl[charid] ~= nil
+end
+
+--- The Monster AI's prompt handler for the token with this charid, or false
+--- when the AI does not control it.
+--- @param charid string|nil
+--- @return function|false
+function creature.GetTokenAIPromptCallback(charid)
+    local control = charid ~= nil and g_aiTokenControl[charid] or nil
+    if control == nil then
+        return false
+    end
+    return control.promptCallback
+end
+
+--- True while the Monster AI controls this creature's token.
+--- @return boolean
+function creature:IsAIControlled()
+    --the common case, the AI controlling nothing, skips the token lookup.
+    if next(g_aiTokenControl) == nil then
+        return false
+    end
+    return creature.IsTokenAIControlled(dmhub.LookupTokenId(self))
+end
+
+--- The AI activity the movement and casts of the token with this charid
+--- belong to, or nil.
+--- @param charid string|nil
+--- @return string|nil
+function creature.GetTokenAIActivity(charid)
+    if charid == nil then
+        return nil
+    end
+    return g_aiTokenActivity[charid]
+end
+
+--- Sets (nil clears) the AI activity the movement and casts of the token with
+--- this charid belong to, returning the previous one so a caller can restore it.
+--- @param charid string
+--- @param activityId string|nil
+--- @return string|nil previousActivityId
+function creature.SetTokenAIActivity(charid, activityId)
+    if charid == nil then
+        return nil
+    end
+    local previousActivityId = g_aiTokenActivity[charid]
+    g_aiTokenActivity[charid] = activityId
+    return previousActivityId
+end
+
+--- Drops all Monster AI token control and token activities. The AI thread
+--- calls it on start and stop, so an action abandoned part-way (the AI stopped
+--- mid-turn) cannot leave a token looking AI-driven.
+function creature.ClearAIControl()
+    g_aiTokenControl = {}
+    g_aiTokenActivity = {}
+end
+
 --Serialization helpers for event payloads that cross the network (the
 --triggeredEvents and remoteInvokes queues written via ModifyProperties).
 --Event info can hold live objects nested inside tables: e.g. info.cast is an
@@ -10874,8 +10982,8 @@ end
 
 --- @class ActiveTrigger: GameType
 --- @field new fun(o?: table): ActiveTrigger
---- @field timestamp number
---- @field expiryTimestamp number
+--- @field timestamp number|string Server time once resolved; the ServerTimestamp() placeholder string until then.
+--- @field expiryTimestamp number|string As timestamp; 0 on entries made before the field existed.
 --- @field id string
 --- @field charid string
 --- @field free boolean
@@ -10897,7 +11005,7 @@ end
 --- @field activateText string The name of mode 1 of a multi-mode trigger.
 --- @field activateRules string The rules text of mode 1 of a multi-mode trigger.
 --- @field activateModeIndex number The modeList index the trigger's own card runs: 1, unless mode 1's condition failed and a later mode took the card.
---- @field modes {text: string, rules: string, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil, injectedBy: string|nil}[] modeIndex is the entry's position in the ability's modeList (see ModeIndexForTriggered). unavailable/conditionReason mark a mode whose condition is not met but which is offered anyway, greyed out, with that reason shown. injectedBy is the TriggerModeMarker of a trigger modifier that added the mode (MCDMModifyTriggers).
+--- @field modes {text: string, rules: string, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil, injectedBy: string|nil, targets: string[]|nil}[] modeIndex is the entry's position in the ability's modeList (see ModeIndexForTriggered). unavailable/conditionReason mark a mode whose condition is not met but which is offered anyway, greyed out, with that reason shown. injectedBy is the TriggerModeMarker of a trigger modifier that added the mode (MCDMModifyTriggers). targets (merged prompts only) are the charids of the subjects whose own prompt offers the mode.
 --- @field casterid false|string The id of the caster of the ability that caused the trigger.
 --- @field originalAbilityRange number the range of the original ability that caused the trigger.
 --- @field abilityGuid false|string The guid of the TriggeredAbility that created this prompt.
@@ -11324,6 +11432,9 @@ function ActiveTrigger:IsFreeTriggeredAbility()
     return self.free
 end
 
+--- The trigger's pressable options: extra resource spends (priced by cost) for a power roll modifier, else its modes.
+--- @param token CharacterToken
+--- @return {text: string, rules: string, cost: number|nil, modeIndex: number|nil, unavailable: boolean|nil, conditionReason: string|nil, targets: string[]|nil}[]
 function ActiveTrigger:EnhancementOptions(token)
 
 	if self.powerRollModifier then

@@ -11905,11 +11905,10 @@ CreateAbilityController = function()
                 end
             end
 
-            -- _tmp_aicontrol is a counter (incremented while AI is in control),
-            -- so the falsy/truthy check must be against `> 0` -- a plain truthy
-            -- check matches `0` and silently auto-picks every prompt target,
-            -- defeating the "Prompt When Resolving" option on PowerRollBehavior.
-            if options.sourceToken ~= nil and options.sourceToken.properties._tmp_aicontrol > 0 then
+            -- Only while the Monster AI controls the source: auto-picking for
+            -- anyone else would defeat the "Prompt When Resolving" option on
+            -- PowerRollBehavior.
+            if options.sourceToken ~= nil and creature.IsTokenAIControlled(options.sourceToken.charid) then
                 --auto-pick the first target that isn't filtered out with a reason.
                 local pick = options.targets[1]
                 for _,t in ipairs(options.targets or {}) do

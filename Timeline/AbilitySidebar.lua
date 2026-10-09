@@ -350,6 +350,138 @@ local function FormatReadOnlyTierText(text)
     return text
 end
 
+-- Ghost copies of the roller's Accept Result / Re-roll buttons, for a roll
+-- shown with pingButtons (the Encounter of the Week montage): dotted
+-- outlines that do nothing to the roll. A click pings that button for the
+-- whole table, and every copy -- the roller's real button included -- pulses
+-- in the pinger's colour (see "roll button pings" in EmbeddedRollDialog.lua).
+local g_ghostButtonStyles = {
+    {
+        selectors = {"rollGhostButton"},
+        bgcolor = "#00000000",
+        border = 2,
+        borderStyle = "dotted",
+        borderColor = "#ffffff70",
+        cornerRadius = 6,
+    },
+    {
+        selectors = {"rollGhostButton", "hover"},
+        bgcolor = "#ffffff14",
+        borderColor = "#ffffffd0",
+    },
+    {
+        selectors = {"rollGhostButton", "disabled"},
+        borderColor = "#ffffff30",
+    },
+    {
+        selectors = {"rollGhostLabel"},
+        fontSize = 18,
+        color = "#ffffffa0",
+        width = "auto",
+        height = "auto",
+        halign = "center",
+        valign = "center",
+    },
+    {
+        selectors = {"rollGhostLabel", "parent:hover"},
+        color = "#ffffffe0",
+    },
+    {
+        selectors = {"rollGhostLabel", "parent:disabled"},
+        color = "#ffffff50",
+    },
+}
+
+local function CreateGhostRollButtons(ds)
+    local rollId = ds.rollId
+    --only pings made after this card was built pulse on it.
+    local since = dmhub.serverTime
+    local seen = {}
+
+    local function Ghost(button, info, halign, width)
+        local icon = gui.Panel{
+            classes = {"collapsed"},
+            floating = true,
+            bgimage = "panels/square.png",
+            bgcolor = "white",
+            width = 18,
+            height = 18,
+            halign = "left",
+            valign = "center",
+            lmargin = 8,
+            interactable = false,
+        }
+        local label = gui.Label{ classes = {"rollGhostLabel"}, text = "", interactable = false }
+        local function Dress(element, newInfo)
+            label.text = newInfo.text or ""
+            icon:SetClass("collapsed", newInfo.icon == nil)
+            if newInfo.icon ~= nil then
+                icon.bgimage = newInfo.icon
+                icon.selfStyle.bgcolor = newInfo.iconColor or "white"
+            end
+            element:SetClass("disabled", newInfo.enabled == false)
+        end
+        return gui.Panel{
+            classes = {"rollGhostButton"},
+            width = width,
+            height = 30,
+            halign = halign,
+            valign = "center",
+            bgimage = "panels/square.png",
+            flow = "none",
+            create = function(element)
+                Dress(element, info)
+            end,
+            linger = function(element)
+                gui.Tooltip(cond(button == "reroll",
+                    "Ping the Re-roll button for everyone: suggest a re-roll.",
+                    "Ping the Accept Result button for everyone: suggest taking the result."))(element)
+            end,
+            press = function(element)
+                audio.FireSoundEvent("Mouse.Click")
+                CharacterPanel.SendRollButtonPing(rollId, button)
+            end,
+            --the roller's button can change while this card is up (a Hero
+            --Token spent elsewhere greys out the Re-roll).
+            updateRollDialog = function(element, newDs)
+                local buttons = newDs.pingButtons
+                if buttons ~= nil and buttons[button] ~= nil then
+                    Dress(element, buttons[button])
+                end
+            end,
+            icon,
+            label,
+        }
+    end
+
+    local reroll = nil
+    if ds.pingButtons.reroll ~= nil then
+        reroll = Ghost("reroll", ds.pingButtons.reroll, "left", 140)
+    end
+    --with no Re-roll the Accept takes the whole bar, as on the roller's dialog.
+    local accept = Ghost("accept", ds.pingButtons.accept or { text = "Accept Result" },
+        cond(reroll ~= nil, "right", "center"), cond(reroll ~= nil, 140, "100%"))
+
+    return gui.Panel{
+        width = "100%",
+        height = 34,
+        flow = "none",
+        tmargin = 6,
+        styles = g_ghostButtonStyles,
+        monitorGame = CharacterPanel.RollButtonPingDocPath(),
+        refreshGame = function(element)
+            for _, ping in ipairs(CharacterPanel.TakeRollButtonPings(rollId, since, seen)) do
+                local target = cond(ping.button == "reroll", reroll, accept)
+                if target ~= nil then
+                    CharacterPanel.PulseRollButton(target, ping.userid)
+                end
+            end
+        end,
+        reroll,
+        accept,
+    }
+end
+
 -- Build a comprehensive read-only roll dialog panel that mirrors the layout
 -- of the interactive EmbeddedRollDialog. Displays multi-target tokens,
 -- boons/banes bar, surges, styled modifier panels, roll formula, and triggers.
@@ -955,6 +1087,9 @@ local function CreateReadOnlyRollInfo(shareData)
             tmargin = 4,
             italics = true,
         }
+        if ds.pingButtons ~= nil and ds.rollId ~= nil then
+            sections[#sections+1] = CreateGhostRollButtons(ds)
+        end
     end
 
     if #sections == 0 then
@@ -2762,12 +2897,11 @@ function CharacterPanel.AcquireAbilityRollDialog(token, ability, symbols, displa
 
     local displayed, lockId = CharacterPanel.DisplayAbility(token, ability, symbols, acquireDisplayOptions)
 
-    --_tmp_aicontrol is a counter, raised while the Monster AI holds the token
-    --(MonsterAI:BeginTokenControl). The dialog itself reads the same flag off
-    --options.creature to hide its own buttons; the card's close X is outside the
-    --dialog's subtree, so it has to be told.
-    local aiDriven = token ~= nil and token.valid and token.properties ~= nil
-        and token.properties._tmp_aicontrol > 0
+    --True while the Monster AI holds the token (MonsterAI:BeginTokenControl).
+    --The dialog itself asks options.creature the same thing to hide its own
+    --buttons; the card's close X is outside the dialog's subtree, so it has to
+    --be told.
+    local aiDriven = token ~= nil and token.valid and creature.IsTokenAIControlled(token.charid)
 
     --An AI-driven cast never passes through the action bar's targeting UI,
     --which is the only place sharing normally begins (HighlightAbilitySection

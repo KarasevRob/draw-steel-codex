@@ -664,6 +664,7 @@ function EncounterNarrative.HostTick(script, beat, beatIndex)
         doc:CompleteChange("Narrative: the party has arrived", { undoable = false })
         m = doc.data.narrative
         printf("EotW narrative: beat %d -- the party has arrived", beatIndex)
+        printf("[EOTWPROF] server=%.3f app=%.3f host: opening beat opened (party in)", dmhub.serverTimeMilliseconds * 0.001, dmhub.Time())
     end
 
     if m.phase == "done" then

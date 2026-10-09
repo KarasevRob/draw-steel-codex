@@ -759,7 +759,7 @@ function ActivatedAbilityCast:RecordForcedMovementCreatureCollision(movedToken, 
     end
 end
 
---- @param retarget {casterid: string, tokenid: string, retargetid: string, retargetType: 'all'|'forcemove'|'none'}
+--- @param retarget {casterid: string, tokenid: string, retargetid: string, retargetType: 'all'|'forcemove'|'none'|'caster'}
 function ActivatedAbilityCast:RecordRetarget(retarget)
     local retargets = self:get_or_add("retargets", {})
     retargets[#retargets+1] = retarget

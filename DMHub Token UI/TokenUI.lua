@@ -2190,7 +2190,7 @@ function CreateTokenHud(token)
                 local fontFace = nil
                 print("Language: Speaking in", entry.langid, "known locally =", creature.g_languagesKnownLocally)
                 if (not dmhub.isDM) and (not token.canControl) and entry.langid ~= nil and (not creature.g_languagesKnownLocally[entry.langid]) then
-                    fontFace = "Tengwar"
+                    fontFace = Language.UnreadableFontForId(entry.langid)
                 end
 
                 local text = entry.text

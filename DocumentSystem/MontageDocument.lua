@@ -112,289 +112,163 @@ CustomDocument.Register {
 }
 ]]
 
-function MontageDocument:ChallengesDisplay()
-    local m_panels = {}
+--One challenge as the read view shows it: what it is, then what to roll.
+local function ChallengeRow(challenge)
+    local characteristics = {}
+    --the live table.keys (Utils.lua) always returns a list; only the lua-core one can return nil.
+    local keys = table.keys(challenge.characteristics) --[[@as string[] ]]
+    table.sort(keys,
+        function(a, b) return creature.attributesInfo[a].order < creature.attributesInfo[b].order end)
+    for _, k in ipairs(keys) do
+        characteristics[#characteristics + 1] = creature.attributesInfo[k].description
+    end
 
-    local resultPanel
-    resultPanel = gui.Panel {
-        width = "100%",
-        height = "auto",
-        flow = "vertical",
-        vmargin = 6,
-        children = m_panels,
-        savedoc = function(element)
-            for i, challenge in ipairs(self.challenges) do
-                local panel = m_panels[i] or gui.Label {
-                    width = "100%",
-                    height = "auto",
-                    markdown = true,
-                    vmargin = 2,
-                }
+    local skills = {}
+    for k, _ in pairs(challenge.skills) do
+        local skillInfo = Skill.SkillsById[k]
+        if skillInfo then
+            skills[#skills + 1] = skillInfo.name
+        end
+    end
+    table.sort(skills)
 
-                local characteristics = {}
-                --the live table.keys (Utils.lua) always returns a list; only the lua-core one can return nil.
-                local keys = table.keys(challenge.characteristics) --[[@as string[] ]]
-                table.sort(keys,
-                    function(a, b) return creature.attributesInfo[a].order < creature.attributesInfo[b].order end)
-                for _, k in ipairs(keys) do
-                    local attributeInfo = creature.attributesInfo[k]
-                    characteristics[#characteristics + 1] = attributeInfo.description
-                end
-
-                local skills = {}
-                for k, _ in pairs(challenge.skills) do
-                    local skillInfo = Skill.SkillsById[k]
-                    if skillInfo then
-                        skills[#skills + 1] = skillInfo.name
-                    end
-                end
-                table.sort(skills)
-                panel.text = string.format("**%s:** %s\n*Suggested Characteristics:* %s.\n*Suggested Skills:* %s.",
-                    challenge.name, challenge.details, table.concat(characteristics, ", "), table.concat(skills, ", "))
-
-                panel:SetClass("collapsed", false)
-                m_panels[i] = panel
-            end
-
-            for i = #self.challenges + 1, #m_panels do
-                m_panels[i]:SetClass("collapsed", true)
-            end
-
-            element.children = m_panels
-        end,
-    }
-
-    resultPanel:FireEvent("savedoc")
-
-    return resultPanel
+    local lines = {}
+    if challenge.details ~= "" then
+        lines[#lines + 1] = challenge.details
+    end
+    if #characteristics > 0 then
+        lines[#lines + 1] = string.format("*Characteristics:* %s", table.concat(characteristics, ", "))
+    end
+    if #skills > 0 then
+        lines[#lines + 1] = string.format("*Skills:* %s", table.concat(skills, ", "))
+    end
+    if challenge.maximum > 1 then
+        lines[#lines + 1] = string.format("*Can be overcome %d times.*", challenge.maximum)
+    end
+    return CustomDocument.ReadNamedRow(challenge.name, table.concat(lines, "\n"))
 end
 
-function MontageDocument:OutcomesDisplay()
-    local resultPanel
-
-    local entries = {
-        {
-            key = "success",
-            text = "Total Success",
-        },
-        {
-            key = "partial",
-            text = "Partial Success",
-        },
-        {
-            key = "failure",
-            text = "Total Failure",
-        },
-    }
-
-    local panels = {}
-    for i, entries in ipairs(entries) do
-        panels[#panels + 1] = gui.Label {
-            width = "100%",
-            height = "auto",
-            markdown = true,
-            vmargin = 2,
-            savedoc = function(element)
-                element.text = string.format("**%s:** %s", entries.text, self.outcomes[entries.key].text)
-            end,
+--The page body. Rebuilt whole on a save, since a section with nothing in it
+--is left out rather than shown empty.
+function MontageDocument:ReadSections()
+    local children = {}
+    local function Section(heading, ...)
+        children[#children + 1] = CustomDocument.ReadSectionHeader(heading)
+        --select, not ipairs: a caller passes nil for a part it leaves out.
+        for i = 1, select("#", ...) do
+            children[#children + 1] = (select(i, ...))
+        end
+    end
+    local function Prose(text)
+        return gui.Label {
+            classes = { "sizeS" },
+            width = "95%", height = "auto", halign = "left", vmargin = 4,
+            markdown = true, links = true, textWrap = true, textAlignment = "topleft",
+            text = text,
         }
     end
 
-    resultPanel = gui.Panel {
-        flow = "vertical",
-        halign = "left",
-        width = "100%",
-        height = "auto",
-        children = panels,
+    children[#children + 1] = gui.Label {
+        classes = { "bold", "sizeXl" },
+        width = "auto", height = "auto", halign = "left", vmargin = 4,
+        text = self.description,
     }
+    if self.summary ~= "" then
+        children[#children + 1] = Prose(self.summary)
+    end
 
-    resultPanel:FireEventTree("savedoc")
+    --The row Begin would use right now is picked out; none while there are no heroes.
+    local heroes = table.count_elements(MontageDocument.Participants())
+    local limits = {}
+    for i = 3, 6 do
+        local difficulty = self.difficulty[i]
+        limits[#limits + 1] = string.format("%s heroes: **%d** to succeed, **%d** to fail",
+            g_numbers[i], difficulty.success, difficulty.failure)
+    end
+    children[#children + 1] = CustomDocument.StatChips(limits,
+        heroes > 0 and (math.max(3, math.min(6, heroes)) - 2) or nil)
 
-    return resultPanel
+    local sceneImage = self:try_get("sceneImage", "")
+    if self.scene ~= "" or sceneImage ~= "" then
+        Section("Setting the scene",
+            sceneImage ~= "" and gui.Panel {
+                classes = { "image" },
+                width = 320, height = 180, halign = "left", vmargin = 4,
+                bgcolor = "white",
+                bgimage = sceneImage,
+            } or nil,
+            self.scene ~= "" and Prose(self.scene) or nil)
+    end
+
+    if #self.challenges > 0 then
+        local function Column(first, last)
+            local rows = {}
+            for i = first, last do
+                rows[#rows + 1] = ChallengeRow(self.challenges[i])
+            end
+            return gui.Panel {
+                flow = "vertical", width = "100%", height = "auto", halign = "left",
+                children = rows,
+            }
+        end
+        local half = math.ceil(#self.challenges / 2)
+        local columns = { Column(1, half) }
+        if half < #self.challenges then
+            columns[#columns + 1] = Column(half + 1, #self.challenges)
+        end
+        Section("Challenges", CustomDocument.ReadColumns(columns))
+    end
+
+    local outcomes = {}
+    for _, entry in ipairs({
+        { key = "success", text = "Total Success" },
+        { key = "partial", text = "Partial Success" },
+        { key = "failure", text = "Total Failure" },
+    }) do
+        local text = self.outcomes[entry.key].text
+        if text ~= "" then
+            outcomes[#outcomes + 1] = CustomDocument.ReadNamedRow(entry.text, text)
+        end
+    end
+    if #outcomes > 0 then
+        Section("Outcomes", table.unpack(outcomes))
+    end
+
+    if self.twist ~= "" then
+        Section("Optional twist", Prose(self.twist))
+    end
+
+    return children
 end
 
 function MontageDocument:DisplayPanel()
     local resultPanel
 
-    local titleLabel = gui.Label {
-        classes = { "bold", "sizeXl" },
-        width = "auto",
-        height = "auto",
-        halign = "center",
-        text = self.description,
-        vmargin = 4,
-        savedoc = function(element)
-            element.text = self.description
-        end,
-    }
+    --Beginning a montage is the host's to do, so a directorless game's host
+    --keeps the button.
+    local canBegin = dmhub.isDMOrPlayerHost
 
-    local testDifficulty = gui.Panel {
-        vmargin = 4,
-        flow = "vertical",
-        width = "auto",
-        height = "auto",
-        halign = "left",
-        gui.Panel {
-            flow = "horizontal",
-            height = 24,
-            width = 600,
-            gui.Label {
-                classes = { "bold" },
-                width = 200,
-                text = "Heroes",
-                textAlignment = "left",
-            },
-            gui.Label {
-                classes = { "bold" },
-                width = 200,
-                text = "Success Limit",
-                textAlignment = "left",
-            },
-            gui.Label {
-                classes = { "bold" },
-                width = 200,
-                text = "Failure Limit",
-                textAlignment = "left",
-            },
-        },
-
-        create = function(element)
-            local children = element.children
-            for i = 3, 6 do
-                local difficulty = self.difficulty[i]
-                children[#children + 1] = gui.Panel {
-                    flow = "horizontal",
-                    height = 24,
-                    width = 600,
-                    gui.Label {
-                        width = 200,
-                        height = 24,
-                        text = g_numbers[i],
-                        textAlignment = "left",
-                    },
-
-                    gui.Label {
-                        width = 200,
-                        height = 24,
-                        valign = "center",
-                        halign = "left",
-                        vpad = 1,
-                        text = tostring(difficulty.success),
-                        savedoc = function(element)
-                            element.text = tostring(difficulty.success)
-                        end,
-                    },
-
-                    gui.Label {
-                        width = 200,
-                        height = 24,
-                        valign = "center",
-                        halign = "left",
-                        vpad = 1,
-                        text = tostring(difficulty.failure),
-                        savedoc = function(element)
-                            element.text = tostring(difficulty.failure)
-                        end,
-                    },
-
-                }
-            end
-
-            element.children = children
-        end,
-    }
-
-
-
-    local sceneLabel = gui.Label {
-        classes = { "sizeS" },
-        width = "95%",
-        height = "auto",
-        halign = "left",
-        valign = "top",
-        vmargin = 4,
-        text = self.scene,
-        textWrap = true,
-        textAlignment = "topleft",
-        markdown = true,
-        links = true,
-        savedoc = function(element)
-            element.text = self.scene
-        end,
-    }
-
-    --Scene illustration, collapsed entirely when the montage has none so an
-    --imageless montage reads exactly as it did before.
-    local sceneImagePanel = gui.Panel {
-        classes = { "image", cond(self:try_get("sceneImage", "") == "", "collapsed") },
-        width = 320,
-        height = 180,
-        halign = "left",
-        valign = "top",
-        vmargin = 4,
-        bgcolor = "white",
-        create = function(element)
-            local img = self:try_get("sceneImage", "")
-            element.selfStyle.bgimage = img ~= "" and img or nil
-        end,
-        savedoc = function(element)
-            local img = self:try_get("sceneImage", "")
-            element.selfStyle.bgimage = img ~= "" and img or nil
-            element:SetClass("collapsed", img == "")
-        end,
-    }
-
-    local scrollablePanel = gui.Panel {
+    local body = gui.Panel {
         width = "100%",
-        height = "100%-50",
+        height = canBegin and "100%-60" or "100%",
         flow = "vertical",
         valign = "top",
-        titleLabel,
-        testDifficulty,
-        gui.Label {
-            classes = { "bold", "sizeM" },
-            width = "auto",
-            height = "auto",
-            halign = "left",
-            valign = "top",
-            markdown = true,
-            text = "## Setting the Scene",
-        },
-        sceneImagePanel,
-        sceneLabel,
-
-        gui.Label {
-            classes = { "sizeM" },
-            width = "auto",
-            height = "auto",
-            halign = "left",
-            valign = "top",
-            markdown = true,
-            text = "## Montage Challenges\nThe following challenges can be part of the montage test:",
-        },
-
-        self:ChallengesDisplay(),
-
-        gui.Label {
-            classes = { "sizeM" },
-            width = "auto",
-            height = "auto",
-            halign = "left",
-            valign = "top",
-            markdown = true,
-            text = "## Montage Test Outcomes\nThe montage test has the following outcomes:",
-        },
-
-        self:OutcomesDisplay(),
+        vscroll = true,
+        children = self:ReadSections(),
+        savedoc = function(element)
+            element.children = self:ReadSections()
+        end,
     }
 
     resultPanel = gui.Panel {
         width = "100%",
         height = "100%",
         flow = "vertical",
-        scrollablePanel,
+        body,
 
-        gui.Button {
+        --marks where the scrolling page ends
+        canBegin and gui.Divider { width = "100%", tmargin = 0, bmargin = 6 } or nil,
+        canBegin and gui.Button {
             classes = { "bold", "sizeXl" },
             valign = "bottom",
             text = "Begin Montage",
@@ -403,26 +277,32 @@ function MontageDocument:DisplayPanel()
                 self:Begin(resultPanel)
                 element:FindParentWithClass("framedPanel"):DestroySelf()
             end,
-        },
+        } or nil,
     }
 
     return resultPanel
 end
 
---Start the montage: every hero with an owner takes part, and the montage
---dialog is presented to every client. hostPanel is any panel in the HUD.
-function MontageDocument:Begin(hostPanel)
-    local livedata = LiveMontage.new {
-        participants = {}
-    }
-
+--Who takes part in a montage begun now: every hero with an owner.
+--- @return table<string, LiveMontageParticipant>
+function MontageDocument.Participants()
+    local participants = {}
     for _, token in ipairs(dmhub.allTokens) do
         if token.properties:IsHero() and token.ownerId ~= nil then
-            livedata.participants[token.charid] = LiveMontageParticipant.new {
+            participants[token.charid] = LiveMontageParticipant.new {
                 tokenid = token.id,
             }
         end
     end
+    return participants
+end
+
+--Start the montage: the montage dialog is presented to every client.
+--hostPanel is any panel in the HUD.
+function MontageDocument:Begin(hostPanel)
+    local livedata = LiveMontage.new {
+        participants = MontageDocument.Participants(),
+    }
 
     GameHud.PresentDialogToUsers(hostPanel, "montage", { montageid = self.id }, livedata)
 end

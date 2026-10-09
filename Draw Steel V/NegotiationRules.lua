@@ -816,7 +816,7 @@ do
     info.fields = {
         { id = "npcName", label = "NPC Name", kind = "string", storage = "document", section = "The NPC",
             placeholder = "As the players hear it" },
-        { id = "npcDesc", label = "Who They Are", kind = "string", storage = "document",
+        { id = "npcDesc", label = "Who They Are", kind = "text", storage = "document",
             placeholder = "In a line (e.g. Town reeve - holds the gate keys)" },
         { id = "portrait", label = "Portrait", kind = "image", storage = "document",
             library = "Avatar", width = 96, height = 120 },
@@ -840,8 +840,8 @@ do
         { id = "traits", label = "Motivations & Pitfalls", kind = "recordList", storage = "document", groupBy = "kind",
             columns = {
                 { id = "kind", label = "Kind", kind = "enum", options = {
-                    { id = "motivation", text = "Motivation", heading = "What they want (motivations)" },
-                    { id = "pitfall", text = "Pitfall", heading = "Never touch (pitfalls)" },
+                    { id = "motivation", text = "Motivation", heading = "Motivations" },
+                    { id = "pitfall", text = "Pitfall", heading = "Pitfalls" },
                 } },
                 { id = "name", label = "Name", kind = "string" },
                 { id = "line", label = "Line", kind = "text", placeholder = "What they say about it (their voice)" },
@@ -979,8 +979,8 @@ CustomDocument.docTypeInfo.negotiator = {
         { id = "traits", label = "Motivations & Pitfalls", kind = "recordList", groupBy = "kind",
             columns = {
                 { id = "kind", label = "Kind", kind = "enum", options = {
-                    { id = "motivation", text = "Motivation", heading = "What they want (motivations)" },
-                    { id = "pitfall", text = "Pitfall", heading = "Never touch (pitfalls)" },
+                    { id = "motivation", text = "Motivation", heading = "Motivations" },
+                    { id = "pitfall", text = "Pitfall", heading = "Pitfalls" },
                 } },
                 { id = "name", label = "Name", kind = "string" },
                 { id = "line", label = "Line", kind = "text", placeholder = "What they say about it (their voice)" },
@@ -1711,13 +1711,20 @@ end
 -- journal document type.
 --==============================================================================
 
-local LOOP_REFERENCE = [[**The loop.** One hero argues; you classify what they said and Resolve - the runner applies the rules.
-- **Appeals to a motivation** (each usable once): tier 1 costs patience; tier 2 raises interest and costs patience; tier 3 raises interest only.
-- **No motivation:** tier 1 loses interest and patience; tier 2 costs patience; tier 3 raises interest and costs patience. A natural 19-20 costs no patience.
-- **Hits a pitfall:** automatic failure - interest and patience both drop, whatever they rolled.
-- **Read them** (a test): tier 3 reveals a motivation or pitfall; tier 1 costs patience.
-- **After every argument**, respond as the NPC and state his offer for the current interest.
-- **It ends** at interest 5 or patience 0 (final offer), at interest 0 (no deal), or when the heroes take the deal on the table.]]
+--The rules reminder that closes the scene page: { heading, { name, detail }... } per column.
+local LOOP_REFERENCE = {
+    { "Resolving an argument",
+        { "Appeals to a motivation", "Each motivation works once. **Tier 1:** patience drops. **Tier 2:** interest rises, patience drops. **Tier 3:** interest rises." },
+        { "No motivation", "**Tier 1:** interest and patience drop. **Tier 2:** patience drops. **Tier 3:** interest rises, patience drops. A natural 19-20 costs no patience." },
+        { "Hits a pitfall", "Automatic failure: interest and patience both drop, whatever they rolled." },
+        { "Read them (a test)", "**Tier 3:** reveals a motivation or pitfall. **Tier 1:** patience drops." },
+    },
+    { "Running the scene",
+        { "Each turn", "One hero argues. You say what kind of argument it was and Resolve; the runner applies the rules." },
+        { "After every argument", "Respond as the NPC and state their offer for the current interest." },
+        { "It ends", "At interest 5 or patience 0 (final offer), at interest 0 (no deal), or when the heroes take the deal on the table." },
+    },
+}
 
 local function SectionHeader(text)
     return gui.Label{
@@ -1738,13 +1745,20 @@ function NegotiationDocument:EditPanel()
     --uploads: debounced autosave, write verification with retry, and the
     --unsaved-changes guard on close (see CreateInterface in DocumentSystem).
     --They used to call doc:Upload() directly, which bypassed all of that.
-    local function textInput(field, placeholder, multiline)
+    --A multiline box grows with its text: a fixed height hides whatever does
+    --not fit, and an input has no scrollbar. minHeight is its height when empty.
+    local function textInput(field, placeholder, multiline, minHeight)
         return gui.Input{
             classes = { "sizeM" },
             width = "94%",
-            height = multiline and 60 or 26,
+            height = multiline and "auto" or 26,
+            minHeight = multiline and (minHeight or 60) or nil,
             halign = "left",
             multiline = multiline,
+            --A text input stops taking characters at 256 unless told otherwise,
+            --and one already holding more than its limit takes none at all.
+            --Shipped pages hold far more than that in these fields.
+            characterLimit = 8192,
             placeholderText = placeholder,
             text = doc:try_get(field, ""),
             change = function(element)
@@ -1777,7 +1791,7 @@ function NegotiationDocument:EditPanel()
             children[#children + 1] = gui.Label{
                 classes = { "bold" },
                 width = "auto", height = "auto", halign = "left", vmargin = 4,
-                text = kind == "motivation" and "What they want (motivations)" or "Never touch (pitfalls)",
+                text = kind == "motivation" and "Motivations" or "Pitfalls",
             }
             for _, t in ipairs(doc:try_get("traits", {})) do
                 if t.kind == kind then
@@ -1796,6 +1810,7 @@ function NegotiationDocument:EditPanel()
                         gui.Input{
                             classes = { "sizeS" }, width = 420, height = "auto",
                             valign = "top", multiline = true, lmargin = 6,
+                            characterLimit = 2048,
                             placeholderText = "What they say about it (their voice)",
                             text = trait.line,
                             change = function(element)
@@ -1856,6 +1871,7 @@ function NegotiationDocument:EditPanel()
             },
             gui.Input{
                 classes = { "sizeS" }, width = 460, height = "auto", multiline = true,
+                characterLimit = 2048,
                 placeholderText = "What he offers (leave blank to use the book's line)",
                 text = (doc:try_get("offers", {})[NegotiationRules.OfferIndex(interest)] or {}).terms or "",
                 change = function(element)
@@ -1917,7 +1933,9 @@ function NegotiationDocument:EditPanel()
 
     --built ahead of the form: seeding fills an empty descriptor, and the
     --input has to show it.
-    local npcDescInput = textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)")
+    --one line when empty, but a negotiator's "Who They Are" is copied in here
+    --and runs to a sentence or two.
+    local npcDescInput = textInput("npcDesc", "Who they are, in a line (e.g. Town reeve - holds the gate keys)", true, 26)
 
     return gui.Panel{
         width = "100%", height = "100%", flow = "vertical", vscroll = true,
@@ -2022,6 +2040,7 @@ function NegotiationDocument:EditPanel()
             minHeight = 120,
             halign = "left",
             multiline = true,
+            characterLimit = 16384,
             textAlignment = "topleft",
             placeholderText = "What triggers this negotiation, what moves interest without a test, how the heroes can learn the motivations beforehand, how to vary it. For you, not the players.",
             text = doc:try_get("sceneNotes", ""),
@@ -2036,41 +2055,54 @@ function NegotiationDocument:EditPanel()
     }
 end
 
-function NegotiationDocument:DisplayPanel()
-    local doc = self
+local function NegotiationReadPanel(doc)
     local resultPanel
 
     local interest, patience = doc:StartingMeters()
     local att = NegotiationRules.AttitudeById(doc:try_get("attitude", "suspicious"))
 
     local function md(text, classes)
-        return gui.Label{
+        return CustomDocument.ReadProse{
             classes = classes or { "sizeS" },
             width = "95%", height = "auto", halign = "left",
-            markdown = true, textWrap = true, textAlignment = "topleft",
+            textWrap = true, textAlignment = "topleft",
             vmargin = 2,
             text = text,
         }
     end
 
-    --want / never-touch, with the voiced lines.
+    local SectionHeader = CustomDocument.ReadSectionHeader
+
+    --motivations / pitfalls, with the voiced lines.
     local function TraitGroup(kind, heading)
-        local rows = {}
+        local children = {}
         for _, t in ipairs(doc:try_get("traits", {})) do
             if t.kind == kind and (t.name or "") ~= "" then
-                local line = (t.line or "")
-                rows[#rows + 1] = md(string.format("**%s** %s", t.name,
-                    line ~= "" and ("\n\n> " .. line) or ""))
+                children[#children + 1] = CustomDocument.ReadNamedRow(t.name, t.line or "")
             end
         end
-        if #rows == 0 then
+        if #children == 0 then
             return nil
         end
-        local children = { SectionHeader(heading) }
-        for _, r in ipairs(rows) do
-            children[#children + 1] = r
-        end
+        table.insert(children, 1, SectionHeader(heading))
         return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            children = children,
+        }
+    end
+
+    local traitGroups = {}
+    traitGroups[#traitGroups + 1] = TraitGroup("motivation", "Motivations")
+    traitGroups[#traitGroups + 1] = TraitGroup("pitfall", "Pitfalls")
+    local traitsPanel = CustomDocument.ReadColumns(traitGroups)
+
+    local loopColumns = {}
+    for _, column in ipairs(LOOP_REFERENCE) do
+        local children = { SectionHeader(column[1]) }
+        for i = 2, #column do
+            children[#children + 1] = CustomDocument.ReadNamedRow(column[i][1], column[i][2])
+        end
+        loopColumns[#loopColumns + 1] = gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
             children = children,
         }
@@ -2081,8 +2113,7 @@ function NegotiationDocument:DisplayPanel()
         local o = (doc:try_get("offers", {})[NegotiationRules.OfferIndex(i)] or {})
         local terms = (o.terms or "")
         offerRows[#offerRows + 1] = md(string.format("**%d - \"%s\"**  %s", i,
-            NegotiationRules.offerLabels[i],
-            terms ~= "" and terms or "*(the book's line)*"))
+            NegotiationRules.offerLabels[i], terms))
     end
 
     local summaryChildren = {}
@@ -2097,7 +2128,7 @@ function NegotiationDocument:DisplayPanel()
     local sceneImage = doc:try_get("sceneImage", "")
 
     local body = gui.Panel{
-        width = "100%", height = "100%-50", flow = "vertical", valign = "top", vscroll = true,
+        width = "100%", height = dmhub.isDM and "100%-60" or "100%", flow = "vertical", valign = "top", vscroll = true,
 
         gui.Panel{
             flow = "horizontal", width = "100%", height = "auto", halign = "left",
@@ -2115,10 +2146,13 @@ function NegotiationDocument:DisplayPanel()
                     width = "auto", height = "auto", halign = "left", vmargin = 4,
                     text = doc.description,
                 },
-                md(string.format("%s%s",
-                    doc:try_get("npcDesc", "") ~= "" and (doc.npcDesc .. "\n\n") or "",
-                    string.format("**%s** - starts at **Interest %d**, **Patience %d**.  Impression **%d**.",
-                        att.name, interest, patience, doc:try_get("impression", 1)))),
+                (doc:try_get("npcDesc", "") ~= "") and md(doc.npcDesc) or nil,
+                CustomDocument.StatChips{
+                    string.format("**%s**", att.name),
+                    string.format("Interest **%d**", interest),
+                    string.format("Patience **%d**", patience),
+                    string.format("Impression **%d**", doc:try_get("impression", 1)),
+                },
             },
         },
 
@@ -2129,8 +2163,7 @@ function NegotiationDocument:DisplayPanel()
             bgimage = sceneImage,
         } or nil,
 
-        TraitGroup("motivation", "What they want"),
-        TraitGroup("pitfall", "Never touch"),
+        traitsPanel,
 
         (doc:try_get("opening", "") ~= "") and gui.Panel{
             flow = "vertical", width = "100%", height = "auto",
@@ -2156,8 +2189,7 @@ function NegotiationDocument:DisplayPanel()
             md(doc.sceneNotes),
         } or nil,
 
-        SectionHeader("How negotiation works"),
-        md(LOOP_REFERENCE),
+        CustomDocument.ReadColumns(loopColumns),
 
         (#summaryChildren > 0) and gui.Panel{
             flow = "vertical", width = "100%", height = "auto",
@@ -2167,11 +2199,16 @@ function NegotiationDocument:DisplayPanel()
                 return c
             end)(),
         } or nil,
+
+        --keeps the last line clear of the scroll edge.
+        gui.Panel{ width = 1, height = 12 },
     }
 
-    resultPanel = gui.Panel{
+    resultPanel = gui.Panel(MarkdownDocument.GlossaryHostArgs{
         width = "100%", height = "100%", flow = "vertical",
         body,
+        --marks where the scrolling page ends
+        dmhub.isDM and gui.Divider{ width = "100%", tmargin = 0, bmargin = 6 } or nil,
         dmhub.isDM and gui.Button{
             classes = { "bold", "sizeXl" },
             valign = "bottom", halign = "center",
@@ -2180,9 +2217,13 @@ function NegotiationDocument:DisplayPanel()
                 doc:BeginFromPage(element, resultPanel)
             end,
         } or nil,
-    }
+    })
 
     return resultPanel
+end
+
+function NegotiationDocument:DisplayPanel()
+    return CustomDocument.ReadWithGlossaryHints(NegotiationReadPanel, self, not dmhub.isDM)
 end
 
 --Begin Negotiation as the page's button does it: present the stage, then

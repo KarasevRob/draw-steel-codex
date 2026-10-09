@@ -77,7 +77,9 @@ CustomDocument.docTypeInfo = {
     --Heroic Test: one skill test prepped as a beat (Draw Steel: Encounters ch.4).
     --dice-six is a PLACEHOLDER icon -- it reads as "a roll" and is confirmed
     --imported; swap it when a distinct glyph is commissioned.
-    heroictest  = { text = "Heroic Test", icon = "phosphor/dice-six.png",             beat = true,  glyph = "T", ord = 45 },
+    --Not offered as a new page with dev:documentclasses: heroic tests are kept
+    --in the compendium.
+    heroictest  = { text = "Heroic Test", icon = "phosphor/dice-six.png",             beat = true,  glyph = "T", ord = 45, showInNewMenu = false },
     negotiation = { text = "Negotiation", icon = "phosphor/handshake.png",            beat = true,  glyph = "G", ord = 50 },
     location    = { text = "Location",    icon = "phosphor/map-pin-simple.png",       beat = false, glyph = "L", ord = 60 },
     npc         = { text = "NPC",         icon = "phosphor/person-simple-circle.png", beat = false, glyph = "P", ord = 70 },
@@ -330,6 +332,42 @@ do
         return result
     end
 
+    --The Director's templates as the new-page menu uses them. A prose type
+    --with exactly one template opens with it (starters, by type id); every
+    --other template of a prose type is a menu entry of its own (extras). A
+    --template of a type with its own form is left out: its copy would be a
+    --prose page that only looks like the type.
+    local function TemplatesForNewMenu()
+        local starters, extras = {}, {}
+        if not dmhub.isDM then
+            --the Templates folder is the Director's.
+            return starters, extras
+        end
+        local prose = {}
+        for _, entry in ipairs(CustomDocument.PlainDocTypes()) do
+            prose[entry.id] = true
+        end
+        local byType = {}
+        for _, template in ipairs(CustomDocument.Templates()) do
+            local id = CustomDocument.DocTypeId(template)
+            if prose[id] then
+                byType[id] = byType[id] or {}
+                table.insert(byType[id], template)
+            end
+        end
+        for id, templates in pairs(byType) do
+            if #templates == 1 then
+                starters[id] = templates[1]
+            else
+                for _, template in ipairs(templates) do
+                    extras[#extras + 1] = template
+                end
+            end
+        end
+        table.sort(extras, function(a, b) return a.description < b.description end)
+        return starters, extras
+    end
+
     --The types offered when creating a document, in menu order. Each entry has
     --name (the bare type name), text ("New ..."), icon and create().
     function CustomDocument.NewDocumentTypes()
@@ -342,6 +380,7 @@ do
             return result
         end
 
+        local starters, extras = TemplatesForNewMenu()
         local registered = {}
         for _, v in pairs(CustomDocument.documentTypes) do
             registered[v.docType or v.id] = v
@@ -349,7 +388,13 @@ do
         for id, info in pairs(CustomDocument.docTypeInfo) do
             local v = registered[id]
             if v ~= nil and info.showInNewMenu ~= false then
-                result[#result + 1] = { id = id, name = info.text, text = v.text, icon = info.icon, ord = info.ord, create = v.create }
+                local starter = starters[id]
+                result[#result + 1] = {
+                    id = id, name = info.text, text = v.text, icon = info.icon, ord = info.ord,
+                    create = starter == nil and v.create or function()
+                        return CustomDocument.CreateFromTemplate(starter)
+                    end,
+                }
             end
         end
         for _, class in ipairs(DocumentClasses()) do
@@ -358,7 +403,9 @@ do
                 result[#result + 1] = {
                     id = id, name = info.text, text = "New " .. info.text, icon = info.icon, ord = info.ord,
                     create = function()
-                        local doc = MarkdownDocument.new{ content = "", annotations = {}, docType = id }
+                        local starter = starters[id]
+                        local doc = starter ~= nil and CustomDocument.CreateFromTemplate(starter)
+                            or MarkdownDocument.new{ content = "", annotations = {}, docType = id }
                         if info.hiddenFromPlayers then
                             doc.hiddenFromPlayers = true
                         end
@@ -368,6 +415,25 @@ do
             end
         end
         table.sort(result, CompareTypeEntries)
+
+        --after the types, and never under a name the menu already has.
+        local taken = {}
+        for _, entry in ipairs(result) do
+            taken[string.lower(entry.name)] = true
+        end
+        for _, template in ipairs(extras) do
+            local key = string.lower(template.description)
+            if not taken[key] then
+                taken[key] = true
+                result[#result + 1] = {
+                    id = "template:" .. template.id, name = template.description,
+                    text = "New " .. template.description, icon = CustomDocument.DocTypeIcon(template), ord = 1000,
+                    create = function()
+                        return CustomDocument.CreateFromTemplate(template)
+                    end,
+                }
+            end
+        end
         return result
     end
 
@@ -534,7 +600,8 @@ do
             idChosen = class.icon or "",
             change = function(element)
                 ---@cast element Dropdown
-                local id = element.idChosen
+                --every IconOptions id is a string (an icon path, or "" for Inherit).
+                local id = element.idChosen --[[@as string]]
                 class.icon = id ~= "" and id or false
                 UploadClass(class)
                 RefreshPreview()
@@ -805,6 +872,7 @@ do
         { id = "bool", text = "Checkbox" },
         { id = "enum", text = "Dropdown" },
         { id = "image", text = "Image" },
+        { id = "map", text = "Map" },
         { id = "recordList", text = "List of rows" },
         { id = "keyedList", text = "Fixed rows" },
         { id = "stringList", text = "Read-only list" },
@@ -1011,6 +1079,159 @@ do
         }
     end
 
+    --The read views' section heading: a size above SectionHeader, and ruled.
+    --The label height is fixed: with an auto height, two headings side by
+    --side came out at different heights.
+    function CustomDocument.ReadSectionHeader(text)
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            tmargin = 14, bmargin = 4,
+            gui.Label{
+                classes = { "bold", "sizeL" },
+                width = "auto", height = 26, halign = "left",
+                textAlignment = "bottomleft",
+                text = text,
+            },
+            gui.Divider{ width = "100%", halign = "left", tmargin = 2 },
+        }
+    end
+
+    --Colors come from the active scheme; corners are left to the theme.
+    local function StatChipStyles()
+        return ThemeEngine.MergeTokens({
+            { selectors = { "docStatChip" }, bgcolor = "@bgAlt", borderColor = "@fgMuted", color = "@fgStrong" },
+            { selectors = { "docStatChip", "active" }, borderColor = "@border" },
+        }) --[[@as StyleArgs[] ]]
+    end
+
+    --A row of short facts as chips. Each entry is markdown; `active` is the
+    --index of one to pick out, if any.
+    --- @param texts string[]
+    --- @param active? integer
+    --- @return Panel
+    function CustomDocument.StatChips(texts, active)
+        local children = {}
+        for i, text in ipairs(texts) do
+            children[#children + 1] = gui.Label{
+                classes = { "sizeS", "docStatChip", cond(i == active, "active") },
+                width = "auto", height = "auto", halign = "left",
+                hpad = 10, vpad = 5, rmargin = 6, vmargin = 2,
+                borderBox = true,
+                bgimage = "panels/square.png",
+                border = 1,
+                markdown = true,
+                text = text,
+            }
+        end
+        return gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            wrap = true, vmargin = 6,
+            styles = StatChipStyles(),
+            create = function(element)
+                element.data.themeListener = ThemeEngine.OnThemeChanged(mod, function()
+                    if element.valid then
+                        element.styles = StatChipStyles()
+                    end
+                end)
+            end,
+            destroy = function(element)
+                if element.data.themeListener ~= nil then
+                    element.data.themeListener:Deregister()
+                end
+            end,
+            children = children,
+        }
+    end
+
+    --Prose on a read page. It carries glossary hints while the page is being
+    --built with hints on (BuildWithProseHints).
+    local g_proseHints = false
+    local g_proseDoc = nil
+    local function ProseLabel(args)
+        args.markdown = true
+        if g_proseHints then
+            MarkdownDocument.GlossaryLabelArgs(args, g_proseDoc)
+        end
+        return gui.Label(args)
+    end
+    CustomDocument.ReadProse = ProseLabel
+
+    --`hints`: whether the prose carries glossary hints; nil follows the setting.
+    local function BuildWithProseHints(build, doc, playerView, hints)
+        if hints == nil then
+            hints = dmhub.GetSettingValue("glossaryhints") ~= "off"
+        end
+        g_proseHints = hints
+        --the page's creatures are marked for the Director only.
+        g_proseDoc = (not playerView) and doc or nil
+        local ok, result = pcall(build, doc, playerView)
+        g_proseHints = false
+        g_proseDoc = nil
+        if not ok then
+            error(result, 0)
+        end
+        return result
+    end
+
+    --For a type that draws its own read view: build(doc, playerView) with
+    --glossary hints on its ReadProse and ReadNamedRow text. The panel it
+    --returns needs MarkdownDocument.GlossaryHostArgs for the cards to show.
+    --- @param build fun(doc: table, playerView: boolean): Panel
+    --- @param doc table
+    --- @param playerView boolean
+    --- @return Panel
+    function CustomDocument.ReadWithGlossaryHints(build, doc, playerView)
+        return BuildWithProseHints(build, doc, playerView)
+    end
+
+    --One entry of a read-view list: a name with its detail indented under it.
+    --- @param name string
+    --- @param detail string markdown; "" for none
+    --- @return Panel
+    function CustomDocument.ReadNamedRow(name, detail)
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left",
+            vmargin = 5,
+            gui.Label{
+                classes = { "bold", "sizeS" },
+                width = "95%", height = "auto", halign = "left",
+                textWrap = true, textAlignment = "topleft",
+                text = name,
+            },
+            (detail ~= "") and ProseLabel{
+                classes = { "sizeS" },
+                width = "100%-40", height = "auto", halign = "left",
+                lmargin = 16, tmargin = 1,
+                textWrap = true, textAlignment = "topleft",
+                text = detail,
+            } or nil,
+        }
+    end
+
+    --Lists side by side when there are two, stacked otherwise.
+    --- @param columns Panel[] each built with width "100%"
+    --- @return Panel
+    function CustomDocument.ReadColumns(columns)
+        if #columns ~= 2 then
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left",
+                children = columns,
+            }
+        end
+        local function Half(panel)
+            return gui.Panel{
+                flow = "vertical", width = "50%-12", height = "auto", halign = "left", valign = "top",
+                panel,
+            }
+        end
+        return gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            Half(columns[1]),
+            gui.Panel{ width = 24, height = 1, valign = "top" },
+            Half(columns[2]),
+        }
+    end
+
     local function LabelledRow(labelText, control)
         return gui.Panel{
             flow = "horizontal",
@@ -1030,6 +1251,14 @@ do
             },
             control,
         }
+    end
+
+    --How much a field's input will hold. A text input stops taking characters
+    --at 256 unless told otherwise, and one already holding more than its limit
+    --takes none at all -- far too little for prose, and shipped pages already
+    --hold more.
+    local function TextLimit(field)
+        return field.characterLimit or (field.kind == "text" and 8192 or 1024)
     end
 
     --One cell of a list row. `row` is the row as it was when the cell was
@@ -1058,6 +1287,7 @@ do
         return gui.Input{
             classes = { "sizeS" }, width = width, height = column.kind == "text" and "auto" or 24,
             valign = "top", lmargin = 6, multiline = column.kind == "text",
+            characterLimit = TextLimit(column),
             placeholderText = column.placeholder or column.label,
             text = row[column.id] or "",
             change = function(element)
@@ -1181,6 +1411,7 @@ do
         local keys = field.keys or {}
         local rows = {}
         for _, key in ipairs(field.displayReversed and Reversed(keys) or keys) do
+            ---@type Panel[]
             local cells = {
                 gui.Label{ width = 150, height = 24, valign = "top", text = key.label },
             }
@@ -1189,6 +1420,7 @@ do
                 cells[#cells + 1] = gui.Input{
                     classes = { "sizeS" }, width = column.width or 460, height = column.kind == "text" and "auto" or 24,
                     multiline = column.kind == "text", valign = "top",
+                    characterLimit = TextLimit(column),
                     placeholderText = column.placeholder or column.label,
                     text = current[column.id] or "",
                     change = function(element)
@@ -1235,9 +1467,13 @@ do
             return LabelledRow(field.label, gui.Input{
                 classes = { "sizeM" },
                 width = "100%-156",
-                height = kind == "text" and 60 or 26,
+                --a prose box grows with its text: a fixed height hides
+                --whatever does not fit, and an input has no scrollbar.
+                height = kind == "text" and "auto" or 26,
+                minHeight = kind == "text" and 60 or nil,
                 halign = "left",
                 multiline = kind == "text",
+                characterLimit = TextLimit(field),
                 placeholderText = field.placeholder or "",
                 text = doc:GetFieldValue(field),
                 change = function(element)
@@ -1297,6 +1533,53 @@ do
                     doc:SetFieldValue(field, element.value or "")
                     CustomDocument.NotifyEdited(element)
                 end,
+            })
+        elseif kind == "map" then
+            --a map in this game, or one found by searching the Map Library.
+            local dropdown
+            local function Options(found)
+                local options = { { id = "", text = "None" } }
+                local value = doc:GetFieldValue(field)
+                local library = CustomDocument.ParseLibraryMap(value)
+                if library ~= nil then
+                    options[#options + 1] = { id = value, text = library.name .. " (Map Library)" }
+                end
+                for _, entry in ipairs(found or {}) do
+                    local id = CustomDocument.LibraryMapValue(entry)
+                    if entry.variantIndex == 0 and id ~= value then
+                        options[#options + 1] = { id = id, text = entry.name .. " (Map Library)" }
+                    end
+                end
+                for _, map in ipairs(game.maps) do
+                    options[#options + 1] = { id = map.id, text = map.description }
+                end
+                return options
+            end
+            dropdown = gui.Dropdown{
+                classes = { "sizeM" }, width = 300, height = 30, valign = "center",
+                options = Options(),
+                idChosen = doc:GetFieldValue(field),
+                change = function(element)
+                    ---@cast element Dropdown
+                    doc:SetFieldValue(field, element.idChosen)
+                    CustomDocument.NotifyEdited(element)
+                end,
+            }
+            return LabelledRow(field.label, gui.Panel{
+                flow = "horizontal", width = "100%-156", height = "auto", halign = "left",
+                dropdown,
+                gui.Input{
+                    classes = { "sizeM" }, width = 240, height = 26, valign = "center", lmargin = 8,
+                    placeholderText = "Search the Map Library",
+                    change = function(element)
+                        local found = {}
+                        if element.text ~= "" and rawget(_G, "mappacks") ~= nil then
+                            found = mappacks.Search{ text = element.text, maxResults = 40 }
+                        end
+                        dropdown.options = Options(found)
+                        dropdown.idChosen = doc:GetFieldValue(field)
+                    end,
+                },
             })
         elseif kind == "recordList" then
             return gui.Panel{
@@ -1454,6 +1737,99 @@ do
         return tostring(id)
     end
 
+    --A picture on a read page. Clicking it opens it large (`full`, when the
+    --large picture is a different image).
+    local function PicturePanel(image, args, full)
+        args.bgimage = image
+        args.bgcolor = "white"
+        --the frame is a child: a border does not draw on a picture.
+        args[#args + 1] = gui.Panel{
+            classes = { "docPictureFrame" },
+            styles = ThemeEngine.MergeStyles({
+                { selectors = { "docPictureFrame" }, bgcolor = "clear", borderColor = "@border" },
+            }),
+            width = "100%", height = "100%", interactable = false,
+            bgimage = "panels/square.png",
+            border = 1,
+        }
+        args.click = function(element)
+            GameHud.instance:ViewJournalEntry{ image = full or image, owner = element }
+        end
+        args.linger = gui.Tooltip("Click to enlarge")
+        return gui.Panel(args)
+    end
+
+    --A map field holds the id of a map in this game, or names a Map Library
+    --map as "pack|<pack>|<map id>|<name>": the library is the same for every
+    --game, so an imported page can name its map before anyone has added it.
+    function CustomDocument.LibraryMapValue(entry)
+        return string.format("pack|%s|%s|%s", entry.pack, entry.id, entry.name)
+    end
+
+    --@return nil|{pack: string, mapid: string, name: string}
+    function CustomDocument.ParseLibraryMap(value)
+        if type(value) ~= "string" then
+            return nil
+        end
+        local pack, mapid, name = string.match(value, "^pack|([^|]*)|([^|]*)|(.*)$")
+        if pack == nil then
+            return nil
+        end
+        return { pack = pack, mapid = mapid, name = name }
+    end
+
+    --The library is searchable once it has synced, which happens once a session.
+    local g_mapLibrarySync = "none"
+    local function SyncMapLibrary()
+        if g_mapLibrarySync ~= "none" or rawget(_G, "mappacks") == nil then
+            return
+        end
+        g_mapLibrarySync = "running"
+        local function done()
+            g_mapLibrarySync = "done"
+        end
+        mappacks.Sync{ success = done, error = done }
+    end
+
+    --What a map field points at: { name, map (the map in this game, if it is
+    --here), library (if it names a library map), thumb and full (pictures, if
+    --any), pending (the library has not synced yet) }. nil for an empty field.
+    local function FieldMapInfo(doc, field)
+        local value = doc:GetFieldValue(field)
+        if value == "" then
+            return nil
+        end
+        local library = CustomDocument.ParseLibraryMap(value)
+        local info = { library = library, name = library ~= nil and library.name or nil }
+        for _, map in ipairs(game.maps) do
+            local source = map.packSource
+            if (library == nil and map.id == value)
+                or (library ~= nil and source ~= nil and source.pack == library.pack and source.mapid == library.mapid) then
+                info.map = map
+                info.name = map.description
+                break
+            end
+        end
+        if library ~= nil and rawget(_G, "mappacks") ~= nil then
+            SyncMapLibrary()
+            for _, entry in ipairs(mappacks.Search{ text = library.name, pack = library.pack, maxResults = 50 }) do
+                if entry.id == library.mapid and entry.variantIndex == 0 then
+                    info.thumb = "md5:" .. entry.thumb
+                    info.full = "md5:" .. entry.image
+                    info.aspect = (tonumber(entry.tilesH) or 1) / math.max(1, tonumber(entry.tilesW) or 1)
+                end
+            end
+            info.pending = info.thumb == nil and g_mapLibrarySync == "running"
+        end
+        if info.thumb == nil and info.map ~= nil and (info.map.loadingScreenImage or "") ~= "" then
+            info.thumb = info.map.loadingScreenImage
+        end
+        if info.name == nil then
+            return nil
+        end
+        return info
+    end
+
     --The read view of one field, or nil when it has nothing to show.
     local function FieldDisplay(doc, field)
         local kind = field.kind
@@ -1467,46 +1843,132 @@ do
             if value == "" then
                 return nil
             end
-            return LabelledRow(field.label, gui.Panel{
+            return LabelledRow(field.label, PicturePanel(value, {
                 width = field.width or 96, height = field.height or 96, halign = "left",
-                bgimage = value, bgcolor = "white",
-            })
-        elseif kind == "recordList" or kind == "keyedList" then
-            local lines = {}
-            if kind == "keyedList" then
-                for _, key in ipairs(field.displayReversed and Reversed(field.keys or {}) or field.keys or {}) do
-                    local parts = {}
-                    for _, column in ipairs(field.columns or {}) do
-                        local cell = (value[key.index] or {})[column.id]
-                        if cell ~= nil and cell ~= "" then
-                            parts[#parts + 1] = tostring(cell)
-                        end
-                    end
-                    if #parts > 0 then
-                        lines[#lines + 1] = key.label .. ": " .. table.concat(parts, " - ")
-                    end
-                end
-            else
-                for _, row in ipairs(value) do
-                    local parts = {}
-                    for _, column in ipairs(field.columns or {}) do
-                        local cell = row[column.id]
-                        if cell ~= nil and cell ~= "" then
-                            parts[#parts + 1] = column.kind == "enum" and OptionText(column, cell) or tostring(cell)
-                        end
-                    end
-                    if #parts > 0 then
-                        lines[#lines + 1] = table.concat(parts, " - ")
-                    end
-                end
-            end
-            if #lines == 0 then
+            }))
+        elseif kind == "map" then
+            --travelling to a map, or adding one, is the Director's.
+            local info = dmhub.isDM and FieldMapInfo(doc, field) or nil
+            if info == nil or (info.map == nil and info.library == nil) then
                 return nil
             end
-            local children = { SectionHeader(field.label) }
-            for _, line in ipairs(lines) do
-                children[#children + 1] = ReadOnlyText(line)
+            local adding = false
+            return LabelledRow(field.label, gui.Button{
+                classes = { "sizeS" }, width = "auto", height = 24, hpad = 12, halign = "left",
+                text = info.map ~= nil and string.format("Go to %s", info.name)
+                    or string.format("Add %s to this game", info.name),
+                click = function(element)
+                    local now = FieldMapInfo(doc, field)
+                    if now ~= nil and now.map ~= nil then
+                        now.map:Travel()
+                    elseif not adding then
+                        adding = true
+                        element.text = "Adding the map..."
+                        mappacks.AddMapToGame{
+                            pack = info.library.pack, mapid = info.library.mapid,
+                            success = function()
+                                adding = false
+                                if element.valid then
+                                    element.text = string.format("Go to %s", info.name)
+                                end
+                            end,
+                            error = function(message)
+                                adding = false
+                                if element.valid then
+                                    element.text = string.format("Could not add the map: %s", message)
+                                end
+                            end,
+                        }
+                    end
+                end,
+                --the library syncs once a session; redraw when it has, for the picture.
+                thinkTime = info.pending and 0.5 or nil,
+                think = function(element)
+                    if g_mapLibrarySync == "done" then
+                        element.thinkTime = nil
+                        local host = element:FindParentWithClass("documentPanel")
+                        if host ~= nil then
+                            host:FireEventTree("refreshDocument")
+                        end
+                    end
+                end,
+            })
+        elseif kind == "recordList" then
+            --Each row reads as a name with the other columns under it; a
+            --grouped list gets one headed column per group that has rows.
+            local groupColumn = nil
+            local columns = {}
+            for _, column in ipairs(field.columns or {}) do
+                if column.id == field.groupBy then
+                    groupColumn = column
+                else
+                    columns[#columns + 1] = column
+                end
             end
+            local function CellText(row, column)
+                local cell = row[column.id]
+                if cell == nil or cell == "" then
+                    return ""
+                end
+                return column.kind == "enum" and OptionText(column, cell) or tostring(cell)
+            end
+            local function ListPanel(heading, groupId)
+                --the heading is made last: a panel built and then dropped is
+                --reported as unparented.
+                local children = {}
+                for _, row in ipairs(value) do
+                    if groupColumn == nil or row[groupColumn.id] == groupId then
+                        local parts = {}
+                        for _, column in ipairs(columns) do
+                            local text = CellText(row, column)
+                            if text ~= "" then
+                                parts[#parts + 1] = text
+                            end
+                        end
+                        if #parts > 0 then
+                            children[#children + 1] = CustomDocument.ReadNamedRow(
+                                table.remove(parts, 1), table.concat(parts, " - "))
+                        end
+                    end
+                end
+                if #children == 0 then
+                    return nil
+                end
+                table.insert(children, 1, CustomDocument.ReadSectionHeader(heading))
+                return gui.Panel{
+                    flow = "vertical", width = "100%", height = "auto", halign = "left",
+                    children = children,
+                }
+            end
+            if groupColumn == nil then
+                return ListPanel(field.label, nil)
+            end
+            local lists = {}
+            for _, group in ipairs(FieldOptions(groupColumn)) do
+                lists[#lists + 1] = ListPanel(group.heading or group.text, group.id)
+            end
+            if #lists == 0 then
+                return nil
+            end
+            return CustomDocument.ReadColumns(lists)
+        elseif kind == "keyedList" then
+            local children = {}
+            for _, key in ipairs(field.displayReversed and Reversed(field.keys or {}) or field.keys or {}) do
+                local parts = {}
+                for _, column in ipairs(field.columns or {}) do
+                    local cell = (value[key.index] or {})[column.id]
+                    if cell ~= nil and cell ~= "" then
+                        parts[#parts + 1] = tostring(cell)
+                    end
+                end
+                if #parts > 0 then
+                    children[#children + 1] = CustomDocument.ReadNamedRow(key.label, table.concat(parts, " - "))
+                end
+            end
+            if #children == 0 then
+                return nil
+            end
+            table.insert(children, 1, CustomDocument.ReadSectionHeader(field.label))
             return gui.Panel{
                 flow = "vertical", width = "100%", height = "auto", halign = "left",
                 children = children,
@@ -1519,30 +1981,237 @@ do
         if text == "" then
             return nil
         end
+        if kind == "text" then
+            --prose gets the full width, under its label.
+            return gui.Panel{
+                flow = "vertical", width = "100%", height = "auto", halign = "left", vmargin = 4,
+                gui.Label{
+                    classes = { "bold", "sizeS" },
+                    width = "auto", height = "auto", halign = "left",
+                    text = field.label,
+                },
+                ProseLabel{
+                    classes = { "sizeS" },
+                    width = "95%", height = "auto", halign = "left",
+                    textWrap = true, textAlignment = "topleft",
+                    text = text,
+                },
+            }
+        end
         return LabelledRow(field.label, gui.Label{
             width = "100%-156", height = "auto", halign = "left", textWrap = true, text = text,
         })
     end
 
-    --The generated read view: every field that has a value.
-    function CustomDocument:FieldsDisplayPanel()
-        local children = {}
-        for _, field in ipairs(CustomDocument.ClassFields(self)) do
-            children[#children + 1] = FieldDisplay(self, field)
+    --A field as one viewer reads it. A Director-only field is nothing to a
+    --player, and says what it is to everyone else.
+    local function FieldFor(field, playerView)
+        if not field.directorOnly then
+            return field
         end
+        if playerView then
+            return nil
+        end
+        return setmetatable({ label = field.label .. " (Director only)" }, { __index = field })
+    end
+
+    --The fields that other pages in this page's folder show on every page of
+    --it (a field's wholeFolder), as { doc, field }: a delve's features on each
+    --of its rooms. The journal's top level is not a folder.
+    local function FolderFields(self, playerView)
+        local result = {}
+        local folder = self:try_get("parentFolder")
+        if not g_documentClassesSetting:Get() or type(folder) ~= "string"
+            or (assets.documentFoldersTable or {})[folder] == nil then
+            return result
+        end
+        local pages = {}
+        for id, other in pairs(dmhub.GetTable(CustomDocument.tableName) or {}) do
+            if id ~= self.id and other:try_get("parentFolder") == folder and not other:try_get("hidden", false) then
+                pages[#pages + 1] = other
+            end
+        end
+        table.sort(pages, function(a, b) return a.description < b.description end)
+        for _, other in ipairs(pages) do
+            for _, declared in ipairs(CustomDocument.ClassFields(other)) do
+                local field = declared.wholeFolder and FieldFor(declared, playerView) or nil
+                if field ~= nil then
+                    result[#result + 1] = {
+                        doc = other,
+                        field = setmetatable({ label = string.format("%s - %s", other.description, field.label) }, { __index = field }),
+                    }
+                end
+            end
+        end
+        return result
+    end
+
+    --The fields of the generated read view: every field that has a value. The
+    --page opens with its name; the first image field sits to its right as the
+    --picture, and number, enum and bool fields gather into one row of chips
+    --under the name. Fields ahead of the first list join that header, the rest
+    --follow at full width, and its folder's fields close it. nil when there
+    --are none of either.
+    local FieldsHeaderContent
+    --`hints`: whether its prose carries glossary hints; nil follows the setting.
+    local function FieldsHeaderPanel(self, playerView, hints)
+        return BuildWithProseHints(FieldsHeaderContent, self, playerView, hints)
+    end
+
+    FieldsHeaderContent = function(self, playerView)
+        local fields = CustomDocument.ClassFields(self)
+        local folderFields = FolderFields(self, playerView)
+        if #fields == 0 and #folderFields == 0 then
+            return nil
+        end
+        local portrait, portraitWidth = nil, 0
+        local header, chips, children = {}, {}, {}
+        local inHeader = true
+        local hasTitle = false
+
+        --a prose page that opens with its own top-level heading already has a title.
+        if #fields > 0 and string.match(self:GetTextContent(), "^#%s") == nil then
+            hasTitle = true
+            header[#header + 1] = gui.Label{
+                classes = { "bold", "sizeXl" },
+                width = "auto", height = "auto", halign = "left", vmargin = 4,
+                text = self.description,
+            }
+        end
+
+        for _, declared in ipairs(fields) do
+            local field = FieldFor(declared, playerView)
+            local kind = field ~= nil and field.kind or nil
+            local value = field ~= nil and self:GetFieldValue(field) or nil
+            if field == nil then
+                --the Director's, and this is a player.
+            elseif kind == "image" and portrait == nil and value ~= "" then
+                --in the picture's own shape, within the size the field declares.
+                local maxWidth, maxHeight = field.width or 240, field.height or 300
+                local function Fit(dims)
+                    local scale = math.min(maxWidth / dims.width, maxHeight / dims.height)
+                    return math.floor(dims.width * scale), math.floor(dims.height * scale)
+                end
+                local dims = gui.TryGetImageDimensions(value)
+                local width, height = maxWidth, math.min(maxWidth, maxHeight)
+                if dims ~= nil then
+                    width, height = Fit(dims)
+                end
+                portraitWidth = maxWidth + 26
+                portrait = PicturePanel(value, {
+                    classes = { "image" },
+                    width = width, height = height,
+                    halign = "right", valign = "top", lmargin = 12, rmargin = 14,
+                    create = function(element)
+                        if dims ~= nil then
+                            return
+                        end
+                        gui.GetImageDimensionsCallback(value, function(loaded)
+                            if element.valid and loaded ~= nil then
+                                element.selfStyle.width, element.selfStyle.height = Fit(loaded)
+                            end
+                        end)
+                    end,
+                })
+            elseif kind == "number" then
+                chips[#chips + 1] = string.format("%s **%s**", field.label, tostring(value))
+            elseif kind == "enum" then
+                local text = OptionText(field, value)
+                if text ~= "" then
+                    chips[#chips + 1] = string.format("%s **%s**", field.label, text)
+                end
+            elseif kind == "bool" then
+                if value == true then
+                    chips[#chips + 1] = string.format("**%s**", field.label)
+                end
+            else
+                if g_listKinds[kind] then
+                    inHeader = false
+                end
+                local target = inHeader and header or children
+                target[#target + 1] = FieldDisplay(self, field)
+            end
+        end
+        if #chips > 0 then
+            table.insert(header, hasTitle and 2 or 1, CustomDocument.StatChips(chips))
+        end
+        --with no picture of its own, the page shows its map's, in the map's
+        --shape, no wider than 240 and no taller than 300.
+        for _, declared in ipairs(fields) do
+            local info = portrait == nil and declared.kind == "map" and FieldMapInfo(self, declared) or nil
+            if info ~= nil and info.thumb ~= nil then
+                local aspect = info.aspect or (9 / 16)
+                local width = math.floor(math.min(240, 300 / aspect))
+                portraitWidth = width + 26
+                portrait = PicturePanel(info.thumb, {
+                    classes = { "image" },
+                    width = width, height = math.floor(width * aspect), valign = "top", lmargin = 12, rmargin = 14,
+                }, info.full)
+            end
+        end
+        for _, entry in ipairs(folderFields) do
+            children[#children + 1] = FieldDisplay(entry.doc, entry.field)
+        end
+
+        local headerColumn = gui.Panel{
+            flow = "vertical", height = "auto", valign = "top",
+            width = string.format("100%%-%d", portraitWidth),
+            children = header,
+        }
+        --the picture sits on the right, clear of the scrollbar.
+        table.insert(children, 1, gui.Panel{
+            flow = "horizontal", width = "100%", height = "auto", halign = "left",
+            headerColumn,
+            portrait,
+        })
+        return gui.Panel{
+            flow = "vertical", width = "100%", height = "auto", halign = "left", valign = "top", bmargin = 8,
+            children = children,
+        }
+    end
+
+    --What closes the generated read view: the page's exits and its class's
+    --actions. nil when it has neither.
+    local function FieldsFooterPanel(self, playerView)
+        local children = {}
         --exits are run furniture: the Director's, never the players'. RichExit
         --loads after this file, hence rawget.
-        if dmhub.isDM and rawget(_G, "RichExit") ~= nil then
+        if dmhub.isDM and not playerView and rawget(_G, "RichExit") ~= nil then
             for _, exit in ipairs(CustomDocument.DeclaredExits(self)) do
-                children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
+                --an exit that leads nowhere and writes nothing has nothing to take.
+                if exit.nextDocid or #exit.writes > 0 then
+                    children[#children + 1] = RichExit.CreateDisplay(RichExit.new(exit))
+                end
             end
         end
         for _, entry in ipairs(CustomDocument.ClassActions(self, "read")) do
             children[#children + 1] = ActionButton(self, entry, nil)
         end
+        if #children == 0 then
+            return nil
+        end
+        --narrower than the page: an exit card is a bordered box, and the
+        --scrollbar would sit on its edge.
+        return gui.Panel{
+            flow = "vertical", width = "100%-14", height = "auto", halign = "left", valign = "top", tmargin = 8,
+            children = children,
+        }
+    end
+
+    function CustomDocument:FieldsDisplayPanel()
+        local function Parts(playerView)
+            local parts = {}
+            parts[#parts + 1] = FieldsHeaderPanel(self, playerView)
+            parts[#parts + 1] = FieldsFooterPanel(self, playerView)
+            return parts
+        end
         return gui.Panel{
             flow = "vertical", width = "100%", height = "auto", halign = "left",
-            children = children,
+            children = Parts(not self:HaveEditPermissions()),
+            --Preview as Player redraws the page through this.
+            refreshDocument = function(element)
+                element.children = Parts(self:IsPlayerView(element))
+            end,
         }
     end
 
@@ -1555,16 +2224,17 @@ do
     end
 
     --Fields above, the page's own panel below. `panel` keeps the height the
-    --fields leave; a fields-only class drops it.
+    --fields leave; a fields-only class drops it and the fields take the page.
     local function StackFields(doc, fieldsPanel, panel)
+        local hasBody = CustomDocument.DocTypeInfo(doc).body ~= "none"
         local children = {
             gui.Panel{
-                flow = "vertical", width = "100%", height = "auto", maxHeight = "50%",
+                flow = "vertical", width = "100%", height = "auto", maxHeight = hasBody and "75%" or "100%",
                 valign = "top", vscroll = true, bmargin = 8,
                 fieldsPanel,
             },
         }
-        if CustomDocument.DocTypeInfo(doc).body ~= "none" then
+        if hasBody then
             --an edit panel is built collapsed; the wrapper carries that state now.
             panel:SetClass("collapsed", false)
             panel.selfStyle.height = "100% available"
@@ -1590,12 +2260,21 @@ do
             or #CustomDocument.ClassActions(doc, "read") > 0 or #CustomDocument.ClassActions(doc, "edit") > 0
     end
 
-    --Wraps a document's read panel with its class's fields, if it has any.
-    function CustomDocument.WithFieldsDisplay(doc, panel)
-        if not HasDeclaredForm(doc) or HasOwnForm(doc) then
-            return panel
+    --A document's read panel, with its class's fields if it has any. A prose
+    --page carries them itself, fields first and exits last, so it scrolls as
+    --one; a fields-only class has no text to share the page with.
+    function CustomDocument.ReadPanel(doc)
+        if HasOwnForm(doc) or not (HasDeclaredForm(doc) or #FolderFields(doc, not dmhub.isDM) > 0) then
+            return doc:DisplayPanel{ relatedFooter = true }
         end
-        return StackFields(doc, doc:FieldsDisplayPanel(), panel)
+        if CustomDocument.DocTypeInfo(doc).body == "none" then
+            return StackFields(doc, doc:FieldsDisplayPanel(), doc:DisplayPanel{ relatedFooter = true })
+        end
+        return doc:DisplayPanel{
+            relatedFooter = true,
+            pageHeader = FieldsHeaderPanel,
+            pageFooter = FieldsFooterPanel,
+        }
     end
 
     --Wraps a document's edit panel with the generated editor. A type with its
@@ -1919,6 +2598,26 @@ do
                         onChange()
                     end,
                 },
+                gui.Check{
+                    classes = { "sizeS" }, width = 120, height = 22, minWidth = 0, valign = "center", lmargin = 8,
+                    text = "Director only",
+                    value = field.directorOnly == true,
+                    linger = gui.Tooltip("Hidden from players who open the page."),
+                    change = function(element)
+                        field.directorOnly = element.value or nil
+                        onChange()
+                    end,
+                },
+                gui.Check{
+                    classes = { "sizeS" }, width = 120, height = 22, minWidth = 0, valign = "center", lmargin = 4,
+                    text = "Whole folder",
+                    value = field.wholeFolder == true,
+                    linger = gui.Tooltip("Also shown on every other page in this page's folder."),
+                    change = function(element)
+                        field.wholeFolder = element.value or nil
+                        onChange()
+                    end,
+                },
                 gui.Button{
                     classes = { "sizeS" }, width = 30, height = 22, valign = "center", lmargin = 6,
                     text = "Up",
@@ -2031,7 +2730,10 @@ function CustomDocument.OnDeserialize(self)
     end
 end
 
-function CustomDocument:Render()
+--- Render the document for display; nil on the base type (subclasses override it).
+--- @param options? table Render options, e.g. {summary = ...}; meaning is per subclass.
+--- @return Panel|nil
+function CustomDocument:Render(options)
     return nil
 end
 
@@ -2110,7 +2812,8 @@ function CustomDocument:ShowCreateDialog()
     self:ShowDocument{edit = true}
 end
 
-function CustomDocument:EditPanel()
+--- @param args? table Editor options from ShowDocument; unused by the base editor (MarkdownDocument reads them).
+function CustomDocument:EditPanel(args)
     local editInput = gui.TextEditor {
         width = "90%",
         height = "90%",
@@ -2331,14 +3034,14 @@ end
 local g_journalTreeExpanded = {}
 
 --- Builds a popup tree view of the journal hierarchy
---- @param currentDocId string The ID of the currently displayed document
---- @param dialogPanel Panel The dialog panel with navigation handlers
+--- @param currentDocId string|nil The ID of the currently displayed document, if any
+--- @param dialogPanel Panel|nil The dialog panel with navigation handlers (nil when opts.onPick handles picks)
 --- @param opts nil|{onPick: fun(docId: string), onNewDocument: fun(typeInfo: table), bare?: boolean}
 ---   onPick: picking a document calls this instead of navigating dialogPanel
 ---   (the tab bar's + uses it to open the pick in a new tab). onNewDocument:
 ---   when set, a "New Document" entry heads the popup; it expands to the
 ---   registered document types and picking one calls this.
---- @return Panel The popup panel
+--- @return Panel|nil The popup panel; nil when there is nothing to list or create
 local function buildJournalTree(currentDocId, dialogPanel, opts)
     --pick-once latch: a single physical click can deliver press more than
     --once while the popup is being torn down mid-dispatch (observed with the
@@ -2838,7 +3541,7 @@ function CustomDocument:CreateInterface(args)
     local buttonSize = 20
 
     args = args or {}
-    local readPanel = CustomDocument.WithFieldsDisplay(self, self:DisplayPanel{ relatedFooter = true })
+    local readPanel = CustomDocument.ReadPanel(self)
 
     --The edit panel is the most expensive part of opening a document and most
     --opens never edit, so it is built lazily on first entry into edit mode.
@@ -3976,7 +4679,7 @@ function CustomDocument:CreateInterface(args)
         multimonitor = { "journal:fontsize", "journal:defaultstylesheet" },
         monitor = function(element)
             g_scale = nil
-            local newReadPanel = CustomDocument.WithFieldsDisplay(self, self:DisplayPanel{ relatedFooter = true })
+            local newReadPanel = CustomDocument.ReadPanel(self)
             newReadPanel:SetClass("collapsed", readPanel:HasClass("collapsed"))
             readPanel = newReadPanel
 
@@ -5650,6 +6353,7 @@ function CustomDocument.GetOrCreateTabbedViewer()
         --diverged from its baseline, so firing it at every realized tab costs nothing
         --for the tabs nobody edited. Unrealized tabs have no panel and no edits.
         nativeWindowClosed = function(element)
+            element.data.popoutTeardownReason = "windowClosed"  --POPOUT-DIAG
             for _, tab in ipairs(element.data.tabs or {}) do
                 if tab.contentPanel ~= nil and tab.contentPanel.valid then
                     tab.contentPanel:FireEvent("saveDocument")
@@ -6050,8 +6754,9 @@ end
 function CustomDocument:PresentDocument(args)
     args = args or {}
 
-    local dialogWidth = args.width or 1100
-    local dialogHeight = args.height or 940
+    --placement sizes are pixel numbers (see the args notes above).
+    local dialogWidth = (args.width or 1100) --[[@as number]]
+    local dialogHeight = (args.height or 940) --[[@as number]]
 
     local loc = {
         x = 1920 * 0.5 * ((dmhub.screenDimensionsBelowTitlebar.x / dmhub.screenDimensionsBelowTitlebar.y) / (1920 / 1080)) - dialogWidth / 2,
@@ -6083,8 +6788,10 @@ function CustomDocument:PresentDocument(args)
         loc.y = args.y
     end
 
-    dialogWidth = loc.width
-    dialogHeight = loc.height
+    --a remembered size is the window's own selfStyle size, which this
+    --function only ever sets to pixel numbers.
+    dialogWidth = loc.width --[[@as number]]
+    dialogHeight = loc.height --[[@as number]]
 
     local dialog
 
@@ -8340,6 +9047,7 @@ function PanelDocument:CreateInterface(args)
     --there the header sits in the middle of somebody else's window, not
     --along its top edge.
     local themeCornerRadius = ThemeEngine.ResolveStyleProperty({"framedPanel"}, "cornerRadius", 0)
+    ---@type number|Vector4Arg
     local headerCornerRadius = 0
     if tabbed and type(themeCornerRadius) == "number" and themeCornerRadius > 0 then
         headerCornerRadius = {x1 = themeCornerRadius, y1 = themeCornerRadius, x2 = 0, y2 = 0}
@@ -23107,7 +23815,8 @@ end
 --own iconRailIcon rules by selector count, so the accent wins at rest
 --and under the pointer.
 function MapButtons.Styles()
-    local styles = IconRailStyles()
+    --MergeTokens returns nil only for a nil rule list; IconRailStyles passes a literal.
+    local styles = IconRailStyles() --[[@as table[] ]]
     local extra = ThemeEngine.MergeTokens({
         {
             selectors = {"iconRailIcon", "mapButtonIcon"},

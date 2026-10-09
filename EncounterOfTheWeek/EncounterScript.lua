@@ -102,6 +102,9 @@
 --  A tier line may read "teaser => full text": tiers[t] is the full text
 --  (the only part the effect grammar sees) and teasers[t] is what players
 --  see before the roll lands. Lines without "=>" have no teaser.
+--  tiers always has four entries: [4] is the critical (natural 19-20). When
+--  the author wrote only three, [4] is built from tier 3 plus an additional
+--  hero token (EncounterScript.AutoCriticalText) and roll.critAuto is true.
 --  section = { id, name, line, text = "", prompt = "", sceneTag = nil,
 --              mode = "together"|"individual", modeExplicit = bool,
 --              implicitOption = bool, options = { narrativeOption, ... },
@@ -527,11 +530,15 @@ local function ParseClause(clause)
 
     --"+<n> hero token[s]" / "you gain <n> hero token[s]". Hero tokens are one
     --pool the whole party draws on, so there is no self/party distinction.
-    n = string.match(lc, "^%+?%s*(%S+) hero tokens?$")
-        or string.match(lc, "^you gain (%S+) hero tokens?$")
-        or string.match(lc, "^gain %+?(%S+) hero tokens?$")
-        or string.match(lc, "^the party gains (%S+) hero tokens?$")
-        or string.match(lc, "^each party members? gains? (%S+) hero tokens?$")
+    --"an additional" / "an extra" hero token reads as one (the automatic
+    --critical tier says it that way).
+    local tokenText = string.gsub(lc, " additional hero token", " hero token")
+    tokenText = string.gsub(tokenText, " extra hero token", " hero token")
+    n = string.match(tokenText, "^%+?%s*(%S+) hero tokens?$")
+        or string.match(tokenText, "^you gain (%S+) hero tokens?$")
+        or string.match(tokenText, "^gain %+?(%S+) hero tokens?$")
+        or string.match(tokenText, "^the party gains (%S+) hero tokens?$")
+        or string.match(tokenText, "^each party members? gains? (%S+) hero tokens?$")
     if n ~= nil and EncounterScript.ParseQuantity(n) ~= nil then
         return { kind = "herotoken", qty = EncounterScript.ParseQuantity(n), text = clause }
     end
@@ -1736,12 +1743,16 @@ end
 
 --Every effect list an option can apply: each tier of its roll, its free
 --rules, and the same for each knack. For reference checks and the icons.
-function EncounterScript.OptionEffectLists(option, includeKnacks)
+--`includeCritical` false leaves out the critical tier (the icons: the
+--critical is kept secret until it is rolled).
+function EncounterScript.OptionEffectLists(option, includeKnacks, includeCritical)
     local lists = {}
     local function AddVersion(v)
         if v.roll ~= nil then
             for t in ipairs(v.roll.tiers or {}) do
-                lists[#lists + 1] = v.roll.effects[t] or {}
+                if t <= 3 or includeCritical ~= false then
+                    lists[#lists + 1] = v.roll.effects[t] or {}
+                end
             end
         end
         if v.free ~= nil then
@@ -1790,6 +1801,49 @@ function EncounterScript.OptionTakeable(option)
     return option ~= nil and (option.roll ~= nil or option.free ~= nil or option.delve ~= nil)
 end
 
+--- assisting a test -----------------------------------------------------------
+--
+--Each skill a test lists can be used once per test: by the hero making it
+--(their Skilled bonus) or by one companion assisting it (user direction
+--2026-10-08). A companion may never take the LAST listed skill the hero
+--making the test is trained in, so that hero always keeps a skill of their
+--own; a hero trained in none of them reserves nothing.
+
+--The skills a companion may assist with, in the roll's order.
+--  listed        the roll's skill ids, in order
+--  mainTrained   { [skillid] = true } the hero making the test is trained in
+--  claimed       { [skillid] = true } other companions have already used
+--  helperTrained { [skillid] = true } the companion is trained in
+function EncounterScript.AssistSkillChoices(listed, mainTrained, claimed, helperTrained)
+    mainTrained = mainTrained or {}
+    claimed = claimed or {}
+    helperTrained = helperTrained or {}
+    local mainLeft = 0
+    for _, id in ipairs(listed or {}) do
+        if mainTrained[id] and not claimed[id] then
+            mainLeft = mainLeft + 1
+        end
+    end
+    local out = {}
+    for _, id in ipairs(listed or {}) do
+        if helperTrained[id] and not claimed[id] and (not mainTrained[id] or mainLeft >= 2) then
+            out[#out + 1] = id
+        end
+    end
+    return out
+end
+
+--The listed skill the hero making the test rolls with: the first they are
+--trained in that no companion has used, or nil.
+function EncounterScript.MainTestSkill(listed, mainTrained, claimed)
+    for _, id in ipairs(listed or {}) do
+        if (mainTrained or {})[id] and not (claimed or {})[id] then
+            return id
+        end
+    end
+    return nil
+end
+
 --Split a tier line on its first "=>" into (teaser, fullText). A line with
 --no "=>" returns (nil, line). Both halves are trimmed; an empty teaser is
 --returned as "" so the caller can warn.
@@ -1800,6 +1854,21 @@ function EncounterScript.SplitTeaser(tierText)
     end
     return trim(teaser), trim(fullText)
 end
+
+--The critical tier a test gets when its author wrote only three: tier 3's
+--full text and an additional hero token for the party.
+function EncounterScript.AutoCriticalText(tier3Text)
+    local text = trim(tier3Text or "")
+    if text == "" then
+        return EncounterScript.AUTO_CRITICAL_BONUS
+    end
+    if string.match(text, "[%.,;!%?]$") == nil then
+        text = text .. "."
+    end
+    return text .. " " .. EncounterScript.AUTO_CRITICAL_BONUS
+end
+
+EncounterScript.AUTO_CRITICAL_BONUS = "The party gains an additional hero token."
 
 --What a tier row should read for a viewer: the full text when the tier has
 --landed (or has no teaser), the teaser otherwise.
@@ -3499,7 +3568,14 @@ function EncounterScript.Parse(text)
                 elseif holder.free ~= nil then
                     Warn(i, "option '%s' already has rules with no roll ('%s'); the power roll '%s' is ignored", (option or {}).name or "?", holder.free.text, trim(name))
                 else
-                    local roll = { name = trim(name), attr = trim(attr), tiers = tiers, teasers = {}, effects = {}, riders = riders }
+                    --every montage test has a critical (natural 19-20). One
+                    --the author did not write is tier 3 plus a hero token.
+                    local critAuto = false
+                    if #tiers == 3 then
+                        tiers[4] = EncounterScript.AutoCriticalText(select(2, EncounterScript.SplitTeaser(tiers[3])))
+                        critAuto = true
+                    end
+                    local roll = { name = trim(name), attr = trim(attr), tiers = tiers, teasers = {}, effects = {}, riders = riders, critAuto = critAuto }
                     for t, tierText in ipairs(tiers) do
                         local teaser, fullText = EncounterScript.SplitTeaser(tierText)
                         if teaser == "" then
@@ -3510,7 +3586,8 @@ function EncounterScript.Parse(text)
                         roll.teasers[t] = teaser
                         roll.effects[t] = EncounterScript.ParseEffects(fullText)
                         for _, effect in ipairs(roll.effects[t]) do
-                            if effect.unrecognized then
+                            --an automatic critical repeats tier 3, which has warned already.
+                            if effect.unrecognized and not (critAuto and t == 4) then
                                 Warn(i + t, "unrecognized effect '%s' (shown as text only)", effect.text)
                             end
                         end
@@ -3955,7 +4032,7 @@ end
 --obstacle test and chest row of the delve it enters.
 local function AddOptionOutcomes(found, option, parse, seenDelves)
     --this version's own tiers or free rules (a knack's are its own version).
-    for _, effects in ipairs(EncounterScript.OptionEffectLists(option, false)) do
+    for _, effects in ipairs(EncounterScript.OptionEffectLists(option, false, false)) do
         AddEffectOutcomes(found, effects, "option")
     end
     if option.delve ~= nil then

@@ -1593,6 +1593,23 @@ CreateImportAssetsDialog = function(args)
     ---@field input? string
     ---@field translateurl? fun(url: string): string?
     ---@field translateerror? fun(error: string): string?
+    ---@field notes? string Markdown shown under the importer dropdown while it is chosen.
+    ---@field hidden? fun(): boolean Returns true to leave the importer out of the dropdown.
+    ---@field reviewChecks? fun(asset: any, tableid: string): ImportReviewCheck[]?
+    ---@field renderReview? fun(asset: any, tableid: string, review: ImportReviewApi): Panel?
+    ---@field onRemovedChanged? fun(asset: any, tableid: string, removed: boolean, review: ImportReviewApi)
+
+    --- One finding an importer's reviewChecks hook reports for a staged item.
+    ---@class ImportReviewCheck
+    ---@field status "warning"|"info"
+    ---@field text string
+
+    --- The table the review hooks get for talking back to the dialog.
+    ---@class ImportReviewApi
+    ---@field refresh fun()
+    ---@field setRemoved fun(key: string, removed: boolean)
+    ---@field isRemoved fun(key: string): boolean
+    ---@field select fun(key: string|nil)
 
     ---@type ImportDialogImporter
     local m_currentImporter = nil
@@ -2228,6 +2245,7 @@ CreateImportAssetsDialog = function(args)
     }
 
     local function CreateChecksView()
+        ---@type Panel[]
         local children = {
             gui.Label{
                 classes = {"reviewTitle"},

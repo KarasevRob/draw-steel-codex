@@ -213,6 +213,9 @@ MonsterAI.SetWaiting=function() end
 MonsterAI.ClearWaiting=function() end
 dmhub.allTokens={host.token}
 local aiSource="draw-steel-codex/Monster AI/MonsterAI.lua"
+--The AI profiler's file locals are no-ops here.
+local function profNoop() end
+ProfBegin, ProfEnd, ProfCount, ProfPhaseBegin, ProfPhaseEnd, ProfRequestReport = profNoop, profNoop, profNoop, profNoop, profNoop, profNoop
 assert(load(source(aiSource,"function MonsterAI:CountPendingActivityReactions", "--Count squad deaths")))()
 assert(load("local mod={}\n" .. source(aiSource,"function MonsterAI:WaitForMovementActivity", "function MonsterAI:MoveToken")))()
 local ai=setmetatable({}, {__index=MonsterAI})
@@ -224,9 +227,9 @@ assert(load(source(aiSource,"function MonsterAI:MoveToken", "function MonsterAI:
 function MonsterAI:GetMovementToken(t) return t end
 function MonsterAI:MovementLocOverlapsCreature() return false end
 MonsterAI.LocLogName=tostring; MonsterAI.TokenLogName=function(t) return t.name end
-local mover={valid=true,name="Trapper",loc="origin",properties=setmetatable({}, {__index=creature})}
+local mover={valid=true,name="Trapper",charid="trapper",loc="origin",properties=setmetatable({}, {__index=creature})}
 function mover:Move()
-    host.pendingAIActivityReactions={orphan={activityId=self.properties._tmp_aiActivityId,timestamp=0}}
+    host.pendingAIActivityReactions={orphan={activityId=creature.GetTokenAIActivity(self.charid),timestamp=0}}
     return {}
 end
 MonsterAI.active=true
