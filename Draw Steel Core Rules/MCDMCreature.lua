@@ -1449,6 +1449,19 @@ function creature:TryClaimTurn()
         if q:HasInitiative(initiativeid) and (not q:HasHadTurn(initiativeid)) and q:ChoosingTurn() and q:IsPlayersTurn() == q:IsEntryPlayer(initiativeid) then
             q:SelectTurn(initiativeid)
             dmhub:UploadInitiativeQueue()
+
+            --Run the start of turn too (heroic resource gain, start-of-turn triggers),
+            --which selecting the turn alone skipped (PQ2BXBNN). Deferred because we are
+            --inside the ability's ModifyProperties and BeginTurn opens its own.
+            dmhub.Schedule(0.01, function()
+                if mod.unloaded then
+                    return
+                end
+                local liveQueue = dmhub.initiativeQueue
+                if liveQueue ~= nil and (not liveQueue.hidden) and liveQueue.currentTurn == initiativeid then
+                    InitiativeQueue.BeginTurnForEntry(initiativeid)
+                end
+            end)
         end
     end
 end

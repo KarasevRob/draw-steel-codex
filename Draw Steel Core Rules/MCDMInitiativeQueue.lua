@@ -722,6 +722,17 @@ function InitiativeQueue.ClaimTurn(initiativeid, options)
 	q:SelectTurn(initiativeid)
 	dmhub:UploadInitiativeQueue()
 
+	InitiativeQueue.BeginTurnForEntry(initiativeid)
+
+	return true
+end
+
+--BeginTurnForEntry(initiativeid): the start-of-turn half of a claim. Runs
+--BeginTurn (start-of-turn triggers, heroic resource gains, aura/effect expiry)
+--for every token in the entry and posts the start-of-turn chat card. Call it
+--right after SelectTurn + UploadInitiativeQueue; any path that selects a turn
+--without it silently skips everything that happens at the start of a turn.
+function InitiativeQueue.BeginTurnForEntry(initiativeid)
 	--Every token sharing this initiative id begins its turn (a minion squad or
 	--monster group claims as one). Use the initiative id itself rather than any
 	--per-entry initiativeid field: group entries do not populate the latter.
@@ -739,8 +750,6 @@ function InitiativeQueue.ClaimTurn(initiativeid, options)
 			tokenids = tokenIds,
 		})
 	end
-
-	return true
 end
 
 function InitiativeQueue:CurrentInitiativeId()
