@@ -979,7 +979,7 @@ function RegionMapModel.PartyOffPaths(paths, removed)
     local from = party.pathFrom --[[@as string]]
     for _, path in ipairs(paths) do
         if path.id == party.pathId then
-            local far = from == path.aId and path.bId or path.aId
+            local far = RegionMapPaths.OtherEnd(path, from)
             local nearer, other = far, from
             if RegionMapTravel.Fraction(path, from, party.spent or 0) <= 0.5 then
                 nearer, other = from, far
@@ -1376,10 +1376,20 @@ function RegionMapModel.SaveStatus(id)
     return result
 end
 
---- A name to show for a Location: its own, or edit.name.fallback while unnamed.
---- @param location RegionMapLocationRecord
+--- A name to show for a Location: its own, edit.name.fallback while unnamed,
+--- or "" for no Location (a missing end, a deleted map).
+--- @param location nil|RegionMapLocationRecord
 --- @return string plain text; escape it before it reaches a label
 function RegionMapModel.DisplayName(location)
+    if location == nil then return "" end
     if location.name ~= "" then return location.name end
     return RegionMapCopy.T("edit.name.fallback", nil, true)
+end
+
+--- The name of the Location with this id as the viewer may see it; "" when it
+--- is gone or hidden from them.
+--- @param id nil|string
+--- @return string plain text
+function RegionMapModel.NameOf(id)
+    return RegionMapModel.DisplayName(RegionMapModel.GetLocation(id))
 end

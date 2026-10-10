@@ -116,13 +116,10 @@ end
 
 -- What travel offers --------------------------------------------------------------------------------
 
-local function OtherEnd(path, id)
-    return path.aId == id and path.bId or path.aId
-end
+local OtherEnd = Paths.OtherEnd
 
 local function DestName(option)
-    local location = Model.GetLocation(option.toId)
-    return location ~= nil and Model.DisplayName(location) or ""
+    return Model.NameOf(option.toId)
 end
 
 --- The ways the viewer may move the Party now, sorted by destination. The

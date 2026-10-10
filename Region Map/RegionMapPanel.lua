@@ -484,14 +484,13 @@ function RegionMapPanel.Create(options)
             text = T("status.at", args)
         elseif kind == "onPath" and party ~= nil then
             local path = RegionMapPaths.Get(party.pathId)
-            local name = path ~= nil and RegionMapPaths.DisplayName(path) or ""
-            args.path = name ~= "" and name or T("path.type.none", nil, true)
+            args.path = path ~= nil and RegionMapPaths.ShownName(path) or T("path.type.none", nil, true)
             text = T("status.onPath", args)
         elseif kind == "traveling" then
             text = T("status.traveling", args)
         elseif kind == "elsewhere" and party ~= nil then
             local partyMap = Model.GetLocation(party.mapId)
-            args.map = partyMap ~= nil and Model.DisplayName(partyMap) or ""
+            args.map = Model.DisplayName(partyMap)
             text = T("status.elsewhere", args)
         else
             text = T("status.none", args)

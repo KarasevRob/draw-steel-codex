@@ -358,10 +358,42 @@ function RegionMapPaths.FormatTime(watches)
 end
 local FormatTime = RegionMapPaths.FormatTime
 
-local function EndName(location)
-    if location == nil then return "" end
-    return Model.DisplayName(location)
+-- Travel times are stored in watches and typed in the game's unit (C9).
+local function UnitFactor()
+    return TimeUnit() == "days" and C.watchesPerDay or 1
 end
+
+--- A stored time as the number a time field shows: at most two decimals, no
+--- trailing zeros (the path form and the stop card).
+--- @param watches number
+--- @return string
+function RegionMapPaths.TimeInputText(watches)
+    local text = string.format("%.2f", watches / UnitFactor())
+    text = text:gsub("0+$", ""):gsub("%.$", "")
+    return text
+end
+
+--- A typed time in watches, or nil when it is no valid time. Accepts a decimal
+--- comma; kept to a tenth of a watch, the finest the time wording shows.
+--- @param text any
+--- @return nil|number watches
+function RegionMapPaths.ParseTime(text)
+    local value = tonumber((tostring(text or ""):gsub(",", ".")))
+    if not IsFinite(value) or value < 0 then return nil end
+    local watches = math.floor(value * UnitFactor() * 10 + 0.5) / 10
+    if not R.ValidTime(watches) then return nil end
+    return watches
+end
+
+--- The end of a path that is not this one.
+--- @param path RegionMapPathRecord
+--- @param id string one of its ends
+--- @return string
+function RegionMapPaths.OtherEnd(path, id)
+    return path.aId == id and path.bId or path.aId
+end
+
+local EndName = Model.DisplayName
 
 --- The name a path shows: its own, else its type's, else "".
 --- @param path RegionMapPathRecord
@@ -386,13 +418,21 @@ function RegionMapPaths.Title(path, raw)
     return RegionMapCopy.T("path.title.noType", { a = EndName(a), b = EndName(b) }, raw)
 end
 
+--- The name a path goes by in rows, menus, toasts and its map label: its own,
+--- its type's, else "No type".
+--- @param path RegionMapPathRecord
+--- @return string plain text
+function RegionMapPaths.ShownName(path)
+    local name = RegionMapPaths.DisplayName(path)
+    if name == "" then name = RegionMapCopy.T("path.type.none", nil, true) end
+    return name
+end
+
 --- The label on the map: name and time (F3, Q11).
 --- @param path RegionMapPathRecord
 --- @return string
 function RegionMapPaths.Label(path)
-    local name = RegionMapPaths.DisplayName(path)
-    if name == "" then name = RegionMapCopy.T("path.type.none", nil, true) end
-    return T("path.label", { path = name, time = FormatTime(path.time) })
+    return T("path.label", { path = RegionMapPaths.ShownName(path), time = FormatTime(path.time) })
 end
 
 --- The travel time each way, for the read panel (W2).
