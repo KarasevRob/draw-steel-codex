@@ -335,7 +335,7 @@ function RegionMapImport.Create(ctx)
         layer:SetClass("collapsed", false)
         -- Start at the top (1 = top); again once the new lines have laid out.
         scroll.vscrollPosition = 1
-        dmhub.Schedule(0.05, function()
+        dmhub.Schedule(C.afterLayoutDelay, function()
             if not mod.unloaded and scroll.valid then scroll.vscrollPosition = 1 end
         end)
         ctx.RefreshAll()

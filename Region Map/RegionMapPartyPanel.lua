@@ -20,10 +20,7 @@ local Copy = RegionMapCopy
 
 local SetText = Session.SetText
 local T = Copy.T
-
-local function Label(classes, text)
-    return gui.Label { classes = classes, text = text or "", interactable = false }
-end
+local Label = Session.Label
 
 local function NameOf(id)
     local location = Model.GetLocation(id)
@@ -353,9 +350,7 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
         Fill(path, Travel.StopFrom(path))
         layer:SetClass("collapsed", false)
         ctx.RefreshAll()
-        dmhub.Schedule(0.05, function()
-            if not mod.unloaded and input.valid and not layer:HasClass("collapsed") then gui.SetFocus(input) end
-        end)
+        Session.FocusSoon(input, function() return not layer:HasClass("collapsed") end)
     end
     layer.data.close = Close
     return layer
