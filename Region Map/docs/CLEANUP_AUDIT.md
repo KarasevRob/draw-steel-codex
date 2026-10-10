@@ -49,8 +49,8 @@ These change behavior, so each needs a decision rather than a silent refactor.
 | B3 | Import rejects a name with a line break inside it; a typed name folds the break into a space. The comment says "the same rules as a typed edit apply" | Import:58, 71-72 vs Records:247-253, 271-273 | Confirmed |
 | B4 | The Travel to list sorts by raw `DisplayName` (case-sensitive); every other Location list uses the folded name key | Travel:169-173 | Confirmed |
 | B5 | Every log row's "..." button has the same element id `region-map-log-more` | LogPanel:205 | Confirmed |
-| B6 | The first route draw assigns `route.children` once per new dot (up to `C.routeDotLimit` = 600) | CanvasTools:403-407, 442 | Confirmed (performance) |
-| B7 | `Session.ReduceMotion()` deep-copies all preferences (every camera included) on every canvas think | Session:100-103, Canvas:1247 | Confirmed; cost not measured |
+| B6 | The first route draw assigns `route.children` once per new dot (up to `C.routeDotLimit` = 600) | CanvasTools:403-407, 442 | Fixed in T1c (`2ce9f51`) |
+| B7 | `Session.ReduceMotion()` deep-copies all preferences (every camera included) on every canvas think | Session:100-103, Canvas:1247 | Fixed in T1d (`3d3d4b5`); cost was never measured |
 | B8 | A log note being typed may be lost when the whole window closes: the root `destroy` flushes only the Location and path forms | Panel:109-112, 858-859 | Not confirmed: depends on whether the engine fires the editor's `change` on destroy |
 | B9 | `keepVisible` gets the raw side panel width while the camera clamp uses `panelInset`, which is 0 below 720 px | Panel:226 vs 641-644 | Reported by lane 2, not re-checked |
 | B10 | Import creates Locations in a loop; each write invalidates the index, so each `CanAdd` rebuilds it | Import:238-259 | Reported by lane 1, not re-checked (performance) |
@@ -169,4 +169,46 @@ the others kept helpers in Records and Session. Existing files win on registrati
 
 ## 9. Tier 1 status
 
-In progress on `region-map-v2`.
+Done on `region-map-v2`, one commit per item. Lua: 22 files, +443 / -516 (73 lines net).
+The line count is modest by design; the gain is one owner for each piece. The larger
+savings are in Tier 2.
+
+| Item | Commit | What changed |
+|---|---|---|
+| 1a | `b0617fd` | Dead code removed as listed. `atlas.new`, `atlas.new.hint` and `search.result.path` are struck through in `V2_COPY.md` under its "dropped" convention |
+| 1b | `ce63e22` | `Session.Label`, `Button`, `Segments`, `TextArea`, `FocusSoon`, `SetClassIf`; `C.afterLayoutDelay` names the 0.05 s wait. `Button` keeps the log's `disabled` guard (only the log's Undo button ever has that class) |
+| 1c | `2ce9f51` | `CanvasTools.ClipSegment` (unrolled: no tables per call) and `CanvasTools.Pool`, used by the path layer, the route dots and the type samples |
+| 1d | `3d3d4b5` | Preference getters read without copying; `OnOffPreference` builds the three on/off pairs |
+| 1e | `417f261` | One ordered list per value set in Constants; `Records.SetOf` builds the checks; editors read the lists |
+| 1f | `4333cba` | `Paths.OtherEnd`, `Paths.ShownName`, `Paths.TimeInputText` / `ParseTime`, `Model.NameOf`, nil-safe `Model.DisplayName`, `Log.LegCopy` |
+| 1g | `acc824f` | Casing colours, chrome inset / bar / breadcrumb heights and `C.belowChromeBar`, Atlas thumbnail height, save recheck and undo timings |
+
+How it was checked (no DMHub available):
+
+- `luac -p` (Lua 5.4.6) on every file after every step, the ASCII-only rule, and a diff of
+  the globals each file reads (from the bytecode) against the starting point: every change
+  in that list is explained (a helper moved in or out), and no file reads an undefined
+  name.
+- Load order, from the bytecode: every namespace a file reads while loading belongs to a
+  file earlier in README section 2.
+- `ClipSegment`: the unrolled version against the original on 2,000,000 random segments
+  (vertical, horizontal and zero-length included): identical results and return counts.
+  In plain Lua 5.4 it is 0.20 us a call against 0.72 us; at about 2,000 calls per re-place
+  that is around 1 ms of a 23-34 ms re-layout, so a small win.
+- `Pool` for the route dots: the old and new route code run side by side on mock panels,
+  2,000 trials of 12 passes: identical layer contents, visibility and placement. A first
+  draw of 600 dots sets the layer's children once instead of 600 times.
+- On/off preferences and the value sets: checked in plain Lua against the old literals
+  and orders.
+- Styles: `RegionMapStyles.Build()` built in plain Lua before and after 1g: the 198 rules
+  are identical, and every changed constant keeps its value.
+
+Not covered by those checks, so test in the app: the side panel and path panel forms
+(type, pause, leave a field, Retry), segment rows (Location edit, path edit, Settings), the
+Undo last change button disabled with nothing to undo, the stop card's time field, the
+travel toast and log lines for a whole leg, an "on" leg and a "back" leg, Show route on a
+long log, and the type samples in Settings and the path panel.
+
+Left from 1g on purpose: the banners' 48 and the Atlas's 44 (their gaps under the
+breadcrumb differ, so the intent is unclear) and the `height - 114` / `height - 220`
+offsets in Popovers and Import.

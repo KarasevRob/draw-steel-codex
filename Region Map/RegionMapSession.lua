@@ -325,9 +325,7 @@ function RegionMapSession.ModeChoice(onPick)
     local children = {}
     for _, mode in ipairs(C.modes) do children[#children + 1] = ModeButton(mode) end
     children[#children + 1] = gui.Label { classes = { "regionMapModeNote" }, text = T("mode.permanent"), interactable = false }
-    local choice = gui.Panel { classes = { "regionMapModeChoice" } }
-    choice.children = children
-    return choice
+    return gui.Panel { classes = { "regionMapModeChoice" }, children = children }
 end
 
 --- Set a label's text only when it changed (avoids relayout).
