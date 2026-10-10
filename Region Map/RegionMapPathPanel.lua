@@ -400,7 +400,7 @@ function RegionMapPathPanel.Create(ctx)
 
     -- Edit view (V21-13) ---------------------------------------------------------------------------
 
-    local visibilitySegments = Segments({ "hidden", "revealed" }, "edit.visibility.", function(value)
+    local visibilitySegments = Segments(C.visibilities, "edit.visibility.", function(value)
         local path = Current()
         if path ~= nil and path.visibility ~= value then SetVisibility(ctx, path, value) end
     end)
@@ -456,7 +456,7 @@ function RegionMapPathPanel.Create(ctx)
     local timeInput = TimeInput("time")
     local timeUnit = Label({ "regionMapBody", "regionMapTimeUnit" })
     local timeError = Label({ "regionMapHint", "danger" }, T("edit.path.timeRange"))
-    local backSegments = Segments({ "same", "different", "none" }, "edit.path.back.", function(value)
+    local backSegments = Segments(C.pathBacks, "edit.path.back.", function(value)
         local path = Current()
         if path ~= nil and path.back ~= value then Write({ back = value }, "Change path direction") end
     end)

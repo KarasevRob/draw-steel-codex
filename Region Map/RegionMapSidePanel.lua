@@ -465,7 +465,7 @@ function RegionMapSidePanel.Create(ctx)
     end
 
     local visibilityLabel = Label({ "regionMapFormLabel" }, T("edit.visibility"))
-    local visibilitySegments = Segments({ "hidden", "revealed" }, "edit.visibility.", function(value)
+    local visibilitySegments = Segments(C.visibilities, "edit.visibility.", function(value)
         local location = Current()
         if location ~= nil and location.visibility ~= value then SetVisibility(ctx, location, value) end
     end)
@@ -521,10 +521,10 @@ function RegionMapSidePanel.Create(ctx)
             Button(T("edit.icon.clear"), function() UpdateField({ icon = "" }, "Change location icon") end),
         },
     }
-    local styleSegments = Segments({ "iconName", "plate", "iconOnly" }, "edit.style.", function(value)
+    local styleSegments = Segments(C.pinStyles, "edit.style.", function(value)
         UpdateField({ pinStyle = value }, "Change pin style")
     end)
-    local importanceSegments = Segments({ "major", "normal", "minor" }, "edit.importance.", function(value)
+    local importanceSegments = Segments(C.importances, "edit.importance.", function(value)
         UpdateField({ importance = value }, "Change location importance")
     end)
     pinFields.children = {
