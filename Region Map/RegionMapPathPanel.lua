@@ -31,31 +31,7 @@ local function SetVisibility(ctx, path, visibility)
     end
 end
 
--- Travel times are stored in watches and typed in the game's unit (C9).
-local function UnitFactor()
-    return Paths.TimeUnit() == "days" and C.watchesPerDay or 1
-end
-
--- A stored time as the number the form shows: at most two decimals, no trailing zeros.
-local function TimeInputText(watches)
-    local text = string.format("%.2f", watches / UnitFactor())
-    text = text:gsub("0+$", ""):gsub("%.$", "")
-    return text
-end
-
--- A typed time in watches, or nil when it is no valid time. Accepts a decimal
--- comma; kept to a tenth of a watch, the finest the time wording shows.
-local function ParseTime(text)
-    local value = tonumber((tostring(text or ""):gsub(",", ".")))
-    if not RegionMapRecords.IsFinite(value) or value < 0 then return nil end
-    local watches = math.floor(value * UnitFactor() * 10 + 0.5) / 10
-    if not RegionMapRecords.ValidTime(watches) then return nil end
-    return watches
-end
-
--- The stop card types its time the same way.
-RegionMapPathPanel.TimeInputText = TimeInputText
-RegionMapPathPanel.ParseTime = ParseTime
+local TimeInputText, ParseTime = Paths.TimeInputText, Paths.ParseTime
 
 --- Whether a Location can be joined to another by Connect to... now: the
 --- Director, a pin on the open point crawl map, with another pin beside it (E1).
@@ -80,9 +56,9 @@ function RegionMapPathPanel.MenuEntries(ctx, id)
     local function Add(copyId, action) entries[#entries + 1] = { text = T(copyId), click = action } end
     -- Stopping the Party partway goes first: it is the in-play action (G3, Q4).
     if path.mapId == ctx.data.mapId and RegionMapTravel.CanStopOn(path) then
-        local name = Paths.DisplayName(path)
-        if name == "" then name = T("path.type.none", nil, true) end
-        entries[#entries + 1] = { text = T("ctx.path.place", { path = name }), click = function() ctx.StopOnPath(path.id) end }
+        entries[#entries + 1] = {
+            text = T("ctx.path.place", { path = Paths.ShownName(path) }), click = function() ctx.StopOnPath(path.id) end,
+        }
     end
     if path.mapId == ctx.data.mapId then
         Add("menu.redraw", function() RegionMapPathTool.StartRedraw(ctx, path.id) end)
@@ -115,7 +91,7 @@ local function TimeFrom(path, locationId)
     local a, b = Paths.Ends(path)
     return T("path.time.oneWay", {
         time = Paths.FormatTime(path.time),
-        a = a ~= nil and Model.DisplayName(a) or "", b = b ~= nil and Model.DisplayName(b) or "",
+        a = Model.DisplayName(a), b = Model.DisplayName(b),
     }, true)
 end
 
@@ -160,11 +136,9 @@ function RegionMapPathPanel.PathsSection(ctx)
         connectRow:SetClass("collapsed", not RegionMapPathPanel.CanConnect(ctx, location))
         local items = {} --- @type {id: string, dest: string, text: string, hidden: boolean}[]
         for _, path in ipairs(Paths.PathsOf(location.id)) do
-            local otherId = path.aId == location.id and path.bId or path.aId
-            local other = Model.GetLocation(otherId)
+            local other = Model.GetLocation(Paths.OtherEnd(path, location.id))
             if other ~= nil then
-                local name = Paths.DisplayName(path)
-                if name == "" then name = T("path.type.none", nil, true) end
+                local name = Paths.ShownName(path)
                 local dest = Model.DisplayName(other)
                 items[#items + 1] = {
                     id = path.id, dest = dest, hidden = path.visibility == "hidden",
@@ -356,8 +330,8 @@ function RegionMapPathPanel.Create(ctx)
     local function BindRead(path)
         local director = Model.IsDirector()
         local a, b = Paths.Ends(path)
-        local aName = a ~= nil and Model.DisplayName(a) or ""
-        local bName = b ~= nil and Model.DisplayName(b) or ""
+        local aName = Model.DisplayName(a)
+        local bName = Model.DisplayName(b)
 
         local item = Paths.TypeById(path.typeId)
         sample.data.set(RegionMapPathLayer.LookOfType(item))
@@ -566,7 +540,7 @@ function RegionMapPathPanel.Create(ctx)
         backSegments.data.select(path.back)
         backTimeFields:SetClass("collapsed", path.back ~= "different")
         local _, b = Paths.Ends(path)
-        SetText(backTimeLabel, T("edit.path.backTime", { b = b ~= nil and Model.DisplayName(b) or "" }))
+        SetText(backTimeLabel, T("edit.path.backTime", { b = Model.DisplayName(b) }))
         SetInput(backTimeInput, "backTime", TimeInputText(path.backTime))
         SetText(backTimeUnit, unit)
         backTimeError:SetClass("collapsed", not badTime.backTime)

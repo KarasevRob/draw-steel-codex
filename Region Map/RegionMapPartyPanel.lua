@@ -22,17 +22,8 @@ local SetText = Session.SetText
 local T = Copy.T
 local Label = Session.Label
 
-local function NameOf(id)
-    local location = Model.GetLocation(id)
-    return location ~= nil and Model.DisplayName(location) or ""
-end
-
--- A path's name in a travel row: its own, its type's, else "No type" (as in the Paths section).
-local function PathLabel(path)
-    local name = Paths.DisplayName(path)
-    if name == "" then name = T("path.type.none", nil, true) end
-    return name
-end
+local NameOf = Model.NameOf
+local PathLabel = Paths.ShownName
 
 --- Travel one option. A hidden path asks the Director first whether to reveal
 --- it (W1). The toast names the leg the way the log does (Q19).
@@ -47,15 +38,11 @@ function RegionMapPartyPanel.Travel(ctx, option)
         local pathName = Paths.DisplayName(current)
         local ok, reason, entry = Travel.Travel(option, reveal)
         if not ctx.Report(ok, reason) then return end
-        local args = {
-            party = Model.PartyName(), from = NameOf(option.fromId), to = NameOf(option.toId),
-            by = pathName ~= "" and T("leg.by", { path = pathName }, true) or "",
-            time = Paths.FormatTime(option.time),
-        }
         -- From partway "from" would name an end the Party never left from, so the toast
         -- reads like the log line: "Traveled on to ..." or "Turned back to ...".
-        local copyId = "toast.traveled"
-        if option.rest == "on" then copyId = "log.leg.on" elseif option.rest == "back" then copyId = "log.leg.back" end
+        local copyId, args = RegionMapLog.LegCopy(option.rest, NameOf(option.fromId), NameOf(option.toId), pathName,
+            option.time, "toast.traveled")
+        args.party = Model.PartyName()
         ctx.Push(entry, copyId, args)
         ctx.RefreshAll()
     end
@@ -277,11 +264,11 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
     local function Fill(path, fromId)
         state.pathId, state.fromId = path.id, fromId
         local total = Travel.Duration(path, fromId) or 0
-        local other = path.aId == fromId and path.bId or path.aId
+        local other = Paths.OtherEnd(path, fromId)
         SetText(title, T("dlg.stop.title", { party = Model.PartyName(), path = PathLabel(path) }))
         SetText(fieldLabel, T("dlg.stop.field", { name = NameOf(fromId) }))
         SetText(of, T("dlg.stop.of", { time = Paths.FormatTime(total) }))
-        input.text = RegionMapPathPanel.TimeInputText(total / 2)
+        input.text = Paths.TimeInputText(total / 2)
         SetText(errorLine, T("dlg.stop.range", { time = Paths.FormatTime(total) }))
         errorLine:SetClass("collapsed", true)
         -- Counting from the far end only makes sense when that way has a time (W2).
@@ -298,7 +285,7 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
             return
         end
         local total = Travel.Duration(path, fromId) or 0
-        local spent = RegionMapPathPanel.ParseTime(input.text)
+        local spent = Paths.ParseTime(input.text)
         if spent == nil or spent <= 0 or spent >= total then
             errorLine:SetClass("collapsed", false)
             return
@@ -314,7 +301,7 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
         click = function()
             local path = Paths.Get(state.pathId)
             if path == nil or state.fromId == nil or mod.unloaded then return end
-            Fill(path, path.aId == state.fromId and path.bId or path.aId)
+            Fill(path, Paths.OtherEnd(path, state.fromId))
         end,
     }
 
