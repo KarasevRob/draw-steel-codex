@@ -31,8 +31,8 @@ local version = 0
 local timerGeneration = 0
 
 -- Seconds between timer ticks and between checks while an undo waits for its writes.
-local tick = 0.25
-local settleTimeout = 5
+local tick = C.undoTick
+local settleTimeout = C.undoSettleSeconds
 
 local function Changed()
     version = version + 1

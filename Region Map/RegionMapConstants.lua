@@ -84,7 +84,7 @@ RegionMapConstants.pathTypeLimit = 24                -- path types a game can ho
 RegionMapConstants.pathTypeIdLimit = 64
 -- Travel times are stored in watches (4 hours); the unit setting changes only the display (C9).
 RegionMapConstants.watchesPerDay = 6
-RegionMapConstants.pathTimeMax = 6 * 999             -- watches; a typo guard, not a game rule
+RegionMapConstants.pathTimeMax = RegionMapConstants.watchesPerDay * 999 -- watches; a typo guard, not a game rule
 RegionMapConstants.defaultTimeUnit = "days"
 RegionMapConstants.pathTimeUnits = { "days", "watches" }
 RegionMapConstants.pathBacks = { "same", "different", "none" } -- the other way: same time, its own time, not possible
@@ -100,7 +100,7 @@ RegionMapConstants.pathColors = {
 }
 -- Casing under every line (Q1): dark under light colours, light under Ink.
 RegionMapConstants.pathCasingDark = "#141416"
-RegionMapConstants.pathCasingLight = "#F2EDE1"
+RegionMapConstants.pathCasingLight = RegionMapConstants.pathColors.parchment
 RegionMapConstants.pathCasing = 1.5                  -- px each side
 RegionMapConstants.pathHalo = 4                      -- px each side of the casing, selected path (Q5)
 RegionMapConstants.pathBadgeSize = 16                -- eye-slash on hidden paths (Q12)
@@ -130,7 +130,7 @@ RegionMapConstants.starterPathTypes = {
 RegionMapConstants.pathPieceLimit = 2500
 -- Path editing (V21-11, V21-14).
 RegionMapConstants.firstPathType = "road"            -- the first path of a game: Road, 1 day (Q8)
-RegionMapConstants.firstPathTime = 6                 -- watches
+RegionMapConstants.firstPathTime = RegionMapConstants.watchesPerDay -- watches: 1 day
 -- A second path between the same two pins bows out by this share of its length, per path (Q9).
 RegionMapConstants.pathParallelOffset = 0.12
 RegionMapConstants.pathHandleSize = 10               -- bend handle disc, px (Q5)
@@ -201,6 +201,14 @@ RegionMapConstants.sidePanelWidth = 320
 RegionMapConstants.narrowWidth = 720                 -- below this the side panel takes the full width
 RegionMapConstants.atlasCardWidth = 200
 RegionMapConstants.atlasCardHeight = 168
+RegionMapConstants.atlasThumbHeight = 104            -- a card's image, and the New map card's image picker
+-- The toolbar (top right) and camera controls (bottom left) sit chromeInset from the
+-- window's edges; the side panel and popovers start below the toolbar, and toasts sit
+-- above the camera controls, the same gap away.
+RegionMapConstants.chromeInset = 8
+RegionMapConstants.chromeBarHeight = 38
+RegionMapConstants.breadcrumbHeight = 34
+RegionMapConstants.belowChromeBar = RegionMapConstants.chromeInset * 2 + RegionMapConstants.chromeBarHeight
 
 -- Timings (seconds)
 RegionMapConstants.canvasThinkActive = 0.02          -- pointer over the canvas, a drag, or a transition
@@ -208,6 +216,9 @@ RegionMapConstants.canvasThinkIdle = 0.25
 RegionMapConstants.rootThink = 0.1
 RegionMapConstants.refreshDelay = 0.05               -- coalesces bursts of table/document changes
 RegionMapConstants.cameraSaveDelay = 0.5
+RegionMapConstants.saveRecheckDelay = 0.5            -- an edit form still showing Saving... checks again after this
+RegionMapConstants.undoTick = 0.25                   -- the undo toast's timer, and polls while an undo waits for its writes
+RegionMapConstants.undoSettleSeconds = 5             -- an undo gives up waiting for its writes after this
 RegionMapConstants.presentTtl = 10
 RegionMapConstants.autosaveDelay = 1.5               -- side panel saves after this long without typing
 RegionMapConstants.busyRetryDelay = 0.3              -- Delete / Remove map wait this long while a save of the row is in flight

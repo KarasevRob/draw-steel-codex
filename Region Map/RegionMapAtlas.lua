@@ -136,7 +136,7 @@ function RegionMapAtlas.Create(ctx)
     end
 
     newPicker = gui.IconEditor {
-        width = "100%", height = 104, library = "journal", categoriesHidden = true,
+        width = "100%", height = C.atlasThumbHeight, library = "journal", categoriesHidden = true,
         -- A "none image" hides the editor's "(none)" label; it still reads back as "".
         noneImage = "panels/square.png",
         allowPaste = true, allowNone = true, hideIcon = true,
@@ -170,7 +170,7 @@ function RegionMapAtlas.Create(ctx)
         hover = gui.Tooltip(T("atlas.new.picker") .. "\n" .. ctx.ImageHint()),
         -- The plus floats over the picker and ignores the pointer, so clicks reach the picker.
         gui.Panel {
-            width = "100%", height = 104, halign = "left", valign = "top",
+            width = "100%", height = C.atlasThumbHeight, halign = "left", valign = "top",
             newPicker,
             gui.Panel {
                 floating = true, interactable = false, width = 32, height = 32,
