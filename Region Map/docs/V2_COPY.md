@@ -95,7 +95,7 @@ lookup table only.
 | status.at | {party} at {name} | Status chip |
 | status.traveling | {party} - traveling | Free on this map, or at a location the player cannot see (R3) |
 | status.elsewhere | {party} on {map} | Party is on another map; click goes there |
-| status.elsewhere.tooltip | Go to the Party | |
+| status.elsewhere.tooltip | Go to the Party | Since 2026-10-11 the tooltip of every status the chip shows except "not on a map": a click always takes the camera to the Party (key unchanged) |
 | status.none | {party} is not on a map | |
 | status.none.hint | Right-click a map to place the Party. | Tooltip, Director only |
 | banner.viewAs | Viewing as player - hidden locations are not shown | Director, View as player on (R9) |

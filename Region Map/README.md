@@ -138,6 +138,11 @@ are in [IDEAS.md](IDEAS.md).
   snap radius) and log it as placed.
 - If the path the Party is on is deleted, the Party moves to its nearer end; Undo puts both
   back.
+- **Movement:** after a leg or a stop, the Party banner walks the leg's line on every client
+  that has the map open (0.6-2 s, by on-screen length, eased; it steps off and onto the
+  pins' sides). It plays only for a leg logged in the last 5 s that the viewer may see the
+  line of, so a secret leg is still a jump for players. Undo, a placement or a drag jump as
+  before; grabbing the Party mid-walk ends the walk. Reduce motion turns it off.
 
 ### Party
 
@@ -148,6 +153,11 @@ are in [IDEAS.md](IDEAS.md).
   (anywhere on any map).
 - Settings (Director): Party name, Party image (or the default banner), "Players can move
   the Party", "Players can add locations".
+- The status chip (bottom right, "Party at Old Quarry") goes to the Party: it opens the
+  Party's map when it is on another one, then eases the camera onto the Party, zoomed in to
+  at least 2x and centered in the part of the map an open side panel leaves visible. On a
+  point crawl map it also opens the Party section, as before. Reduce motion makes the move
+  instant.
 
 ### Table tools
 
@@ -173,8 +183,8 @@ are in [IDEAS.md](IDEAS.md).
   someone else changed the same row since.
 - Camera: wheel zoom at the cursor (1x fit to 20x), left-drag on empty map, right or middle
   drag, arrow keys pan (Shift for coarse). Each viewer's camera, last map and Show names are
-  kept per user and game. Reduce motion (Settings) turns off the zoom, crossfade and the
-  camera control fade.
+  kept per user and game. Reduce motion (Settings) turns off the zoom, crossfade, the
+  camera control fade and the Party's walk along a leg.
 
 ## 2. Architecture
 
@@ -285,7 +295,28 @@ samples only show costs over 33 ms; with and without the test paths they matched
 | Hover hit test / label pass with Show names | 0.2 ms / ~1 ms |
 | Pieces by zoom, Fit to four steps in | 1401, 1639, 1963, 2329, then the 2500 cap (`C.pathPieceLimit`): past it a segment draws solid |
 
-How it stays cheap: pins and the Party sit on one layer that slides as a whole on pan;
+Optimization pass, measured 2026-10-11 the same way (250 pins, 160 paths, 513 log entries in
+memory), before and after:
+
+| Measure | Before | After |
+|---|---|---|
+| Refresh with nothing changed | ~20 ms | 0.8 ms |
+| Refresh after a data change | ~43 ms | ~28 ms |
+| All three caches rebuilt (Locations, paths, log) | 21 ms | 11 ms |
+| A token move, chat line or other game update | rebuilt all three caches | no rebuild |
+| Open the log | 700-830 ms in one frame (3168 panels) | 54 ms, then 40 rows a frame |
+| Refresh with the log open | rebuilt every row on any game update | 1 ms; a new entry builds one row |
+| Animated zoom (Fit, Go to Party) | every line piece placed each frame | placed once, when it lands |
+| Zoom step under Reduce motion | 24-38 ms | 22-30 ms |
+| Window build | 160-175 ms | 145-160 ms (Settings is built on first open) |
+
+How it stays cheap: one data revision (`RegionMapModel.Revision`) moves only when an Overland
+Map table changes (the engine's `tablesUpdateId`, this client's writes, or another client's
+change seen by the window), and the caches and the canvas, path and log signatures key on it;
+a refresh that finds the same inputs skips the pins, the lines, the route and the log rows;
+mid-zoom the line and route layers stretch as a whole and are placed for real once the zoom
+settles (`C.zoomSettleSeconds` after the last wheel notch); line pieces write only the style
+values that changed; pins and the Party sit on one layer that slides as a whole on pan;
 pin panels are reused across refreshes, keyed by Location id, and restyled only when they
 changed; name plates and badges are created only when shown; route dots are rebuilt only
 when the log changes, after a zoom or after a pan of more than half the view; the canvas

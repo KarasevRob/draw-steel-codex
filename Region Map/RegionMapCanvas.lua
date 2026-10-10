@@ -51,6 +51,24 @@ local ImageToPanel = Tools.ImageToPanel
 --- @field onDone nil|fun()
 --- @field noSave boolean true when the end view must not become the map's saved camera
 
+--- The Party banner walking the line of a leg or stop that was just logged.
+--- @class RegionMapPartyMove
+--- @field route RegionMapRoutePoint[] the entry's line in travel order, image units
+--- @field lengths number[] each segment's length in image pixels, so the walk keeps one speed
+--- @field total number
+--- @field start number dmhub.Time() when it began
+--- @field seconds number
+--- @field startOffset number px right of the line at the start (beside the pin it left)
+--- @field endOffset number px right of the line at the end (beside the pin it reaches)
+--- @field u number where the banner is drawn now
+--- @field v number
+--- @field offset number
+
+--- What the Party stood on, kept to tell which logged move explains a change.
+--- @class RegionMapPartySpot
+--- @field locationId nil|string
+--- @field pathId nil|string
+
 --- The canvas's own view state: what is loaded and what the pointer is doing.
 --- @class RegionMapCanvasState
 --- @field mapId nil|string the map whose image is loaded
@@ -78,6 +96,9 @@ local ImageToPanel = Tools.ImageToPanel
 --- @field pinsShown nil|boolean whether pins were last shown (nil forces an update)
 --- @field pinRef nil|RegionMapLayout the layout pins were last placed against
 --- @field pinsDirty boolean pins must be placed again on the next Layout
+--- @field pinInputs string what the pins were last bound from
+--- @field lastWheel number dmhub.Time() of the last wheel zoom step
+--- @field zoomMoving boolean the last Layout stretched the line layers mid-zoom
 --- @field layerX number the pin layer's offset from pinRef (the pan since then)
 --- @field layerY number
 --- @field border "none"|"fade"|"torn"|"frame" the open map's border
@@ -86,6 +107,13 @@ local ImageToPanel = Tools.ImageToPanel
 --- @field hoverX nil|number the pointer position the hover was last worked out for
 --- @field hoverY nil|number
 --- @field draftKey string what the drawn draft line was last placed for
+--- @field move nil|RegionMapPartyMove the banner walking a leg, drawn instead of its stored place
+--- @field partyKey string where the Party stands, to notice a change
+--- @field partyLook string where the banner was last placed and how it looked
+--- @field partyNow nil|RegionMapPartySpot
+--- @field partyBefore nil|RegionMapPartySpot where it stood before its latest change
+--- @field moveWatchUntil number dmhub.Time() until which a newly logged leg may still play
+--- @field movedIds table<string, boolean> log entries already played
 
 -- The icon of a pin: a curated key, a library image id, or the default glyph.
 local function PinIcon(location)
@@ -142,8 +170,9 @@ function RegionMapCanvas.Create(ctx)
         cameraDirty = false, cameraSaveScheduled = false,
         hovered = false, lastPointerX = nil, lastPointerY = nil, lastPointerMove = 0,
         keyEdges = {}, scale = 1,
-        pinRef = nil, pinsDirty = true, layerX = 0, layerY = 0,
+        pinRef = nil, pinsDirty = true, pinInputs = "", lastWheel = -math.huge, zoomMoving = false, layerX = 0, layerY = 0,
         border = "none", fadeShown = nil, hoverPathId = nil, hoverX = nil, hoverY = nil, draftKey = "",
+        move = nil, partyKey = "", partyLook = "", partyNow = nil, partyBefore = nil, moveWatchUntil = 0, movedIds = {},
     }
     local PathTool = RegionMapPathTool
 
@@ -316,6 +345,11 @@ function RegionMapCanvas.Create(ctx)
     local function BeginDrag(kind, id, u, v, allowed)
         local x, y = PointerInCanvas()
         if x == nil or y == nil or StopAnimation() then return end
+        -- Grabbing the Party mid-walk ends the walk where the Party really is.
+        if kind == "party" and state.move ~= nil then
+            state.move = nil
+            state.pinsDirty = true
+        end
         state.lastDrag = nil
         state.drag = {
             kind = kind, id = id, button = 0, startX = x, startY = y,
@@ -431,13 +465,14 @@ function RegionMapCanvas.Create(ctx)
 
     -- Restyling a pin costs engine work even when nothing changed, so a pin is
     -- rebound only when its row (revision), selection, size or badge changed.
+    -- Returns true when it did, so the pins are placed again.
     local function BindPin(pin, location)
         local canOpen = location.imageId ~= "" and Model.CanOpenMap(location)
         local selected = data.selectedId == location.id
         local signature = table.concat({
             tostring(location.revision), tostring(selected), tostring(state.scale), tostring(canOpen),
         }, ":")
-        if pin.data.signature == signature then return end
+        if pin.data.signature == signature then return false end
         pin.data.signature = signature
         local disc, hit = PinSize(location)
         local plateStyle = location.pinStyle == "plate"
@@ -485,11 +520,20 @@ function RegionMapCanvas.Create(ctx)
         PlaceBadge("mapBadge", canOpen, -inset)
         pin:SetClass("hiddenPin", location.visibility == "hidden")
         pin:SetClass("selected", selected)
+        return true
     end
 
     local function UpdatePins()
+        -- Every refresh comes here, and reading 250 rows costs ms even when none changed.
+        -- A pin's look depends only on these, so the same inputs mean the same pins.
+        local inputs = table.concat({ tostring(state.mapId), tostring(Model.Revision()), tostring(data.selectedId),
+            tostring(state.scale), tostring(Model.IsDirector()) }, "|")
+        if inputs == state.pinInputs then return end
+        state.pinInputs = inputs
         local desired = {}
         local children = {} --- @type Panel[]
+        -- Placing every pin again costs a few ms on a full map; only do it when one changed.
+        local changed = false
         if state.mapId ~= nil then
             for _, location in ipairs(Model.Children(state.mapId)) do
                 desired[location.id] = true
@@ -498,7 +542,7 @@ function RegionMapCanvas.Create(ctx)
                     pin = CreatePin(location.id)
                     pins[location.id] = pin
                 end
-                BindPin(pin, location)
+                if BindPin(pin, location) then changed = true end
                 children[#children + 1] = pin
             end
         end
@@ -506,6 +550,7 @@ function RegionMapCanvas.Create(ctx)
             if not desired[id] then
                 if pin.valid then pin:DestroySelf() end
                 pins[id] = nil
+                changed = true
             end
         end
         -- The Party is drawn above pins (D11a), so it goes last.
@@ -518,29 +563,115 @@ function RegionMapCanvas.Create(ctx)
         if not same then
             pinChildren = children
             pinLayer.children = children
+            changed = true
         end
-        state.pinsDirty = true
+        if changed then state.pinsDirty = true end
     end
 
     -- The Party --------------------------------------------------------------------------------
+
+    -- How far right of a pin the banner stands when the Party is at it (R3), in canvas px.
+    local function BesideOffset(locationId)
+        local pin = locationId ~= nil and pins[locationId] or nil
+        if pin == nil then return 0 end
+        local disc = (C.pinDisc[pin.data.importance] or C.pinDisc.normal) * state.scale
+        return disc / 2 + C.partySize * state.scale / 2 + 4
+    end
+
+    -- The newest leg or stop, when it is the move from where the Party stood
+    -- before to where it stands now, logged moments ago, and its line is one the
+    -- viewer may see (a secret leg stays a jump for players, W1).
+    local function LoggedMove(party)
+        local before = state.partyBefore
+        if before == nil or Session.ReduceMotion() or state.layout == nil or state.imageWidth == nil then return nil end
+        local entry = RegionMapLog.Entries()[1]
+        if entry == nil or state.movedIds[entry.id] or entry.mapId ~= party.mapId or #entry.route < 2 then return nil end
+        if entry.kind ~= "leg" and entry.kind ~= "stopped" then return nil end
+        if not RegionMapLog.ShowsPath(entry) then return nil end
+        if dmhub.serverTimeMilliseconds - RegionMapLog.Time(entry) > C.partyMoveFresh * 1000 then return nil end
+        local startsHere, endsHere
+        if entry.kind == "leg" then
+            -- A leg from partway (rest "on" or "back") sets out from the Party's spot on the path.
+            if entry.rest == "" then startsHere = before.locationId == entry.fromId else startsHere = before.pathId == entry.pathId end
+            endsHere = party.locationId == entry.toId
+        else
+            startsHere = before.locationId == entry.fromId
+            endsHere = party.pathId == entry.pathId
+        end
+        if not startsHere or not endsHere then return nil end
+        return entry
+    end
+
+    local function StartPartyMove(entry)
+        local route = entry.route
+        local width, height = state.imageWidth or 1, state.imageHeight or 1
+        local lengths, total = {}, 0
+        for i = 1, #route - 1 do
+            local a, b = route[i], route[i + 1]
+            lengths[i] = math.sqrt(((b.u - a.u) * width) ^ 2 + ((b.v - a.v) * height) ^ 2)
+            total = total + lengths[i]
+        end
+        state.movedIds[entry.id] = true
+        local layout = state.layout
+        if total <= 0 or layout == nil then return end
+        local seconds = Clamp(total * layout.width / width / C.partyMoveSpeed, C.partyMoveMinSeconds, C.partyMoveMaxSeconds)
+        -- A whole leg or a stop leaves from beside a pin; a leg from partway leaves from the line.
+        local startOffset = (entry.kind == "stopped" or entry.rest == "") and BesideOffset(entry.fromId) or 0
+        state.move = {
+            route = route, lengths = lengths, total = total, start = dmhub.Time(), seconds = seconds,
+            startOffset = startOffset, endOffset = entry.kind == "leg" and BesideOffset(entry.toId) or 0,
+            u = route[1].u, v = route[1].v, offset = startOffset,
+        }
+        canvas.thinkTime = C.canvasThinkActive
+    end
+
+    -- Notice where the Party moved and play the leg that moved it. The Party and
+    -- its log entry sync separately, so a leg arriving a moment after the Party
+    -- still plays (from where the Party stood before) while the watch is open.
+    local function WatchPartyMove(party)
+        local key = table.concat({ tostring(party.locationId), tostring(party.pathId), tostring(party.spent),
+            tostring(party.u), tostring(party.v) }, "|")
+        if key ~= state.partyKey then
+            state.partyKey = key
+            state.partyBefore = state.partyNow
+            state.partyNow = { locationId = party.locationId, pathId = party.pathId }
+            -- An undo or another move mid-walk ends the old walk.
+            state.move = nil
+            state.moveWatchUntil = dmhub.Time() + C.partyMoveFresh
+        end
+        if state.move ~= nil or dmhub.Time() > state.moveWatchUntil then return end
+        local entry = LoggedMove(party)
+        if entry ~= nil then StartPartyMove(entry) end
+    end
 
     local function UpdateParty()
         local party = Model.Party()
         local visible = party ~= nil and party.mapId == state.mapId
         partyPanel:SetClass("collapsed", not visible)
         partyPanel.data.party = visible and party or nil
-        if not visible then return end
-        local size = C.partySize * state.scale
-        partyPanel.selfStyle.width, partyPanel.selfStyle.height = size, size
-        partyPanel.data.disc.selfStyle.cornerRadius = size / 2
-        -- Layout picks the label's side (above or below) from where the Party stands.
-        partyPanel.data.labelAbove = nil
+        if not visible or party == nil then
+            state.move, state.partyKey, state.partyNow, state.partyBefore = nil, "", nil, nil
+            state.partyLook = ""
+            return
+        end
         Session.SetText(partyName, Copy.Literal(Model.PartyName()))
         local imageId = Model.PartyImageId()
-        local icon = imageId ~= "" and imageId or C.iconParty
-        if partyGlyph.bgimage ~= icon then partyGlyph.bgimage = icon end
-        partyGlyph:SetClass("image", imageId ~= "")
-        state.pinsDirty = true
+        -- Restyle and place the banner again only when where it stands or how it looks changed.
+        local look = table.concat({ tostring(party.u), tostring(party.v), tostring(party.locationId),
+            tostring(party.pathId), tostring(state.scale), imageId }, "|")
+        if look ~= state.partyLook then
+            state.partyLook = look
+            local size = C.partySize * state.scale
+            partyPanel.selfStyle.width, partyPanel.selfStyle.height = size, size
+            partyPanel.data.disc.selfStyle.cornerRadius = size / 2
+            -- Layout picks the label's side (above or below) from where the Party stands.
+            partyPanel.data.labelAbove = nil
+            local icon = imageId ~= "" and imageId or C.iconParty
+            if partyGlyph.bgimage ~= icon then partyGlyph.bgimage = icon end
+            partyGlyph:SetClass("image", imageId ~= "")
+            state.pinsDirty = true
+        end
+        WatchPartyMove(party)
     end
 
     partyGlyph = gui.Panel { classes = { "regionMapPartyGlyph" }, bgimage = C.iconParty, interactable = false }
@@ -636,21 +767,26 @@ function RegionMapCanvas.Create(ctx)
     local PlaceCentered = Tools.PlaceCentered
 
     -- Places the Party banner in the pin layer: at the drag preview while
-    -- dragged, else at its point, or beside its pin when it is at a Location.
+    -- dragged, along its leg while it walks one, else at its point, or beside
+    -- its pin when it is at a Location.
     local function PlaceParty(ref, drag)
         local party = partyPanel.data.party
         if party == nil then return end
         local x, y
         local besidePin = false
+        local move = state.move
         if drag ~= nil then
             x, y = ImageToPanel(ref, drag.previewU, drag.previewV)
+        elseif move ~= nil then
+            x, y = ImageToPanel(ref, move.u, move.v)
+            x = x + move.offset
+            -- The label keeps its side while walking, so it does not jump at the first step.
+            besidePin = partyPanel.data.labelAbove == true or (partyPanel.data.labelAbove == nil and move.startOffset > 0)
         else
             x, y = ImageToPanel(ref, party.u, party.v)
             -- At a Location the banner stands beside the pin, never on it (R3).
-            local pin = party.locationId ~= nil and pins[party.locationId] or nil
-            if pin ~= nil then
-                local disc = (C.pinDisc[pin.data.importance] or C.pinDisc.normal) * state.scale
-                x = x + disc / 2 + C.partySize * state.scale / 2 + 4
+            if party.locationId ~= nil and pins[party.locationId] ~= nil then
+                x = x + BesideOffset(party.locationId)
                 besidePin = true
             end
         end
@@ -678,8 +814,12 @@ function RegionMapCanvas.Create(ctx)
             state.pinsShown = layout ~= nil
             pinLayer:SetClass("regionMapWaiting", layout == nil)
         end
-        overlay.Layout(layout, state.imageWidth, state.imageHeight)
-        pathLayer.Layout(layout, state.scale)
+        -- While a zoom is in motion the line and route layers stretch instead of being
+        -- placed again; think places them for real once it settles (ZoomSettled).
+        local moving = state.anim ~= nil or dmhub.Time() - state.lastWheel < C.zoomSettleSeconds
+        state.zoomMoving = moving
+        overlay.Layout(layout, state.imageWidth, state.imageHeight, moving)
+        pathLayer.Layout(layout, state.scale, moving)
         local fadeShown = layout ~= nil and state.border == "fade"
         if state.fadeShown ~= fadeShown then
             state.fadeShown = fadeShown
@@ -890,7 +1030,8 @@ function RegionMapCanvas.Create(ctx)
 
     local function UpdateThinkRate(element)
         local active = state.hovered or element.hasFocus or state.drag ~= nil or state.anim ~= nil
-            or state.fadeStart ~= nil or (state.mapId ~= nil and state.layout == nil)
+            or state.move ~= nil or state.fadeStart ~= nil or (state.mapId ~= nil and state.layout == nil)
+            or state.zoomMoving
         local rate = active and C.canvasThinkActive or C.canvasThinkIdle
         if element.thinkTime ~= rate then element.thinkTime = rate end
     end
@@ -911,6 +1052,7 @@ function RegionMapCanvas.Create(ctx)
         if newLayout == nil then return end
         data.camera.centerX = beforeU + (layout.viewWidth * 0.5 - mouseX) / newLayout.width
         data.camera.centerY = beforeV + (layout.viewHeight * 0.5 - mouseY) / newLayout.height
+        state.lastWheel = dmhub.Time()
         Layout()
         SaveCamera()
     end
@@ -1041,11 +1183,51 @@ function RegionMapCanvas.Create(ctx)
         if anim == nil then return end
         local t = Clamp((dmhub.Time() - anim.start) / C.transitionSeconds, 0, 1)
         data.camera = LerpCamera(anim.from, anim.to, t)
+        -- The last frame lays out with the animation over, so the lines are placed for real.
+        if t >= 1 then state.anim = nil end
         Layout()
         if t >= 1 then
-            state.anim = nil
             if not anim.noSave then SaveCamera() end
             if anim.onDone ~= nil then anim.onDone() end
+        end
+    end
+
+    -- The wheel stopped a moment ago: place the stretched lines for real.
+    local function ZoomSettled()
+        if state.zoomMoving and state.anim == nil and dmhub.Time() - state.lastWheel >= C.zoomSettleSeconds then
+            Layout()
+        end
+    end
+
+    -- Walk the banner along its leg: eased in and out, at one speed along the line,
+    -- stepping off the pin it left and onto the side of the pin it reaches.
+    local function TickPartyMove()
+        local move = state.move
+        if move == nil then return end
+        local t = Clamp((dmhub.Time() - move.start) / move.seconds, 0, 1)
+        local e = t * t * (3 - 2 * t)
+        local goal, walked = e * move.total, 0
+        local last = move.route[#move.route]
+        local u, v = last.u, last.v
+        for i, length in ipairs(move.lengths) do
+            if length > 0 and walked + length >= goal then
+                local a, b = move.route[i], move.route[i + 1]
+                local f = (goal - walked) / length
+                u, v = a.u + (b.u - a.u) * f, a.v + (b.v - a.v) * f
+                break
+            end
+            walked = walked + length
+        end
+        local edge = C.partyMoveEdge
+        move.u, move.v = u, v
+        move.offset = move.startOffset * (1 - Clamp(e / edge, 0, 1)) + move.endOffset * Clamp((e - 1 + edge) / edge, 0, 1)
+        if t >= 1 then
+            -- Done: the banner goes back to being drawn from the stored Party.
+            state.move = nil
+            state.pinsDirty = true
+            Layout()
+        elseif state.pinRef ~= nil then
+            PlaceParty(state.pinRef, nil)
         end
     end
 
@@ -1206,6 +1388,8 @@ function RegionMapCanvas.Create(ctx)
             PollPathHover(mouseX, mouseY)
             UpdateDraft(mouseX, mouseY)
             TickAnimation()
+            ZoomSettled()
+            TickPartyMove()
             TickFade()
             TickControlsFade(mouseX, mouseY)
             UpdateThinkRate(element)
@@ -1226,6 +1410,9 @@ function RegionMapCanvas.Create(ctx)
             state.scale = Session.UIScale()
             state.showNames = Session.ShowNames()
             state.drag = nil
+            -- A leg never plays across a map change; the new map starts from where the Party is.
+            state.move, state.partyKey, state.partyNow, state.partyBefore = nil, "", nil, nil
+            state.partyLook, state.pinsDirty, state.pinInputs = "", true, ""
             local map = ctx.CurrentMap()
             if map == nil then
                 ClearMap()
@@ -1268,6 +1455,27 @@ function RegionMapCanvas.Create(ctx)
             data.camera.centerX, data.camera.centerY = location.u, location.v
             Layout()
             SaveCamera()
+        end,
+        -- The status chip's "go to the Party": ease the camera onto it, zoomed in at least
+        -- partyFocusZoom, centered in the part of the map an open side panel leaves visible.
+        -- Right after a map change the image is still loading, so the move waits for it.
+        centerOnParty = function()
+            local party = Model.Party()
+            if party == nil or party.mapId ~= state.mapId then return end
+            --- @type RegionMapCamera
+            local target = { zoom = math.max(data.camera.zoom, C.partyFocusZoom), centerX = party.u, centerY = party.v }
+            local layout = state.layout
+            if layout == nil or state.imageWidth == nil or state.imageHeight == nil then
+                state.animOnLoad = target
+                return
+            end
+            local inset = data.panelInset or 0
+            if inset > 0 then
+                local at = Tools.CalculateImageLayout(layout.viewWidth, layout.viewHeight,
+                    state.imageWidth --[[@as number]], state.imageHeight --[[@as number]], target, inset)
+                if at ~= nil and at.width > 0 then target.centerX = party.u + inset / 2 / at.width end
+            end
+            StartAnimation(target, nil)
         end,
         relayout = function() Layout() end,
         cancelGesture = function()

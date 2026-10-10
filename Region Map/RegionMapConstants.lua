@@ -39,6 +39,7 @@ RegionMapConstants.journalIdLimit = 512
 RegionMapConstants.maxRevision = 9007199254740991    -- largest integer a double holds exactly
 RegionMapConstants.maxDepth = 16                     -- deepest Location nesting; also stops cycle walks
 RegionMapConstants.logCap = 500                      -- newest session log entries kept per game (decision 8.1)
+RegionMapConstants.logRowsPerFrame = 40              -- log rows built per frame; a full log builds over several frames
 RegionMapConstants.undoDepth = 20                    -- undo entries kept per session
 
 -- Map image size guidance (V2.1 J1, brief W5): a newly picked image narrower or wider
@@ -159,11 +160,15 @@ RegionMapConstants.defaultPinIcon = "poi"            -- drawn when a Location ha
 RegionMapConstants.minZoom = 1
 RegionMapConstants.maxZoom = 20
 RegionMapConstants.zoomWheelStep = 1.15
+-- Wheel notches closer together than this are one zoom: the path and route lines
+-- stretch meanwhile and are placed again once, when the wheel rests this long.
+RegionMapConstants.zoomSettleSeconds = 0.15
 RegionMapConstants.zoomButtonStep = 1.25
 RegionMapConstants.panFine = 16                      -- arrow keys pan the camera
 RegionMapConstants.panCoarse = 64                    -- with Shift held
 RegionMapConstants.canvasDragThreshold = 4           -- screen px before a press becomes a drag
 RegionMapConstants.openZoom = 4                      -- how far the camera zooms into a pin before its map opens
+RegionMapConstants.partyFocusZoom = 2                -- the status chip zooms in at least this far, so going to the Party always shows a move
 
 -- Pins. Sizes are screen pixels at Font Size 100 and stay constant at every zoom.
 RegionMapConstants.pinDisc = { major = 36, normal = 28, minor = 24 }
@@ -202,6 +207,12 @@ RegionMapConstants.busyRetryDelay = 0.3              -- Delete / Remove map wait
 RegionMapConstants.busyRetries = 10                  -- then report Not saved
 RegionMapConstants.toastSeconds = 10                 -- paused while hovered (R9)
 RegionMapConstants.transitionSeconds = 0.3           -- zoom into a pin, then crossfade to its map
+-- The Party banner walking a leg or stop along its path's line (point crawl maps).
+RegionMapConstants.partyMoveSpeed = 450              -- screen px per second at the current zoom
+RegionMapConstants.partyMoveMinSeconds = 0.6         -- a short hop still reads as a move
+RegionMapConstants.partyMoveMaxSeconds = 2           -- a leg across the whole map never drags on
+RegionMapConstants.partyMoveEdge = 0.15              -- share of the walk spent stepping off / onto a pin's side
+RegionMapConstants.partyMoveFresh = 5                -- only legs logged this recently play; older ones (late join, reopen) do not
 RegionMapConstants.controlsFadeSeconds = 2           -- camera controls fade after this long without pointer movement
 
 -- Host window (icon-rail window or the mod's own floating window)

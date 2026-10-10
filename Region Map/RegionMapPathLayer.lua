@@ -50,7 +50,7 @@ local Tools = RegionMapCanvasTools
 --- @field layer Panel
 --- @field top Panel
 --- @field Bind fun(mapId: nil|string)
---- @field Layout fun(layout: nil|RegionMapLayout, scale: number)
+--- @field Layout fun(layout: nil|RegionMapLayout, scale: number, moving: nil|boolean) moving: a zoom is in motion (see Tools.Stretch)
 --- @field SetFocus fun(hoverId: nil|string, selectedId: nil|string, showNames: boolean)
 --- @field PathAt fun(layout: RegionMapLayout, x: number, y: number, scale: number): nil|string
 --- @field SetDraft fun(points: nil|{u: number, v: number}[], cursor: nil|{u: number, v: number}, look: nil|RegionMapPathLook) the start pin and bends so far, and the pointer
@@ -224,6 +224,7 @@ function RegionMapPathLayer.Create()
     local layerX, layerY = 0, 0
     local hoverId, selectedId, showNames = nil, nil, false
     local dirty = true
+    local stretched = false -- scaled mid-zoom (Tools.Stretch) rather than placed
     -- The top layer: the draft line, whose handles show, and a handle drag in progress.
     local draft = nil --- @type nil|{points: {u: number, v: number}[], cursor: nil|{u: number, v: number}, look: RegionMapPathLook}
     local handlesId = nil --- @type nil|string
@@ -233,16 +234,34 @@ function RegionMapPathLayer.Create()
 
     -- Pieces -----------------------------------------------------------------------------------------
 
+    -- An engine style write costs far more than a Lua compare, and placing the pieces
+    -- again after a zoom keeps most of their sizes, corners, colours and angles, so a
+    -- piece's style is written only where it changed. Pieces are styled only through Set.
+    local written = setmetatable({}, { __mode = "k" }) --- @type table<Panel, table<string, any>>
+    local function Set(panel, key, value)
+        local last = written[panel]
+        if last == nil then
+            last = {}
+            written[panel] = last
+        end
+        if last[key] ~= value then
+            last[key] = value
+            panel.selfStyle[key] = value
+        end
+    end
+
     -- A rotated bar from (x1,y1) to (x2,y2), `thickness` across, with round ends.
     -- Placed against `at`, or the layout the sliding layer was last placed against.
     local function Bar(panel, x1, y1, x2, y2, thickness, at)
         local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
-        local style = panel.selfStyle
-        style.width = math.max(thickness, length)
-        style.height = thickness
-        style.cornerRadius = thickness / 2
-        Tools.PlaceCentered(panel, (at or ref) --[[@as RegionMapLayout]], (x1 + x2) / 2, (y1 + y2) / 2)
-        style.rotate = length > 0 and -math.deg(math.atan(y2 - y1, x2 - x1)) or 0
+        local layout = (at or ref) --[[@as RegionMapLayout]]
+        Set(panel, "width", math.max(thickness, length))
+        Set(panel, "height", thickness)
+        Set(panel, "cornerRadius", thickness / 2)
+        -- As Tools.PlaceCentered: offsets from the canvas center.
+        Set(panel, "x", (x1 + x2) / 2 - layout.viewWidth * 0.5)
+        Set(panel, "y", (y1 + y2) / 2 - layout.viewHeight * 0.5)
+        Set(panel, "rotate", length > 0 and -math.deg(math.atan(y2 - y1, x2 - x1)) or 0)
     end
 
     -- One mark with its casing under it; the casing reaches casingWidth past every edge.
@@ -254,13 +273,13 @@ function RegionMapPathLayer.Create()
         if casingAcross ~= nil then
             local under = casings.Next()
             Bar(under, x1 - ux, y1 - uy, x2 + ux, y2 + uy, casingAcross + casing * 2)
-            under.selfStyle.bgcolor = entry.look.casing
+            Set(under, "bgcolor", entry.look.casing)
         end
         local mark = marks.Next()
         Bar(mark, x1 + (offsetX or 0), y1 + (offsetY or 0), x2 + (offsetX or 0), y2 + (offsetY or 0), thickness)
-        mark.selfStyle.bgcolor = entry.look.color
+        Set(mark, "bgcolor", entry.look.color)
         -- A hidden path fades its colour but keeps its casing at full strength (Q12).
-        mark.selfStyle.opacity = entry.hidden and C.pathHiddenOpacity or 1
+        Set(mark, "opacity", entry.hidden and C.pathHiddenOpacity or 1)
     end
 
     -- Draws the visible part [t0, t1] of one segment in the path's pattern.
@@ -395,28 +414,51 @@ function RegionMapPathLayer.Create()
         labels.Finish()
     end
 
+    -- The area pieces are placed in: on screen and half a view around it.
+    local function PlaceBounds(layout)
+        local marginX, marginY = layout.viewWidth / 2 + 40, layout.viewHeight / 2 + 40
+        return -marginX, -marginY, layout.viewWidth + marginX, layout.viewHeight + marginY
+    end
+
+    -- The selected path's halo has its own pool, so selecting a path redraws only the halo.
+    local function PlaceHalos()
+        halos.Begin()
+        local layout = ref
+        if layout ~= nil and selectedId ~= nil then
+            local scale = refScale
+            local x0, y0, x1, y1 = PlaceBounds(layout)
+            for _, entry in ipairs(drawn) do
+                if entry.id == selectedId then
+                    local across = Across(entry.look, scale)
+                    for i = 1, #entry.points - 1 do
+                        local ax, ay = Tools.ImageToPanel(layout, entry.points[i].u, entry.points[i].v)
+                        local bx, by = Tools.ImageToPanel(layout, entry.points[i + 1].u, entry.points[i + 1].v)
+                        local t0, t1 = ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
+                        if t0 ~= nil and t1 ~= nil then
+                            Bar(halos.Next(), ax + (bx - ax) * t0, ay + (by - ay) * t0, ax + (bx - ax) * t1,
+                                ay + (by - ay) * t1, across + (C.pathCasing + C.pathHalo) * scale * 2)
+                        end
+                    end
+                end
+            end
+        end
+        halos.Finish()
+    end
+
     -- Places every piece against layout; pieces lie on screen and half a view around it.
     local function Place(layout)
         ref = layout
-        halos.Begin()
         casings.Begin()
         marks.Begin()
         badges.Begin()
         local scale = refScale
-        local marginX, marginY = layout.viewWidth / 2 + 40, layout.viewHeight / 2 + 40
-        local x0, y0, x1, y1 = -marginX, -marginY, layout.viewWidth + marginX, layout.viewHeight + marginY
+        local x0, y0, x1, y1 = PlaceBounds(layout)
         for _, entry in ipairs(drawn) do
-            local across = Across(entry.look, scale)
             for i = 1, #entry.points - 1 do
                 local ax, ay = Tools.ImageToPanel(layout, entry.points[i].u, entry.points[i].v)
                 local bx, by = Tools.ImageToPanel(layout, entry.points[i + 1].u, entry.points[i + 1].v)
                 local t0, t1 = ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
                 if t0 ~= nil and t1 ~= nil then
-                    local sx, sy = ax + (bx - ax) * t0, ay + (by - ay) * t0
-                    local ex, ey = ax + (bx - ax) * t1, ay + (by - ay) * t1
-                    if entry.id == selectedId then
-                        Bar(halos.Next(), sx, sy, ex, ey, across + (C.pathCasing + C.pathHalo) * scale * 2)
-                    end
                     DrawSegment(entry, ax, ay, bx, by, t0, t1)
                     -- The eye-slash repeats on every segment of a hidden path (Q12).
                     if entry.hidden and t0 <= 0.5 and t1 >= 0.5 then
@@ -429,24 +471,34 @@ function RegionMapPathLayer.Create()
                 end
             end
         end
-        halos.Finish()
         casings.Finish()
         marks.Finish()
         badges.Finish()
+        PlaceHalos()
         PlaceLabels()
         layerX, layerY = 0, 0
         layer.selfStyle.x, layer.selfStyle.y = 0, 0
+        if stretched then
+            stretched = false
+            layer.selfStyle.scale = 1
+        end
         dirty = false
     end
 
     -- API ----------------------------------------------------------------------------------------------
 
+    local inputs = "" -- what the last Bind was built from
     local function Bind(mapId)
-        local list = {} --- @type RegionMapDrawnPath[]
         local parts = { tostring(Model.IsDirector()), Paths.TimeUnit() }
         for _, item in ipairs(Paths.Types()) do
             parts[#parts + 1] = table.concat({ item.id, item.name, item.pattern, item.color, item.width }, "|")
         end
+        -- Every refresh binds, and building the lines costs several ms on a full map;
+        -- the paths and the pins they join only change with the data revision.
+        local now = table.concat(parts, ",") .. "#" .. tostring(mapId) .. "#" .. tostring(Model.Revision())
+        if now == inputs then return end
+        inputs = now
+        local list = {} --- @type RegionMapDrawnPath[]
         if mapId ~= nil then
             for _, path in ipairs(Paths.Paths(mapId)) do
                 local a, b = Paths.Ends(path)
@@ -474,7 +526,7 @@ function RegionMapPathLayer.Create()
         end
     end
 
-    local function Layout(layout, scale)
+    local function Layout(layout, scale, moving)
         if layout == nil then
             ref = nil
             for _, pool in ipairs({ halos, casings, marks, badges, labels }) do
@@ -484,6 +536,19 @@ function RegionMapPathLayer.Create()
             return
         end
         local last = ref
+        -- Mid-zoom the pieces placed last stretch with the map; placing them all again
+        -- costs tens of ms on a full map, every frame of the zoom.
+        if moving and not dirty and last ~= nil and scale == refScale and last.viewWidth == layout.viewWidth
+            and last.viewHeight == layout.viewHeight and (last.width ~= layout.width or stretched)
+            and Tools.Stretch(layer, last, layout) then
+            stretched = true
+            layerX, layerY = -math.huge, -math.huge
+            return
+        end
+        if stretched then
+            stretched = false
+            layer.selfStyle.scale = 1
+        end
         if dirty or last == nil or scale ~= refScale or last.width ~= layout.width or last.height ~= layout.height
             or last.viewWidth ~= layout.viewWidth or last.viewHeight ~= layout.viewHeight
             or math.abs(layout.x - last.x) > layout.viewWidth / 2 or math.abs(layout.y - last.y) > layout.viewHeight / 2 then
@@ -501,7 +566,10 @@ function RegionMapPathLayer.Create()
     local function SetFocus(hover, selected, names)
         if selected ~= selectedId then
             hoverId, selectedId, showNames = hover, selected, names
-            dirty = true
+            if ref ~= nil and not dirty then
+                PlaceHalos()
+                PlaceLabels()
+            end
             return
         end
         if hover ~= hoverId or names ~= showNames then
@@ -536,12 +604,12 @@ function RegionMapPathLayer.Create()
             local a, b = points[i], points[i + 1]
             local under = draftCasings.Next()
             Bar(under, a.x, a.y, b.x, b.y, thickness + casing * 2, layout)
-            under.selfStyle.bgcolor = look.casing
+            Set(under, "bgcolor", look.casing)
             local mark = draftMarks.Next()
             Bar(mark, a.x, a.y, b.x, b.y, thickness, layout)
-            mark.selfStyle.bgcolor = look.color
+            Set(mark, "bgcolor", look.color)
             -- The last stretch follows the pointer and is not placed yet, so it reads lighter.
-            mark.selfStyle.opacity = b.loose and 0.6 or 1
+            Set(mark, "opacity", b.loose and 0.6 or 1)
         end
     end
 
@@ -664,8 +732,8 @@ function RegionMapPathLayer.Create()
         layer = layer,
         top = top,
         Bind = function(mapId) if not mod.unloaded then Bind(mapId) end end,
-        Layout = function(layout, scale)
-            Layout(layout, scale)
+        Layout = function(layout, scale, moving)
+            Layout(layout, scale, moving == true)
             PlaceTop(layout)
         end,
         SetFocus = SetFocus,
@@ -707,7 +775,12 @@ function RegionMapPathLayer.Sample(width)
         piece.selfStyle.bgcolor = color
         piece.selfStyle.opacity = opacity or 1
     end
+    local shown = nil --- @type nil|string the look last drawn
     panel.data.set = function(look)
+        -- Every bind of the lists that show samples calls this; redraw only a new look.
+        local key = table.concat({ look.pattern, look.color, look.casing, tostring(look.width) }, "|")
+        if key == shown then return end
+        shown = key
         local count = 0
         local function Add(x1, x2, y, thickness, color)
             count = count + 1
