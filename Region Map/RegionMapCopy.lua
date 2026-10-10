@@ -34,8 +34,6 @@ RegionMapCopy.strings = {
     ["atlas.card.notShared"] = "Not shared",
     ["atlas.card.count"] = "{count} locations",
     ["atlas.card.count.one"] = "{count} location",
-    ["atlas.new"] = "New map",
-    ["atlas.new.hint"] = "Choose an image to start a top-level map",
     ["atlas.new.picker"] = "Choose a map image",
     ["atlas.new.defaultName"] = "New map",
     ["atlas.empty.director.title"] = "No maps yet",
@@ -178,7 +176,6 @@ RegionMapCopy.strings = {
 
     -- 12. Search
     ["search.placeholder"] = "Search locations",
-    ["search.result.path"] = "{map} > {parent}",
     ["search.none"] = "No locations match \"{query}\".",
     ["search.hint"] = "Enter opens the top result.",
 
@@ -428,7 +425,7 @@ RegionMapCopy.months = {
 local missingReported = {} --- @type table<string, boolean>
 
 --- Escape rich-text markup so user text (a Location name, a player's name)
---- never renders as markup. Same rule as V1 RegionMapModel.LiteralText.
+--- never renders as markup.
 --- @param value any
 --- @return string
 function RegionMapCopy.Literal(value)

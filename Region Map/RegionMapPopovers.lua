@@ -127,7 +127,6 @@ local function BuildSearch(ctx)
             if not mod.unloaded and input.valid and ctx.data.popover == "search" then gui.SetFocus(input) end
         end)
     end
-    body.data.bind = function() end
     return body
 end
 

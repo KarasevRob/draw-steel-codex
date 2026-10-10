@@ -187,7 +187,7 @@ function RegionMapAtlas.Create(ctx)
         },
     }
     newCard = gui.Panel {
-        classes = { "regionMapCard", "regionMapCardNew" },
+        classes = { "regionMapCard" },
         data = { step = "mode", mode = nil },
         newModeStep,
         newImageStep,

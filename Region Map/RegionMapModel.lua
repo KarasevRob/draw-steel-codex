@@ -28,27 +28,12 @@ local ReadSidecar = R.ReadSidecar
 -- Utilities the UI shares with the model.
 RegionMapModel.Clamp = Clamp
 RegionMapModel.IsFinite = IsFinite
-RegionMapModel.IsPositiveInteger = R.IsPositiveInteger
 RegionMapModel.Field = Field
 RegionMapModel.TrimSingleLine = R.TrimSingleLine
-RegionMapModel.TextLength = R.TextLength
-RegionMapModel.ValidText = ValidText
-
---- Escape rich-text markup in user text before it reaches a label.
---- @param value any
---- @return string
-function RegionMapModel.LiteralText(value)
-    -- Escape each opening bracket separately, including literal closing noparse tags.
-    return (tostring(value or ""):gsub("<", "<noparse><</noparse>"))
-end
 
 --- @return string
 function RegionMapModel.StatePath()
     return StateDocument().path
-end
-
-local function CanCommit(guard)
-    return not mod.unloaded and (guard == nil or guard())
 end
 
 -- The Location tree --------------------------------------------------------------------------
@@ -556,15 +541,6 @@ local function NormalizeChanges(current, changes)
     return result
 end
 
---- How the last write of a Location from this client ended, for the side
---- panel's Saving / Saved / Not saved line. nil when there was none.
---- @param id string
---- @return nil|"pending"|"confirmed"|"failed"
-function RegionMapModel.WriteStatus(id)
-    local operation = R.LastWrite(C.locationTableName, id)
-    return operation and operation.status
-end
-
 --- @param description string
 --- @param steps RegionMapUndoStep[]
 --- @return RegionMapUndoEntry
@@ -578,13 +554,12 @@ end
 --- @param id string
 --- @param changes {name: nil|string, u: nil|number, v: nil|number, pinStyle: nil|string, importance: nil|string, icon: nil|string, visibility: nil|string, mapShared: nil|boolean, scale: nil|false|RegionMapScale, pace: nil|false|number, border: nil|string}
 --- @param description nil|string
---- @param guard nil|RegionMapGuard
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
-function RegionMapModel.UpdateLocation(id, changes, description, guard)
+function RegionMapModel.UpdateLocation(id, changes, description)
     local current = Raw(id)
-    if not CanCommit(guard) or current == nil then return false, "invalid", nil end
+    if mod.unloaded or current == nil then return false, "invalid", nil end
     if not CanEdit(current) then return false, "permission", nil end
     if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
     local normalized = NormalizeChanges(current, changes)
