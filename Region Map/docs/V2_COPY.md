@@ -360,7 +360,7 @@ New glossary rows:
 
 | ID | String | When / notes |
 |---|---|---|
-| image.hint | Best at {recommended} px wide. Under {min} px it blurs when zoomed in; over {max} px it loads slowly. | Always visible under the side panel image picker, and the Atlas New map card tooltip (J2). Numbers from J1 |
+| image.hint | Best at {recommended} px wide. Under {min} px it blurs when zoomed in; over {max} px it loads slowly. | Always visible under the side panel image picker, and the second line of the Atlas New map card tooltip under `atlas.new.picker` (J2). Numbers from J1 (W5): 1500 / 4000 / 12000 |
 | toast.image.small | This image is {width} x {height} px. Maps look best at {recommended} px wide; smaller images blur when zoomed in. | After picking; no Undo (J3) |
 | toast.image.large | This image is {width} x {height} px and may load slowly. {recommended} px wide is enough. | After picking; no Undo |
 | toast.replaceImage | Replace image... | Button on both size toasts (Q25) |
@@ -377,7 +377,7 @@ New glossary rows:
 
 | ID | String | When / notes |
 |---|---|---|
-| menu.import | Import locations... | Director; entry point confirmed at the start of the build (IM1) |
+| menu.import | Import locations... | Director; in the map right-click menu and the open map's "..." menu (IM7) |
 | import.picker | Choose a JSON file of locations | File dialog prompt |
 | import.title | Import locations | Preview and error card title |
 | import.summary | Import {count} locations into {map}? | `.one`: "Import 1 location into {map}?" |
@@ -536,3 +536,9 @@ Name, Description and Visibility reuse `edit.name`, `edit.desc`, `edit.desc.plac
    and flat "Travel to {dest} by {path} ({time})" entries if it does not.
 6. A Location with paths always confirms before Delete, Remove map or Move to map, and the
    confirm names the path count (B5).
+7. *Made while building P6; signed off by the user 2026-10-10.* Inside the "Travel to" submenu
+   each entry is `ctx.party.travel` without its leading "Travel to", which the submenu
+   already says: "Kell's Ferry by King's Road (2 days)".
+8. *Made while building P6; signed off by the user 2026-10-10.* Leaving from partway, the toast
+   is the log line (`log.leg.on`, `log.leg.back`) instead of `toast.traveled`, whose
+   "from {from}" would name an end the Party did not set out from on that leg.

@@ -1,6 +1,12 @@
 # Overland Map V2.1 - Design Brief
 
-Status: LOCKED 2026-10-08 by the user. Build per the ledger (sections 2, 2.1, 2.2) in the M5
+Status: BUILT 2026-10-10, except Torn edge and Frame (K9: they wait for the user's art) and
+the player-client checks (batched for a session the user sets up). What changed from this
+brief while building is in the build notes, [TECH_TASK_V2_1.md](../TECH_TASK_V2_1.md)
+section 8. All V2.1 copy is signed off, including the build-time choices V2_COPY.md 25.7
+and 25.8 (2026-10-10).
+
+LOCKED 2026-10-08 by the user. Build per the ledger (sections 2, 2.1, 2.2) in the M5
 order; changes from here are new ledger rows agreed with the user. Mockups:
 https://claude.ai/artifact/UieXXhuoYwRF4678XZp81U (private), accepted 2026-10-08 (N1); they
 predate the critique round, so where they differ the ledger wins. Section 3 is the map of
@@ -101,6 +107,8 @@ deferred), fog, planned multi-leg routes (3.1).
 | 2026-10-08 | N1 | Mockups accepted with no comments, including their draft copy and the details they added: line patterns Solid, Dashed, Dotted, Double, Dash-dot; a 6-colour palette (Parchment, Blue, Ochre, Violet, Rust, Ink); the starter types' looks; the Party right-click holding only "Travel to"; widths Thin, Normal, Thick | User review |
 | 2026-10-08 | N2 | A partway stop is logged as a placement: "Stopped on the King's Road, 1 day from Ashford" | User review (G4: placed, not travel) |
 | 2026-10-08 | N3 | Deleting a path type that paths use turns those paths into "No type" with a plain line; the confirm says how many paths use it; undo restores | Proposed with the mockups, no objection |
+| 2026-10-08 | IM7 | "Import locations..." sits in the Director's map right-click menu and in the open map's "..." menu in the side panel (settles open item IM1) | User, at the start of P3 |
+| 2026-10-08 | K9 | Torn edge and Frame are deferred until the user provides the art; they ship as dimmed tiles meanwhile | User, after P2 |
 
 ### 2.1 Critique round (M6, 2026-10-08)
 
@@ -248,10 +256,11 @@ time. Status is open unless the ledger settles it.
 
 Left to the build; each answer goes back into this brief before the slice that needs it ships.
 
-- K3. The image format the torn-edge mask and frame art must follow: written up for the user
-  before the border slice; Torn edge and Frame wait for the art.
-- IM1. Which menu holds "Import Locations...": chosen against the current toolbar and side
-  panel at build.
+- K3. **Deferred until the user provides the art (2026-10-08).** Torn edge and Frame (V21-04)
+  are not built. The art format is in [BORDER_ART.md](BORDER_ART.md). When the two images are
+  in the journal library, put their ids in `RegionMapConstants.borderTornMask` and
+  `borderFrameImage`, then build V21-04. Until then both tiles show dimmed with "Not
+  available yet". Soft fade and None are built and live.
 - B1, B2. The path table's exact name, record type and schema (including W2's other-way time
   and Q13's partway Party fields).
 - F4. Zoom declutter and a performance cap for paths, measured with a full 250-pin map.

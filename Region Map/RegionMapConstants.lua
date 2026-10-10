@@ -41,6 +41,93 @@ RegionMapConstants.maxDepth = 16                     -- deepest Location nesting
 RegionMapConstants.logCap = 500                      -- newest session log entries kept per game (decision 8.1)
 RegionMapConstants.undoDepth = 20                    -- undo entries kept per session
 
+-- Map image size guidance (V2.1 J1, brief W5): a newly picked image narrower or wider
+-- than this warns with a toast; nothing is blocked. Measured 2026-10-08 (TECH_TASK_V2_1).
+RegionMapConstants.imageMinWidth = 1500             -- narrower blurs as soon as it is zoomed in
+RegionMapConstants.imageRecommendedWidth = 4000     -- shown in the hint and the warnings
+RegionMapConstants.imageMaxWidth = 12000            -- wider loads slowly for players
+
+-- Map borders (V2.1 K1), in the order of the Settings tiles. A new map takes the
+-- border the Director picked last, Soft fade before any pick (K5, K8).
+RegionMapConstants.borders = { "none", "fade", "torn", "frame" }
+RegionMapConstants.defaultBorder = "fade"
+-- Library image ids of the border art (docs/BORDER_ART.md). While "" the tile is disabled.
+RegionMapConstants.borderTornMask = ""
+RegionMapConstants.borderFrameImage = ""
+-- JSON import (V2.1 idea 9). Locations without a position are set out in a grid with
+-- columns this far apart (share of the map's width) and rows closer, since a pin with its
+-- name is wider than tall. Rows are created importBatch at a time, each batch waiting
+-- for the server; a batch that has not answered in importWait seconds fails.
+RegionMapConstants.importSpacing = 0.11
+RegionMapConstants.importRowShare = 0.45            -- row gap / column gap, on screen
+RegionMapConstants.importBatch = 10
+RegionMapConstants.importWait = 20
+
+-- The soft fade band: this share of the image's shorter side on screen, at most fadeMaxWidth px.
+RegionMapConstants.fadeShare = 0.06
+RegionMapConstants.fadeMaxWidth = 72
+
+-- Point crawl (V2.1 7.2/7.3). A map's mode is set when it is made and never changes (A4).
+RegionMapConstants.modes = { "free", "pointcrawl" }
+RegionMapConstants.pathTableName = "RegionMapPaths"   -- persisted; never rename
+RegionMapConstants.pathSchemaVersion = 1
+RegionMapConstants.pathBendLimit = 32
+RegionMapConstants.pathTypeLimit = 24                -- path types a game can hold
+RegionMapConstants.pathTypeIdLimit = 64
+-- Travel times are stored in watches (4 hours); the unit setting changes only the display (C9).
+RegionMapConstants.watchesPerDay = 6
+RegionMapConstants.pathTimeMax = 6 * 999             -- watches; a typo guard, not a game rule
+RegionMapConstants.defaultTimeUnit = "days"
+RegionMapConstants.pathTimeUnits = { "days", "watches" }
+-- Line looks (N1, Q3). Patterns and widths are drawn in screen pixels, the same at every zoom (Q2).
+RegionMapConstants.pathPatterns = { "solid", "dashed", "dotted", "double", "dashDot", "longDash" }
+RegionMapConstants.pathWidthOrder = { "thin", "normal", "thick" }
+RegionMapConstants.pathWidths = { thin = 2, normal = 3, thick = 4 }
+-- The path colours are map ink, not UI chrome, so they stay the same in every theme.
+RegionMapConstants.pathColorOrder = { "parchment", "blue", "ochre", "violet", "rust", "ink" }
+RegionMapConstants.pathColors = {
+    parchment = "#F2EDE1", blue = "#6FA8DC", ochre = "#C9A06A",
+    violet = "#B48EAD", rust = "#D08770", ink = "#1A1A1E",
+}
+-- Casing under every line (Q1): dark under light colours, light under Ink.
+RegionMapConstants.pathCasingDark = "#141416"
+RegionMapConstants.pathCasingLight = "#F2EDE1"
+RegionMapConstants.pathCasing = 1.5                  -- px each side
+RegionMapConstants.pathHalo = 4                      -- px each side of the casing, selected path (Q5)
+RegionMapConstants.pathBadgeSize = 16                -- eye-slash on hidden paths (Q12)
+-- A hidden path's line fades to this; 0.6 keeps every colour at 3:1 or more against its
+-- casing (measured, V21-18). The eye-slash badge, not the fade, says "hidden".
+RegionMapConstants.pathHiddenOpacity = 0.6
+-- Path labels (Q11). With Show names on, a label shows only where it fits: its line
+-- on screen is at least labelFit of its width, and it clears pins and other labels.
+-- Widths are estimated (charWidth em per character) so no frame waits on a measure.
+RegionMapConstants.pathLabelSize = 13
+RegionMapConstants.pathLabelCharWidth = 0.52
+RegionMapConstants.pathLabelPad = 8                  -- px each side; matches the style's hpad
+RegionMapConstants.pathLabelFit = 0.8
+RegionMapConstants.pathLabelGap = 4                  -- px kept clear around a label
+-- Starter types (C4, N1, Q3): every pattern differs, so no two tell apart by colour alone.
+RegionMapConstants.starterPathTypes = {
+    { id = "road", pattern = "solid", color = "parchment", width = "thick" },
+    { id = "trail", pattern = "dashed", color = "parchment", width = "normal" },
+    { id = "river", pattern = "double", color = "blue", width = "normal" },
+    { id = "sea", pattern = "dashDot", color = "blue", width = "normal" },
+    { id = "underground", pattern = "dotted", color = "ochre", width = "thick" },
+    { id = "secret", pattern = "longDash", color = "violet", width = "thin" },
+}
+-- Line pieces (marks and casings) placed at once; past it a segment draws as one solid bar.
+-- F4, measured 2026-10-10 with 250 pins and 315 segments: 1401 pieces at fit, 2329 three
+-- zoom steps in, the cap reached only at the deepest zoom. A re-place of ~2300 costs ~30 ms.
+RegionMapConstants.pathPieceLimit = 2500
+-- Path editing (V21-11, V21-14).
+RegionMapConstants.firstPathType = "road"            -- the first path of a game: Road, 1 day (Q8)
+RegionMapConstants.firstPathTime = 6                 -- watches
+-- A second path between the same two pins bows out by this share of its length, per path (Q9).
+RegionMapConstants.pathParallelOffset = 0.12
+RegionMapConstants.pathHandleSize = 10               -- bend handle disc, px (Q5)
+RegionMapConstants.pathHandleHit = 24                -- its hit area, px
+RegionMapConstants.pathPlusSize = 14                 -- the "+" at a segment's middle that adds a bend
+
 -- Curated pin icons (D5d): key -> Phosphor mask, tinted by style rules.
 -- Verified live 2026-10-06 (every path loads a 256 px sprite).
 RegionMapConstants.pinIcons = {
@@ -158,3 +245,4 @@ RegionMapConstants.iconLog = "phosphor/scroll.png"
 RegionMapConstants.iconExpand = "phosphor/corners-out.png"
 RegionMapConstants.iconRestore = "phosphor/corners-in.png"
 RegionMapConstants.iconSettings = "phosphor/gear-six.png"
+RegionMapConstants.iconPath = "phosphor/path.png"

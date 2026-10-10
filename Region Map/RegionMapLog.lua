@@ -67,13 +67,35 @@ local function AllEntries()
     return list
 end
 
+local function IsPathEntry(entry)
+    return entry.kind == "leg" or entry.kind == "stopped"
+end
+
 -- Players see an entry only when they may open its map and see the Location
--- it names (a Hidden Location never shows up in their log or route).
+-- it names (a Hidden Location never shows up in their log or route). A leg or
+-- stop needs both ends of its path visible.
 local function CanSeeEntry(entry)
     if not Model.CanOpenMap(Model.GetLocation(entry.mapId)) then return false end
+    if IsPathEntry(entry) then
+        return Model.CanSeePin(Model.GetLocation(entry.fromId)) and Model.CanSeePin(Model.GetLocation(entry.toId))
+    end
     if entry.locationId == "" then return true end
     return Model.CanSeePin(Model.GetLocation(entry.locationId))
 end
+
+--- Whether the viewer may read a leg's or stop's path name and see its line
+--- (W1): never for players on a secret entry or a path hidden from them now.
+--- A path deleted since keeps the name it had.
+--- @param entry RegionMapLogEntryRecord
+--- @return boolean
+function RegionMapLog.ShowsPath(entry)
+    if not IsPathEntry(entry) then return true end
+    if Model.IsDirector() then return true end
+    if entry.secret then return false end
+    local path = RegionMapPaths.Index().byId[entry.pathId]
+    return path == nil or RegionMapPaths.CanSee(path)
+end
+local ShowsPath = RegionMapLog.ShowsPath
 
 --- The entries the viewer may see, newest first.
 --- @return RegionMapLogEntryRecord[]
@@ -105,7 +127,7 @@ function RegionMapLog.Route(mapId)
     local entries = RegionMapLog.Entries()
     for i = #entries, 1, -1 do
         local entry = entries[i]
-        if entry.mapId == mapId and #entry.route > 0 then legs[#legs + 1] = entry.route end
+        if entry.mapId == mapId and #entry.route > 0 and ShowsPath(entry) then legs[#legs + 1] = entry.route end
     end
     return legs
 end
@@ -183,6 +205,69 @@ function RegionMapLog.Record(before, after, placed)
         note = "", hidden = false,
         at = by.at, byId = by.byId, byName = by.byName, byDirector = by.byDirector,
     }, "Log Party move")
+end
+
+--- The newest entry, unfiltered; nil when its write is still in flight, since
+--- a row being written cannot be written again (a stop replacing it, Q14).
+--- @return nil|RegionMapLogEntryRecord
+function RegionMapLog.Newest()
+    local newest = AllEntries()[1]
+    if newest == nil or R.PendingWrite(C.logTableName, newest.id) then return nil end
+    return newest
+end
+
+--- What a leg or stop entry records (RegionMapTravel fills it in).
+--- @class RegionMapPathEntryArgs
+--- @field mapId string
+--- @field pathId string
+--- @field pathName string
+--- @field fromId string
+--- @field toId string
+--- @field time nil|number leg
+--- @field spent nil|number stop
+--- @field rest nil|""|"on"|"back"
+--- @field secret boolean
+--- @field route RegionMapRoutePoint[]
+
+local function WritePathEntry(kind, args)
+    local by = {
+        byId = dmhub.loginUserid, byName = R.CurrentUserName(), byDirector = dmhub.isDM == true, at = ServerTimestamp(),
+    }
+    local route = {} --- @type RegionMapRoutePoint[]
+    for _, point in ipairs(args.route) do route[#route + 1] = { u = point.u, v = point.v } end
+    return WriteEntry(nil, {
+        id = dmhub.GenerateGuid(), schemaVersion = C.logSchemaVersion, kind = kind, mapId = args.mapId,
+        locationId = kind == "leg" and args.toId or "", route = route, mergedCount = 0, note = "", hidden = false,
+        pathId = args.pathId, pathName = args.pathName, fromId = args.fromId, toId = args.toId,
+        time = args.time or 0, spent = args.spent or 0, rest = args.rest or "", secret = args.secret == true,
+        at = by.at, byId = by.byId, byName = by.byName, byDirector = by.byDirector,
+    }, kind == "leg" and "Log Party travel" or "Log Party stop")
+end
+
+--- Log one leg of travel along a path (I1); its undo step, or nil.
+--- @param args RegionMapPathEntryArgs
+--- @return nil|RegionMapUndoStep
+function RegionMapLog.RecordLeg(args)
+    if mod.unloaded then return nil end
+    return WritePathEntry("leg", args)
+end
+
+--- Log a stop partway along a path (N2, Q15); its undo step, or nil.
+--- @param args RegionMapPathEntryArgs
+--- @return nil|RegionMapUndoStep
+function RegionMapLog.RecordStop(args)
+    if mod.unloaded then return nil end
+    return WritePathEntry("stopped", args)
+end
+
+--- Hide an entry inside another write's undo entry (a stop replacing the
+--- arrival it interrupts, Q14); its undo step, or nil.
+--- @param entry RegionMapLogEntryRecord
+--- @param description string
+--- @return nil|RegionMapUndoStep
+function RegionMapLog.HideStep(entry, description)
+    if R.PendingWrite(C.logTableName, entry.id) then return nil end
+    return WriteEntry(entry, { hidden = true }, description)
 end
 
 --- Director: set or clear an entry's note.

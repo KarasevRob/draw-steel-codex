@@ -29,13 +29,26 @@ function RegionMapAtlas.Create(ctx)
     local cards = {} --- @type table<string, Panel>
     local newCard
     local newPicker
+    local newModeStep
+    local newImageStep
+    local newModeName
     local emptyTitle
     local emptyBody
     local emptyBox
 
+    -- The New map card has two steps (A1): the map kind, then its image.
+    local function ShowNewStep(step, mode)
+        newCard.data.step, newCard.data.mode = step, mode
+        newModeStep:SetClass("collapsed", step ~= "mode")
+        newImageStep:SetClass("collapsed", step ~= "image")
+        if mode ~= nil then SetText(newModeName, T("mode." .. mode)) end
+    end
+
     -- Create the map once an image is chosen; it opens with its name ready to edit.
     local function CreateMap(imageId)
         if type(imageId) ~= "string" or imageId == "" then return end
+        local mode = newCard.data.mode
+        ShowNewStep("mode", nil)
         local newId = nil
         local ok, reason, _, id = Model.CreateMap(T("atlas.new.defaultName", nil, true), imageId, {
             success = function()
@@ -43,22 +56,29 @@ function RegionMapAtlas.Create(ctx)
                 ctx.OpenMap(newId, "fit")
                 ctx.data.focusName = true
                 ctx.Select(newId, "edit")
+                ctx.CheckImageSize(newId, imageId)
             end,
             failure = function() ctx.Report(false, "unavailable") end,
-        })
+        }, mode)
         newId = id
         ctx.Report(ok, reason)
     end
 
     local function Card(id)
-        local thumb = gui.Panel { classes = { "regionMapCardThumb" }, interactable = false }
+        local pointcrawl = gui.Label {
+            classes = { "regionMapChip", "regionMapThumbChip", "collapsed" }, text = T("chip.pointcrawl"), interactable = false,
+        }
+        local thumb = gui.Panel { classes = { "regionMapCardThumb" }, interactable = false, pointcrawl }
         local name = gui.Label { classes = { "regionMapCardName" }, text = "", interactable = false }
         local count = gui.Label { classes = { "regionMapCardText" }, text = "", interactable = false }
         local party = gui.Label { classes = { "regionMapChip", "collapsed" }, text = T("atlas.card.party"), interactable = false }
         local notShared = gui.Label { classes = { "regionMapChip", "collapsed" }, text = T("atlas.card.notShared"), interactable = false }
         return gui.Panel {
             classes = { "regionMapCard" },
-            data = { id = id, thumb = thumb, name = name, count = count, party = party, notShared = notShared, imageId = nil },
+            data = {
+                id = id, thumb = thumb, name = name, count = count, party = party, notShared = notShared,
+                pointcrawl = pointcrawl, imageId = nil,
+            },
             hover = function(element)
                 local location = Model.GetLocation(element.data.id)
                 if location ~= nil then gui.Tooltip(T("atlas.card.open", { map = Model.DisplayName(location) }))(element) end
@@ -94,6 +114,7 @@ function RegionMapAtlas.Create(ctx)
             SetText(card.data.count, T("atlas.card.count", { count = visible }))
             card.data.party:SetClass("collapsed", party == nil or not Model.IsInSubtree(map.id, party.mapId))
             card.data.notShared:SetClass("collapsed", not director or map.mapShared)
+            card.data.pointcrawl:SetClass("collapsed", not Model.IsPointCrawl(map))
             card:SetClass("notShared", director and not map.mapShared)
             children[#children + 1] = card
         end
@@ -135,9 +156,18 @@ function RegionMapAtlas.Create(ctx)
     -- a faint tint set on selfStyle reads as a drop slot. It never holds an image:
     -- choosing one creates the map and clears the editor.
     newPicker.selfStyle.bgcolor = "#ffffff14"
-    newCard = gui.Panel {
-        classes = { "regionMapCard" },
-        hover = gui.Tooltip(T("atlas.new.picker")),
+    newModeStep = gui.Panel {
+        width = "100%", height = "auto", flow = "vertical", valign = "top",
+        gui.Label { classes = { "regionMapCardName" }, text = T("mode.title"), interactable = false },
+        Session.ModeChoice(function(mode) ShowNewStep("image", mode) end),
+    }
+    newModeName = gui.Label {
+        classes = { "regionMapCardName" }, width = "auto", halign = "left", text = "", interactable = false,
+    }
+    newImageStep = gui.Panel {
+        classes = { "collapsed" }, width = "100%", height = "auto", flow = "vertical", valign = "top",
+        -- The card has no room for the size guidance, so its tooltip carries it (J2).
+        hover = gui.Tooltip(T("atlas.new.picker") .. "\n" .. ctx.ImageHint()),
         -- The plus floats over the picker and ignores the pointer, so clicks reach the picker.
         gui.Panel {
             width = "100%", height = 104, halign = "left", valign = "top",
@@ -147,8 +177,20 @@ function RegionMapAtlas.Create(ctx)
                 halign = "center", valign = "center", bgimage = C.iconAdd, bgcolor = "#ffffff99",
             },
         },
-        gui.Label { classes = { "regionMapCardName" }, text = T("atlas.new"), interactable = false },
-        gui.Label { classes = { "regionMapCardText" }, text = T("atlas.new.hint"), interactable = false, textWrap = true, width = "100%" },
+        gui.Panel {
+            classes = { "regionMapCardMeta" },
+            newModeName,
+            gui.Label {
+                classes = { "regionMapLink", "regionMapCardBack" }, text = T("mode.back"),
+                click = function() ShowNewStep("mode", nil) end,
+            },
+        },
+    }
+    newCard = gui.Panel {
+        classes = { "regionMapCard", "regionMapCardNew" },
+        data = { step = "mode", mode = nil },
+        newModeStep,
+        newImageStep,
     }
 
     emptyTitle = gui.Label { classes = { "regionMapEmptyTitle" }, text = "" }
