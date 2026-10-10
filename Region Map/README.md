@@ -17,7 +17,8 @@ on-screen text is [docs/V2_COPY.md](docs/V2_COPY.md) (sections 1-17 V2, 18-25 V2
 the build plans and build notes are [TECH_TASK_V2.md](TECH_TASK_V2.md) and
 [TECH_TASK_V2_1.md](TECH_TASK_V2_1.md). [TECH_TASK.md](TECH_TASK.md) is the superseded V1
 plan; the images `docs/01`-`04` are V1 schematics, kept for history. Ideas not yet scheduled
-are in [IDEAS.md](IDEAS.md).
+are in [IDEAS.md](IDEAS.md). The cleanup audit of the Lua (duplication, dead code, bugs found
+along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.md).
 
 ## 1. Behavior
 
