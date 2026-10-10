@@ -16,8 +16,14 @@ local Copy = RegionMapCopy
 --- @field text string already filled in from the copy manifest
 --- @field entry nil|RegionMapUndoEntry offers Undo while the entry can still be reverted
 --- @field retry nil|fun() offers Retry (toast.saveFailed)
+--- @field action nil|RegionMapToastAction one more button, e.g. "Replace image..." on a size warning
 --- @field remaining number seconds left; counts down only while not paused
 --- @field paused boolean true while the pointer is over the toast (R9)
+
+--- A toast button that runs any action; the toast closes first.
+--- @class RegionMapToastAction
+--- @field text string the button label, already filled in from the copy manifest
+--- @field click fun()
 
 local stack = {} --- @type RegionMapUndoEntry[] newest last
 local toast = nil --- @type nil|RegionMapToast
@@ -55,8 +61,8 @@ local function StartTimer()
     dmhub.Schedule(tick, Tick)
 end
 
-local function Show(text, entry, retry)
-    toast = { text = text, entry = entry, retry = retry, remaining = C.toastSeconds, paused = false }
+local function Show(text, entry, retry, action)
+    toast = { text = text, entry = entry, retry = retry, action = action, remaining = C.toastSeconds, paused = false }
     Changed()
     StartTimer()
 end
@@ -86,8 +92,11 @@ end
 --- @param copyId string
 --- @param args nil|table<string, any>
 --- @param retry nil|fun() adds a Retry button
-function RegionMapUndo.Notify(copyId, args, retry)
-    Show(Copy.T(copyId, args), nil, retry)
+--- @param action nil|{copyId: string, click: fun()} adds a button labeled from copyId
+function RegionMapUndo.Notify(copyId, args, retry, action)
+    local button = nil
+    if action ~= nil then button = { text = Copy.T(action.copyId), click = action.click } end
+    Show(Copy.T(copyId, args), nil, retry, button)
 end
 
 --- The toast to draw, or nil.
@@ -145,7 +154,7 @@ local function ApplyRebinds(rebinds)
     for _, rebind in ipairs(rebinds) do
         for _, older in ipairs(stack) do
             for _, step in ipairs(older.steps) do
-                if step.tableName == rebind.tableName and step.id == rebind.id
+                if step.tableName == rebind.tableName and step.id == rebind.id and step.state == rebind.state
                     and step.afterRevision == rebind.fromRevision and step.afterMutationId == rebind.fromMutationId then
                     step.afterRevision, step.afterMutationId = rebind.toRevision, rebind.toMutationId
                 end

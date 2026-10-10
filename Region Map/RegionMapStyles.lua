@@ -24,6 +24,41 @@ local function Chrome(selector, extra)
     return rule
 end
 
+-- Warning and destructive text (Q26). @danger reads at only 3.4-4.0:1 as text on @bg in
+-- the shipped themes, so the words take @fgStrong and the red goes on a bar at their left,
+-- a mark that needs only 3:1 (the DefaultStyles.md multiselectChipRemove pattern).
+local function Danger(selectors)
+    return {
+        selectors = selectors,
+        color = "@fgStrong",
+        bgimage = true,
+        bgcolor = "clear",
+        border = { x1 = 3, x2 = 0, y1 = 0, y2 = 0 },
+        borderColor = "@danger",
+        lpad = 8,
+        borderBox = true,
+    }
+end
+
+-- One Soft fade strip, opaque at outer and clear at inner, easing out so the edge
+-- of the art never shows as a line.
+local function FadeEdge(selector, place, outer, inner)
+    local rule = {
+        selectors = { selector },
+        gradient = gui.Gradient {
+            point_a = outer,
+            point_b = inner,
+            stops = {
+                { position = 0, color = core.Color { r = 1, g = 1, b = 1, a = 1 } },
+                { position = 0.4, color = core.Color { r = 1, g = 1, b = 1, a = 0.45 } },
+                { position = 1, color = core.Color { r = 1, g = 1, b = 1, a = 0 } },
+            },
+        },
+    }
+    for key, value in pairs(place) do rule[key] = value end
+    return rule
+end
+
 -- Window frame: canvas, breadcrumb, toolbar, camera controls, status, banners, toast.
 local function ShellStyles()
     return {
@@ -49,6 +84,17 @@ local function ShellStyles()
             selectors = { "regionMapImage" },
             bgcolor = "white",
         },
+        -- Soft fade strips: the canvas color, with the gradient giving only the alpha.
+        -- Gradient points are in the strip's own 0..1 box, y = 0 at the bottom.
+        {
+            selectors = { "regionMapFadeEdge" },
+            bgimage = true,
+            bgcolor = "@bgAlt",
+        },
+        FadeEdge("regionMapFadeLeft", { halign = "left", height = "100%" }, { x = 0, y = 0.5 }, { x = 1, y = 0.5 }),
+        FadeEdge("regionMapFadeRight", { halign = "right", height = "100%" }, { x = 1, y = 0.5 }, { x = 0, y = 0.5 }),
+        FadeEdge("regionMapFadeTop", { valign = "top", width = "100%" }, { x = 0.5, y = 1 }, { x = 0.5, y = 0 }),
+        FadeEdge("regionMapFadeBottom", { valign = "bottom", width = "100%" }, { x = 0.5, y = 0 }, { x = 0.5, y = 1 }),
         Chrome("regionMapBreadcrumb", {
             width = "auto",
             height = 34,
@@ -246,6 +292,57 @@ local function ShellStyles()
             color = "@fg",
             textAlignment = "center",
             textWrap = true,
+        },
+        -- The import card: wider than a confirm, its lines left-aligned and scrolling
+        -- inside the card (the height cap is set in code from the window).
+        {
+            selectors = { "regionMapConfirm", "regionMapImportCard" },
+            width = 480,
+        },
+        {
+            selectors = { "regionMapImportScroll" },
+            width = "100%",
+            height = "auto",
+            tmargin = 10,
+        },
+        {
+            selectors = { "regionMapImportLines" },
+            width = "100%-16",               -- clears the scrollbar when the list scrolls
+            halign = "left",
+            height = "auto",
+            flow = "vertical",
+            valign = "top",                  -- a list taller than the scroll box would otherwise center in it
+        },
+        {
+            selectors = { "regionMapImportLine" },
+            width = "100%",
+            height = "auto",
+            fontSize = 14,
+            color = "@fg",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapImportLine", "lead" },
+            fontSize = 15,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapImportLine", "heading" },
+            tmargin = 10,
+            bold = true,
+        },
+        {
+            selectors = { "regionMapImportLine", "item" },
+            fontSize = 13,
+            lmargin = 12,
+            width = "100%-12",
+            tmargin = 2,
+        },
+        {
+            selectors = { "regionMapImportLine", "note" },
+            tmargin = 12,
+            fontSize = 13,
+            color = "@fgMuted",
         },
         {
             selectors = { "regionMapConfirmButtons" },
@@ -646,7 +743,9 @@ local function SidePanelStyles()
         },
         {
             selectors = { "regionMapTextArea" },
-            width = "100%",
+            -- The theme's input rule adds hpad 10 per side outside the width, and a
+            -- TextEditor keeps it despite borderBox (measured live), so 20 less.
+            width = "100%-20",
             height = 96,
         },
         {
@@ -685,10 +784,7 @@ local function SidePanelStyles()
             fontSize = 12,
             color = "@fgMuted",
         },
-        {
-            selectors = { "regionMapStateLine", "danger" },
-            color = "@danger",
-        },
+        Danger({ "regionMapStateLine", "danger" }),
         {
             selectors = { "regionMapIconGrid" },
             width = "100%",
@@ -896,6 +992,10 @@ local function ToolStyles()
             height = C.routeDotSize,
             bgimage = true,
             bgcolor = "@accent",
+            -- A ring in the theme's background colour keeps the route readable where it runs
+            -- along a path of the same colour (Default's accent is parchment, like Road).
+            borderColor = "@bg",
+            borderWidth = 1.5,
             cornerRadius = C.routeDotSize / 2,
             opacity = 0.85,
         },
@@ -966,7 +1066,9 @@ local function ToolStyles()
         },
         {
             selectors = { "regionMapPopoverInput" },
-            width = "100%",
+            -- The theme's input padding lands outside the width on a gui.SearchInput, and
+            -- borderBox does not take it back; 28 less fits the panel padding (measured live).
+            width = "100%-28",
             height = 30,
             -- The search field's own hpad (room for the magnifier) must stay inside the 100%.
             borderBox = true,
@@ -1031,6 +1133,70 @@ local function ToolStyles()
             width = 120,
             halign = "left",
         },
+        -- Border tiles in Settings: the pick shows as an accent frame and a bold name,
+        -- so it never relies on color alone.
+        {
+            selectors = { "regionMapBorderTiles" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+            tmargin = 2,
+        },
+        {
+            selectors = { "regionMapBorderTile" },
+            width = "25%",
+            height = "auto",
+            flow = "vertical",
+            hpad = 3,
+            vpad = 3,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "clear",
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapBorderTile", "available", "hover" },
+            bgcolor = "@bgAlt",
+            transitionTime = 0.1,
+        },
+        -- Opacity does not pass to children, so a tile without art dims its parts.
+        {
+            selectors = { "regionMapBorderPreview", "parent:needsArt" },
+            opacity = 0.35,
+        },
+        {
+            selectors = { "regionMapBorderName", "parent:needsArt" },
+            opacity = 0.6,
+        },
+        {
+            selectors = { "regionMapBorderPreview" },
+            width = "100%",
+            height = 44,
+            bgimage = true,
+            bgcolor = "white",
+            borderColor = "@border",
+            borderWidth = 1,
+            cornerRadius = 3,
+        },
+        {
+            selectors = { "regionMapBorderPreview", "parent:selected" },
+            borderColor = "@accent",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapBorderName" },
+            width = "100%",
+            height = "auto",
+            tmargin = 3,
+            fontSize = 12,
+            textAlignment = "center",
+            color = "@fgMuted",
+        },
+        {
+            selectors = { "regionMapBorderName", "parent:selected" },
+            bold = true,
+            color = "@fgStrong",
+        },
         {
             selectors = { "regionMapSideTitle", "noIcon" },
             width = "100%-40",
@@ -1079,11 +1245,343 @@ local function ToolStyles()
     }
 end
 
+-- V2.1 point crawl: the map kind choice, path lines, the path panel and path types in Settings.
+local function PathStyles()
+    return {
+        -- The kind choice (A1), on the Atlas New map card and in the side panel.
+        -- Both New map steps fit the standard card height, so that card keeps it.
+        {
+            selectors = { "regionMapModeChoice" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            tmargin = 4,
+        },
+        {
+            selectors = { "regionMapModeButton" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            bmargin = 4,
+            hpad = 6,
+            vpad = 4,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@border",
+            borderWidth = 1,
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapModeButton", "hover" },
+            bgcolor = "@bgAlt",
+            borderColor = "@accent",
+            transitionTime = 0.1,
+        },
+        {
+            selectors = { "regionMapModeName" },
+            width = "100%",
+            height = "auto",
+            fontSize = 13,
+            bold = true,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapModeDesc" },
+            width = "100%",
+            height = "auto",
+            fontSize = 12,
+            color = "@fg",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapModeNote" },
+            width = "100%",
+            height = "auto",
+            fontSize = 11,
+            color = "@fgMuted",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapCardBack" },
+            halign = "right",
+            tmargin = 0,
+            fontSize = 12,
+        },
+        {
+            selectors = { "regionMapSideChip" },
+            halign = "left",
+            tmargin = 4,
+        },
+        -- The Atlas card's meta row is full, so the map kind sits on the thumbnail's corner.
+        {
+            selectors = { "regionMapThumbChip" },
+            halign = "left",
+            valign = "top",
+            lmargin = 4,
+            tmargin = 4,
+        },
+        -- Path lines: colours are set per piece in code; the halo follows the theme accent.
+        {
+            selectors = { "regionMapPathPiece" },
+            bgimage = true,
+        },
+        {
+            selectors = { "regionMapPathHalo" },
+            bgimage = true,
+            bgcolor = "@accent",
+            opacity = 0.55,
+        },
+        {
+            selectors = { "regionMapPathBadge" },
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@fgStrong",
+            borderWidth = 1,
+        },
+        -- Bend handles (Q5): a light disc with a dark ring reads on light and dark art.
+        {
+            selectors = { "regionMapPathHandle" },
+            bgimage = true,
+            bgcolor = "#F2EDE1",
+            borderColor = "#141416",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapPathPlus" },
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@accent",
+            borderWidth = 1,
+        },
+        {
+            selectors = { "regionMapPathPlusGlyph" },
+            width = "70%",
+            height = "70%",
+            halign = "center",
+            valign = "center",
+            bgcolor = "@accent",
+        },
+        Chrome("regionMapPathLabel", {
+            width = "auto",
+            height = "auto",
+            hpad = 8,
+            vpad = 2,
+            borderBox = true,
+            cornerRadius = 4,
+            color = "@fgStrong",
+            textWrap = false,
+        }),
+        -- The path panel's type chip: the line sample and the type name.
+        {
+            selectors = { "regionMapPathChip" },
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            flow = "horizontal",
+            tmargin = 6,
+            hpad = 6,
+            vpad = 3,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bgAlt",
+            cornerRadius = 3,
+        },
+        {
+            selectors = { "regionMapPathSample" },
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapChipText" },
+            width = "auto",
+            height = "auto",
+            valign = "center",
+            lmargin = 6,
+            fontSize = 13,
+            color = "@fg",
+        },
+        {
+            selectors = { "regionMapPathTime" },
+            bold = true,
+            color = "@fgStrong",
+        },
+        -- A Location's Paths rows wrap, so a one-way time fits; hidden paths end in the eye-slash.
+        {
+            selectors = { "regionMapPathRow" },
+            height = "auto",
+            vpad = 6,
+        },
+        {
+            selectors = { "regionMapPathRowName" },
+            width = "100%-22",
+            halign = "left",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapPathRowEye" },
+            width = 16,
+            height = 16,
+            halign = "right",
+            valign = "center",
+            bgcolor = "@fgMuted",
+        },
+        -- Travel to rows (Q18): "{dest} by {path}" in body text, the time under it.
+        {
+            selectors = { "regionMapTravelText" },
+            width = "100%-22",
+            height = "auto",
+            flow = "vertical",
+            halign = "left",
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapRowName", "parent:regionMapTravelText" },
+            textWrap = true,
+        },
+        -- The stop card's swap button sits left under the time field.
+        {
+            selectors = { "regionMapButton", "regionMapStopSwap" },
+            halign = "left",
+            tmargin = 8,
+        },
+        -- The edit form's travel time: a short number field with its unit beside it.
+        {
+            selectors = { "regionMapTimeRow" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+        },
+        {
+            selectors = { "regionMapTimeInput" },
+            width = 100,
+            halign = "left",
+        },
+        {
+            selectors = { "regionMapTimeUnit" },
+            width = "auto",
+            halign = "left",
+            valign = "center",
+            lmargin = 8,
+        },
+        Danger({ "regionMapHint", "danger" }),
+        -- Path types in Settings: rows with the line sample, one editor open at a time.
+        {
+            selectors = { "regionMapTypeRow" },
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapTypeRow", "selected" },
+            bgcolor = "@bgAlt",
+        },
+        {
+            selectors = { "regionMapTypeName" },
+            width = "100%-90",
+            lmargin = 8,
+        },
+        -- The chosen type reads apart from a hovered one, which shares the row fill.
+        {
+            selectors = { "regionMapTypeName", "parent:selected" },
+            bold = true,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapTypeEdit" },
+            width = "auto",
+            height = "auto",
+            halign = "right",
+            valign = "center",
+            fontSize = 13,
+            color = "@accent",
+        },
+        {
+            selectors = { "regionMapTypeEdit", "parent:hover" },
+            color = "@accentHover",
+        },
+        {
+            selectors = { "regionMapTypeEditor" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            bmargin = 6,
+            hpad = 8,
+            vpad = 6,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bgAlt",
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapSwatches" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+        },
+        -- 24 px swatches (Q26); the pick shows a check and an accent ring, Ink a light ring.
+        {
+            selectors = { "regionMapSwatch" },
+            width = 28,
+            height = 28,
+            rmargin = 6,
+            flow = "none",
+            bgimage = true,
+            bgcolor = "clear",
+            borderColor = "@border",
+            borderWidth = 1,
+            cornerRadius = 14,
+        },
+        {
+            selectors = { "regionMapSwatch", "hover" },
+            borderColor = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapSwatch", "selected" },
+            borderColor = "@accent",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapSwatchFill" },
+            width = 24,
+            height = 24,
+            halign = "center",
+            valign = "center",
+            bgimage = true,
+            cornerRadius = 12,
+        },
+        {
+            selectors = { "regionMapSwatchFill", "parent:ink" },
+            borderColor = "@fgStrong",
+            borderWidth = 1,
+        },
+        {
+            selectors = { "regionMapSwatchCheck" },
+            width = 14,
+            height = 14,
+            halign = "center",
+            valign = "center",
+            bgcolor = "#141416",
+            opacity = 0,
+        },
+        {
+            selectors = { "regionMapSwatchCheck", "parent:selected" },
+            opacity = 1,
+        },
+        {
+            selectors = { "regionMapSwatchCheck", "parent:ink" },
+            bgcolor = "#F2EDE1",
+        },
+        Danger({ "regionMapLink", "danger" }),
+        {
+            selectors = { "regionMapLink", "danger", "hover" },
+            color = "@fg",
+        },
+    }
+end
+
 --- The complete rule list for MergeStyles.
 --- @return table[]
 function RegionMapStyles.Build()
     local result = {}
-    for _, group in ipairs({ ShellStyles(), PinStyles(), SidePanelStyles(), AtlasStyles(), ToolStyles() }) do
+    for _, group in ipairs({ ShellStyles(), PinStyles(), SidePanelStyles(), AtlasStyles(), ToolStyles(), PathStyles() }) do
         for _, rule in ipairs(group) do result[#result + 1] = rule end
     end
     return result

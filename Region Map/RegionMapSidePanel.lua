@@ -61,8 +61,28 @@ local function WhenNotBusy(ctx, write, onResult, attempt)
     onResult(ok, reason, entry, count)
 end
 
+-- Ids of a Location and every Location below it: the pins a delete removes.
+local function SubtreeIds(location, includeSelf)
+    local ids, queue = {}, { location.id }
+    if includeSelf then ids[location.id] = true end
+    while #queue > 0 do
+        local parentId = table.remove(queue, 1)
+        for _, child in ipairs(Model.Index().childrenOf[parentId] or {}) do
+            ids[child.id] = true
+            queue[#queue + 1] = child.id
+        end
+    end
+    return ids
+end
+
+-- How many paths the viewer sees that a removal of these pins takes with it (B5).
+local function PathCount(ids)
+    return RegionMapPaths.CountVisible(RegionMapPaths.Touching(ids))
+end
+
 local function ConfirmDelete(ctx, location)
     local count = Model.VisibleDescendantCount(location.id)
+    local paths = PathCount(SubtreeIds(location, true))
     local function Delete()
         WhenNotBusy(ctx, function() return Model.DeleteLocation(location.id) end, function(ok, reason, entry, deleted)
             if not ctx.Report(ok, reason) then return end
@@ -75,13 +95,14 @@ local function ConfirmDelete(ctx, location)
             ctx.RefreshAll()
         end)
     end
-    -- Only a Location with a map or children asks first (D7d); undo covers the rest.
-    if location.imageId == "" and count == 0 then
+    -- Only a Location with a map, children or paths asks first (D7d, B5); undo covers the rest.
+    if location.imageId == "" and count == 0 and paths == 0 then
         Delete()
         return
     end
     local lines = {}
     if count > 0 then lines[#lines + 1] = T("dlg.delete.body", { count = count }) end
+    if paths > 0 then lines[#lines + 1] = T("dlg.delete.paths", { count = paths }) end
     local parent = Model.GetLocation(location.parentId)
     if parent ~= nil and PartyInside(location.id) then
         lines[#lines + 1] = T("dlg.delete.party", { map = NameOf(parent) })
@@ -98,6 +119,8 @@ local function ConfirmRemoveMap(ctx, location)
     local count = Model.VisibleDescendantCount(location.id)
     local body
     if count > 0 then body = T("dlg.removeMap.body", { count = count }) else body = T("dlg.removeMap.body.empty") end
+    local paths = PathCount(SubtreeIds(location, false))
+    if paths > 0 then body = body .. "\n" .. T("dlg.delete.paths", { count = paths }) end
     ctx.Confirm {
         title = T("dlg.removeMap.title", { name = NameOf(location) }),
         message = body,
@@ -150,6 +173,9 @@ function RegionMapSidePanel.MenuEntries(ctx, id)
         end
         Add("menu.moveToMap", function() ctx.Select(location.id, "pickMap") end)
     end
+    if RegionMapPathPanel.CanConnect(ctx, location) then
+        Add("menu.connect", function() ctx.Select(location.id, "pickPathEnd") end)
+    end
     if director and isPin then
         if location.visibility == "hidden" then
             Add("menu.reveal", function() SetVisibility(ctx, location, "revealed") end)
@@ -159,9 +185,10 @@ function RegionMapSidePanel.MenuEntries(ctx, id)
     end
     if director then
         if location.imageId == "" then
+            -- The map's kind comes first (A1); the image picker follows.
             Add("menu.addMap", function()
-                ctx.data.pickKind = "add"
-                ctx.Select(location.id, "pickImage")
+                ctx.data.pickKind, ctx.data.newMapMode = "add", nil
+                ctx.Select(location.id, "pickMode")
             end)
         else
             Add("menu.replaceImage", function()
@@ -169,6 +196,8 @@ function RegionMapSidePanel.MenuEntries(ctx, id)
                 ctx.Select(location.id, "pickImage")
             end)
             if isPin then Add("menu.removeMap", function() ConfirmRemoveMap(ctx, location) end) end
+            -- Import fills the map on screen, so only the open map's menu offers it (IM7).
+            if location.id == ctx.data.mapId then Add("menu.import", function() ctx.ImportLocations() end) end
         end
         local details = Model.Details(location.id)
         if details ~= nil and Journal.Available() then
@@ -304,6 +333,8 @@ function RegionMapSidePanel.Create(ctx)
         if location ~= nil then SetMapShared(ctx, location, not location.mapShared) end
     end)
     local metaRow = gui.Panel { classes = { "regionMapSideRow" }, metaLabel, eyeButton, mapButton }
+    -- Every viewer sees a map's kind (A2).
+    local modeChip = gui.Label { classes = { "regionMapChip", "regionMapSideChip" }, text = T("chip.pointcrawl"), interactable = false }
     local description = Label({ "regionMapBody" })
     local journalLink = gui.Label {
         classes = { "regionMapLink" }, text = T("panel.journal"),
@@ -317,7 +348,9 @@ function RegionMapSidePanel.Create(ctx)
     local movePartyButton = Button(T("panel.moveParty"), function()
         local location = Current()
         if location == nil then return end
-        local ok, reason, entry = Model.WriteParty { mapId = location.parentId, locationId = location.id }
+        -- On a point crawl map this is the Director's jump, logged as placed, not travel (Q16).
+        local placed = Model.IsPointCrawl(Model.GetLocation(location.parentId))
+        local ok, reason, entry = Model.WriteParty { mapId = location.parentId, locationId = location.id, placed = placed }
         if ctx.Report(ok, reason) then
             ctx.Push(entry, "toast.partyAt", { party = Model.PartyName(), name = NameOf(location) })
             ctx.RefreshAll()
@@ -361,9 +394,12 @@ function RegionMapSidePanel.Create(ctx)
         notesBody,
     }
 
+    local pathsSection = RegionMapPathPanel.PathsSection(ctx)
+
     readView = gui.Panel {
         classes = { "regionMapSideBody" },
         gui.Panel { classes = { "regionMapSideHeader" }, readIcon, readTitle, closeButton },
+        modeChip,
         metaRow,
         description,
         journalLink,
@@ -372,6 +408,7 @@ function RegionMapSidePanel.Create(ctx)
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
         gui.Panel { classes = { "regionMapButtonRow" }, movePartyButton, openMapButton },
         gui.Panel { classes = { "regionMapButtonRow" }, editButton, moreButton },
+        pathsSection,
         notesSection,
     }
 
@@ -384,6 +421,7 @@ function RegionMapSidePanel.Create(ctx)
         if not isPin then icon = C.iconMap end
         if readIcon.bgimage ~= icon then readIcon.bgimage = icon end
         readIcon:SetClass("image", isPin and location.icon ~= "" and C.pinIcons[location.icon] == nil)
+        modeChip:SetClass("collapsed", location.imageId == "" or not Model.IsPointCrawl(location))
 
         -- Director meta: importance and visibility, the eye, and the map-shared toggle (R4).
         metaRow:SetClass("collapsed", not director)
@@ -423,12 +461,17 @@ function RegionMapSidePanel.Create(ctx)
         partyHere:SetClass("collapsed", not here)
         SetText(partyHere, T("panel.partyHere", { party = Model.PartyName() }))
 
-        movePartyButton:SetClass("collapsed", not isPin or here or not Model.CanMovePartyOn(location.parentId))
+        -- Players on a point crawl map move the Party only by Travel to (G5, Q16).
+        local crawl = isPin and Model.IsPointCrawl(Model.GetLocation(location.parentId))
+        movePartyButton:SetClass("collapsed", not isPin or here or not Model.CanMovePartyOn(location.parentId)
+            or (crawl and not director))
         -- Players see Open map only once the map is shared (R4); CanOpenMap says so.
         openMapButton:SetClass("collapsed", location.imageId == "" or not Model.CanOpenMap(location)
             or data.mapId == location.id)
         editButton:SetClass("collapsed", not Model.CanEdit(location))
         moreButton:SetClass("collapsed", #RegionMapSidePanel.MenuEntries(ctx, location.id) == 0)
+
+        pathsSection.data.bind(location)
 
         notesSection:SetClass("collapsed", not director)
         if director then
@@ -667,9 +710,12 @@ function RegionMapSidePanel.Create(ctx)
             local imageId = element.value
             if location == nil or type(imageId) ~= "string" or imageId == "" then return end
             local ok, reason
-            if data.pickKind == "add" then ok, reason = Model.AddMap(location.id, imageId)
+            if data.pickKind == "add" then ok, reason = Model.AddMap(location.id, imageId, data.newMapMode)
             else ok, reason = Model.ReplaceImage(location.id, imageId) end
-            if ctx.Report(ok, reason) then ctx.Select(location.id, "read") end
+            if ctx.Report(ok, reason) then
+                ctx.Select(location.id, "read")
+                ctx.CheckImageSize(location.id, imageId)
+            end
         end,
     }
     -- Same drop slot as the Atlas New map card: the editor's own white box loses to a
@@ -683,7 +729,20 @@ function RegionMapSidePanel.Create(ctx)
             halign = "center", valign = "center", bgimage = C.iconAdd, bgcolor = "#ffffff99",
         },
     }
+    -- Always visible while choosing an image, so the guidance is read before the pick (J2).
+    local pickSizeHint = Label({ "regionMapHint" })
     local pickList = gui.Panel { width = "100%", height = "auto", flow = "vertical", tmargin = 6 }
+    -- Add map: the kind first (A1), then the image; Back returns to the kind.
+    local pickModeLabel = Label({ "regionMapFormLabel" }, T("mode.title"))
+    local pickModeChoice = Session.ModeChoice(function(mode)
+        if data.selectedId == nil then return end
+        data.newMapMode = mode
+        ctx.Select(data.selectedId, "pickImage")
+    end)
+    local pickModeName = Label({ "regionMapFormLabel" })
+    local pickBack = Button(T("mode.back"), function()
+        if data.selectedId ~= nil then ctx.Select(data.selectedId, "pickMode") end
+    end)
     pickView = gui.Panel {
         classes = { "regionMapSideBody", "collapsed" },
         gui.Panel {
@@ -693,10 +752,15 @@ function RegionMapSidePanel.Create(ctx)
             end),
         },
         pickHint,
+        pickModeLabel,
+        pickModeChoice,
+        pickModeName,
         pickImageSlot,
+        pickSizeHint,
         pickList,
         gui.Panel {
             classes = { "regionMapButtonRow" },
+            pickBack,
             Button(T("dlg.cancel"), function()
                 if data.selectedId ~= nil then ctx.Select(data.selectedId, "read") end
             end),
@@ -713,25 +777,50 @@ function RegionMapSidePanel.Create(ctx)
 
     local function BindPick(location)
         local mode = data.panelMode
+        local adding = data.pickKind == "add" and (mode == "pickMode" or mode == "pickImage")
         pickImageSlot:SetClass("collapsed", mode ~= "pickImage")
-        pickList:SetClass("collapsed", mode == "pickImage")
+        pickSizeHint:SetClass("collapsed", mode ~= "pickImage")
+        pickList:SetClass("collapsed", mode == "pickImage" or mode == "pickMode")
         pickHint:SetClass("collapsed", mode ~= "pickMap")
+        pickModeLabel:SetClass("collapsed", mode ~= "pickMode")
+        pickModeChoice:SetClass("collapsed", mode ~= "pickMode")
+        pickModeName:SetClass("collapsed", not adding or mode ~= "pickImage" or data.newMapMode == nil)
+        pickBack:SetClass("collapsed", not adding or mode ~= "pickImage")
         local rows = {} --- @type Panel[]
-        if mode == "pickImage" then
-            SetText(pickTitle, T("atlas.new.picker"))
+        if mode == "pickMode" then
+            SetText(pickTitle, T("side.addMap.title", { name = NameOf(location) }))
+        elseif mode == "pickImage" then
+            SetText(pickTitle, adding and T("side.addMap.title", { name = NameOf(location) }) or T("atlas.new.picker"))
+            if data.newMapMode ~= nil then SetText(pickModeName, T("mode." .. data.newMapMode)) end
+            SetText(pickSizeHint, ctx.ImageHint())
             if pickImage.value ~= "" then pickImage.value = "" end
         elseif mode == "pickMap" then
             SetText(pickTitle, T("picker.moveToMap.title", { name = NameOf(location) }))
             SetText(pickHint, T("picker.moveToMap.hint"))
             for _, map in ipairs(Model.OpenableMaps()) do
                 if map.id ~= location.parentId and not Model.IsInSubtree(location.id, map.id) then
+                    local function Move()
+                        WhenNotBusy(ctx, function() return Model.MoveToMap(location.id, map.id) end, function(ok, reason, entry)
+                            if ctx.Report(ok, reason) then
+                                ctx.Push(entry, "toast.movedToMap", { name = NameOf(location), map = NameOf(map) })
+                                ctx.Select(nil, nil)
+                                ctx.RefreshAll()
+                            end
+                        end)
+                    end
                     rows[#rows + 1] = Row(Copy.Literal(NameOf(map)), function()
-                        local ok, reason, entry = Model.MoveToMap(location.id, map.id)
-                        if ctx.Report(ok, reason) then
-                            ctx.Push(entry, "toast.movedToMap", { name = NameOf(location), map = NameOf(map) })
-                            ctx.Select(nil, nil)
-                            ctx.RefreshAll()
+                        -- Its paths join pins on the map it leaves, so they go; ask first (B5).
+                        local paths = PathCount({ [location.id] = true })
+                        if paths == 0 then
+                            Move()
+                            return
                         end
+                        ctx.Confirm {
+                            title = T("dlg.moveToMap.title", { name = NameOf(location), map = NameOf(map) }),
+                            message = T("dlg.moveToMap.body", { count = paths }),
+                            confirm = T("dlg.moveToMap.ok"),
+                            onConfirm = Move,
+                        }
                     end)
                 end
             end
@@ -753,7 +842,8 @@ function RegionMapSidePanel.Create(ctx)
     local function Bind()
         local location = Current()
         local mode = data.panelMode
-        local open = location ~= nil and mode ~= "none"
+        -- Connect to... picks in the path panel, which takes this panel's place meanwhile.
+        local open = location ~= nil and mode ~= "none" and mode ~= "pickPathEnd"
         panel:SetClass("collapsed", not open)
         if not open or location == nil then return end
         local rootWidth = ctx.root.renderedWidth or 0
@@ -774,7 +864,7 @@ function RegionMapSidePanel.Create(ctx)
         panel.data.binding = true
         readView:SetClass("collapsed", mode ~= "read")
         editView:SetClass("collapsed", mode ~= "edit")
-        pickView:SetClass("collapsed", mode ~= "pickImage" and mode ~= "pickMap" and mode ~= "pickJournal")
+        pickView:SetClass("collapsed", mode ~= "pickMode" and mode ~= "pickImage" and mode ~= "pickMap" and mode ~= "pickJournal")
         if mode == "read" then BindRead(location)
         elseif mode == "edit" then BindEdit(location)
         else BindPick(location) end

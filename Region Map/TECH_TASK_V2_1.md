@@ -248,6 +248,11 @@ of a 720x480 window.
 
 ### V21-04 Torn edge and frame (waits for the art)
 
+> **Deferred (2026-10-08, brief K9).** Not built until the user provides the torn-edge mask
+> and the frame image ([docs/BORDER_ART.md](docs/BORDER_ART.md)). To resume: put the two
+> library ids in `RegionMapConstants.borderTornMask` and `borderFrameImage` (the Settings
+> tiles enable themselves), then build the items below. Soft fade and None are done (P2).
+
 - The art ids live in Constants, so a missing id keeps the tile disabled.
 - **Torn edge:** `bgimageMask` on `imagePanel` (and on `fadingPanel` during a crossfade).
 - **Frame:** a `bgslice` panel around the image. `CalculateImageLayout` gains a margin
@@ -277,8 +282,8 @@ of a 720x480 window.
     writes, and gathers every step into one undo entry. Toast `toast.imported` with Undo (IM5).
   - Entries with no u/v go on a grid in rows around the center, in file order (Q24).
   - On a failed write it stops, shows `toast.saveFailed`, and the Undo covers what was written.
-- **Entry point (IM1, open):** propose `menu.import` in the map right-click menu and in the
-  open map's "..." menu. Confirm with the user at the start of P3.
+- **Entry point (IM7, confirmed at the start of P3):** `menu.import` in the Director's map
+  right-click menu and in the open map's "..." menu.
 
 **Acceptance.**
 - Test files: 24 entries, duplicate names, over the limit, invalid JSON, empty, all skipped.
@@ -675,3 +680,489 @@ separately.
   V2.1 import, whose coroutine writes must call the shell refresh themselves.
 - **P0 status:** done. The copy is signed off, the numbers are approved, the art spec is
   written, and the prerequisite is met.
+
+**P1 / V21-01 size guidance, 2026-10-08.**
+- **Changed files:**
+  - Constants: the three widths.
+  - Copy: `image.hint`, `toast.image.small`, `toast.image.large`, `toast.replaceImage`.
+  - CanvasTools: `ImageSize`.
+  - Undo:
+    - Toasts carry an optional action button (`RegionMapToastAction`).
+    - `Notify` takes `action = {copyId, click}`.
+  - Panel:
+    - `ctx.ImageHint` and `ctx.CheckImageSize`.
+    - The toast gets a fourth button.
+  - Session: two context fields.
+  - Atlas: the size check after a new map is created, and the hint as the second line of
+    the New map tooltip.
+  - SidePanel: the hint under the image picker, and the check after Add map or Replace
+    image.
+- **Checks:** `luac -p` and ASCII pass; `check-mod.ps1` shows 0 problems.
+- **Verified live (Director),** using the J1 test images still in the journal library:
+  - Add map on Old Mill: the picker shows the hint, and the 1024 image gave
+    `toast.image.small` with "Replace image...".
+  - The toast button opened the replace picker. 16384 gave `toast.image.large`, and 4096
+    gave no toast.
+  - The Atlas New map tooltip shows the hint.
+  - Creating a map from the 1024 image gave the small-image toast over the new map in edit
+    mode.
+  - Opening existing maps shows no toast.
+  - Cleanup: the test map was deleted and Old Mill's map removed, so Old Mill is back to no
+    map.
+- **Behaviour kept from V2:** Add map and Replace image push no undo entry, as before; the
+  size toast replaces nothing that had an Undo.
+
+**P2 / V21-02 and V21-03 Settings sections and Soft fade, 2026-10-08.**
+- **Gradient check:** inline gradients work, so no mask asset is needed.
+  - `gui.Gradient{point_a, point_b, stops}` on a `bgimage` panel, with `bgcolor` giving the
+    hue and white stops giving only the alpha (precedent: `Codex Titlescreen/AdventurePage.lua`).
+  - Points are in the panel's own 0..1 box with y = 0 at the bottom.
+- **Changed files:**
+  - Constants: `borders`, `defaultBorder`, the two art ids (both "" for now), `fadeShare`
+    0.06 and `fadeMaxWidth` 72.
+  - Records: `border` on the Location class; validated as an enum when present.
+  - Model:
+    - `Border`, `LastBorder`, `SetBorder`; `border` accepted by `UpdateLocation`.
+    - `CreateMap` and `AddMap` copy `LastBorder` (K5, K8). Replace image keeps the border.
+  - CanvasTools: `CreateFade`, `SetFadeBand`, `FadeBand`.
+  - Canvas: the fade panel sits right after the image, under the route, pins and Party
+    (Q23). It is laid out with the image and shown only on a "fade" map.
+  - Styles: the four fade strips and the border tiles.
+  - Popovers:
+    - Sections now run This map, Whole game, Party, Only for you (Q22).
+    - "Players can add locations" moved from Party to Whole game: it is a game-wide
+      setting, and the section would otherwise be empty until Phase 4.
+    - Border tiles preview the open map in each look; the pick shows as an accent frame
+      plus a bold name.
+  - Copy: `set.map.border`, `set.map.border.hint`, `set.border.*`, `set.game`.
+- **Engine notes:**
+  - A tile classed `disabled` drew as active: the theme styles that class. The tiles use
+    `needsArt` instead.
+  - `opacity` on a panel does not pass to its children, so the art-less tiles dim their
+    preview and name through `parent:needsArt` rules.
+- **Checks:** `luac -p` and ASCII pass; `check-mod.ps1` shows 0 problems; no Lua errors in
+  the console.
+- **Verified live (Director),** on M2 test map:
+  - Soft fade on all four edges at fit, zoomed in and Expanded; the band stays at 72 px when
+    Expanded. Pins, labels, the route and the Party draw above it.
+  - Default (mcdm) and Warm Gold: the fade follows each theme's canvas color. The theme was
+    switched back afterwards.
+  - Picking None gives a hard edge and stores `lastBorder = "none"`; picking Soft fade again
+    stores "fade".
+  - Add map on Old Mill created the map with `border = "fade"`; the map was removed again.
+  - Existing maps read None until a border is picked (M2 test map is now Soft fade).
+  - Torn edge and Frame show dimmed with the `set.border.needsArt` tooltip.
+- **Not checked:** the 720x480 window size; the band shrinks with the image there
+  (6% of its shorter side).
+- **V21-04 waits for the art:** the tile check and `FadeBand` are in place; Torn edge and
+  Frame drawing is not written yet.
+
+**P3 / V21-05 JSON import, 2026-10-09.**
+- **Entry point (IM7):** the user confirmed both places at the start of the phase: the
+  Director's map right-click menu and the open map's "..." menu.
+- **New file:** `RegionMapImport.lua`, registered after `RegionMapPopovers.lua`.
+  - `CheckEntry`, `Check`, `ReadFile`: pure checks, so they can be tested without the UI.
+  - `GridPositions(count, aspect)`: the grid for entries with no u/v.
+  - `Create(ctx)` builds the card layer. Its data holds `start()` (the file dialog),
+    `openFile(path, mapId)` (what the dialog calls) and `close()`. The plan named this
+    `Start(ctx)`; the layer shape follows `ctx.Confirm`.
+- **Changed files:**
+  - Constants: `importSpacing` 0.11, `importRowShare` 0.45, `importBatch` 10,
+    `importWait` 20 s.
+  - Copy: manifest section 20, plus the `.one` forms and `dlg.close`.
+  - Model: `CreateLocation` takes an optional name, so an import does not follow the create
+    with a rename (a second revision the undo step would not match).
+  - CanvasTools (`MapMenu`) and SidePanel (`MenuEntries`): `menu.import`.
+  - Panel: the layer sits under the confirm layer; Esc closes it. Session: `ImportLocations`.
+  - Styles: the card (480 wide) and its scrolling list.
+  - Docs: [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md) and
+    [docs/import-example.json](docs/import-example.json).
+- **Engine notes:**
+  - `dmhub.ParseJsonFile` returns 1-based arrays and drops nulls. Invalid JSON and an empty
+    file both return nil without calling the error callback, so `ReadFile` reads the text
+    first to tell them apart.
+  - With several creates to one table in flight, a create's success callback can fire
+    before its row is in the local table. Writes that need the row (`SaveDetails`,
+    `SaveDirectorNote`) then fail with "permission". The first build stopped after 10 rows
+    this way. Commit now creates a batch, waits for the answers, waits until
+    `Model.GetLocation` reads every new row, and only then writes descriptions and notes,
+    all from the coroutine.
+  - A list taller than its vscroll box is centered in it unless it has `valign = "top"`;
+    the card opened with its summary line scrolled out of view until that was set.
+- **Grid:** names collided at Fit with square spacing, since a pin with its name is wider
+  than tall. 0.11 of the width between columns and 0.45 of that between rows (on screen)
+  keeps "Import Test 14"-length names apart at Fit. Imported pins can still land on
+  existing ones; the preview says to unlock pins to move them.
+- **Checks:** `luac -p` and ASCII pass; `check-mod.ps1` shows 0 problems; no Lua errors in
+  the console.
+- **Verified live (Director),** on M2 test map, with the test files in
+  `C:\Users\ElderHex\overland-map-test-imports\`, opened through `openFile`:
+  - Duplicates and skips: the preview lists the reasons per entry and the names already on
+    the map. Esc closes the card.
+  - 24 entries: all 24 created, with 8 descriptions and 6 Director notes, as one undo entry.
+    The toast's Undo and "Undo last change" each removed all 24.
+  - Over the limit (260 against room for 247), invalid JSON, empty, and all skipped: each
+    shows its card with Close only.
+  - 40 skipped entries: the list scrolls inside the card, opens at the top, and reopens at
+    the top after being scrolled.
+  - `docs/import-example.json` passes the checks: 4 entries, none skipped.
+  - "Import locations..." shows in the map right-click menu and the open map's "..." menu.
+  - The map was left with its 3 original Locations.
+- **Not checked:** the Windows file dialog itself. It is native and can't be driven over
+  the bridge; `start()` passes the picked path to the same `openFile` the tests used.
+
+**P4 / V21-06 to V21-10 point crawl foundations, 2026-10-09.**
+- **New files**, registered in this order:
+  - `RegionMapPaths.lua` after `RegionMapLog.lua`: the path index, the viewer filter (H1),
+    reads, the types and time unit, the wording, writes and the cascade helpers.
+  - `RegionMapPathLayer.lua` after `RegionMapCanvasTools.lua`: drawing, labels, badges and
+    the hit test. `Create()` takes no arguments; `Sample(width)` draws the line samples.
+  - `RegionMapPathPanel.lua` after `RegionMapSidePanel.lua`: the read panel and the
+    Director's path menu (`MenuEntries`).
+- **Registration:** the first tries failed with HTTP 502 ("Could not read the CodeMod
+  configuration") and then 409 ("Permission denied"). The app had started without reaching
+  Firebase authentication. A restart while the files were unregistered broke the window
+  (`RegionMapPathLayer` uninitialized in `RegionMapCanvas`). After the restart the login had
+  recovered, and all three registered on the first try.
+- **Changed files:**
+  - Constants: `modes`; path, type and time limits; `watchesPerDay` 6; the patterns,
+    widths and colours; casing, halo and badge sizes; `starterPathTypes`; `pathPieceLimit`
+    2500 (a placeholder until V21-19 measures it).
+  - Records: `mode` on the Location (an enum when present), `RegionMapPathRecord`,
+    `PathsTable()`, `IsValidPathFields`.
+  - Model:
+    - `CreateMap` and `AddMap` take `mode`; only "pointcrawl" is stored. `IsPointCrawl`.
+    - `WriteStateKey(key, value)` writes one key of the state document with a per-key
+      revision in `stateMeta`; its undo steps carry `state` and `stateBefore`, and
+      `Revert` and `StepCurrent` handle them.
+    - `MoveToMap`, `DeleteLocation` and `RemoveMap` add path-hide steps to their batch;
+      `RemoveMap` also clears `mode`, so Add map can choose again.
+  - Undo: rebinds also match on `state`.
+  - Session: `ModeChoice`, `selectedPathId`, `newMapMode`, the `pickMode` and `path` panel
+    modes.
+  - Atlas: the two-step New map card; the "Point crawl" chip.
+  - SidePanel: the `pickMode` step for Add map; path counts in the Delete, Remove map and
+    Move to map confirms; the chip in the map meta.
+  - Canvas: the path layer after the fade; path hover, click and right-click when no tool is
+    active.
+  - Panel: the path panel; Esc closes it; the `hint.pointcrawl.empty` banner.
+  - Popovers: Whole game gains the time unit and the path types.
+  - Styles: `PathStyles()`. Copy: sections 18, 21 and 22.
+- **Changed from the task text:**
+  - The Atlas card's step 1 has no Cancel: it is the card's resting face, so there is
+    nothing to cancel. The side panel's `pickMode` step has Cancel, and both image steps have
+    Back.
+  - The "Point crawl" chip sits on the Atlas card's thumbnail corner, not in the meta row.
+    The meta row was already full: count, "Party here" and "Not shared" would overflow the
+    card.
+  - `path.waits` replaces the "Revealed" meta text when an end is hidden, instead of a
+    second line under it that repeated "Revealed".
+- **Fixes found while verifying:**
+  - The New map card was centred in its box and 16 px taller than the map cards: `minHeight`
+    does not include padding and border even with `borderBox`. Both steps now fit the
+    standard card height, with `valign = "top"`.
+  - The type editor in Settings was built before it had a parent, and the engine warned. It
+    now lives in the types list from the start, collapsed until a type is edited.
+  - "Delete type" sat tight under the width segments: 8 px gap.
+- **Checks:** `luac -p` and ASCII pass; `check-mod.ps1` shows 0 problems; no Lua errors in
+  the console.
+- **Verified live (Director),** on a new "PC test" map (6 pins, 7 paths seeded with
+  `CreatePath`, one per starter type plus a hidden road with a bend):
+  - **Map kind:** both entry points, Back and Cancel. M2 test map still reads as free. The
+    Atlas chip and the side panel chip show. The empty-map hint shows on a point crawl map
+    with no Locations.
+  - **Drawing:** every pattern at fit and at the deepest zoom, where dashes keep their
+    on-screen size. Casing under each mark. A hidden path draws faded with an eye-slash per
+    segment. The selected path has a halo.
+  - **Labels:** on hover and selection; Show names shows all of them. The label sits at the
+    middle of the longest leg on screen.
+  - **Wording:** "1 day and 2 watches"; "3 watches from Stonehold, 5 watches from
+    Ashwater"; "1 day, from Ashwater to Mirefen only"; "Underground: Old Quarry - Mirefen"
+    for an unnamed path; "No type" after its type is deleted.
+  - **Hit test:** a click 10 px off a line selects it. Right-click gives Hide from players
+    and Delete. A pin under the cursor wins over a path.
+  - **Visibility:** hiding gives the toast, and undo reverts it. View as player drops the
+    hidden path and the path to a hidden pin. The player's path panel has no visibility
+    line, menu or note.
+  - **Path panel:** title, type chip with its line, ends, time, description, the note
+    section, and the waits line on the path to Hidden Grove. Esc closes it.
+  - **Cascades:**
+    - Deleting Mirefen asked "This also deletes 3 paths."; the toast's Undo brought back the
+      pin and all 3 paths, the hidden one still hidden.
+    - Remove map on Stonehold's point crawl sub-map ("This also deletes 1 path.") cleared
+      the image, the kind, both pins and the path; undo restored all of them.
+    - Move to map took Hidden Grove's path off the map; undo brought it back.
+  - **Settings:** Days and Watches relabel every path. A colour change redraws at once,
+    with a tooltip and the check mark. Undo restores it. Adding a type opens its editor. The
+    same-look warning shows. Deleting an unused type gives a toast and no confirm. Deleting
+    Trail asked "2 paths use it" and its path drew as "No type"; undo restored Trail in its
+    place.
+- **Not done yet:**
+  - Labels are not decluttered by zoom; Show names shows every path's label.
+  - Casing contrast was not measured (V21-18), and the 250-pin performance run (V21-19)
+    has not been done.
+  - The player client itself was not checked; View as player was.
+- **Test data left in the game:** the "PC test" map (shared) with its pins and paths, and
+  Stonehold's sub-map with 2 pins and 1 path.
+
+**P5 / V21-11 to V21-14 path editing, 2026-10-10.**
+- **New file:** `RegionMapPathTool.lua`, registered after `RegionMapPathLayer.lua`. It holds
+  the Path tool's steps, Connect (shared by the tool and Connect to...), Redraw line and the
+  bend handle edits. Registration first failed with HTTP 409 "Permission denied" (the same
+  Firebase login failure as in P4); after the user restarted the app it went through.
+- **Changed files:**
+  - Constants: `firstPathType`, `firstPathTime`, `pathParallelOffset`, the handle sizes.
+  - Session: the `pathEdit` and `pickPathEnd` panel modes, the `path` and `redraw` tools,
+    `pathDraft`, and `LastPathStyle` / `RememberPathStyle` (Q8, stored per Director).
+  - Paths: `CountJoining` (Q9), `SaveStatus`.
+  - PathLayer: a non-sliding top layer with the draft line, the bend discs and the "+"
+    handles; `HandleAt`, `HandlePoints`. A path's label hides while its handles show,
+    because the middle "+" sits where the label would.
+  - Panel: the toolbar button, tool and Esc wiring, `SelectPath(id, "pathEdit")`, and the
+    check that drops `pickPathEnd` when the pin can no longer be connected.
+  - Canvas: clicks, right-clicks and Backspace go to the tool; handle drag with one write on
+    drop.
+  - PathPanel: the edit form with autosave, the Connect to... picker, the Location's
+    Paths section (`PathsSection`) and `CanConnect`.
+  - SidePanel: `menu.connect`, the Paths section in read mode, and it stays closed while
+    `pickPathEnd` shows the picker.
+  - Styles: handles, path rows, the time field, the danger hint, the chosen type row.
+- **Changed from the task text:**
+  - Bend and Redraw edits reuse the `toast.moved` string ("{name} moved"). A new path gives
+    no toast: its edit form opening is the sign, and the undo stack still holds it.
+  - A typed time keeps a tenth of a watch, the finest the time wording shows. In days
+    mode "0.17" stores 1 watch, not 1.02.
+  - Connect to... closes the side panel at once; the new path's form opens when its row is
+    readable.
+- **Fixes found while verifying:**
+  - The first right-click after any drag was lost. The engine sends no click event after a
+    drag release, so the drag stayed in `state.lastDrag` and the right-click took it for its
+    own. Right-clicks now ignore a left-button drag. This was in V2 too: a right-click on a
+    pin just after dragging another one did nothing.
+  - The time field and its unit spread across the row; both now sit left.
+  - The chosen type row looked like a hovered one; its name is now bold.
+  - The search fields (the picker's and the toolbar Search's, the latter since V2) and the
+    text areas ran past the panel padding. The theme's `input` rule adds `hpad = 10` outside
+    the width, and on `gui.SearchInput` and `gui.TextEditor` `borderBox` does not take it
+    back. Neither inline `borderBox` nor an unpadded wrapper helped. The widths are now
+    `100%-28` (search) and `100%-20` (text areas), measured live, which also fixes the
+    Location form.
+  - The hidden path's row text sat left of the others; its label is now `halign = "left"`.
+- **Panel pan (user decision, 2026-10-10):** with a side, path or log panel open, the
+  camera may pan the map left by the panel's width, so a pin under the panel can be
+  reached even at fit. `CalculateImageLayout` takes `rightInset`; the shell keeps it in
+  `ctx.data.panelInset` (0 when no panel is open, or when a narrow window's panel covers
+  everything) and relays out when it changes. Selecting a pin under the panel now pans it
+  clear through `keepVisible`, which could not move the camera at fit before. When the
+  panel closes, the camera clamps back.
+- **Deploy:** the app's file watcher can miss a copy, and a reload then runs the old code.
+  `Player.log` shows a "Local file changed" line for each file it saw. Touching the
+  deployed files triggers it again; `debug.getinfo` on a changed function confirms what is
+  live.
+- **Checks:** `luac -p` and ASCII pass; `check-mod.ps1` shows 0 problems; no Lua errors in
+  the console after the reload.
+- **Verified live (Director), on the PC test map:**
+  - **Path tool:** Kell's Ferry, a map click, Hidden Grove made a Road with 1 bend at 1 day.
+    The form opened and the tool stayed on. The draft line follows the pointer.
+  - **Right-click** drops the last bend. **Esc** once drops the draft and keeps the tool, and
+    a second Esc turns it off.
+  - **Bend handles:** hidden while pins are locked. Once unlocked, a bend drag moved the bend
+    with one write and the toast; dragging a "+" added a bend; right-clicking a bend removed
+    it.
+  - **Paths section:** Hidden Grove lists "Kell's Ferry by Road - 1 day" and "Stonehold by
+    Druid way - 2 watches", with Connect to....
+  - **Connect to... using only the keyboard:** the search had focus, typing "mire" left
+    Mirefen, and Enter made "Road: Hidden Grove - Mirefen" and opened its form.
+  - **Edit form:**
+    - The name autosaved and the write was confirmed; the title changed.
+    - Trail saved at once, and the next path's style became Trail.
+    - "abc" showed the range line and was not sent; "1.5" days saved as 9 watches ("1 day
+      and 3 watches").
+    - Different time showed "Time from Mirefen".
+    - Esc returned to the read view, which showed all of it.
+  - **Redraw line:** from the "..." menu. The banner names the end pin; the new bend saved
+    with "Fen Causeway moved", and the toast's Undo put the old line back.
+- **Verified after the fixes (second reload):**
+  - **Panel pan:** at fit, selecting Mirefen (under the panel) panned it clear. With a path
+    panel open, a drag slid the map left until its right edge met the panel; closing the
+    panel brought it back to centre.
+  - A path's label hides while its handles show.
+  - A right-click on a new bend, straight after the drag that made it, removed it.
+  - The chosen type row is bold; the time rows sit left; the search fields and text areas
+    line up with the other fields; the hidden path row lines up.
+  - **Delete and undo:** "Fen Causeway deleted" with Undo; undo restored every field.
+  - **Q9:** a second path from Hidden Grove to Mirefen bowed out beside Fen Causeway. It
+    copied the last style (Trail, 1.5 days).
+- **Not verified:** Backspace while drawing. The bridge's virtual keys do not reach
+  `dmhub.KeyPressed` (arrow keys read false too). It calls the same function as
+  right-click, which works.
+- **Test data added:**
+  - "Fen Causeway" (Trail, Hidden Grove - Mirefen, 1.5 days, different way back).
+  - An unnamed Trail from Hidden Grove to Mirefen (the Q9 offset test).
+  - A Road from Kell's Ferry to Hidden Grove with one bend.
+
+**P6 / V21-15 to V21-17 travel and the leg log, 2026-10-10.**
+- **New files**, registered in this order (the first tries failed with HTTP 502, the same
+  Firebase login failure as before; after the user restarted the app both went through):
+  - `RegionMapTravel.lua` after `RegionMapPaths.lua`: the travel model.
+  - `RegionMapPartyPanel.lua` after `RegionMapPathPanel.lua`: the Party section, the
+    Party's "Travel to" menu, the hidden-path question and the stop card. The plan put
+    these in the path panel; they got their own file so it stays under 800 lines.
+- **Changed files:**
+  - Copy: manifest sections 23 and 24. `leg.by` holds its leading space (" by {path}").
+  - Records: log kinds `leg` and `stopped`; the new log fields have type defaults (a
+    game type raises on a field a row never had) and are checked when the kind uses them.
+  - Model:
+    - The Party gains `pathId`, `pathFrom`, `spent`. A stopped Party's u/v are worked out
+      from the path every read (Q13); a player who can't see the path sees a plain
+      position. `PartyStatus` adds "onPath".
+    - `WriteParty` takes the path fields, `travel` and `noLog`. On a point crawl map players
+      move only with `travel` (Q16).
+    - `PlaceParty` takes a pin id (Q16).
+    - `PartyOffPaths` + `MovePartyOff`: the cascades (`DeletePath`, `DeleteLocation`,
+      `MoveToMap`) move a Party stopped on a removed path to its nearer end. The target is
+      read before the batch hides rows, since hidden rows leave the index.
+  - Paths: `Points(path)`; `DeletePath` moves the Party off.
+  - Log: `RecordLeg`, `RecordStop`, `HideStep`, `Newest`, `ShowsPath`. Players see a
+    leg or stop only when both ends are visible; its path name and line only when it was
+    not secret and the path is visible to them now (a deleted path keeps its name).
+    Entries store `pathName`, so renaming or deleting a path keeps the history.
+  - LogPanel: `LegText` (one wording, Q19) and the leg and stop lines.
+  - Panel: `ctx.ShowParty`, `ctx.StopOnPath`; the "party" panel mode (Esc closes it, it
+    closes when the Party leaves the open point crawl map); the status chip opens it;
+    `ctx.Confirm` takes an `alternate` button (W1); the stop card layer.
+  - Canvas: on a point crawl map a banner click opens the Party section, a drag snaps back
+    with `hint.dragTravel` (Q17), right-click shows the Travel to menu; the map menu gets the
+    pin near the click.
+  - CanvasTools: `MapMenu` places the Party "at" a pin within the snap radius on point
+    crawl maps (Q16).
+  - PathPanel: `ctx.path.place` first in the path menu; `ParseTime` and `TimeInputText`
+    shared with the stop card.
+  - SidePanel: "Move Party here" on a point crawl map is the Director's and logs `placed`.
+  - Session and Styles: the new mode, context fields and the travel row rules.
+- **Changed from the task text:**
+  - `gui.ContextMenu` has submenus, so the Party menu is one "Travel to" submenu. The
+    entries are "{dest} by {path} ({time})"; the core shortcut slot hugged the text in the
+    same colour, so the time is in brackets (manifest 25.7, signed off 2026-10-10).
+  - Leaving from partway the toast is the log line, "Traveled on to ..." or "Turned back to
+    ..." (manifest 25.8, signed off 2026-10-10).
+  - Turning back on a path whose other way is "Not possible" is not offered (W2).
+  - A stop replaces the arrival only for a whole-path leg from the same end (Q14). After a
+    leg from partway, the stop is a new entry.
+  - Lengths along a path are measured in image units, so on a long, narrow image the
+    stopped Party's spot is slightly off the true half; it is always on the line.
+  - A reveal that fails while travelling leaves the leg secret instead of failing the travel.
+- **Fix found while verifying (V2 bug):** "Place Party here" toasted "{party} placed on
+  PC test": `toast.partyPlaced` was never given the Party's name.
+- **Checks:** `luac -p` and ASCII pass; `check-mod.ps1` shows 0 problems; no Lua errors in
+  the console.
+- **Verified live (Director), on the PC test map:**
+  - **Q16:** "Place Party here" just above Kell's Ferry put the Party at the pin, logged as
+    placed.
+  - **Party section:** the banner click opens it, showing "Party is at Kell's Ferry" and
+    three rows (dest by path, time underneath).
+  - **Travel and undo:** Stonehold by King's Road gave the toast and a route along the
+    road. Undo put the Party back and removed the leg.
+  - **Menu:** the Travel to submenu travelled to Hidden Grove and closed.
+  - **Stop card:** right-click on the Road, "Place Party on Road". It counted from Kell's
+    Ferry (where the leg began) at 0.5 of 1 day. "10.5" showed the range line, and the swap
+    button counted from Hidden Grove.
+  - **Q14:** placing at 0.5 day replaced the arrival with "Stopped on Road, 3 watches from
+    Kell's Ferry". The banner sat on the road at half its length; the chip read "Party on
+    Road".
+  - **Going on:** "Traveled on to Hidden Grove by Road - 3 watches", with the route starting
+    at the stop.
+  - **Turning back:** from 3 watches out on Underground, "Turned back to Mirefen by
+    Underground - 3 watches".
+  - **W1:** Smugglers' cut showed the eye-slash; the card offered all three buttons.
+    - Travel without revealing: the path stayed hidden. View as player showed "Traveled
+      from Stonehold to Mirefen - 1 day and 4 watches" with no line, and dropped the legs
+      through hidden Hidden Grove.
+    - Reveal and travel: one undo entry (Party, reveal, log); undo hid the path again.
+  - **Q13:** deleting Underground with the Party 7 of 9 watches from Mirefen moved it to
+    Old Quarry; undo restored the path and the Party on it.
+  - **Q17:** a banner drag snapped back with the hint and wrote nothing.
+  - **Options:** View as player with the switch off says "Only the Director can move
+    Party.". With it on, Mirefen offers only Old Quarry by Underground. The one-way Sea lane
+    shows from Ashwater only.
+- **Not verified:**
+  - A real player client (batched for a session the user sets up).
+  - The side panel "Move Party here" button on a point crawl map (code path shared with the
+    tested `placed` write).
+  - Enter in the stop card's field does nothing; Place Party is a click.
+- **Seen, not changed (V2):** in a player's log, entry lines without the Director's "..."
+  button sit a little right of their meta line.
+- **Test state:** the Party is at Ashwater on PC test; the log holds the test legs.
+
+**P7 / V21-18 to V21-20 finish, 2026-10-10.**
+- **Changed files:**
+  - PathLayer: the label declutter (Q11, left open in P4). With Show names on, labels are
+    placed longest line first, and one shows only when its line on screen is at least 0.8 of
+    its width and it clears the pins, their names and the labels already placed. Hover and
+    selection always show. Widths are estimated (0.52 em a character), so nothing waits a
+    frame to measure. Drawn paths keep their end pins' names for this.
+  - Constants: `pathLabelSize`, `pathLabelCharWidth`, `pathLabelPad`, `pathLabelFit`,
+    `pathLabelGap`; `pathHiddenOpacity` 0.6 (was an inline 0.45); the `pathPieceLimit`
+    comment now holds the F4 numbers (the value stays 2500).
+  - Styles:
+    - Warning text (`regionMapHint danger`, `regionMapStateLine danger`,
+      `regionMapLink danger`) is `@fgStrong` with a 3 px `@danger` bar at its left. This was
+      `@danger` text.
+    - The route dots get a 1.5 px `@bg` ring.
+  - PartyPanel: Enter in the stop card's field places the Party, like the button (P6
+    left this open).
+- **V21-18, measured (WCAG ratios; art samples light #E8DCC0, mid #7A9A50, dark #2A2A2E,
+  sea #5C88A8):**
+  - Line against its casing: 6.5:1 (rust) to 15.8:1 (parchment). Line or casing against
+    the art: 4.6:1 or more on all four samples.
+  - Hidden paths: at 0.45 opacity the faded line read 2.3-2.5:1 against its casing for
+    blue, ochre, violet and rust. At 0.6 every colour reads 3.1:1 or more and still reads as
+    faded (2.1:1 or more against the full colour). The eye-slash badge still carries
+    "hidden".
+  - Swatches against `@bg`: 6.2:1 or more, except Ink at 1.0-1.1:1, which has the
+    `@fgStrong` ring (Q26).
+  - `@danger` text on `@bg` is 4.0:1 (Default), 3.7:1 (MCDM) and 3.4:1 (Warm Gold), so
+    "Delete type" and the range lines could not meet 4.5:1 in that colour. No stronger theme
+    token exists. They now follow the DefaultStyles.md `multiselectChipRemove` pattern:
+    readable text, with the red on a non-text mark that needs only 3:1 (and gets 3.4:1 or
+    more).
+  - The toast's Undo (`@accent` on `@bg`): 14.7:1, 6.0:1 and 5.8:1. Its box border is
+    `@border`: 6.8:1 or more.
+  - Font Size 140 (the host zooms the whole window) and 80: labels and lines scale, and the
+    declutter holds. The Party section and the stop card fit at 80. Font Size was restored
+    to 100.
+  - Default, Warm Gold and MCDM: no `THEME_ENGINE` lines and no Lua errors. In Default the
+    route dots (`@accent`, parchment) vanished on a Road, hence the ring.
+  - Non-drag and non-hover routes: bends have Redraw line; travel has the list and the menu;
+    labels have Show names; paths are listed in a Location's panel; hidden is a badge, not a
+    colour.
+- **V21-19:** numbers in README section 5.
+  - **Method:** 244 test pins and 150 test paths (one bend each) were joined to the real
+    rows in memory. This was done by swapping `Model.Index`'s `Locations` upvalue and
+    `RegionMapRecords.PathsTable`, as V2 did for pins. The path layer's API was wrapped with
+    timers by reopening the window. Everything was restored and Lua reloaded; nothing
+    reached the cloud.
+  - **Cap:** creating a piece is engine work (0.14 ms a panel in an isolated test, the same
+    with or without a class), so the first draw is bounded by the cap, not by our Lua. The
+    cap stays at 2500: the dense test map reaches it only at the deepest zoom.
+  - **Frame sampling:** the unfocused app caps at 30 fps, and pans through the bridge showed
+    the same 50-100 ms bursts with or without the test paths. Those bursts are not the path
+    layer.
+- **V21-20:** README (behavior, architecture with all 25 files, data, performance,
+  acceptance, open decisions), IDEAS.md (9, 11, 7.2 and the creation part of 7.3 delivered;
+  10 partly), the brief's status (BUILT, with the exceptions).
+- **Checks:** `luac -p` and ASCII pass; `check-mod.ps1` shows 0 problems; no Lua errors in
+  the console; `git status` shows changes only under `Region Map/` (plus the untracked
+  `.codex/`, `.mcp/` and `output/` that were there before).
+- **Verified live (Director):**
+  - Show names at Fit: 7 of 10 labels, none overlapping. One zoom step brought back
+    "Trail - 1 day and 3 watches".
+  - "Delete type" and the stop card's range line show the new look.
+  - Enter with "40" in the stop card shows the range line and writes nothing.
+  - Route dots in Default ring on the Road.
+- **Not verified:** the player-client list in README section 6.
+- **Seen, not changed:** while these checks ran, the app was also in use. The Party traveled
+  Ashwater to Mirefen by Sea lane and on to Old Quarry by Underground (20:31-20:32). The
+  checks wrote no game data. The performance run closed and reopened the Overland Map window
+  twice; after the final reload it was closed, with the map editor panels open, and it was
+  left that way.

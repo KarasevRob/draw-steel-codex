@@ -27,8 +27,10 @@ local ImageToPanel = Tools.ImageToPanel
 
 --- A press on the map, a pin or the Party, tracked until the button is released.
 --- @class RegionMapDrag
---- @field kind "pan"|"pin"|"party"|"ruler"
---- @field id nil|string the pin being dragged
+--- @field kind "pan"|"pin"|"party"|"ruler"|"bend"
+--- @field id nil|string the pin being dragged, or the path whose bend is
+--- @field index nil|integer bend drags: the bend, or the segment whose "+" was pulled
+--- @field insert nil|boolean bend drags: a new bend from a "+"
 --- @field button integer 0 left, 1 right, 2 middle
 --- @field startX number
 --- @field startY number
@@ -78,6 +80,12 @@ local ImageToPanel = Tools.ImageToPanel
 --- @field pinsDirty boolean pins must be placed again on the next Layout
 --- @field layerX number the pin layer's offset from pinRef (the pan since then)
 --- @field layerY number
+--- @field border "none"|"fade"|"torn"|"frame" the open map's border
+--- @field fadeShown nil|boolean whether the Soft fade was last shown (nil forces an update)
+--- @field hoverPathId nil|string the path under the pointer, which shows its label (F3)
+--- @field hoverX nil|number the pointer position the hover was last worked out for
+--- @field hoverY nil|number
+--- @field draftKey string what the drawn draft line was last placed for
 
 -- The icon of a pin: a curated key, a library image id, or the default glyph.
 local function PinIcon(location)
@@ -109,6 +117,7 @@ function RegionMapCanvas.Create(ctx)
     local canvas
     local imagePanel
     local fadingPanel = nil --- @type nil|Panel the previous map, fading out under the new one
+    local edgeFade -- the Soft fade border, laid out over the image
     -- Pins and the Party live in one layer that slides as a whole while the
     -- map pans, so a pan moves one panel instead of every pin (V2-21). The
     -- layer must stay interactable: a non-interactable layer stops its pins' clicks.
@@ -121,6 +130,8 @@ function RegionMapCanvas.Create(ctx)
     local controls
     local namesButton
     local overlay = Tools.CreateOverlay(ctx)
+    -- Point crawl paths draw above the border and below the route and pins.
+    local pathLayer = RegionMapPathLayer.Create()
     local pins = {} --- @type table<string, Panel>
     --- @type RegionMapCanvasState
     local state = {
@@ -132,7 +143,9 @@ function RegionMapCanvas.Create(ctx)
         hovered = false, lastPointerX = nil, lastPointerY = nil, lastPointerMove = 0,
         keyEdges = {}, scale = 1,
         pinRef = nil, pinsDirty = true, layerX = 0, layerY = 0,
+        border = "none", fadeShown = nil, hoverPathId = nil, hoverX = nil, hoverY = nil, draftKey = "",
     }
+    local PathTool = RegionMapPathTool
 
     local Layout
     local CreateImagePanel
@@ -255,6 +268,14 @@ function RegionMapCanvas.Create(ctx)
         end
         -- A ruler drag already wrote both points while it moved.
         if drag.kind == "ruler" then return drag end
+        -- A bend handle writes once, on drop (Q5); the preview line goes either way.
+        if drag.kind == "bend" then
+            pathLayer.SetHandles(PathTool.HandlesFor(ctx), nil)
+            if drag.moved and drag.id ~= nil and drag.index ~= nil and drag.previewU ~= nil and drag.previewV ~= nil then
+                PathTool.DropBend(ctx, drag.id, drag.index, drag.insert == true, drag.previewU, drag.previewV)
+            end
+            return drag
+        end
         if not drag.moved or not drag.allowed or state.mapId == nil then return drag end
         if drag.kind == "pin" and drag.previewU ~= nil and drag.previewV ~= nil and drag.id ~= nil then
             local location = Model.GetLocation(drag.id)
@@ -264,7 +285,10 @@ function RegionMapCanvas.Create(ctx)
             end
         elseif drag.kind == "party" and drag.previewU ~= nil and drag.previewV ~= nil then
             local party = Model.PartyName()
-            if drag.snapId ~= nil then
+            if Model.IsPointCrawl(Model.GetLocation(state.mapId)) then
+                -- On a point crawl map the Party moves only along paths: the banner goes back and says how (Q17).
+                RegionMapUndo.Notify("hint.dragTravel", { party = party })
+            elseif drag.snapId ~= nil then
                 local target = Model.GetLocation(drag.snapId)
                 local ok, reason, entry = Model.WriteParty { mapId = state.mapId, locationId = drag.snapId }
                 if ctx.Report(ok, reason) and target ~= nil then
@@ -281,10 +305,12 @@ function RegionMapCanvas.Create(ctx)
 
     -- The drag a click or right-click event belongs to: still open, or just
     -- finished by think. True means the release ended a drag, not a click.
-    local function ReleasedDragMoved()
+    -- A right-click passes button 1: the engine sends no click after a left drag,
+    -- so that drag is still kept here and must not swallow the right-click.
+    local function ReleasedDragMoved(button)
         local drag = FinishDrag() or state.lastDrag
         state.lastDrag = nil
-        return drag ~= nil and drag.moved
+        return drag ~= nil and drag.moved and (button == nil or drag.button == button)
     end
 
     local function BeginDrag(kind, id, u, v, allowed)
@@ -372,6 +398,12 @@ function RegionMapCanvas.Create(ctx)
                     Layout()
                     return
                 end
+                -- The Path tool and Redraw line take a pin as an end of the line.
+                if data.tool == "path" or data.tool == "redraw" then
+                    PathTool.Click(ctx, nil, nil, element.data.id)
+                    Layout()
+                    return
+                end
                 ctx.Select(element.data.id, "read")
             end,
             -- Rename only when pins are unlocked and the viewer may edit; else a click (R12).
@@ -385,7 +417,12 @@ function RegionMapCanvas.Create(ctx)
                 end
             end,
             rightClick = function(element)
-                if ReleasedDragMoved() then return end
+                if ReleasedDragMoved(1) then return end
+                -- While drawing a line, right-click anywhere drops the last bend.
+                if data.tool == "path" or data.tool == "redraw" then
+                    if PathTool.Back(ctx) then Layout() end
+                    return
+                end
                 ctx.ShowMenu(element, element.data.id)
             end,
             disc, name,
@@ -405,6 +442,7 @@ function RegionMapCanvas.Create(ctx)
         local disc, hit = PinSize(location)
         local plateStyle = location.pinStyle == "plate"
         pin.data.u, pin.data.v = location.u, location.v
+        pin.data.hit = hit
         pin.data.importance, pin.data.pinStyle = location.importance, location.pinStyle
         pin.data.disc:SetClass("collapsed", plateStyle)
         ShowPart(pin, "plate", plateStyle)
@@ -532,7 +570,19 @@ function RegionMapCanvas.Create(ctx)
             if state.drag ~= nil then return end
             local args = { party = Model.PartyName() }
             local id = Model.CanMovePartyOn(state.mapId or "") and "party.tooltip.move" or "party.tooltip"
+            if Model.IsPointCrawl(Model.GetLocation(state.mapId)) then
+                id = #(RegionMapTravel.Options()) > 0 and "party.tooltip.travel" or "party.tooltip"
+            end
             gui.Tooltip(Copy.T(id, args))(element)
+        end,
+        -- The "Travel to" menu (G1); the menu's own click closes it after any entry, submenus too.
+        rightClick = function(element)
+            if ReleasedDragMoved(1) or data.tool ~= "none" then return end
+            local entries = RegionMapPartyPanel.MenuEntries(ctx)
+            if #entries == 0 then return end
+            element.tooltip = nil
+            element.popupsInheritStyles = false
+            element.popup = gui.ContextMenu { entries = entries, click = function() element.popup = nil end }
         end,
         press = function(element)
             local party = element.data.party
@@ -555,7 +605,12 @@ function RegionMapCanvas.Create(ctx)
                 Layout()
                 return
             end
-            if party.locationId ~= nil then ctx.Select(party.locationId, "read") end
+            -- On a point crawl map the banner opens the Party section with its Travel to list (G1).
+            if RegionMapPartyPanel.Available(ctx) then
+                ctx.ShowParty()
+            elseif party.locationId ~= nil then
+                ctx.Select(party.locationId, "read")
+            end
         end,
         partyDisc, partyName,
     }
@@ -615,7 +670,7 @@ function RegionMapCanvas.Create(ctx)
         local layout = nil
         if state.mapId ~= nil and IsFinite(state.imageWidth) and IsFinite(state.imageHeight) then
             layout = Tools.CalculateImageLayout(viewWidth, viewHeight, state.imageWidth --[[@as number]],
-                state.imageHeight --[[@as number]], data.camera)
+                state.imageHeight --[[@as number]], data.camera, data.panelInset)
         end
         state.layout = layout
         -- Pins wait, invisible, until the image is laid out.
@@ -624,9 +679,20 @@ function RegionMapCanvas.Create(ctx)
             pinLayer:SetClass("regionMapWaiting", layout == nil)
         end
         overlay.Layout(layout, state.imageWidth, state.imageHeight)
+        pathLayer.Layout(layout, state.scale)
+        local fadeShown = layout ~= nil and state.border == "fade"
+        if state.fadeShown ~= fadeShown then
+            state.fadeShown = fadeShown
+            edgeFade:SetClass("collapsed", not fadeShown)
+        end
         if layout == nil then return end
         imagePanel.selfStyle.x, imagePanel.selfStyle.y = layout.x, layout.y
         imagePanel.selfStyle.width, imagePanel.selfStyle.height = layout.width, layout.height
+        if fadeShown then
+            edgeFade.selfStyle.x, edgeFade.selfStyle.y = layout.x, layout.y
+            edgeFade.selfStyle.width, edgeFade.selfStyle.height = layout.width, layout.height
+            Tools.SetFadeBand(edgeFade, Tools.FadeBand(layout.width, layout.height))
+        end
 
         -- A pan keeps the image's size, so pins keep their places in the layer and
         -- only the layer moves. Zoom, a resize or a model change places them again.
@@ -700,6 +766,10 @@ function RegionMapCanvas.Create(ctx)
         local children = {} --- @type Panel[]
         if fadingPanel ~= nil and fadingPanel.valid then children[#children + 1] = fadingPanel end
         children[#children + 1] = imagePanel
+        -- The border shades the image only; everything drawn on the map sits above it (Q23).
+        children[#children + 1] = edgeFade
+        children[#children + 1] = pathLayer.layer
+        children[#children + 1] = pathLayer.top
         -- The route lies under pins and the Party; the ruler draws over them.
         children[#children + 1] = overlay.route
         children[#children + 1] = pinLayer
@@ -766,6 +836,37 @@ function RegionMapCanvas.Create(ctx)
         if interrupted ~= nil and interrupted.onDone ~= nil then interrupted.onDone() end
     end
 
+    -- Paths of the open map, with the hovered and selected ones marked.
+    local function BindPaths()
+        pathLayer.Bind(state.mapId)
+        local open = data.panelMode == "path" or data.panelMode == "pathEdit"
+        local selected = open and data.selectedPathId or nil
+        pathLayer.SetFocus(state.hoverPathId, selected, state.showNames)
+        -- A handle drag keeps its preview until it is dropped.
+        if state.drag == nil or state.drag.kind ~= "bend" then pathLayer.SetHandles(PathTool.HandlesFor(ctx), nil) end
+    end
+
+    -- The line being drawn follows the pointer from its last point (V21-11).
+    local function UpdateDraft(mouseX, mouseY)
+        local layout = state.layout
+        local points, look = nil, nil
+        if layout ~= nil then points, look = PathTool.DraftPoints(ctx) end
+        local cursor = nil
+        if points ~= nil and layout ~= nil and state.hovered and mouseX ~= nil and mouseY ~= nil then
+            cursor = {
+                u = Clamp((mouseX - layout.x) / layout.width, 0, 1), v = Clamp((mouseY - layout.y) / layout.height, 0, 1),
+            }
+        end
+        local key = ""
+        if points ~= nil then
+            local last = points[#points]
+            key = table.concat({ #points, last.u, last.v, tostring(cursor and cursor.u), tostring(cursor and cursor.v) }, ":")
+        end
+        if key == state.draftKey then return end
+        state.draftKey = key
+        pathLayer.SetDraft(points, cursor, look)
+    end
+
     -- Refresh from the model. A remote image replacement reloads the image.
     local function Bind()
         state.scale = Session.UIScale()
@@ -776,9 +877,11 @@ function RegionMapCanvas.Create(ctx)
         elseif map.id ~= state.mapId or map.imageId ~= state.imageId or map.imageRevision ~= state.imageRevision then
             LoadImage(map, "restore")
         end
+        state.border = map ~= nil and Model.Border(map) or "none"
         UpdatePins()
         UpdateParty()
         overlay.Bind()
+        BindPaths()
         namesButton:SetClass("on", state.showNames)
         Layout()
     end
@@ -804,7 +907,7 @@ function RegionMapCanvas.Create(ctx)
         if data.camera.zoom == oldZoom then return end
         -- A layout only exists once the image size is known.
         local newLayout = Tools.CalculateImageLayout(layout.viewWidth, layout.viewHeight,
-            state.imageWidth --[[@as number]], state.imageHeight --[[@as number]], data.camera)
+            state.imageWidth --[[@as number]], state.imageHeight --[[@as number]], data.camera, data.panelInset)
         if newLayout == nil then return end
         data.camera.centerX = beforeU + (layout.viewWidth * 0.5 - mouseX) / newLayout.width
         data.camera.centerY = beforeV + (layout.viewHeight * 0.5 - mouseY) / newLayout.height
@@ -840,6 +943,11 @@ function RegionMapCanvas.Create(ctx)
         elseif drag.allowed then
             drag.previewU = Clamp(drag.startU + dx / layout.width, 0, 1)
             drag.previewV = Clamp(drag.startV + dy / layout.height, 0, 1)
+            if drag.kind == "bend" and drag.index ~= nil then
+                pathLayer.SetHandles(drag.id, {
+                    index = drag.index, insert = drag.insert == true, u = drag.previewU, v = drag.previewV,
+                })
+            end
             if drag.kind == "party" then
                 local snap = SnapTarget(mouseX, mouseY)
                 if snap ~= drag.snapId then
@@ -877,6 +985,8 @@ function RegionMapCanvas.Create(ctx)
             state.keyEdges[key] = down
             return down and not previous
         end
+        -- Backspace drops the last bend of the line being drawn (V21-11).
+        if KeyEdge("Backspace") and PathTool.Back(ctx) then Layout() end
         local horizontal, vertical = 0, 0
         if KeyEdge("LeftArrow") then horizontal = horizontal - 1 end
         if KeyEdge("RightArrow") then horizontal = horizontal + 1 end
@@ -889,6 +999,41 @@ function RegionMapCanvas.Create(ctx)
         data.camera.centerY = data.camera.centerY + vertical * pixels / state.layout.height
         Layout()
         SaveCamera()
+    end
+
+    -- True when (x, y) is on a pin's hit area: pins win over the paths under them (Q4).
+    local function OnPin(x, y)
+        local layout = state.layout
+        if layout == nil then return false end
+        for _, pin in pairs(pins) do
+            if pin.valid then
+                local px, py = ImageToPanel(layout, pin.data.u, pin.data.v)
+                local radius = (pin.data.hit or C.pinHitMin * state.scale) / 2
+                if math.abs(px - x) <= radius and math.abs(py - y) <= radius then return true end
+            end
+        end
+        return false
+    end
+
+    -- The path under the pointer, or nil (tools, drags and pins take precedence).
+    local function PathUnder(x, y)
+        if x == nil or y == nil or state.layout == nil or data.tool ~= "none" or OnPin(x, y) then return nil end
+        return pathLayer.PathAt(state.layout, x, y, state.scale)
+    end
+
+    -- Hovering a path shows its label (F3); worked out only when the pointer moves.
+    local function PollPathHover(mouseX, mouseY)
+        local hover = nil
+        if state.hovered and state.drag == nil and mouseX ~= nil then
+            if mouseX == state.hoverX and mouseY == state.hoverY then return end
+            hover = PathUnder(mouseX, mouseY)
+        end
+        state.hoverX, state.hoverY = mouseX, mouseY
+        if hover == state.hoverPathId then return end
+        state.hoverPathId = hover
+        local selected = (data.panelMode == "path" or data.panelMode == "pathEdit") and data.selectedPathId or nil
+        pathLayer.SetFocus(hover, selected, state.showNames)
+        Layout()
     end
 
     local function TickAnimation()
@@ -928,6 +1073,7 @@ function RegionMapCanvas.Create(ctx)
         Session.SetShowNames(state.showNames)
         element:SetClass("on", state.showNames)
         UpdatePins()
+        BindPaths()
         Layout()
     end)
     controls = gui.Panel {
@@ -947,6 +1093,8 @@ function RegionMapCanvas.Create(ctx)
     pinChildren = { partyPanel }
     pinLayer = gui.Panel { classes = { "regionMapOverlay" }, floating = true, partyPanel }
     imagePanel = CreateImagePanel(0, 1)
+    edgeFade = Tools.CreateFade()
+    edgeFade:SetClass("collapsed", true)
 
     canvas = gui.Panel {
         id = "region-map-canvas",
@@ -977,7 +1125,17 @@ function RegionMapCanvas.Create(ctx)
                 if data.tool == "ruler" and state.layout ~= nil and x ~= nil and y ~= nil then
                     u, v = Tools.PanelToImage(state.layout, x, y)
                 end
-                if u ~= nil and v ~= nil then
+                -- A press on a bend handle or a "+" drags it (Q5).
+                local pathId = PathTool.HandlesFor(ctx)
+                local handle = (pathId ~= nil and x ~= nil and y ~= nil) and pathLayer.HandleAt(x, y, state.scale) or nil
+                local points = handle ~= nil and pathLayer.HandlePoints() or nil
+                if handle ~= nil and points ~= nil then
+                    local a, b = points[handle.index], points[handle.index + 1]
+                    local startU, startV = b.u, b.v
+                    if handle.kind == "plus" then startU, startV = (a.u + b.u) / 2, (a.v + b.v) / 2 end
+                    BeginDrag("bend", pathId, startU, startV, true)
+                    if state.drag ~= nil then state.drag.index, state.drag.insert = handle.index, handle.kind == "plus" end
+                elseif u ~= nil and v ~= nil then
                     BeginDrag("ruler", nil, u, v, true)
                 else
                     BeginDrag("pan", nil, 0, 0, true)
@@ -986,20 +1144,46 @@ function RegionMapCanvas.Create(ctx)
             UpdateThinkRate(element)
         end,
         click = function()
-            if ReleasedDragMoved() then return end
-            if data.tool == "none" or state.layout == nil then return end
+            if ReleasedDragMoved() or state.layout == nil then return end
             local x, y = PointerInCanvas()
             if x == nil or y == nil then return end
+            if data.tool == "none" then
+                -- A click within a path's band selects it (V21-09).
+                local pathId = PathUnder(x, y)
+                if pathId ~= nil then ctx.SelectPath(pathId) end
+                return
+            end
+            if data.tool == "path" or data.tool == "redraw" then
+                -- Close to a pin counts as the pin; elsewhere the click adds a bend.
+                local u, v = Tools.PanelToImage(state.layout, x, y)
+                PathTool.Click(ctx, u, v, SnapTarget(x, y))
+                Layout()
+                return
+            end
             Tools.PlaceAt(ctx, Tools.PanelToImage(state.layout, x, y))
             Layout()
         end,
         rightClick = function(element)
-            if ReleasedDragMoved() then return end
+            if ReleasedDragMoved(1) then return end
+            if data.tool == "path" or data.tool == "redraw" then
+                if PathTool.Back(ctx) then Layout() end
+                return
+            end
             local x, y = PointerInCanvas()
             if x == nil or y == nil or state.layout == nil then return end
+            -- Right-click on a bend handle removes that bend (Q5).
+            local handlePath = PathTool.HandlesFor(ctx)
+            local handle = handlePath ~= nil and pathLayer.HandleAt(x, y, state.scale) or nil
+            if handlePath ~= nil and handle ~= nil and handle.kind == "bend" then
+                PathTool.RemoveBend(ctx, handlePath, handle.index)
+                return
+            end
             local u, v = Tools.PanelToImage(state.layout, x, y)
             if u == nil or v == nil then return end
-            local entries = Tools.MapMenu(ctx, u, v)
+            -- Near a path, the Director gets the path's own menu; anyone else the map's.
+            local pathId = PathUnder(x, y)
+            local entries = pathId ~= nil and RegionMapPathPanel.MenuEntries(ctx, pathId) or {}
+            if #entries == 0 then entries = Tools.MapMenu(ctx, u, v, SnapTarget(x, y)) end
             if #entries == 0 then return end
             for _, entry in ipairs(entries) do
                 local action = entry.click
@@ -1019,6 +1203,8 @@ function RegionMapCanvas.Create(ctx)
             PollWheel(mouseX, mouseY)
             PollDrag(element, mouseX, mouseY)
             PollKeys(element)
+            PollPathHover(mouseX, mouseY)
+            UpdateDraft(mouseX, mouseY)
             TickAnimation()
             TickFade()
             TickControlsFade(mouseX, mouseY)
@@ -1048,8 +1234,10 @@ function RegionMapCanvas.Create(ctx)
             else
                 LoadImage(map, how or "restore")
             end
+            state.hoverPathId = nil
             UpdatePins()
             UpdateParty()
+            BindPaths()
             Layout()
         end,
         animateInto = function(_, id, onDone)
@@ -1087,11 +1275,12 @@ function RegionMapCanvas.Create(ctx)
             state.drag = nil
             if drag ~= nil and drag.snapId ~= nil and pins[drag.snapId] ~= nil then pins[drag.snapId]:SetClass("snapTarget", false) end
             if drag ~= nil and drag.kind == "pan" then data.camera = drag.startCamera end
+            if drag ~= nil and drag.kind == "bend" then pathLayer.SetHandles(PathTool.HandlesFor(ctx), nil) end
             state.pinsDirty = true
             Layout()
         end,
 
-        imagePanel, pinLayer, controls,
+        imagePanel, edgeFade, pinLayer, controls,
     }
     return canvas
 end

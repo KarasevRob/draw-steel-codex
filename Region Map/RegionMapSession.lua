@@ -20,12 +20,16 @@ local Model = RegionMapModel
 --- @class RegionMapShellData
 --- @field mapId nil|string the open map; nil shows the Atlas
 --- @field selectedId nil|string the Location in the side panel
---- @field panelMode "none"|"read"|"edit"|"pickImage"|"pickMap"|"pickJournal"|"log" "log" is the session log panel
+--- @field selectedPathId nil|string the path in the path panel (panelMode "path")
+--- @field panelMode "none"|"read"|"edit"|"pickMode"|"pickImage"|"pickMap"|"pickJournal"|"log"|"path"|"pathEdit"|"pickPathEnd"|"party" "log" is the session log panel; "path", "pathEdit" and "pickPathEnd" (Connect to...) show in the path panel; "party" is the Party section (V21-17)
 --- @field pickKind nil|"add"|"replace" what pickImage does with the image
+--- @field newMapMode nil|"free"|"pointcrawl" the kind picked for Add map (A1), until its image is chosen
 --- @field locked boolean pins cannot be dragged (R6); per viewer, true on every map open
---- @field tool "none"|"add"|"move"|"ruler"|"scale" "add" and "ruler" stay on until Esc (R10, R7)
---- @field toolTargetId nil|string the Location "move" places
+--- @field tool "none"|"add"|"move"|"ruler"|"scale"|"path"|"redraw" "add", "ruler" and "path" stay on until Esc (R10, R7, V21-11)
+--- @field toolTargetId nil|string the Location "move" places, or the path "redraw" redraws
+--- @field pathDraft nil|RegionMapPathDraft the line the Path tool or Redraw line is drawing
 --- @field camera RegionMapCamera
+--- @field panelInset number pixels of the map's right edge an open panel covers; the camera may pan that much further
 --- @field focusName boolean the side panel puts the caret in the name field once
 --- @field popover nil|"search"|"settings" the popover open under the toolbar
 --- @field ruler nil|RegionMapMeasure the ruler's points (local, never written)
@@ -41,6 +45,25 @@ local Model = RegionMapModel
 --- @field v2 nil|number
 --- @field unit nil|"mi"|"km" scale drafts only: the unit picked before the distance
 
+--- A path being drawn (V21-11). The Path tool fills startId with the first pin
+--- clicked; Redraw line (V21-14) starts with both ends fixed.
+--- @class RegionMapPathDraft
+--- @field mapId string
+--- @field startId nil|string the a end, once picked
+--- @field endId nil|string Redraw line: the only pin that finishes
+--- @field pathId nil|string Redraw line: the path whose bends are replaced
+--- @field bends RegionMapBend[]
+
+--- What ctx.Confirm shows. alternate adds a third button between the confirm
+--- and Cancel (the hidden-path travel question, W1).
+--- @class RegionMapConfirmArgs
+--- @field title string
+--- @field message nil|string
+--- @field confirm string
+--- @field onConfirm fun()
+--- @field alternate nil|string
+--- @field onAlternate nil|fun()
+
 --- Shared services handed to every component. Components call these; the
 --- shell answers by firing events on component roots.
 --- @class RegionMapContext
@@ -52,14 +75,20 @@ local Model = RegionMapModel
 --- @field GoAtlas fun()
 --- @field GoUp fun()
 --- @field Select fun(id: nil|string, mode: nil|string)
+--- @field SelectPath fun(id: nil|string, mode: nil|"path"|"pathEdit") show a path in the path panel; nil closes it
 --- @field SetTool fun(tool: string, targetId: nil|string)
 --- @field RefreshAll fun()
 --- @field FlushEdits fun()
 --- @field ShowMenu fun(element: Panel, id: string)
 --- @field Report fun(ok: boolean, reason: nil|string): boolean shows a toast for a failed write
 --- @field Push fun(entry: nil|RegionMapUndoEntry, copyId: string, args: nil|table)
+--- @field CheckImageSize fun(mapId: string, imageId: string) warns with a toast when a newly picked map image is outside the size range (J3)
+--- @field ImageHint fun(): string the size guidance line shown by image pickers (J2)
+--- @field ImportLocations fun() Director: pick a JSON file to import into the open map (IM7)
 --- @field ShowToPlayers fun()
---- @field Confirm fun(args: {title: string, message: nil|string, confirm: string, onConfirm: fun()}) compact in-window confirm dialog
+--- @field Confirm fun(args: RegionMapConfirmArgs) compact in-window confirm dialog
+--- @field ShowParty fun() open the Party section (point crawl maps, G1)
+--- @field StopOnPath fun(pathId: string) Director: open the stop card for a path (G3)
 --- @field FocusLocation fun(id: string) open the map a Location is on, center it and select it (Search)
 --- @field SetPopover fun(popover: nil|"search"|"settings") open or close a toolbar popover
 --- @field ToggleLog fun() open or close the session log panel
@@ -195,6 +224,31 @@ function RegionMapSession.RememberPinStyle(location)
     WritePreferences(prefs)
 end
 
+--- The type and time the next new path copies (Q8). The first path of a game
+--- gets Road and 1 day, or the first type when Road was deleted.
+--- @return {typeId: string, time: number}
+function RegionMapSession.LastPathStyle()
+    local style = ReadPreferences().lastPathStyle
+    local typeId = type(style) == "table" and style.typeId or nil
+    local time = type(style) == "table" and style.time or nil
+    if RegionMapPaths.TypeById(typeId) == nil then
+        local first = RegionMapPaths.TypeById(C.firstPathType) or RegionMapPaths.Types()[1]
+        typeId = first ~= nil and first.id or ""
+    end
+    if not RegionMapRecords.ValidTime(time) then time = C.firstPathTime end
+    return { typeId = typeId, time = time }
+end
+
+--- Remember a path's type and time for the next new path.
+--- @param path RegionMapPathRecord
+function RegionMapSession.RememberPathStyle(path)
+    local prefs = ReadPreferences()
+    local old = prefs.lastPathStyle
+    if type(old) == "table" and old.typeId == path.typeId and old.time == path.time then return end
+    prefs.lastPathStyle = { typeId = path.typeId, time = path.time }
+    WritePreferences(prefs)
+end
+
 -- Font Size ------------------------------------------------------------------------------------
 
 --- How much bigger pins, the Party and the side panel draw than at Font Size
@@ -253,6 +307,29 @@ function RegionMapSession.SetIconButton(button, tooltip, icon)
     if icon ~= nil and button.children[1] ~= nil and button.children[1].bgimage ~= icon then
         button.children[1].bgimage = icon
     end
+end
+
+--- The map kind choice (A1, Q21): Free and Point crawl buttons, each with its
+--- description, then the note that the kind is permanent. Shared by the Atlas
+--- New map card and the side panel's Add map, so both read the same.
+--- @param onPick fun(mode: "free"|"pointcrawl")
+--- @return Panel
+function RegionMapSession.ModeChoice(onPick)
+    local T = RegionMapCopy.T
+    local function ModeButton(mode)
+        return gui.Panel {
+            classes = { "regionMapModeButton" },
+            click = function() if not mod.unloaded then onPick(mode) end end,
+            gui.Label { classes = { "regionMapModeName" }, text = T("mode." .. mode), interactable = false },
+            gui.Label { classes = { "regionMapModeDesc" }, text = T("mode." .. mode .. ".desc"), interactable = false },
+        }
+    end
+    return gui.Panel {
+        classes = { "regionMapModeChoice" },
+        ModeButton("free"),
+        ModeButton("pointcrawl"),
+        gui.Label { classes = { "regionMapModeNote" }, text = T("mode.permanent"), interactable = false },
+    }
 end
 
 --- Set a label's text only when it changed (avoids relayout).

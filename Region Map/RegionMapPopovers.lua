@@ -152,6 +152,12 @@ local function BuildSettings(ctx)
         }
     end
 
+    -- Typed fields follow the model unless the Director is typing in them.
+    local function SetInput(input, value)
+        if input.hasFocus then return end
+        if input.text ~= value then input.text = value end
+    end
+
     -- Party
     local partyName = gui.Input {
         classes = { "input", "bordered", "regionMapInput" }, characterLimit = C.textLimit,
@@ -267,15 +273,232 @@ local function BuildSettings(ctx)
         Label({ "regionMapFormLabel" }, T("set.map.pace")),
         pace,
     }
+
+    -- Border tiles (K1, K6): a small preview of the open map in each look. Torn edge
+    -- and Frame stay disabled until their art is in Constants (K3).
+    local borderTiles = {} --- @type Panel[]
+    local borderArt = { none = true, fade = true, torn = C.borderTornMask ~= "", frame = C.borderFrameImage ~= "" }
+    for _, border in ipairs(C.borders) do
+        local look = {} --- @type Panel[]
+        if border == "fade" then
+            local fade = RegionMapCanvasTools.CreateFade()
+            -- Inset so the tile's selection frame stays visible around the fade.
+            fade.selfStyle.width, fade.selfStyle.height = "100%-4", "100%-4"
+            fade.selfStyle.halign, fade.selfStyle.valign = "center", "center"
+            RegionMapCanvasTools.SetFadeBand(fade, 10)
+            look[1] = fade
+        end
+        local preview = gui.Panel { classes = { "regionMapBorderPreview" }, interactable = false, children = look }
+        local available = borderArt[border] == true
+        borderTiles[#borderTiles + 1] = gui.Panel {
+            -- Not "disabled": the theme styles that class and would draw the tile as active.
+            classes = { "regionMapBorderTile", available and "available" or "needsArt" },
+            data = { border = border, preview = preview, imageId = nil },
+            hover = function(element)
+                if not available then gui.Tooltip(T("set.border.needsArt"))(element) end
+            end,
+            click = function(element)
+                local map = ctx.CurrentMap()
+                if mod.unloaded or not available or map == nil or Model.Border(map) == element.data.border then return end
+                ctx.Report(Model.SetBorder(map.id, element.data.border))
+                ctx.RefreshAll()
+            end,
+            preview,
+            Label({ "regionMapBorderName" }, T("set.border." .. border)),
+        }
+    end
+
     local mapSection = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
-        gui.Panel { classes = { "regionMapRule" }, interactable = false },
         Section(T("set.map")),
         Label({ "regionMapFormLabel" }, T("set.map.scale")),
         scaleValue,
         gui.Panel { classes = { "regionMapButtonRow" }, setScale },
         scaleFields,
         paceFields,
+        Label({ "regionMapFormLabel" }, T("set.map.border")),
+        gui.Panel { classes = { "regionMapBorderTiles" }, children = borderTiles },
+        Label({ "regionMapHint" }, T("set.map.border.hint")),
+        gui.Panel { classes = { "regionMapRule" }, interactable = false },
+    }
+
+    -- Whole game: travel time unit and path types (C6, C9, Q22) ----------------------------------
+
+    -- Setting edits keep an undo entry ("Undo last change" in the log reaches it); only a delete gets a toast.
+    local function Kept(ok, reason, entry)
+        if ctx.Report(ok, reason) and entry ~= nil then RegionMapUndo.Remember(entry) end
+        ctx.RefreshAll()
+    end
+
+    local unitSegments = Segments(C.pathTimeUnits, "set.timeUnit.", function(unit)
+        if binding then return end
+        Kept(RegionMapPaths.SetTimeUnit(unit))
+    end)
+
+    local editingTypeId = nil --- @type nil|string the one type whose editor is open (Q22)
+    local typeRows = {} --- @type table<string, Panel>
+    local typesShape = ""
+
+    local function EditType(changes)
+        if editingTypeId == nil or binding then return end
+        Kept(RegionMapPaths.UpdateType(editingTypeId, changes))
+    end
+
+    local typeName = gui.Input {
+        classes = { "input", "bordered", "regionMapInput" }, characterLimit = C.textLimit,
+        placeholderText = T("set.pathType.newName"),
+        change = function(element)
+            local name = Model.TrimSingleLine(element.text)
+            if name ~= "" then EditType({ name = name }) end
+        end,
+    }
+    -- Two rows of three keep every line choice readable at the popover's width.
+    local patternRows = {
+        Segments({ "solid", "dashed", "dotted" }, "pattern.", function(value) EditType({ pattern = value }) end),
+        Segments({ "double", "dashDot", "longDash" }, "pattern.", function(value) EditType({ pattern = value }) end),
+    }
+    patternRows[2].selfStyle.tmargin = 4
+    -- Swatches name their colour in a tooltip and mark the pick with a check, so colour is never the only cue (Q26).
+    local swatches = {} --- @type Panel[]
+    for _, key in ipairs(C.pathColorOrder) do
+        swatches[#swatches + 1] = gui.Panel {
+            classes = { "regionMapSwatch", key == "ink" and "ink" or nil },
+            data = { color = key },
+            hover = function(element) gui.Tooltip(T("color." .. element.data.color))(element) end,
+            click = function(element) EditType({ color = element.data.color }) end,
+            gui.Panel { classes = { "regionMapSwatchFill" }, bgcolor = C.pathColors[key], interactable = false },
+            gui.Panel { classes = { "regionMapSwatchCheck" }, bgimage = "phosphor/check-bold.png", interactable = false },
+        }
+    end
+    local widthSegments = Segments(C.pathWidthOrder, "width.", function(value) EditType({ width = value }) end)
+    local sameLook = Label({ "regionMapHint" })
+
+    local function DeleteType()
+        local item = RegionMapPaths.TypeById(editingTypeId)
+        if item == nil then return end
+        local function Delete()
+            local ok, reason, entry = RegionMapPaths.DeleteType(item.id)
+            if ctx.Report(ok, reason) then
+                editingTypeId = nil
+                ctx.Push(entry, "toast.typeDeleted", { type = item.name })
+            end
+            ctx.RefreshAll()
+        end
+        -- Only a type in use asks first (N3); undo covers the rest.
+        local count = RegionMapPaths.CountUsing(item.id)
+        if count == 0 then
+            Delete()
+            return
+        end
+        ctx.Confirm {
+            title = T("dlg.deleteType.title", { type = item.name }),
+            message = T("dlg.deleteType.body", { count = count }),
+            confirm = T("dlg.deleteType.ok"),
+            onConfirm = Delete,
+        }
+    end
+
+    local typeEditor = gui.Panel {
+        classes = { "regionMapTypeEditor" },
+        Label({ "regionMapFormLabel" }, T("set.pathType.name")),
+        typeName,
+        Label({ "regionMapFormLabel" }, T("set.pathType.pattern")),
+        patternRows[1],
+        patternRows[2],
+        Label({ "regionMapFormLabel" }, T("set.pathType.color")),
+        gui.Panel { classes = { "regionMapSwatches" }, children = swatches },
+        Label({ "regionMapFormLabel" }, T("set.pathType.width")),
+        widthSegments,
+        sameLook,
+        gui.Label { classes = { "regionMapLink", "danger" }, tmargin = 8, text = T("set.pathType.delete"), click = DeleteType },
+    }
+    -- The editor always lives in the list (collapsed when closed): a panel left
+    -- without a parent warns and misses the root's styles.
+    local typesList = gui.Panel { width = "100%", height = "auto", flow = "vertical", tmargin = 4, typeEditor }
+
+    local function TypeRow(id)
+        local sample = RegionMapPathLayer.Sample(40)
+        local name = Label({ "regionMapRowName", "regionMapTypeName" })
+        local edit = Label({ "regionMapTypeEdit" }, T("set.pathType.edit"))
+        return gui.Panel {
+            classes = { "regionMapRow", "regionMapTypeRow" },
+            data = { id = id, sample = sample, name = name },
+            click = function(element)
+                editingTypeId = editingTypeId ~= element.data.id and element.data.id or nil
+                ctx.RefreshAll()
+            end,
+            sample, name, edit,
+        }
+    end
+
+    local addType = Button(T("set.pathType.add"), function()
+        local ok, reason, entry, id = RegionMapPaths.AddType()
+        if ok then editingTypeId = id end
+        Kept(ok, reason, entry)
+    end)
+
+    local function BindTypes()
+        unitSegments.data.select(RegionMapPaths.TimeUnit())
+        local types = RegionMapPaths.Types()
+        local wanted, shape, children = {}, { tostring(editingTypeId) }, {} --- @type table<string, boolean>, string[], Panel[]
+        local editing = nil --- @type nil|RegionMapPathType
+        for _, item in ipairs(types) do
+            wanted[item.id] = true
+            shape[#shape + 1] = item.id
+            local row = typeRows[item.id]
+            if row == nil or not row.valid then
+                row = TypeRow(item.id)
+                typeRows[item.id] = row
+            end
+            row.data.sample.data.set(RegionMapPathLayer.LookOfType(item))
+            SetText(row.data.name, Copy.Literal(item.name))
+            row:SetClass("selected", item.id == editingTypeId)
+            children[#children + 1] = row
+            if item.id == editingTypeId then
+                editing = item
+                children[#children + 1] = typeEditor
+            end
+        end
+        for id, row in pairs(typeRows) do
+            if not wanted[id] then
+                if row.valid then row:DestroySelf() end
+                typeRows[id] = nil
+            end
+        end
+        if editing == nil then
+            editingTypeId = nil
+            children[#children + 1] = typeEditor
+        end
+        -- Children change only when rows come, go or the editor moves, so typing keeps its focus.
+        local key = table.concat(shape, ",")
+        if key ~= typesShape then
+            typesShape = key
+            typesList.children = children
+        end
+        typeEditor:SetClass("collapsed", editing == nil)
+        addType:SetClass("collapsed", #types >= C.pathTypeLimit)
+        if editing == nil then return end
+        SetInput(typeName, editing.name)
+        for _, row in ipairs(patternRows) do row.data.select(editing.pattern) end
+        for _, swatch in ipairs(swatches) do swatch:SetClass("selected", swatch.data.color == editing.color) end
+        widthSegments.data.select(editing.width)
+        local twin = RegionMapPaths.SameLook(editing)
+        sameLook:SetClass("collapsed", twin == nil)
+        if twin ~= nil then SetText(sameLook, T("set.pathType.sameLook", { type = twin.name })) end
+    end
+
+    local gameSection = gui.Panel {
+        width = "100%", height = "auto", flow = "vertical",
+        Section(T("set.game")),
+        playersAdd,
+        Label({ "regionMapFormLabel" }, T("set.timeUnit")),
+        unitSegments,
+        Label({ "regionMapHint" }, T("set.timeUnit.hint")),
+        Label({ "regionMapFormLabel" }, T("set.pathTypes")),
+        Label({ "regionMapHint" }, T("set.pathTypes.hint")),
+        typesList,
+        gui.Panel { classes = { "regionMapButtonRow" }, addType },
+        gui.Panel { classes = { "regionMapRule" }, interactable = false },
     }
 
     -- Only for you
@@ -284,9 +507,13 @@ local function BuildSettings(ctx)
         ctx.RefreshAll()
     end)
 
+    -- Sections run from the narrowest scope a Director changes most to the personal
+    -- one (Q22): the open map, the whole game, the Party, then only this viewer.
     local body = gui.Panel {
         classes = { "regionMapPopoverBody", "collapsed" },
         Label({ "regionMapPopoverTitle" }, T("set.title")),
+        mapSection,
+        gameSection,
         Section(T("set.party")),
         Label({ "regionMapFormLabel" }, T("set.party.name")),
         partyName,
@@ -297,21 +524,14 @@ local function BuildSettings(ctx)
             gui.Panel { width = "auto", height = "auto", valign = "center", lmargin = 8, resetImage },
         },
         playersMove,
-        playersAdd,
-        mapSection,
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
         Section(T("set.you")),
         reduceMotion,
     }
 
-    -- Typed fields follow the model unless the Director is typing in them.
-    local function SetInput(input, value)
-        if input.hasFocus then return end
-        if input.text ~= value then input.text = value end
-    end
-
     body.data.bind = function()
         binding = true
+        BindTypes()
         local name = Model.PartyName()
         SetInput(partyName, name == T("party.defaultName", nil, true) and "" or name)
         local imageId = Model.PartyImageId()
@@ -349,6 +569,14 @@ local function BuildSettings(ctx)
             paceFields:SetClass("collapsed", scale == nil)
             local paceValue = Model.Field(map, "pace", nil)
             SetInput(pace, Model.IsFinite(paceValue) and RegionMapCanvasTools.FormatNumber(paceValue) or "")
+            local border = Model.Border(map)
+            for _, tile in ipairs(borderTiles) do
+                tile:SetClass("selected", tile.data.border == border)
+                if tile.data.imageId ~= map.imageId then
+                    tile.data.imageId = map.imageId
+                    tile.data.preview.bgimageStreamed = map.imageId
+                end
+            end
         end
         binding = false
     end

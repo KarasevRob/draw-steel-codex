@@ -75,6 +75,8 @@ RegionMapLocationDirectorNoteRecord.tableName = C.notesTableName
 --- @field mapShared boolean players may open this Location's map
 --- @field scale nil|RegionMapScale
 --- @field pace nil|number travel distance per day in the scale's unit
+--- @field border nil|"none"|"fade"|"torn"|"frame" how the map image's edge draws; nil (older maps) is none
+--- @field mode nil|"free"|"pointcrawl" set when the map is made, never changed (A4); nil (older maps) is free
 --- @field ownerId string
 --- @field ownerName string
 --- @field createdByDirector boolean
@@ -88,14 +90,23 @@ RegionMapLocationRecord.tableName = C.locationTableName
 --- @field u number
 --- @field v number
 
---- One automatic Party entry in the session log (D14d, R8).
+--- One automatic Party entry in the session log (D14d, R8). Point crawl
+--- entries (V2.1) add the path fields; older rows read their defaults.
 --- @class RegionMapLogEntryRecord: GameType, RegionMapAudit
 --- @field new fun(o?: table): RegionMapLogEntryRecord
 --- @field id string
 --- @field schemaVersion integer
---- @field kind "arrived"|"traveling"|"travelingOn"|"placed"
+--- @field kind "arrived"|"traveling"|"travelingOn"|"placed"|"leg"|"stopped"
 --- @field mapId string the map the Party is on
---- @field locationId string arrived: the Location; traveling: the one it left; else ""
+--- @field locationId string arrived and leg: the Location reached; traveling: the one it left; else ""
+--- @field pathId string leg and stopped: the path travelled; else ""
+--- @field pathName string the path's display name when logged, so a later rename or delete keeps the history
+--- @field fromId string leg: the end the leg set out from; stopped: the end the time counts from
+--- @field toId string leg: the end reached; stopped: the other end
+--- @field time number leg: watches it took (I1)
+--- @field spent number stopped: watches already spent from fromId (Q15)
+--- @field rest ""|"on"|"back" leg: left from partway, going on or turning back
+--- @field secret boolean players get no path name and no line (W1)
 --- @field route RegionMapRoutePoint[] Party positions on mapId, oldest first
 --- @field mergedCount integer traveling drops merged into this entry
 --- @field at any ServerTimestamp of the last change
@@ -108,6 +119,44 @@ RegionMapLocationRecord.tableName = C.locationTableName
 RegionMapLogEntryRecord = RegisterGameType("RegionMapLogEntryRecord")
 RegionMapLogEntryRecord.tableName = C.logTableName
 RegionMapLogEntryRecord.byDirector = false
+-- Reading a field a row never had raises on a game type, so the V2.1 fields have defaults.
+RegionMapLogEntryRecord.pathId = ""
+RegionMapLogEntryRecord.pathName = ""
+RegionMapLogEntryRecord.fromId = ""
+RegionMapLogEntryRecord.toId = ""
+RegionMapLogEntryRecord.time = 0
+RegionMapLogEntryRecord.spent = 0
+RegionMapLogEntryRecord.rest = ""
+RegionMapLogEntryRecord.secret = false
+
+--- A bend of a path line, in the map's 0..1 image units.
+--- @class RegionMapBend
+--- @field u number
+--- @field v number
+
+--- One point crawl path between two pins on the same map. Paths are two-way;
+--- `back` makes the other direction slower or impossible (W2). The note is the
+--- Director's: it syncs like any row and only the UI keeps it from players (C5).
+--- @class RegionMapPathRecord: GameType, RegionMapAudit
+--- @field new fun(o?: table): RegionMapPathRecord
+--- @field id string
+--- @field schemaVersion integer
+--- @field mapId string the point crawl map both ends are pinned on
+--- @field aId string one end (a Location id); times are "from a" unless stated
+--- @field bId string the other end; never equal to aId
+--- @field bends RegionMapBend[] at most pathBendLimit, in order from a to b
+--- @field name string "" shows the type's name
+--- @field typeId string a path type id; an unknown id draws as "No type" (N3)
+--- @field time number watches from a to b, 0 or more
+--- @field back "same"|"different"|"none" the b-to-a direction
+--- @field backTime number watches from b to a when back is "different"
+--- @field description string players read it once the path is visible (H5)
+--- @field note string Director-only danger or requirement
+--- @field visibility "hidden"|"revealed" new paths start revealed (W3)
+--- @field revision integer
+--- @field hidden boolean soft delete
+RegionMapPathRecord = RegisterGameType("RegionMapPathRecord")
+RegionMapPathRecord.tableName = C.pathTableName
 
 --- A pending table write and how it ended.
 --- @class RegionMapWrite
@@ -454,7 +503,11 @@ RegionMapRecords.pinStyles = { iconName = true, plate = true, iconOnly = true }
 RegionMapRecords.importances = { major = true, normal = true, minor = true }
 RegionMapRecords.visibilities = { hidden = true, revealed = true }
 RegionMapRecords.scaleUnits = { mi = true, km = true }
-RegionMapRecords.logKinds = { arrived = true, traveling = true, travelingOn = true, placed = true }
+RegionMapRecords.borders = { none = true, fade = true, torn = true, frame = true }
+RegionMapRecords.modes = { free = true, pointcrawl = true }
+RegionMapRecords.pathBacks = { same = true, different = true, none = true }
+RegionMapRecords.logKinds = { arrived = true, traveling = true, travelingOn = true, placed = true, leg = true, stopped = true }
+RegionMapRecords.legRests = { [""] = true, on = true, back = true }
 
 --- A Location name: "" (not named yet) or one trimmed line of 1..textLimit characters.
 --- @param value any
@@ -521,6 +574,10 @@ function RegionMapRecords.IsValidLocationFields(location)
         or (pace ~= nil and not (IsFinite(pace) and pace > 0)) then
         return RejectMalformed("location", id, "invalid scale")
     end
+    local border = Field(location, "border", nil)
+    if border ~= nil and not RegionMapRecords.borders[border] then return RejectMalformed("location", id, "invalid border") end
+    local mode = Field(location, "mode", nil)
+    if mode ~= nil and not RegionMapRecords.modes[mode] then return RejectMalformed("location", id, "invalid mode") end
     if type(Field(location, "ownerId", nil)) ~= "string" or type(Field(location, "ownerName", nil)) ~= "string"
         or type(Field(location, "createdByDirector", nil)) ~= "boolean" then
         return RejectMalformed("location", id, "missing owner")
@@ -584,7 +641,73 @@ function RegionMapRecords.IsValidLogEntry(entry)
         or type(note) ~= "string" or RegionMapRecords.NormalizeMultiline(note, C.noteLimit, C.noteByteLimit) ~= note then
         return RejectMalformed("log entry", id, "invalid author or note")
     end
+    local kind = Field(entry, "kind", "")
+    if kind == "leg" or kind == "stopped" then
+        local pathId, fromId, toId = Field(entry, "pathId", ""), Field(entry, "fromId", ""), Field(entry, "toId", "")
+        if type(pathId) ~= "string" or pathId == "" or type(fromId) ~= "string" or fromId == ""
+            or type(toId) ~= "string" or toId == "" or fromId == toId
+            or not RegionMapRecords.ValidName(Field(entry, "pathName", "")) then
+            return RejectMalformed("log entry", id, "invalid path")
+        end
+        if not RegionMapRecords.ValidTime(Field(entry, "time", 0)) or not RegionMapRecords.ValidTime(Field(entry, "spent", 0))
+            or not RegionMapRecords.legRests[Field(entry, "rest", "")] or type(Field(entry, "secret", false)) ~= "boolean" then
+            return RejectMalformed("log entry", id, "invalid leg")
+        end
+    end
     if RegionMapRecords.NextRevision(entry) == nil then return RejectMalformed("log entry", id, "invalid revision") end
+    return true
+end
+
+--- @return table<string, RegionMapPathRecord>
+function RegionMapRecords.PathsTable()
+    return (dmhub.GetTable(C.pathTableName) or {}) --[[@as table<string, RegionMapPathRecord>]]
+end
+
+--- @param value any
+--- @return boolean
+function RegionMapRecords.ValidTime(value)
+    return IsFinite(value) and value >= 0 and value <= C.pathTimeMax
+end
+
+--- Field checks of one path row, without looking at other rows. Whether its
+--- ends are pins on a point crawl map is checked by RegionMapPaths.
+--- @param path any
+--- @return boolean
+function RegionMapRecords.IsValidPathFields(path)
+    if path == nil or Field(path, "hidden", false) then return false end
+    local id = Field(path, "id", nil)
+    local operation = id and LastWrite(C.pathTableName, id)
+    if operation and operation.creating and operation.status ~= "confirmed" then return false end
+    if Field(path, "schemaVersion", 0) ~= C.pathSchemaVersion then return RejectMalformed("path", id, "unsupported schema") end
+    if type(id) ~= "string" or id == "" then return RejectMalformed("path", id, "missing id") end
+    local mapId, aId, bId = Field(path, "mapId", nil), Field(path, "aId", nil), Field(path, "bId", nil)
+    if type(mapId) ~= "string" or mapId == "" or type(aId) ~= "string" or aId == ""
+        or type(bId) ~= "string" or bId == "" or aId == bId then
+        return RejectMalformed("path", id, "invalid ends")
+    end
+    local bends = Field(path, "bends", nil)
+    if type(bends) ~= "table" or #bends > C.pathBendLimit then return RejectMalformed("path", id, "invalid bends") end
+    for _, bend in ipairs(bends) do
+        if type(bend) ~= "table" or not ValidUnit(bend.u) or not ValidUnit(bend.v) then
+            return RejectMalformed("path", id, "invalid bends")
+        end
+    end
+    local name, typeId = Field(path, "name", nil), Field(path, "typeId", nil)
+    if not RegionMapRecords.ValidName(name) or type(typeId) ~= "string" or #typeId > C.pathTypeIdLimit then
+        return RejectMalformed("path", id, "invalid name or type")
+    end
+    if not RegionMapRecords.ValidTime(Field(path, "time", nil)) or not RegionMapRecords.pathBacks[Field(path, "back", "")]
+        or not RegionMapRecords.ValidTime(Field(path, "backTime", nil)) then
+        return RejectMalformed("path", id, "invalid time")
+    end
+    local description, note = Field(path, "description", nil), Field(path, "note", nil)
+    if type(description) ~= "string"
+        or RegionMapRecords.NormalizeMultiline(description, C.descriptionLimit, C.descriptionByteLimit) ~= description
+        or type(note) ~= "string" or RegionMapRecords.NormalizeMultiline(note, C.noteLimit, C.noteByteLimit) ~= note then
+        return RejectMalformed("path", id, "invalid text")
+    end
+    if not RegionMapRecords.visibilities[Field(path, "visibility", "")] then return RejectMalformed("path", id, "invalid visibility") end
+    if RegionMapRecords.NextRevision(path) == nil then return RejectMalformed("path", id, "invalid revision") end
     return true
 end
 

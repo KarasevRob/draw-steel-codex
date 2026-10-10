@@ -20,15 +20,84 @@ local IsFinite = Model.IsFinite
 --- @field viewWidth number
 --- @field viewHeight number
 
+--- Calls onSize(width, height) once with an image's size in pixels, as soon as the
+--- engine knows it. Cores without the size API never call back, so nothing warns.
+--- @param imageId string
+--- @param onSize fun(width: integer, height: integer)
+function RegionMapCanvasTools.ImageSize(imageId, onSize)
+    local reported = false
+    local function Report(dims)
+        if reported or type(dims) ~= "table" then return end
+        local width, height = tonumber(dims.width), tonumber(dims.height)
+        if width == nil or height == nil or width <= 0 or height <= 0 then return end
+        reported = true
+        onSize(math.floor(width + 0.5), math.floor(height + 0.5))
+    end
+    local ok, dims = pcall(function() return gui.TryGetImageDimensions(imageId) end)
+    if ok and dims ~= nil then
+        Report(dims)
+        return
+    end
+    -- Not known yet (the image is still arriving): ask to be told once it is.
+    pcall(function() gui.GetImageDimensionsCallback(imageId, Report) end)
+end
+
+--- The Soft fade border (K1): four strips over a map image's edges that shade from
+--- the canvas color to clear, so the art melts into the background. Size the panel
+--- like the image, then call SetFadeBand. It never takes the pointer, and the
+--- canvas draws pins, paths and the Party above it (Q23).
+--- @return Panel
+function RegionMapCanvasTools.CreateFade()
+    local edges = {} --- @type Panel[]
+    for _, side in ipairs({ "Left", "Right", "Top", "Bottom" }) do
+        edges[#edges + 1] = gui.Panel {
+            classes = { "regionMapFadeEdge", "regionMapFade" .. side }, floating = true, interactable = false,
+            data = { side = side },
+        }
+    end
+    return gui.Panel {
+        classes = { "regionMapFade" }, floating = true, interactable = false, halign = "left", valign = "top",
+        data = { band = nil }, children = edges,
+    }
+end
+
+--- Set how deep the fade reaches into the image, in pixels.
+--- @param fade Panel from CreateFade
+--- @param band number
+function RegionMapCanvasTools.SetFadeBand(fade, band)
+    band = math.floor(band + 0.5)
+    if fade.data.band == band then return end
+    fade.data.band = band
+    for _, edge in ipairs(fade.children) do
+        if edge.data.side == "Left" or edge.data.side == "Right" then
+            edge.selfStyle.width = band
+        else
+            edge.selfStyle.height = band
+        end
+    end
+end
+
+--- The fade depth for an image drawn width x height on screen: a share of its
+--- shorter side, capped so a zoomed-in map keeps a narrow edge.
+--- @param width number
+--- @param height number
+--- @return number
+function RegionMapCanvasTools.FadeBand(width, height)
+    return math.min(math.min(width, height) * C.fadeShare, C.fadeMaxWidth)
+end
+
 --- Fit the image into the view, apply zoom and clamp the camera so the image
 --- never leaves a gap it could fill. Writes the clamped values back to camera.
+--- rightInset is the width an open panel covers at the right: the image may then
+--- slide that much further left, so a pin under the panel can be brought out.
 --- @param viewWidth number
 --- @param viewHeight number
 --- @param imageWidth number
 --- @param imageHeight number
 --- @param camera RegionMapCamera
+--- @param rightInset nil|number
 --- @return nil|RegionMapLayout
-function RegionMapCanvasTools.CalculateImageLayout(viewWidth, viewHeight, imageWidth, imageHeight, camera)
+function RegionMapCanvasTools.CalculateImageLayout(viewWidth, viewHeight, imageWidth, imageHeight, camera, rightInset)
     if not IsFinite(viewWidth) or not IsFinite(viewHeight) or not IsFinite(imageWidth) or not IsFinite(imageHeight)
         or viewWidth <= 0 or viewHeight <= 0 or imageWidth <= 0 or imageHeight <= 0 then
         return nil
@@ -39,12 +108,12 @@ function RegionMapCanvasTools.CalculateImageLayout(viewWidth, viewHeight, imageW
     local height = imageHeight * fitScale * zoom
     local centerX = camera.centerX or 0.5
     local centerY = camera.centerY or 0.5
-    if width <= viewWidth then
-        centerX = 0.5
-    else
-        local halfVisible = viewWidth / (2 * width)
-        centerX = Clamp(centerX, halfVisible, 1 - halfVisible)
-    end
+    -- The image's left edge (x) may go from maxX down to minX: centred or flush with the
+    -- view, and with a panel open, until its right edge meets the panel.
+    local inset = IsFinite(rightInset) and Clamp(rightInset --[[@as number]], 0, viewWidth) or 0
+    local maxX = width <= viewWidth and (viewWidth - width) / 2 or 0
+    local minX = math.min(maxX, viewWidth - inset - width)
+    centerX = Clamp(centerX, (viewWidth / 2 - maxX) / width, (viewWidth / 2 - minX) / width)
     if height <= viewHeight then
         centerY = 0.5
     else
@@ -449,8 +518,9 @@ end
 --- @param ctx RegionMapContext
 --- @param u number
 --- @param v number
+--- @param snapId nil|string a pin within the Party snap radius of the click
 --- @return table[] gui.ContextMenu entries
-function RegionMapCanvasTools.MapMenu(ctx, u, v)
+function RegionMapCanvasTools.MapMenu(ctx, u, v, snapId)
     local map = ctx.CurrentMap()
     local entries = {}
     if map == nil then return entries end
@@ -461,15 +531,20 @@ function RegionMapCanvasTools.MapMenu(ctx, u, v)
         }
     end
     if Model.IsDirector() and Model.CanMovePartyOn(map.id) then
+        -- On a point crawl map a placement next to a pin is "at" it, so it can travel on from there (Q16).
+        local atId = Model.IsPointCrawl(map) and snapId or nil
         entries[#entries + 1] = {
             text = RegionMapCopy.T("ctx.map.party"),
             click = function()
-                local ok, reason, entry = Model.PlaceParty(map.id, u, v)
+                local ok, reason, entry = Model.PlaceParty(map.id, u, v, atId)
                 if ctx.Report(ok, reason) then
-                    ctx.Push(entry, "toast.partyPlaced", { map = Model.DisplayName(map) })
+                    ctx.Push(entry, "toast.partyPlaced", { party = Model.PartyName(), map = Model.DisplayName(map) })
                 end
             end,
         }
+    end
+    if Model.IsDirector() then
+        entries[#entries + 1] = { text = RegionMapCopy.T("menu.import"), click = function() ctx.ImportLocations() end }
     end
     return entries
 end

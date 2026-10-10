@@ -10,11 +10,14 @@ their own places and follows one shared Party across the maps. The mod owns its 
 canvas and data. It does not touch
 tactical maps, tokens, combat rules or character content.
 
-This is V2. The design is [docs/V2_BRIEF.md](docs/V2_BRIEF.md) (locked), the on-screen text
-is [docs/V2_COPY.md](docs/V2_COPY.md) (signed off), and the build plan and build notes are
-[TECH_TASK_V2.md](TECH_TASK_V2.md). [TECH_TASK.md](TECH_TASK.md) is the superseded V1 plan;
-the images `docs/01`-`04` are V1 schematics, kept for history. Ideas not yet scheduled are
-in [IDEAS.md](IDEAS.md).
+This is V2.1: V2 plus point crawl maps, map image guidance and borders, and JSON import.
+The designs are [docs/V2_BRIEF.md](docs/V2_BRIEF.md) and
+[docs/V2_1_BRIEF.md](docs/V2_1_BRIEF.md) (both locked; V2.1 changes only what it names), the
+on-screen text is [docs/V2_COPY.md](docs/V2_COPY.md) (sections 1-17 V2, 18-25 V2.1), and
+the build plans and build notes are [TECH_TASK_V2.md](TECH_TASK_V2.md) and
+[TECH_TASK_V2_1.md](TECH_TASK_V2_1.md). [TECH_TASK.md](TECH_TASK.md) is the superseded V1
+plan; the images `docs/01`-`04` are V1 schematics, kept for history. Ideas not yet scheduled
+are in [IDEAS.md](IDEAS.md).
 
 ## 1. Behavior
 
@@ -28,10 +31,13 @@ in [IDEAS.md](IDEAS.md).
 - Layout: breadcrumb top-left, toolbar top-right, camera controls bottom-left (they fade
   after 2 s without pointer movement), Party status bottom-right, side panel over the
   map's right edge (full width below 720 px).
-- Toolbar, in order: Search, Add, Lock, Ruler, Show to players (Director), View as player
-  (Director), Session log, Expand, Settings (Director). Icons with tooltips.
+- Toolbar, in order: Search, Add, Path (Director, point crawl maps only), Lock, Ruler, Show to
+  players (Director), View as player (Director), Session log, Expand, Settings (Director).
+  Icons with tooltips.
 - **Esc** closes one layer at a time: a tool or text field, then edit mode, then a popover
   or the side panel, then goes up one map.
+- While a side panel (Location, path, Party or log) is open, the map can pan left by the
+  panel's width, so a pin under the panel can still be reached at Fit (V2.1).
 
 ### Locations and maps
 
@@ -67,6 +73,72 @@ in [IDEAS.md](IDEAS.md).
 - Limits: names 1-80 characters on one line; description 4000; Director note 8000; nesting
   16 levels; 250 Locations per map (soft guard, counted per viewer).
 
+### Map images (V2.1)
+
+- **Size guidance.** The image pickers and the Atlas New map tooltip say "Best at 4000 px
+  wide. Under 1500 px it blurs when zoomed in; over 12000 px it loads slowly." After a new
+  pick, an image outside 1500-12000 px wide gives a toast with "Replace image..."; nothing
+  is blocked. Existing maps are never checked.
+- **Border** (Settings > This map): None or Soft fade, which fades the image's edges into
+  the canvas colour. Pins, paths, the route and the Party draw above it. New maps start with
+  the border picked last. Torn edge and Frame show as dimmed tiles ("this border needs its
+  art") until the art exists ([docs/BORDER_ART.md](docs/BORDER_ART.md)).
+
+### Import (V2.1)
+
+- Director: "Import locations..." in the map right-click menu and the open map's "..." menu
+  reads a JSON file ([docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md)) into the open map.
+- A preview lists the count, skipped entries with the reason for each, and names already on
+  the map. An import that would pass the 250-pin guard is refused whole. Entries without
+  u/v go on a grid near the center. One Undo removes the whole import.
+
+### Point crawl maps (V2.1)
+
+- **Kind.** A new map is Free (as V2) or Point crawl, chosen at creation (Atlas New map, or
+  Add map in the side panel) and never changed. A point crawl map shows a "Point crawl"
+  chip. Remove map clears the kind, so Add map can choose again.
+- **Paths** join two pins on the same map, with up to 32 bends. Each has a name, a type, a
+  travel time (watches: 4 hours, 6 to a day), the other way back (same time, a different
+  time or not possible), a description, a Director note and Hidden/Revealed. A player sees a
+  path only when it is revealed and both ends are visible.
+- **Path types** (Settings > Whole game): six starters (Road, Trail, River, Sea, Underground,
+  Secret), each a pattern, colour and width; every starter has a different pattern, so none
+  depends on colour. Days or Watches sets how times read. Deleting a used type draws its
+  paths as "No type"; Undo restores it.
+- **Drawing.** Lines keep their screen size at every zoom, on a casing of the opposite tone.
+  Hidden paths draw faded with an eye-slash on each segment. Labels ("name - time") show on
+  hover, on the selected path, and for all paths with Show names, where they fit without
+  covering pins or each other (more appear as you zoom in).
+- **Making paths** (Director): the Path tool (click a pin, click the map for bends,
+  click the end pin; right-click or Backspace drops a bend; Esc drops the draft, a second
+  Esc ends the tool), or "Connect to..." on a pin, which lists the map's other pins by
+  distance with a search (Enter takes the top one). A new path copies the last type and
+  time used. Two paths between the same pins bow apart.
+- **Editing.** Click a path to read it; Edit autosaves like the Location form. "..." has
+  Place Party on it, Redraw line, Hide/Reveal and Delete (with Undo). With pins unlocked,
+  the selected path shows bend handles: drag a bend, drag a "+" to add one, right-click a
+  bend to remove it. A Location's side panel lists its paths.
+- **Cascades.** Deleting a pin, moving it to another map or removing a map also removes
+  its paths, in the same Undo; the confirm counts them.
+
+### Travel (V2.1, point crawl maps)
+
+- The Party sits at a pin or partway along a path. Click the Party (or its status chip) for
+  the Party section: where it is and "Travel to" rows ("{place} by {path}", with the time).
+  The Party's right-click menu has the same list as a "Travel to" submenu.
+- Players get the list only with "Players can move the Party" on, and only along paths they
+  see. A drag of the Party snaps back with a hint; on these maps travel is by the list.
+- Traveling to a hidden path's far end asks the Director to reveal it and travel, or travel
+  without revealing (the leg shows players no path name and no line).
+- **Stop partway:** right-click a path > Place Party on it. The card counts time from one end
+  (the swap button counts from the other), defaults to half the way and accepts more than 0
+  and less than the whole. From partway the list offers going on (the rest of the time) and
+  turning back (the time spent).
+- Director only: "Place Party here" and "Move Party here" put the Party at a pin (within the
+  snap radius) and log it as placed.
+- If the path the Party is on is deleted, the Party moves to its nearer end; Undo puts both
+  back.
+
 ### Party
 
 - One Party across all maps, drawn above pins only on the map it is on. It is either "at"
@@ -91,6 +163,11 @@ in [IDEAS.md](IDEAS.md).
 - **Session log**: automatic Party entries (arrived, traveling, placed; consecutive free
   drops merge), a Director note per entry, and the past route drawn as dots on the map
   (Show route switch). Clicking an entry opens its map. The newest 500 entries are kept per game.
+  On point crawl maps each leg is one entry ("Traveled from Kell's Ferry to Stonehold by
+  King's Road - 2 days"; "Traveled on to" and "Turned back to" from partway) whose route
+  follows the path, and a stop is "Stopped on Road, 3 watches from Kell's Ferry". A stop
+  right after arriving replaces the arrival. Entries keep the path's name, so a rename or
+  delete leaves the history as it was.
 - **Undo**: moves, deletes and visibility changes show a toast with Undo (10 s, paused while
   hovered); "Undo last change" in the session log walks back up to 20 steps. An undo is refused if
   someone else changed the same row since.
@@ -109,20 +186,27 @@ Load order (the CodeMod file list must match):
 | 2 | `RegionMapCopy.lua` | Every on-screen string, keyed by its V2_COPY id; `Copy.T(id, args)` |
 | 3 | `RegionMapJournal.lua` | Journal access and opening |
 | 4 | `RegionMapRecords.lua` | Record types, safe reads, validation, uploads |
-| 5 | `RegionMapModel.lua` | Location tree, permissions, visibility, writes, Party, settings, search |
+| 5 | `RegionMapModel.lua` | Location tree, permissions, visibility, writes, Party, settings, search, map kind and border, cascades |
 | 6 | `RegionMapUndo.lua` | Undo entries and the toast queue |
-| 7 | `RegionMapLog.lua` | Session log entries, merging, route points, cap |
-| 8 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
-| 9 | `RegionMapSession.lua` | Context type, local view state and preferences, Esc layers, icon buttons |
-| 10 | `RegionMapCanvasTools.lua` | Layout math, Add, Move, ruler and scale tools, route and ruler overlay |
-| 11 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
-| 12 | `RegionMapSidePanel.lua` | Location panel read and edit modes, "..." menu |
-| 13 | `RegionMapAtlas.lua` | Atlas gallery and New map |
-| 14 | `RegionMapPopovers.lua` | Breadcrumb, Search and Settings popovers |
-| 15 | `RegionMapLogPanel.lua` | Session log panel |
-| 16 | `RegionMapPresent.lua` | Show to players send and receive |
-| 17 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, layout, refresh |
-| 18 | `RegionMap.lua` | Capability check, registration, host window adapter, Expand |
+| 7 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops |
+| 8 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording |
+| 9 | `RegionMapTravel.lua` | *V2.1.* Travel options, travel, stop partway, the Party's spot on a path |
+| 10 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
+| 11 | `RegionMapSession.lua` | Context type, local view state and preferences, Esc layers, icon buttons |
+| 12 | `RegionMapCanvasTools.lua` | Layout math, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
+| 13 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
+| 14 | `RegionMapPathTool.lua` | *V2.1.* Path tool steps, Connect, Redraw line, bend edits |
+| 15 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
+| 16 | `RegionMapSidePanel.lua` | Location panel read and edit modes, "..." menu |
+| 17 | `RegionMapPathPanel.lua` | *V2.1.* Path read and edit, Connect to... picker, a Location's Paths section |
+| 18 | `RegionMapPartyPanel.lua` | *V2.1.* Party section, Travel to menu, hidden-path question, stop card |
+| 19 | `RegionMapAtlas.lua` | Atlas gallery and New map |
+| 20 | `RegionMapPopovers.lua` | Breadcrumb, Search and Settings popovers |
+| 21 | `RegionMapImport.lua` | *V2.1.* JSON import: read, check, preview, create |
+| 22 | `RegionMapLogPanel.lua` | Session log panel |
+| 23 | `RegionMapPresent.lua` | Show to players send and receive |
+| 24 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, layout, refresh |
+| 25 | `RegionMap.lua` | Capability check, registration, host window adapter, Expand |
 
 The V1 files (`Main.lua`, `RegionMapViews.lua`, `RegionMapMigration.lua`,
 `RegionMapLibrary.lua`, `RegionMapLocationCard.lua`) were removed from the CodeMod and the
@@ -143,12 +227,13 @@ each use is guarded.
 
 | Storage | Contents |
 |---|---|
-| `RegionMapLocations` | One row per Location: parent, name, u/v on the parent's map, pin style, tier, icon, visibility, image and its revision, map shared, scale, pace, owner, revision, soft delete |
+| `RegionMapLocations` | One row per Location: parent, name, u/v on the parent's map, pin style, tier, icon, visibility, image and its revision, map shared, scale, pace, owner, revision, soft delete. V2.1 adds optional `mode` ("pointcrawl"; absent means free) and `border` (absent means none) |
 | `RegionMapLocationDetails` | Description and journal link, keyed by Location id (V1 row format) |
 | `RegionMapLocationDirectorNotes` | Director note, keyed by Location id (V1 row format) |
-| `RegionMapLogEntries` | Session log entries: kind, map, Location, route points, merged count, time, author, note |
-| `regionMapState` document | Party (map, Location, u/v, revision), Party name and image, Players can move the Party, Players can add locations; checkpoint-backed |
-| `regionmap:preferences` setting | Per user and game: last map, cameras (keyed by image revision), Show names, Reduce motion |
+| `RegionMapPaths` | *V2.1.* One row per path: map, ends `aId`/`bId`, bends (u/v), name, type id, time and back/backTime (watches), description, note, visibility, audit fields, revision, soft delete |
+| `RegionMapLogEntries` | Session log entries: kind, map, Location, route points, merged count, time, author, note. V2.1 adds the kinds `leg` and `stopped` with path id and name, from/to, time, spent, rest ("on"/"back") and secret |
+| `regionMapState` document | Party (map, Location, u/v, revision; V2.1 adds `pathId`, `pathFrom`, `spent`), Party name and image, Players can move the Party, Players can add locations; V2.1 adds `timeUnit`, `pathTypes` (absent means the starter set), `lastBorder` and `stateMeta` (a revision per key, for undo); checkpoint-backed |
+| `regionmap:preferences` setting | Per user and game: last map, cameras (keyed by image revision), Show names, Reduce motion; V2.1 adds the last path type and time (`lastPathStyle`) |
 
 - Every write rechecks role, ownership, map access and the Party switch. These are checks
   between trusted clients, not server enforcement.
@@ -156,6 +241,8 @@ each use is guarded.
   Saving... / Saved for confirmed table writes.
 - V1 tables (`RegionMapRecords`, `RegionMapLabelRecords`, `RegionMapTombstones`) are no
   longer read and stay in the game data unused (decision 8.3: no migration, no rollback).
+- V2.1 changes are additive: rows and documents written by V2 read as before (free maps, no
+  border, no paths).
 
 ## 4. Open decisions
 
@@ -165,6 +252,8 @@ each use is guarded.
 | Two clients editing one row at once. | Last write wins per field; undo refuses after a remote edit. True merges need a host patch API. |
 | Players cannot set Reduce motion. | It lives in Settings, which is Director-only (D11c). Needs a decision: a player-visible "Only for you" section, or follow a host setting. |
 | Live theme switch. | Checkboxes (and the host's own window title bar) keep the old colors until the window is reopened. Host limitation; not worked around. |
+| Torn edge and Frame borders (V2.1, K9). | Wait for the user's art; the art ids in Constants are empty until then. |
+| `@danger` as text (host). | In Default, MCDM and Warm Gold it reads 3.4-4.0:1 on `@bg`, under 4.5:1. The mod puts warning text in `@fgStrong` with a `@danger` bar instead. A host fix would be a darker or lighter text variant of the token; not a mod change. |
 
 ## 5. Performance
 
@@ -180,13 +269,31 @@ in memory.
 | First open of a large image not loaded before (6000x13985) | 6.3 s until the engine reports it loaded; frames stayed at 16-18 ms meanwhile |
 | Open of a large image already in the local cache (4500x6407 to 8400x6300) | Same frame; no frame over 18 ms afterwards |
 
+V2.1 paths, measured 2026-10-10 the same way: the PC test map with 244 test pins (250 in
+all) and 150 test paths (160 in all, 315 segments, every pattern), kept only in memory,
+timed inside the path layer. The app was unfocused, which caps it at 30 fps, so whole-frame
+samples only show costs over 33 ms; with and without the test paths they matched.
+
+| Measure | Result |
+|---|---|
+| Location and path index rebuild | 8 ms |
+| Path layer refresh with no change (Bind) | 6-8 ms |
+| First draw at Fit, 1401 line pieces | 123 ms, then one re-place of ~115 ms as the window settles its size |
+| First draw three zoom steps in, 1963 pieces | 554 ms (panel creation, ~0.14-0.28 ms a piece; once per window) |
+| Zoom re-layout (re-places every piece) | 23-34 ms; 77-125 ms the first time a deeper zoom grows the pool |
+| Pan | ~0.02 ms a frame in the path layer (the layer slides); a long pan re-places, as a zoom |
+| Hover hit test / label pass with Show names | 0.2 ms / ~1 ms |
+| Pieces by zoom, Fit to four steps in | 1401, 1639, 1963, 2329, then the 2500 cap (`C.pathPieceLimit`): past it a segment draws solid |
+
 How it stays cheap: pins and the Party sit on one layer that slides as a whole on pan;
 pin panels are reused across refreshes, keyed by Location id, and restyled only when they
 changed; name plates and badges are created only when shown; route dots are rebuilt only
 when the log changes, after a zoom or after a pan of more than half the view; the canvas
 thinks every 0.02 s only while hovered, dragging or animating (0.25 s otherwise); refreshes
 coalesce over 0.05 s; camera saves are debounced 0.5 s. Pins appear only once the image size
-is known, and the new image fades in only after it has loaded.
+is known, and the new image fades in only after it has loaded. Paths follow the same plan:
+their pieces are pooled (collapsed, never destroyed), placed only on screen plus half a view
+around it, and placed again only after a zoom, a resize, a change or a pan of half a view.
 
 ## 6. Acceptance status
 
@@ -195,6 +302,23 @@ TECH_TASK_V2.md section 7b), the styles and accessibility pass (720x480, 1000x80
 Expanded; Font Size 80/100/140; Default and Warm Gold with no `THEME_ENGINE` log lines;
 faded camera controls at 3:1 or better), and on one player client the M1 permissions and
 Show to players.
+
+**V2.1**, verified live on the Director client (build notes in TECH_TASK_V2_1.md section
+8): size guidance; Soft fade; import (24 entries with one Undo, duplicates, skips, over the
+limit, bad and empty files); both map kinds; every path pattern, label, hidden path and
+cascade with its Undo; the Path tool, Connect to... by keyboard, Redraw line and bend
+handles; travel by list and menu, stop partway, going on and turning back, Q14 replacement,
+hidden-path travel both ways, the Party moved off a deleted path; View as player for paths,
+travel options and the log. Accessibility pass (V21-18): line and casing contrast 6.5:1 or
+more, each line or its casing 4.5:1 or more on light, mid, dark and sea art, hidden lines
+3:1 or more against their casing, the toast Undo 5.8:1 or more, warning text in
+`@fgStrong`; Font Size 80/100/140; Default and Warm Gold with no `THEME_ENGINE` lines; every
+new action reachable without drag or hover.
+
+Still open for V2.1 (needs a player client): the Travel list with "Players can move the
+Party" off and on, hidden paths absent, secret legs anonymous, no Move Party here on point
+crawl maps; Backspace in the Path tool (the bridge's keys do not reach `dmhub.KeyPressed`);
+the native file dialog for import.
 
 Still open (TECH_TASK_V2.md section 6.3, needs one Director and two player clients):
 player create, edit, move and delete of their own Locations; Hidden Locations absent
