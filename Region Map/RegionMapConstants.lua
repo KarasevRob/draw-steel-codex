@@ -28,7 +28,6 @@ RegionMapConstants.stateDocumentId = "regionMapState"
 RegionMapConstants.preferencesSettingId = "regionmap:preferences"
 
 -- Limits
-RegionMapConstants.labelLimit = 250                  -- soft per-map creation guard, counted per viewer
 RegionMapConstants.textLimit = 80                    -- Location names, in characters
 RegionMapConstants.descriptionLimit = 4000
 RegionMapConstants.crumbPreviewLimit = 300           -- description characters a breadcrumb tooltip shows

@@ -225,7 +225,6 @@ RegionMapCopy.strings = {
     ["import.placement"] = "Locations without a position are set out in rows near the center of the map. Unlock pins to place them exactly. One Undo removes the whole import.",
     ["import.ok"] = "Import {count} locations",
     ["import.ok.one"] = "Import 1 location",
-    ["import.tooMany"] = "This file has {count} locations, but {map} has room for {room} more (a map holds up to 250). Nothing will be imported; split the file and import it in parts.",
     ["import.error.json"] = "This file isn't valid JSON, so nothing was imported.",
     ["import.error.empty"] = "This file has no locations in it.",
     ["import.error.allSkipped"] = "None of the entries in this file can be imported:",
@@ -411,8 +410,8 @@ RegionMapCopy.strings = {
     ["log.showRoute"] = "Show route",
     ["log.empty"] = "No travel yet. Entries appear when the Party moves.",
 
-    -- 16. Limits and load (migrate.done was dropped with the V1 migration, brief R17)
-    ["limit.locations"] = "This map has 250 locations, the most it can hold. Delete some to add more.",
+    -- 16. Limits and load (migrate.done was dropped with the V1 migration, brief R17;
+    -- limit.locations with the per-map Location cap, 2026-10-10)
     ["load.missing"] = "Overland Map needs a newer Draw Steel Codex and was not loaded. Missing: {list}",
 }
 

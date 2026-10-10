@@ -114,8 +114,7 @@ function RegionMapPanel.Create(options)
     -- A failed write says so in a toast; refusals the UI already prevents stay silent.
     function ctx.Report(ok, reason)
         if ok then return true end
-        if reason == "limit" then Undo.Notify("limit.locations")
-        elseif reason == "invalid" or reason == "unavailable" then Undo.Notify("toast.saveFailed") end
+        if reason == "invalid" or reason == "unavailable" then Undo.Notify("toast.saveFailed") end
         return false
     end
 

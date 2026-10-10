@@ -296,7 +296,7 @@ Players see Move, Move to map..., and Delete on their own locations only.
 
 | ID | String | When / notes |
 |---|---|---|
-| limit.locations | This map has 250 locations, the most it can hold. Delete some to add more. | Creation guard (D13f) |
+| ~~limit.locations~~ | ~~This map has 250 locations, the most it can hold. Delete some to add more.~~ | Dropped 2026-10-10 with the per-map cap (D13f revised) |
 | load.missing | Overland Map needs a newer Draw Steel Codex and was not loaded. Missing: {list} | As V1, with the new name |
 | ~~migrate.done~~ | ~~Region Map updated: your maps and labels are now locations. Nothing was removed.~~ | Dropped 2026-10-06 with the migration (brief R17) |
 
@@ -390,7 +390,7 @@ New glossary rows:
 | import.duplicates | {count} names are already on this map; they will be added again: | `.one`: "1 name is already on this map; it will be added again:" |
 | import.placement | Locations without a position are set out in rows near the center of the map. Unlock pins to place them exactly. One Undo removes the whole import. | Q24 |
 | import.ok | Import {count} locations | `.one`: "Import 1 location" |
-| import.tooMany | This file has {count} locations, but {map} has room for {room} more (a map holds up to 250). Nothing will be imported; split the file and import it in parts. | IM6 |
+| ~~import.tooMany~~ | ~~This file has {count} locations, but {map} has room for {room} more (a map holds up to 250). Nothing will be imported; split the file and import it in parts.~~ | Dropped 2026-10-10 with the per-map cap (IM6 revised) |
 | import.error.json | This file isn't valid JSON, so nothing was imported. | Error card |
 | import.error.empty | This file has no locations in it. | Error card |
 | import.error.allSkipped | None of the entries in this file can be imported: | Error card, then the reasons |
