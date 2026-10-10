@@ -152,6 +152,26 @@ function RegionMapLog.Route(mapId)
     return legs
 end
 
+--- The copy id and arguments of a leg's line, in the one wording the log and
+--- the travel toast share (Q19). The rest of a path ("on") and turning back
+--- ("back") name only where the Party went; a whole leg uses plainId.
+--- @param rest nil|""|"on"|"back"
+--- @param from string plain name
+--- @param to string plain name
+--- @param pathName string plain name; "" drops "by ..." (manifest 25.2)
+--- @param watches number
+--- @param plainId string a whole leg's copy id: "log.leg" or "toast.traveled"
+--- @return string copyId
+--- @return table args
+function RegionMapLog.LegCopy(rest, from, to, pathName, watches, plainId)
+    local by = pathName ~= "" and RegionMapCopy.T("leg.by", { path = pathName }, true) or ""
+    -- Paths loads after this file, so it is read at call time.
+    local args = { from = from, to = to, by = by, time = RegionMapPaths.FormatTime(watches) }
+    if rest == "on" then return "log.leg.on", args end
+    if rest == "back" then return "log.leg.back", args end
+    return plainId, args
+end
+
 -- Writes -------------------------------------------------------------------------------------
 
 -- Upload one entry and return its undo step (nil when it could not start).

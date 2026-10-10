@@ -20,9 +20,7 @@ local SetText = Session.SetText
 local T = Copy.T
 local Label, Button, Segments = Session.Label, Session.Button, Session.Segments
 
-local function NameOf(location)
-    return Model.DisplayName(location)
-end
+local DisplayName = Model.DisplayName
 
 -- Whether the Party is on a Location's own map or anywhere below it.
 local function PartyInside(id)
@@ -78,9 +76,9 @@ local function ConfirmDelete(ctx, location)
             if not ctx.Report(ok, reason) then return end
             if ctx.data.selectedId == location.id then ctx.Select(nil, nil) end
             if deleted > 0 then
-                ctx.Push(entry, "toast.deletedTree", { name = NameOf(location), count = count })
+                ctx.Push(entry, "toast.deletedTree", { name = DisplayName(location), count = count })
             else
-                ctx.Push(entry, "toast.deleted", { name = NameOf(location) })
+                ctx.Push(entry, "toast.deleted", { name = DisplayName(location) })
             end
             ctx.RefreshAll()
         end)
@@ -95,10 +93,10 @@ local function ConfirmDelete(ctx, location)
     if paths > 0 then lines[#lines + 1] = T("dlg.delete.paths", { count = paths }) end
     local parent = Model.GetLocation(location.parentId)
     if parent ~= nil and PartyInside(location.id) then
-        lines[#lines + 1] = T("dlg.delete.party", { map = NameOf(parent) })
+        lines[#lines + 1] = T("dlg.delete.party", { map = DisplayName(parent) })
     end
     ctx.Confirm {
-        title = T("dlg.delete.title", { name = NameOf(location) }),
+        title = T("dlg.delete.title", { name = DisplayName(location) }),
         message = table.concat(lines, "\n"),
         confirm = T("dlg.delete.ok"),
         onConfirm = Delete,
@@ -112,13 +110,13 @@ local function ConfirmRemoveMap(ctx, location)
     local paths = PathCount(SubtreeIds(location, false))
     if paths > 0 then body = body .. "\n" .. T("dlg.delete.paths", { count = paths }) end
     ctx.Confirm {
-        title = T("dlg.removeMap.title", { name = NameOf(location) }),
+        title = T("dlg.removeMap.title", { name = DisplayName(location) }),
         message = body,
         confirm = T("dlg.removeMap.ok"),
         onConfirm = function()
             WhenNotBusy(ctx, function() return Model.RemoveMap(location.id) end, function(ok, reason, entry)
                 if ctx.Report(ok, reason) then
-                    ctx.Push(entry, "toast.mapRemoved", { name = NameOf(location) })
+                    ctx.Push(entry, "toast.mapRemoved", { name = DisplayName(location) })
                     ctx.RefreshAll()
                 end
             end)
@@ -129,7 +127,7 @@ end
 local function SetVisibility(ctx, location, visibility)
     local ok, reason, entry = Model.SetVisibility(location.id, visibility)
     if ctx.Report(ok, reason) then
-        ctx.Push(entry, visibility == "hidden" and "toast.hid" or "toast.revealed", { name = NameOf(location) })
+        ctx.Push(entry, visibility == "hidden" and "toast.hid" or "toast.revealed", { name = DisplayName(location) })
         ctx.RefreshAll()
     end
 end
@@ -137,7 +135,7 @@ end
 local function SetMapShared(ctx, location, shared)
     local ok, reason, entry = Model.SetMapShared(location.id, shared)
     if ctx.Report(ok, reason) then
-        ctx.Push(entry, shared and "toast.mapShared" or "toast.mapUnshared", { map = NameOf(location) })
+        ctx.Push(entry, shared and "toast.mapShared" or "toast.mapUnshared", { map = DisplayName(location) })
         ctx.RefreshAll()
     end
 end
@@ -323,7 +321,7 @@ function RegionMapSidePanel.Create(ctx)
         local placed = Model.IsPointCrawl(Model.GetLocation(location.parentId))
         local ok, reason, entry = Model.WriteParty { mapId = location.parentId, locationId = location.id, placed = placed }
         if ctx.Report(ok, reason) then
-            ctx.Push(entry, "toast.partyAt", { party = Model.PartyName(), name = NameOf(location) })
+            ctx.Push(entry, "toast.partyAt", { party = Model.PartyName(), name = DisplayName(location) })
             ctx.RefreshAll()
         end
     end)
@@ -386,7 +384,7 @@ function RegionMapSidePanel.Create(ctx)
     local function BindRead(location)
         local director = Model.IsDirector()
         local isPin = location.parentId ~= ""
-        SetText(readTitle, Copy.Literal(NameOf(location)))
+        SetText(readTitle, Copy.Literal(DisplayName(location)))
         -- Same fallback as the pin on the canvas, so the header matches what the map shows.
         local icon = C.pinIcons[location.icon] or (location.icon ~= "" and location.icon) or C.pinIcons[C.defaultPinIcon]
         if not isPin then icon = C.iconMap end
@@ -755,27 +753,27 @@ function RegionMapSidePanel.Create(ctx)
         pickBack:SetClass("collapsed", not adding or mode ~= "pickImage")
         local rows = {} --- @type Panel[]
         if mode == "pickMode" then
-            SetText(pickTitle, T("side.addMap.title", { name = NameOf(location) }))
+            SetText(pickTitle, T("side.addMap.title", { name = DisplayName(location) }))
         elseif mode == "pickImage" then
-            SetText(pickTitle, adding and T("side.addMap.title", { name = NameOf(location) }) or T("atlas.new.picker"))
+            SetText(pickTitle, adding and T("side.addMap.title", { name = DisplayName(location) }) or T("atlas.new.picker"))
             if data.newMapMode ~= nil then SetText(pickModeName, T("mode." .. data.newMapMode)) end
             SetText(pickSizeHint, ctx.ImageHint())
             if pickImage.value ~= "" then pickImage.value = "" end
         elseif mode == "pickMap" then
-            SetText(pickTitle, T("picker.moveToMap.title", { name = NameOf(location) }))
+            SetText(pickTitle, T("picker.moveToMap.title", { name = DisplayName(location) }))
             SetText(pickHint, T("picker.moveToMap.hint"))
             for _, map in ipairs(Model.OpenableMaps()) do
                 if map.id ~= location.parentId and not Model.IsInSubtree(location.id, map.id) then
                     local function Move()
                         WhenNotBusy(ctx, function() return Model.MoveToMap(location.id, map.id) end, function(ok, reason, entry)
                             if ctx.Report(ok, reason) then
-                                ctx.Push(entry, "toast.movedToMap", { name = NameOf(location), map = NameOf(map) })
+                                ctx.Push(entry, "toast.movedToMap", { name = DisplayName(location), map = DisplayName(map) })
                                 ctx.Select(nil, nil)
                                 ctx.RefreshAll()
                             end
                         end)
                     end
-                    rows[#rows + 1] = Row(Copy.Literal(NameOf(map)), function()
+                    rows[#rows + 1] = Row(Copy.Literal(DisplayName(map)), function()
                         -- Its paths join pins on the map it leaves, so they go; ask first (B5).
                         local paths = PathCount({ [location.id] = true })
                         if paths == 0 then
@@ -783,7 +781,7 @@ function RegionMapSidePanel.Create(ctx)
                             return
                         end
                         ctx.Confirm {
-                            title = T("dlg.moveToMap.title", { name = NameOf(location), map = NameOf(map) }),
+                            title = T("dlg.moveToMap.title", { name = DisplayName(location), map = DisplayName(map) }),
                             message = T("dlg.moveToMap.body", { count = paths }),
                             confirm = T("dlg.moveToMap.ok"),
                             onConfirm = Move,

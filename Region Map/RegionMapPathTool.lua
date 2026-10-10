@@ -170,7 +170,7 @@ function RegionMapPathTool.Hint(ctx)
     local path = Paths.Get(data.toolTargetId)
     if draft == nil or path == nil then return nil end
     local b = Model.GetLocation(draft.endId)
-    return T("hint.redraw", { path = Paths.Title(path, true), name = b ~= nil and Model.DisplayName(b) or "" })
+    return T("hint.redraw", { path = Paths.Title(path, true), name = Model.DisplayName(b) })
 end
 
 --- The points to draw for the line being drawn: the start pin and its bends.

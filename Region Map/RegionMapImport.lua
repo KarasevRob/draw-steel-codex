@@ -290,7 +290,7 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
         if failed then
             ctx.Push(entry, "toast.saveFailed")
         else
-            ctx.Push(entry, "toast.imported", { count = #confirmed, map = map and Model.DisplayName(map) or "" })
+            ctx.Push(entry, "toast.imported", { count = #confirmed, map = Model.DisplayName(map) })
         end
         onDone()
     end)
@@ -348,7 +348,7 @@ function RegionMapImport.Create(ctx)
     local function ShowTooMany(mapId, count)
         local map = Model.GetLocation(mapId)
         Show({ Line(T("import.tooMany", {
-            count = count, map = map and Model.DisplayName(map) or "", room = Room(mapId),
+            count = count, map = Model.DisplayName(map), room = Room(mapId),
         })) }, nil)
     end
 
