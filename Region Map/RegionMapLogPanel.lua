@@ -18,19 +18,7 @@ local Log = RegionMapLog
 local Undo = RegionMapUndo
 
 local T = Copy.T
-
-local function Label(classes, text)
-    return gui.Label { classes = classes, text = text or "", interactable = false }
-end
-
-local function Button(text, action)
-    return gui.Button {
-        classes = { "regionMapButton", "sizeS" }, text = text,
-        click = function(element)
-            if not mod.unloaded and not element:HasClass("disabled") then action() end
-        end,
-    }
-end
+local Label, Button = Session.Label, Session.Button
 
 -- The local calendar day of a server time, as a comparable key and a date table.
 local function Day(ms)
@@ -154,10 +142,7 @@ function RegionMapLogPanel.Create(ctx)
 
     local function NoteEditor(entry)
         local editor
-        editor = gui.TextEditor {
-            classes = { "input", "bordered", "sizeS", "regionMapTextArea" }, borderBox = true,
-            characterLimit = C.noteLimit, multiline = true, verticalScrollbar = true, editlag = 0,
-            selectAllOnFocus = false, resetOnDeActivation = false, textAlignment = "topleft",
+        editor = Session.TextArea(C.noteLimit, {
             -- The list is rebuilt when any Region Map row changes (another client moving the
             -- Party), so a rebuilt editor starts from the typed text, not the saved note.
             text = (editingId == entry.id and draft) or entry.note,
@@ -170,7 +155,7 @@ function RegionMapLogPanel.Create(ctx)
                 CloseEditor()
             end,
             create = function(element)
-                dmhub.Schedule(0.05, function()
+                dmhub.Schedule(C.afterLayoutDelay, function()
                     if mod.unloaded or not element.valid then return end
                     gui.SetFocus(element)
                     -- The caret goes after the existing note, so typing adds to it.
@@ -178,7 +163,7 @@ function RegionMapLogPanel.Create(ctx)
                     element:SetTextAndCaret(#text, text)
                 end)
             end,
-        }
+        })
         return editor
     end
 

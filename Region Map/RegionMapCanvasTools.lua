@@ -477,10 +477,9 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         end
     end
 
-    -- Layout runs every frame of a pan or zoom, and a class change costs engine work
-    -- even when it changes nothing, so classes are touched only when they flip.
+    -- Layout runs every frame of a pan or zoom, so classes are touched only when they flip.
     local function ShowPart(panel, show)
-        if panel:HasClass("collapsed") == show then panel:SetClass("collapsed", not show) end
+        Session.SetClassIf(panel, "collapsed", not show)
     end
 
     local function HideRuler()
@@ -513,7 +512,7 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         ShowPart(line, complete)
         ShowPart(endDot, complete)
         if not complete then
-            if not label:HasClass("collapsed") then label:SetClass("collapsed", true) end
+            ShowPart(label, false)
             return
         end
         local bx, by = RegionMapCanvasTools.ImageToPanel(layout, measure.u2 --[[@as number]], measure.v2 --[[@as number]])
@@ -524,14 +523,14 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         PlaceCentered(line, layout, (ax + bx) / 2, (ay + by) / 2)
         line.selfStyle.rotate = -math.deg(math.atan(by - ay, bx - ax))
         if isScale or not IsFinite(imageWidth) or not IsFinite(imageHeight) then
-            if not label:HasClass("collapsed") then label:SetClass("collapsed", true) end
+            ShowPart(label, false)
             return
         end
         local text, calibrated = RegionMapCanvasTools.MeasureText(map, imageWidth --[[@as number]],
             imageHeight --[[@as number]], measure)
         if label.text ~= text then label.text = text end
         labelTooltip = (not calibrated and Model.IsDirector()) and RegionMapCopy.T("ruler.uncalibrated.hint") or nil
-        if label:HasClass("collapsed") then label:SetClass("collapsed", false) end
+        ShowPart(label, true)
         -- The label sits just above the end point, clear of the end dot.
         PlaceCentered(label, layout, bx, by - C.rulerEndSize - 12)
     end
