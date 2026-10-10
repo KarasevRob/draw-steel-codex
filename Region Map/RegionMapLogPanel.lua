@@ -48,11 +48,36 @@ local function DayHeading(ms)
     return T("log.day.date", { month = Copy.months[date.month] or "", day = date.day })
 end
 
+--- One leg's line, in the one wording every place uses (Q19). The rest of a
+--- path ("on") and turning back ("back") name only where the Party went.
+--- @param rest ""|"on"|"back"
+--- @param from string plain name
+--- @param to string plain name
+--- @param pathName string plain name; "" drops "by ..." (manifest 25.2)
+--- @param watches number
+--- @return string
+function RegionMapLogPanel.LegText(rest, from, to, pathName, watches)
+    local by = pathName ~= "" and T("leg.by", { path = pathName }, true) or ""
+    local args = { from = from, to = to, by = by, time = RegionMapPaths.FormatTime(watches) }
+    if rest == "on" then return T("log.leg.on", args) end
+    if rest == "back" then return T("log.leg.back", args) end
+    return T("log.leg", args)
+end
+
 -- The entry's main line (manifest log.arrived etc.).
 local function EntryText(entry)
     local function NameOf(id)
         local location = Model.GetLocation(id)
         return location ~= nil and Model.DisplayName(location) or ""
+    end
+    if entry.kind == "leg" or entry.kind == "stopped" then
+        -- Players get no path name on a secret leg or a path hidden from them (W1).
+        local pathName = Log.ShowsPath(entry) and entry.pathName or ""
+        if entry.kind == "leg" then
+            return RegionMapLogPanel.LegText(entry.rest, NameOf(entry.fromId), NameOf(entry.toId), pathName, entry.time)
+        end
+        local args = { path = pathName, time = RegionMapPaths.FormatTime(entry.spent), name = NameOf(entry.fromId) }
+        return T(pathName ~= "" and "log.stopped" or "log.stopped.noPath", args)
     end
     if entry.kind == "arrived" then return T("log.arrived", { name = NameOf(entry.locationId) }) end
     if entry.kind == "traveling" then return T("log.traveling", { name = NameOf(entry.locationId) }) end

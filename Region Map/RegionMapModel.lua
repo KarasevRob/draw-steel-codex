@@ -60,13 +60,18 @@ end
 --- @field childrenOf table<string, RegionMapLocationRecord[]> sorted by name; "" holds the top level
 
 --- One reversible part of a model write. Table steps restore a row; the Party
---- step restores the state document's party. Undo refuses a step whose row
---- changed since (another write), which revision and mutationId detect.
+--- step restores the state document's party; a state step restores one game-wide
+--- setting (path types, time unit). Undo refuses a step whose row changed since
+--- (another write), which revision and mutationId detect.
 --- @class RegionMapUndoStep
 --- @field tableName nil|string
 --- @field id nil|string
 --- @field before nil|table the row before the write; nil when the write created it
 --- @field party nil|table|false the party before a Party write; false = not placed
+--- @field state nil|string the state document key a state step restores
+--- @field stateBefore any the key's value before the write; false = not set
+--- @field stateBeforeRevision nil|integer the key's revision before the write
+--- @field stateBeforeMutationId nil|string
 --- @field afterRevision integer
 --- @field afterMutationId string
 
@@ -81,6 +86,9 @@ end
 --- @field u number
 --- @field v number
 --- @field locationId nil|string only when the viewer can see that pin
+--- @field pathId nil|string stopped partway on this path (Q13); only when the viewer sees the path
+--- @field pathFrom nil|string the path end the time spent counts from
+--- @field spent nil|number watches spent from pathFrom; u/v are worked out from it
 --- @field revision integer
 
 --- @alias RegionMapWriteReason "permission"|"invalid"|"busy"|"limit"|"unavailable"
@@ -369,6 +377,36 @@ local function WriteState(description, apply)
     return true
 end
 
+--- Write one game-wide setting the Director can undo (path types, time unit).
+--- Each key keeps its own revision in stateMeta, so undo can tell whether the
+--- setting changed again since. Returns the undo step, or nil when not written.
+--- @param key string
+--- @param value any nil removes the key
+--- @param description string
+--- @return nil|RegionMapUndoStep
+function RegionMapModel.WriteStateKey(key, value, description)
+    if not CanWrite() or not IsDirector() or StateData() == nil then return nil end
+    local doc = StateDocument()
+    local metaAll = type(doc.data.stateMeta) == "table" and DeepCopy(doc.data.stateMeta) or {}
+    local meta = metaAll[key]
+    local oldRevision = R.RecordRevision(meta)
+    if oldRevision >= C.maxRevision then return nil end
+    local before = doc.data[key]
+    if before == nil then before = false else before = DeepCopy(before) end
+    local revision, mutationId = oldRevision + 1, dmhub.GenerateGuid()
+    metaAll[key] = { revision = revision, mutationId = mutationId }
+    doc:BeginChange()
+    doc.data.schemaVersion = C.schemaVersion
+    doc.data.stateMeta = metaAll
+    if value == nil then doc.data[key] = nil else doc.data[key] = DeepCopy(value) end
+    doc:CompleteChange(description, { undoable = false })
+    return {
+        state = key, stateBefore = before,
+        stateBeforeRevision = oldRevision, stateBeforeMutationId = Field(meta, "mutationId", nil),
+        afterRevision = revision, afterMutationId = mutationId,
+    }
+end
+
 --- The Party's custom name (D11b).
 --- @return string
 function RegionMapModel.PartyName()
@@ -443,8 +481,8 @@ local CanAdd = RegionMapModel.CanAdd
 local function WriteLocation(current, changes, description, callbacks)
     local record = current and DeepCopy(current) or RegionMapLocationRecord.new { revision = 0 }
     for key, value in pairs(changes) do
-        -- false clears an optional field (scale, pace); nil cannot sit in a table.
-        if value == false and (key == "scale" or key == "pace") then record[key] = nil else record[key] = value end
+        -- false clears an optional field (scale, pace, mode); nil cannot sit in a table.
+        if value == false and (key == "scale" or key == "pace" or key == "mode") then record[key] = nil else record[key] = value end
     end
     local revision = NextRevision(record)
     if revision == nil then return nil end
@@ -493,6 +531,8 @@ local function NormalizeChanges(current, changes)
             if value then value = DeepCopy(value) end
         elseif key == "pace" then
             if not IsDirector() or not (value == false or (IsFinite(value) and value > 0)) then return nil end
+        elseif key == "border" then
+            if not IsDirector() or not R.borders[value] or current.imageId == "" then return nil end
         else
             -- parentId, imageId and hidden change only through their own functions.
             return nil
@@ -522,7 +562,7 @@ end
 --- Only the named fields change, so two people editing different fields of one
 --- Location do not undo each other.
 --- @param id string
---- @param changes {name: nil|string, u: nil|number, v: nil|number, pinStyle: nil|string, importance: nil|string, icon: nil|string, visibility: nil|string, mapShared: nil|boolean, scale: nil|false|RegionMapScale, pace: nil|false|number}
+--- @param changes {name: nil|string, u: nil|number, v: nil|number, pinStyle: nil|string, importance: nil|string, icon: nil|string, visibility: nil|string, mapShared: nil|boolean, scale: nil|false|RegionMapScale, pace: nil|false|number, border: nil|string}
 --- @param description nil|string
 --- @param guard nil|RegionMapGuard
 --- @return boolean ok
@@ -550,20 +590,22 @@ local UpdateLocation = RegionMapModel.UpdateLocation
 --- @field visibility nil|"hidden"|"revealed" Director only; players' Locations are always revealed
 
 --- Create a Location at a point of a map. Director-made Locations start Hidden
---- unless style says otherwise; player-made ones are Revealed (R1). The name
---- starts empty and the UI shows edit.name.fallback until it is named.
+--- unless style says otherwise; player-made ones are Revealed (R1). Without a
+--- name it starts empty and the UI shows edit.name.fallback until it is named.
 --- @param mapId string
 --- @param u number
 --- @param v number
 --- @param style nil|RegionMapPinStyle
 --- @param callbacks nil|RegionMapWriteCallbacks the new row is readable only after success
+--- @param name nil|string set at creation (JSON import), so the row needs no second write
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
 --- @return nil|string id
-function RegionMapModel.CreateLocation(mapId, u, v, style, callbacks)
+function RegionMapModel.CreateLocation(mapId, u, v, style, callbacks, name)
     style = style or {}
-    if not IsFinite(u) or not IsFinite(v) then return false, "invalid", nil, nil end
+    name = R.TrimSingleLine(name)
+    if not IsFinite(u) or not IsFinite(v) or not ValidName(name) then return false, "invalid", nil, nil end
     local ok, reason = CanAdd(mapId)
     if not ok then return false, reason, nil, nil end
     local director = IsDirector()
@@ -571,7 +613,7 @@ function RegionMapModel.CreateLocation(mapId, u, v, style, callbacks)
     if director then visibility = R.visibilities[style.visibility] and style.visibility or "hidden" end
     local id = dmhub.GenerateGuid()
     local step = WriteLocation(nil, {
-        id = id, schemaVersion = C.locationSchemaVersion, parentId = mapId, name = "",
+        id = id, schemaVersion = C.locationSchemaVersion, parentId = mapId, name = name,
         u = Clamp(u, 0, 1), v = Clamp(v, 0, 1),
         pinStyle = R.pinStyles[style.pinStyle] and style.pinStyle or "iconName",
         importance = R.importances[style.importance] and style.importance or "normal",
@@ -584,15 +626,29 @@ function RegionMapModel.CreateLocation(mapId, u, v, style, callbacks)
     return true, nil, Entry("Add region map location", { step }), id
 end
 
+--- Whether a map is a point crawl map (A1). Maps from before V2.1 are free (L3).
+--- @param location nil|RegionMapLocationRecord
+--- @return boolean
+function RegionMapModel.IsPointCrawl(location)
+    return location ~= nil and Field(location, "mode", nil) == "pointcrawl"
+end
+
+-- Only point crawl is stored; a free map leaves the field out, like maps made before modes.
+local function StoredMode(mode)
+    if mode == "pointcrawl" then return "pointcrawl" end
+    return nil
+end
+
 --- Create a top-level map (Atlas "New map"). Starts not shared (R1).
 --- @param name string
 --- @param imageId string
 --- @param callbacks nil|RegionMapWriteCallbacks the new row is readable only after success
+--- @param mode nil|"free"|"pointcrawl" fixed for the map's life (A4)
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
 --- @return nil|string id
-function RegionMapModel.CreateMap(name, imageId, callbacks)
+function RegionMapModel.CreateMap(name, imageId, callbacks, mode)
     name = R.TrimSingleLine(name)
     if not CanWrite() or not IsDirector() then return false, "permission", nil, nil end
     if not ValidText(name) or type(imageId) ~= "string" or imageId == "" then return false, "invalid", nil, nil end
@@ -600,7 +656,8 @@ function RegionMapModel.CreateMap(name, imageId, callbacks)
     local step = WriteLocation(nil, {
         id = id, schemaVersion = C.locationSchemaVersion, parentId = "", name = name, u = 0.5, v = 0.5,
         pinStyle = "iconName", importance = "normal", icon = "", visibility = "revealed",
-        imageId = imageId, imageRevision = 1, mapShared = false,
+        imageId = imageId, imageRevision = 1, mapShared = false, border = RegionMapModel.LastBorder(),
+        mode = StoredMode(mode),
         ownerId = dmhub.loginUserid, ownerName = CurrentUserName(), createdByDirector = true, hidden = false,
     }, "Create region map", callbacks)
     if step == nil then return false, "unavailable", nil, nil end
@@ -630,10 +687,18 @@ function RegionMapModel.MoveToMap(id, mapId)
     if current.parentId == mapId then return true, nil, Entry("Move region map location", {}) end
     local ok, reason = CanAdd(mapId)
     if not ok then return false, reason, nil end
-    if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
-    local step = WriteLocation(current, { parentId = mapId, u = 0.5, v = 0.5 }, "Move region map location to map")
+    -- Its paths join pins on the map it leaves, so they go with the move (B5).
+    local paths = RegionMapPaths.Touching({ [id] = true })
+    if R.PendingWrite(C.locationTableName, id) or RegionMapPaths.AnyPending(paths) then return false, "busy", nil end
+    local description = "Move region map location to map"
+    local partyTarget = RegionMapModel.PartyOffPaths(paths, { [id] = true })
+    local steps = RegionMapPaths.HideSteps(paths, description)
+    local step = WriteLocation(current, { parentId = mapId, u = 0.5, v = 0.5 }, description)
     if step == nil then return false, "unavailable", nil end
-    return true, nil, Entry("Move region map location to map", { step })
+    steps[#steps + 1] = step
+    local partyStep = partyTarget ~= nil and RegionMapModel.MovePartyOff(partyTarget, description) or nil
+    if partyStep ~= nil then steps[#steps + 1] = partyStep end
+    return true, nil, Entry(description, steps)
 end
 
 --- @param id string
@@ -658,30 +723,70 @@ end
 
 -- Sets a Location's image. Every new image bumps imageRevision, so cameras
 -- saved for the old image are not reused.
-local function SetImage(id, imageId, description)
+local function SetImage(id, imageId, description, mode)
     local current = Raw(id)
     if not IsDirector() or not CanWrite() then return false, "permission", nil end
     if current == nil or type(imageId) ~= "string" or imageId == "" then return false, "invalid", nil end
     if current.imageRevision >= C.maxRevision then return false, "unavailable", nil end
     if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
     local changes = { imageId = imageId, imageRevision = current.imageRevision + 1 }
-    -- New maps start not shared (R1); a replaced image keeps its sharing.
-    if current.imageId == "" then changes.mapShared = false end
+    -- New maps start not shared (R1) with the last border picked (K5) and their
+    -- chosen mode (A1); a replaced image keeps its sharing, border and mode.
+    if current.imageId == "" then
+        changes.mapShared = false
+        changes.border = RegionMapModel.LastBorder()
+        changes.mode = StoredMode(mode) or false
+    end
     local step = WriteLocation(current, changes, description)
     if step == nil then return false, "unavailable", nil end
     return true, nil, Entry(description, { step })
 end
 
---- Give a Location without a map its own map image.
+--- How a map's image edge draws (K1). Maps from before borders have none.
+--- @param location RegionMapLocationRecord
+--- @return "none"|"fade"|"torn"|"frame"
+function RegionMapModel.Border(location)
+    local border = Field(location, "border", nil)
+    if R.borders[border] then return border --[[@as "none"|"fade"|"torn"|"frame"]] end
+    return "none"
+end
+
+--- Game-wide: the border the Director picked last, which new maps start with (K5, K8).
+--- @return "none"|"fade"|"torn"|"frame"
+function RegionMapModel.LastBorder()
+    local data = StateData()
+    local border = data and data.lastBorder
+    if R.borders[border] then return border --[[@as "none"|"fade"|"torn"|"frame"]] end
+    return C.defaultBorder --[[@as "none"|"fade"|"torn"|"frame"]]
+end
+
+--- Set a map's border and remember it for the next new map. The returned undo
+--- entry covers the border only; the remembered pick just seeds new maps.
 --- @param id string
---- @param imageId string
+--- @param border "none"|"fade"|"torn"|"frame"
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
-function RegionMapModel.AddMap(id, imageId)
+function RegionMapModel.SetBorder(id, border)
+    if not IsDirector() then return false, "permission", nil end
+    local ok, reason, undo = UpdateLocation(id, { border = border }, "Change map border")
+    if ok and RegionMapModel.LastBorder() ~= border then
+        WriteState("Remember the map border", function(data) data.lastBorder = border end)
+    end
+    return ok, reason, undo
+end
+
+--- Give a Location without a map its own map image.
+--- @param id string
+--- @param imageId string
+--- @param mode nil|"free"|"pointcrawl" fixed for the map's life (A4)
+--- @return boolean ok
+--- @return nil|RegionMapWriteReason reason
+--- @return nil|RegionMapUndoEntry undo
+function RegionMapModel.AddMap(id, imageId, mode)
     local current = Raw(id)
     if current ~= nil and current.imageId ~= "" then return false, "invalid", nil end
-    return SetImage(id, imageId, "Add map to location")
+    return SetImage(id, imageId, "Add map to location", mode)
 end
 
 --- Replace a map's image. Pins keep their u/v (V1 behavior).
@@ -711,6 +816,15 @@ local function StoredParty()
     local location = Raw(party.locationId)
     if location ~= nil and location.parentId ~= "" and Raw(location.parentId) ~= nil then
         result.mapId, result.u, result.v, result.locationId = location.parentId, location.u, location.v, location.id
+    elseif type(party.pathId) == "string" then
+        -- Partway along a path the banner follows the path's line, so editing its bends or
+        -- time never strands it (Q13). A path that is gone leaves it where it was drawn.
+        local path = RegionMapPaths.Index().byId[party.pathId]
+        local from, spent = party.pathFrom, party.spent
+        if path ~= nil and path.mapId == party.mapId and (from == path.aId or from == path.bId) and IsFinite(spent) and spent > 0 then
+            result.u, result.v = RegionMapTravel.PositionOn(path, from, spent)
+            result.pathId, result.pathFrom, result.spent = path.id, from, spent
+        end
     end
     return result
 end
@@ -722,13 +836,17 @@ function RegionMapModel.Party()
     local party = StoredParty()
     if party == nil or not CanOpenMap(Raw(party.mapId)) then return nil end
     if party.locationId ~= nil and not CanSeePin(Raw(party.locationId)) then party.locationId = nil end
+    -- A player who does not see the path sees the Party on the map, not on a path.
+    if party.pathId ~= nil and not RegionMapPaths.CanSee(RegionMapPaths.Index().byId[party.pathId]) then
+        party.pathId, party.pathFrom, party.spent = nil, nil, nil
+    end
     return party
 end
 local Party = RegionMapModel.Party
 
 --- The Party status for the status chip, relative to the open map.
 --- @param currentMapId nil|string
---- @return "at"|"traveling"|"elsewhere"|"none" kind
+--- @return "at"|"onPath"|"traveling"|"elsewhere"|"none" kind
 --- @return nil|RegionMapPartyView party
 --- @return nil|RegionMapLocationRecord location set for "at"
 function RegionMapModel.PartyStatus(currentMapId)
@@ -736,6 +854,7 @@ function RegionMapModel.PartyStatus(currentMapId)
     if party == nil then return "none", nil, nil end
     if party.mapId ~= currentMapId then return "elsewhere", party, nil end
     if party.locationId ~= nil then return "at", party, Raw(party.locationId) end
+    if party.pathId ~= nil then return "onPath", party, nil end
     return "traveling", party, nil
 end
 
@@ -774,46 +893,125 @@ local function SetParty(party, description)
     return { party = before, afterRevision = revision, afterMutationId = mutationId }
 end
 
+--- What WriteParty is asked to do.
+--- @class RegionMapPartyWrite
+--- @field mapId string
+--- @field u nil|number
+--- @field v nil|number
+--- @field locationId nil|string "at" this Location, snapped to its pin
+--- @field pathId nil|string partway along this path (Director stop, Q13); u/v follow from spent
+--- @field pathFrom nil|string
+--- @field spent nil|number
+--- @field description nil|string
+--- @field placed nil|boolean a jump, logged as placed rather than as travel
+--- @field travel nil|boolean a move along a path (RegionMapTravel), the only player move on point crawl maps (G5)
+--- @field noLog nil|boolean the caller writes its own log entry (legs and stops)
+
 --- Move the Party. With locationId it is "at" that Location (snapped to its
---- pin); without, it is traveling at u/v. A player can never snap it to a pin
---- they cannot see (R3).
---- @param args {mapId: string, u: nil|number, v: nil|number, locationId: nil|string, description: nil|string, placed: nil|boolean}
+--- pin); with pathId it is partway along that path; else it is traveling at
+--- u/v. A player can never snap it to a pin they cannot see (R3).
+--- @param args RegionMapPartyWrite
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
 function RegionMapModel.WriteParty(args)
     if StateData() == nil then return false, "unavailable", nil end
     if not CanMovePartyOn(args.mapId) then return false, "permission", nil end
+    -- On a point crawl map players move only by travelling along paths (Q16).
+    if not IsDirector() and args.travel ~= true and RegionMapModel.IsPointCrawl(Raw(args.mapId)) then
+        return false, "permission", nil
+    end
     local u, v, locationId = args.u, args.v, nil
+    local pathId, pathFrom, spent = nil, nil, nil
     if args.locationId ~= nil then
         local location = Raw(args.locationId)
         if location == nil or location.parentId ~= args.mapId or not CanSeePin(location) then return false, "invalid", nil end
         u, v, locationId = location.u, location.v, location.id
+    elseif args.pathId ~= nil then
+        local path = RegionMapPaths.Get(args.pathId)
+        if not IsDirector() or path == nil or path.mapId ~= args.mapId or (args.pathFrom ~= path.aId and args.pathFrom ~= path.bId)
+            or not IsFinite(args.spent) or args.spent <= 0 then
+            return false, "invalid", nil
+        end
+        u, v = RegionMapTravel.PositionOn(path, args.pathFrom --[[@as string]], args.spent --[[@as number]])
+        pathId, pathFrom, spent = path.id, args.pathFrom, args.spent
     end
     if not IsFinite(u) or not IsFinite(v) then return false, "invalid", nil end
     local description = args.description or "Move Party on region map"
     local before = StoredParty()
-    local after = { mapId = args.mapId, u = Clamp(u --[[@as number]], 0, 1), v = Clamp(v --[[@as number]], 0, 1), locationId = locationId }
+    local after = {
+        mapId = args.mapId, u = Clamp(u --[[@as number]], 0, 1), v = Clamp(v --[[@as number]], 0, 1), locationId = locationId,
+        pathId = pathId, pathFrom = pathFrom, spent = spent,
+    }
     local step = SetParty(DeepCopy(after), description)
     if step == nil then return false, "unavailable", nil end
     -- The session log entry undoes with the move (R3); a failed log write leaves the move standing.
     local steps = { step }
-    local logStep = RegionMapLog.Record(before, after, args.placed == true)
-    if logStep ~= nil then steps[2] = logStep end
+    if args.noLog ~= true then
+        local logStep = RegionMapLog.Record(before, after, args.placed == true)
+        if logStep ~= nil then steps[2] = logStep end
+    end
     return true, nil, Entry(description, steps)
 end
 local WriteParty = RegionMapModel.WriteParty
 
+--- Where the Party is, unfiltered: what travel and the log compare against.
+--- @return nil|RegionMapPartyView
+function RegionMapModel.StoredParty()
+    return StoredParty()
+end
+
 --- Director: put the Party anywhere on any map (R12 "Place Party here").
+--- With locationId (a point crawl pin near the click, Q16) it is "at" that pin.
 --- @param mapId string
 --- @param u number
 --- @param v number
+--- @param locationId nil|string
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
-function RegionMapModel.PlaceParty(mapId, u, v)
+function RegionMapModel.PlaceParty(mapId, u, v, locationId)
     if not IsDirector() then return false, "permission", nil end
-    return WriteParty { mapId = mapId, u = u, v = v, description = "Place Party on region map", placed = true }
+    return WriteParty {
+        mapId = mapId, u = u, v = v, locationId = locationId, description = "Place Party on region map", placed = true,
+    }
+end
+
+--- Cascades (B5, Q13): when these paths go, a Party stopped on one of them
+--- moves to its nearer end, or the other end when the nearer one goes too.
+--- Read this before the batch hides anything (hidden rows leave the index);
+--- nil when the Party is not on them or has nowhere to go.
+--- @param paths RegionMapPathRecord[]
+--- @param removed table<string, boolean> Location ids going in the same batch
+--- @return nil|table the party to write with MovePartyOff
+function RegionMapModel.PartyOffPaths(paths, removed)
+    local party = StoredParty()
+    if party == nil or party.pathId == nil or party.pathFrom == nil or StateData() == nil then return nil end
+    local from = party.pathFrom --[[@as string]]
+    for _, path in ipairs(paths) do
+        if path.id == party.pathId then
+            local far = from == path.aId and path.bId or path.aId
+            local nearer, other = far, from
+            if RegionMapTravel.Fraction(path, from, party.spent or 0) <= 0.5 then
+                nearer, other = from, far
+            end
+            if removed[nearer] then nearer = other end
+            local location = Raw(nearer)
+            if location == nil or removed[nearer] then return nil end
+            return { mapId = location.parentId, u = location.u, v = location.v, locationId = location.id }
+        end
+    end
+    return nil
+end
+local PartyOffPaths = RegionMapModel.PartyOffPaths
+
+--- Write the target PartyOffPaths chose, in the caller's batch; its undo step.
+--- @param target table
+--- @param description string
+--- @return nil|RegionMapUndoStep
+function RegionMapModel.MovePartyOff(target, description)
+    if not CanWrite() or StateData() == nil then return nil end
+    return SetParty(DeepCopy(target), description)
 end
 
 -- Deletion ------------------------------------------------------------------------------------
@@ -877,16 +1075,23 @@ function RegionMapModel.DeleteLocation(id)
     local descendants = Descendants(id)
     local all = { current }
     for _, location in ipairs(descendants) do all[#all + 1] = location end
-    if AnyPending(all) then return false, "busy", nil, 0 end
     local removed = {}
     for _, location in ipairs(all) do removed[location.id] = true end
+    -- A path always joins two pins, so every path touching a deleted pin goes too (B5).
+    local paths = RegionMapPaths.Touching(removed)
+    if AnyPending(all) or RegionMapPaths.AnyPending(paths) then return false, "busy", nil, 0 end
     local description = "Delete region map location"
     local target = RescueTarget(current, removed)
+    local pathTarget = target == nil and PartyOffPaths(paths, removed) or nil
     local steps = HideAll(all, description)
     if #steps == 0 then return false, "unavailable", nil, 0 end
+    for _, step in ipairs(RegionMapPaths.HideSteps(paths, description)) do steps[#steps + 1] = step end
     -- The Party moves only once the rows are on their way, so a failed delete leaves it be.
     if target ~= nil then
         local partyStep = SetParty(target or nil, description)
+        if partyStep ~= nil then steps[#steps + 1] = partyStep end
+    elseif pathTarget ~= nil then
+        local partyStep = SetParty(pathTarget, description)
         if partyStep ~= nil then steps[#steps + 1] = partyStep end
     end
     return true, nil, Entry(description, steps), #descendants
@@ -904,9 +1109,12 @@ function RegionMapModel.RemoveMap(id)
     if not IsDirector() or not CanWrite() then return false, "permission", nil, 0 end
     if current == nil or current.parentId == "" or current.imageId == "" then return false, "invalid", nil, 0 end
     local descendants = Descendants(id)
-    if R.PendingWrite(C.locationTableName, id) or AnyPending(descendants) then return false, "busy", nil, 0 end
     local removed = {}
     for _, location in ipairs(descendants) do removed[location.id] = true end
+    local paths = RegionMapPaths.Touching(removed)
+    if R.PendingWrite(C.locationTableName, id) or AnyPending(descendants) or RegionMapPaths.AnyPending(paths) then
+        return false, "busy", nil, 0
+    end
     local description = "Remove map from location"
     -- A Party on the removed map (or below it) goes to this Location's own pin, which stays.
     -- Decided before the writes, since hiding the rows drops them from the tree.
@@ -919,7 +1127,9 @@ function RegionMapModel.RemoveMap(id)
     -- map's own row can still take a write; the busy check above covers the rest.
     if NextRevision(current) == nil then return false, "unavailable", nil, 0 end
     local steps = HideAll(descendants, description)
-    local own = WriteLocation(current, { imageId = "", mapShared = false, scale = false, pace = false }, description)
+    for _, step in ipairs(RegionMapPaths.HideSteps(paths, description)) do steps[#steps + 1] = step end
+    -- The mode goes with the image, so Add map can pick it again (A4).
+    local own = WriteLocation(current, { imageId = "", mapShared = false, scale = false, pace = false, mode = false }, description)
     if own == nil then return false, "unavailable", nil, 0 end
     steps[#steps + 1] = own
     if partyTarget ~= nil then
@@ -939,6 +1149,10 @@ local function StepCurrent(step)
     end
     local data = StateData()
     if data == nil then return -1, nil end
+    if step.state ~= nil then
+        local meta = type(data.stateMeta) == "table" and data.stateMeta[step.state] or nil
+        return R.RecordRevision(meta), Field(meta, "mutationId", nil)
+    end
     if type(data.party) == "table" then return R.RecordRevision(data.party), Field(data.party, "mutationId", nil) end
     return R.RecordRevision({ revision = data.partyRevision }), data.partyMutationId
 end
@@ -971,7 +1185,8 @@ end
 --- revision that state now carries. Older undo entries that ended in the
 --- restored state are moved onto the new revision, so they stay undoable.
 --- @class RegionMapRebind
---- @field tableName nil|string nil for the Party
+--- @field tableName nil|string nil for the Party and state steps
+--- @field state nil|string set for a state step
 --- @field id nil|string
 --- @field fromRevision integer
 --- @field fromMutationId nil|string
@@ -1009,6 +1224,18 @@ function RegionMapModel.Revert(entry)
                         toRevision = record.revision, toMutationId = record.mutationId,
                     }
                 end
+            end
+        elseif step.state ~= nil then
+            local before = step.stateBefore
+            if before == false then before = nil end
+            local written = RegionMapModel.WriteStateKey(step.state, before, "Undo: " .. entry.description)
+            ok = written ~= nil and ok
+            if written ~= nil then
+                rebinds[#rebinds + 1] = {
+                    state = step.state,
+                    fromRevision = step.stateBeforeRevision or 0, fromMutationId = step.stateBeforeMutationId,
+                    toRevision = written.afterRevision, toMutationId = written.afterMutationId,
+                }
             end
         else
             local before = step.party
