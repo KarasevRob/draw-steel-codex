@@ -72,8 +72,8 @@ lookup table only.
 | atlas.card.party | Party here | Chip on the card whose map holds the Party |
 | atlas.card.notShared | Not shared | Chip, Director only. A shared map has no chip |
 | atlas.card.count | {count} locations | Card footer |
-| atlas.new | New map | Last card |
-| atlas.new.hint | Choose an image to start a top-level map | Under "New map" |
+| ~~atlas.new~~ | ~~New map~~ | Dropped 2026-10-10: the card shows a plus icon and the `atlas.new.picker` tooltip (cleanup audit) |
+| ~~atlas.new.hint~~ | ~~Choose an image to start a top-level map~~ | Dropped 2026-10-10 with `atlas.new` (cleanup audit) |
 | atlas.new.picker | Choose a map image | Image picker title |
 | atlas.new.defaultName | New map | Name of a new map until renamed (opens with the name selected) |
 | atlas.empty.director.title | No maps yet | Director, empty Atlas |
@@ -231,7 +231,7 @@ Players see Move, Move to map..., and Delete on their own locations only.
 | ID | String | When / notes |
 |---|---|---|
 | search.placeholder | Search locations | |
-| search.result.path | {map} > {parent} | Second line of a result; ">" drawn as an icon |
+| ~~search.result.path~~ | ~~{map} > {parent}~~ | Dropped 2026-10-10: the result draws each ancestor as its own label with crumb icons between (cleanup audit) |
 | search.none | No locations match "{query}". | |
 | search.hint | Enter opens the top result. | Under the field (R9) |
 

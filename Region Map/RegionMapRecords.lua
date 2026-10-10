@@ -170,7 +170,6 @@ RegionMapPathRecord.tableName = C.pathTableName
 --- @field unchanged nil|boolean
 
 --- @alias RegionMapWriteCallbacks {success: nil|fun(operation?: RegionMapWrite), failure: nil|fun(operation?: RegionMapWrite)}
---- @alias RegionMapGuard fun(): boolean
 
 setting {
     id = C.preferencesSettingId,
