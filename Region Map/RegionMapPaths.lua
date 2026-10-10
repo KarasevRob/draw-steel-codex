@@ -42,22 +42,17 @@ end
 -- Index ------------------------------------------------------------------------------------------
 
 local cached = nil --- @type nil|RegionMapPathIndex
-local cachedKey = nil --- @type nil|string
+local cachedRevision = nil --- @type nil|integer
 local cachedLocations = nil --- @type nil|RegionMapLocationIndex
 
--- Rebuilt when cloud data arrives or the Location index was rebuilt; this client's
--- own path writes call Model.InvalidateIndex, which does the latter.
-local function Key()
-    return tostring(dmhub.ngameupdate) .. ":" .. tostring(dmhub.tablesUpdateId)
-end
-
---- The validated paths, rebuilt only when the data changed. A path whose end was
+--- The validated paths, rebuilt only when the data changed (Model.Revision; this
+--- client's own path writes call Model.InvalidateIndex). A path whose end was
 --- deleted or moved away is skipped, not removed: undoing the delete brings it back.
 --- @return RegionMapPathIndex
 function RegionMapPaths.Index()
     local locations = Model.Index()
-    local key = Key()
-    if cached ~= nil and cachedKey == key and cachedLocations == locations then return cached end
+    local key = Model.Revision()
+    if cached ~= nil and cachedRevision == key and cachedLocations == locations then return cached end
     local byId, onMap, ofLocation = {}, {}, {} --- @type table<string, RegionMapPathRecord>, table<string, RegionMapPathRecord[]>, table<string, RegionMapPathRecord[]>
     local function Add(list, id, row)
         list[id] = list[id] or {}
@@ -80,7 +75,7 @@ function RegionMapPaths.Index()
     for _, list in pairs(onMap) do table.sort(list, Before) end
     for _, list in pairs(ofLocation) do table.sort(list, Before) end
     cached = { byId = byId, onMap = onMap, ofLocation = ofLocation }
-    cachedKey, cachedLocations = key, locations
+    cachedRevision, cachedLocations = key, locations
     return cached
 end
 local Index = RegionMapPaths.Index

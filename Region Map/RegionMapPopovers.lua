@@ -599,7 +599,9 @@ function RegionMapPopovers.Create(ctx)
     local panel
     local scroll
     local search = BuildSearch(ctx)
-    local settings = BuildSettings(ctx)
+    -- Settings costs tens of ms to build (each checkbox ~9 ms) and players never see
+    -- it, so it is built the first time a Director opens it.
+    local settings = nil --- @type nil|Panel
 
     -- The popover grows with its content down to the bottom controls, then scrolls.
     -- A relative maxHeight is not available, so it follows the window's height.
@@ -616,7 +618,7 @@ function RegionMapPopovers.Create(ctx)
     scroll = gui.Panel {
         classes = { "regionMapPopoverScroll" }, vscroll = true,
         data = { maxHeight = nil },
-        search, settings,
+        search,
     }
     panel = gui.Panel {
         id = "region-map-popover",
@@ -633,13 +635,17 @@ function RegionMapPopovers.Create(ctx)
             local which = ctx.data.popover
             if which == "settings" and not Model.IsDirector() then which = nil end
             element:SetClass("collapsed", which == nil)
+            if which == "settings" and settings == nil then
+                settings = BuildSettings(ctx)
+                scroll.children = { search, settings }
+            end
             search:SetClass("collapsed", which ~= "search")
-            settings:SetClass("collapsed", which ~= "settings")
+            if settings ~= nil then settings:SetClass("collapsed", which ~= "settings") end
             local opened = which ~= nil and element.data.shown ~= which
             element.data.shown = which
             if which == "search" then
                 if opened then search.data.open() end
-            elseif which == "settings" then
+            elseif which == "settings" and settings ~= nil then
                 settings.data.bind()
                 if opened then settings.data.open() end
             end

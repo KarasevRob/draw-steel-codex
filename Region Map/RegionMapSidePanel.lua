@@ -674,12 +674,13 @@ function RegionMapSidePanel.Create(ctx)
         stateLine:SetClass("danger", danger)
         retryButton:SetClass("collapsed", not danger)
         -- A confirmed write does not always trigger a refresh, so check again shortly.
+        -- Only this panel shows the save state, so only it is bound again.
         if text == T("edit.saving") and not panel.data.recheckScheduled then
             panel.data.recheckScheduled = true
             dmhub.Schedule(0.5, function()
                 if mod.unloaded or not panel.valid then return end
                 panel.data.recheckScheduled = false
-                ctx.RefreshAll()
+                panel:FireEvent("bind")
             end)
         end
 
