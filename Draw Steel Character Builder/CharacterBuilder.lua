@@ -901,7 +901,6 @@ function CharacterBuilder._makeFeatureRegistry(options)
                             -- Open-ended choices always count as complete; fill once something is bought.
                             if feature and feature:IsUnbounded() then
                                 filled = #feature:GetSelectedNames() > 0
-                                -- Points choices show the points spent in this choice inside the pip.
                                 local creature = CharacterBuilder._getCreature()
                                 if feature:CostsPoints() and creature ~= nil then
                                     local spent = 0
@@ -921,7 +920,7 @@ function CharacterBuilder._makeFeatureRegistry(options)
                         element:SetClass("collapsed", not visible)
                         element:FireEventTree("setPipPoints", pointsLabel)
                     end,
-                    -- Point count for points choices; the pip grows to fit it.
+                    -- Points spent in this choice; the pip grows to fit it.
                     gui.Label{
                         classes = {"builder-base", "label", "progress-pip-count", "collapsed"},
                         interactable = false,
