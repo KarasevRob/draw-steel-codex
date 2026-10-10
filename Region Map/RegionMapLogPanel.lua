@@ -95,7 +95,7 @@ function RegionMapLogPanel.Create(ctx)
     local empty
     local addNoteButton
     local undoButton
-    local routeCheck
+    local routeCheck = nil --- @type nil|Panel built on first open (EnsureRouteCheck)
     local editingId = nil --- @type nil|string the entry whose note editor is open
     local draft = nil --- @type nil|string the editor's text, saved when the editor closes
     local signature = nil --- @type nil|string what the list was last built from
@@ -182,17 +182,21 @@ function RegionMapLogPanel.Create(ctx)
         return editor
     end
 
-    local function EntryRow(entry)
-        local director = Model.IsDirector()
+    -- Who logged the entry and when, under its main line.
+    local function MetaText(entry)
         local who = entry.byDirector and T("log.by.director") or entry.byName
         local time = os.date("%H:%M", math.floor(Log.Time(entry) / 1000)) --[[@as string]]
         local meta = T("log.by", { who = who }) .. " - " .. time
         if entry.mergedCount > 0 then meta = meta .. " - " .. T("log.merged", { count = entry.mergedCount }) end
+        return meta
+    end
+
+    local function EntryRow(entry, text, meta, director)
         local children = {
             gui.Panel {
                 classes = { "regionMapSideRow" },
                 gui.Label {
-                    classes = { "regionMapLogText" }, text = EntryText(entry),
+                    classes = { "regionMapLogText" }, text = text,
                     -- Clicking an entry opens the map it happened on.
                     click = function()
                         if data.mapId ~= entry.mapId then ctx.OpenMap(entry.mapId, "restore") end
@@ -212,19 +216,55 @@ function RegionMapLogPanel.Create(ctx)
         return gui.Panel { classes = { "regionMapLogEntry" }, children = children }
     end
 
+    -- Rows are kept by entry id and built again only when what they show changed,
+    -- so a new entry or an edited note costs one row, not the whole list (up to logCap).
+    local rows = {} --- @type table<string, {panel: Panel, key: string}>
+    local dayRows = {} --- @type table<integer, Panel>
+
+    -- Builds at most logRowsPerFrame new rows, so opening a long log never freezes
+    -- one frame; the list stops at the first row not built yet and the rest follow
+    -- on the next frames, newest first.
     local function BuildList(entries)
-        local rows = {} --- @type Panel[]
+        local director = Model.IsDirector()
+        local children = {} --- @type Panel[]
+        local keptRows, keptDays = {}, {} --- @type table<string, {panel: Panel, key: string}>, table<integer, Panel>
+        local budget = C.logRowsPerFrame
         local lastDay = nil
+        local complete = true
         for _, entry in ipairs(entries) do
+            local text, meta = EntryText(entry), MetaText(entry)
+            local key = table.concat({ text, meta, entry.note, tostring(editingId == entry.id), tostring(director) }, "\n")
+            local row = rows[entry.id]
+            if row == nil or row.key ~= key or not row.panel.valid then
+                if budget <= 0 then
+                    complete = false
+                    break
+                end
+                budget = budget - 1
+                row = { panel = EntryRow(entry, text, meta, director), key = key }
+            end
             local ms = Log.Time(entry)
             local day = Day(ms)
             if day ~= lastDay then
                 lastDay = day
-                rows[#rows + 1] = Label({ "regionMapLogDay" }, DayHeading(ms))
+                local heading = DayHeading(ms)
+                local dayRow = dayRows[day]
+                if dayRow == nil or not dayRow.valid then
+                    dayRow = Label({ "regionMapLogDay" }, heading)
+                elseif dayRow.text ~= heading then
+                    dayRow.text = heading
+                end
+                keptDays[day] = dayRow
+                children[#children + 1] = dayRow
             end
-            rows[#rows + 1] = EntryRow(entry)
+            keptRows[entry.id] = row
+            children[#children + 1] = row.panel
         end
-        list.children = rows
+        -- Panels left out of the list are destroyed by the engine; only the kept ones stay.
+        rows, dayRows = keptRows, keptDays
+        list.children = children
+        if not complete then panel:ScheduleEvent("buildMore", 0.01) end
+        return complete
     end
 
     list = gui.Panel { width = "100%", height = "auto", flow = "vertical" }
@@ -236,13 +276,19 @@ function RegionMapLogPanel.Create(ctx)
     undoButton = Button(T("log.undoLast"), function()
         Undo.UndoLast(function() if ctx.IsAlive() then Refresh() end end)
     end)
-    routeCheck = gui.Check {
-        classes = { "regionMapCheck" }, text = T("log.showRoute"), value = Session.ShowRoute(), fontSize = 14,
-        change = function(element)
-            Session.SetShowRoute(element.value == true)
-            ctx.RefreshAll()
-        end,
-    }
+    -- A checkbox costs ~9 ms to build, so Show route is built the first time the log opens.
+    local routeSlot = gui.Panel { width = "100%", height = "auto", flow = "vertical" }
+    local function EnsureRouteCheck()
+        if routeCheck ~= nil then return end
+        routeCheck = gui.Check {
+            classes = { "regionMapCheck" }, text = T("log.showRoute"), value = Session.ShowRoute(), fontSize = 14,
+            change = function(element)
+                Session.SetShowRoute(element.value == true)
+                ctx.RefreshAll()
+            end,
+        }
+        routeSlot.children = { routeCheck }
+    end
 
     local function Bind()
         local open = data.panelMode == "log"
@@ -265,7 +311,7 @@ function RegionMapLogPanel.Create(ctx)
         local entries = Log.Entries()
         -- Rebuilding hundreds of rows on every refresh is wasteful; rebuild only when something shown changed.
         local key = table.concat({
-            tostring(dmhub.ngameupdate), tostring(dmhub.tablesUpdateId), tostring(#entries),
+            tostring(Model.Revision()), tostring(#entries),
             tostring(editingId), tostring(Model.IsDirector()), tostring(DayHeading(dmhub.serverTimeMilliseconds)),
         }, ":")
         if key ~= signature then
@@ -275,7 +321,10 @@ function RegionMapLogPanel.Create(ctx)
         empty:SetClass("collapsed", #entries > 0)
         addNoteButton:SetClass("collapsed", not Model.IsDirector() or #entries == 0)
         undoButton:SetClass("disabled", not Undo.HasUndo())
-        routeCheck.value = Session.ShowRoute()
+        EnsureRouteCheck()
+        local check = routeCheck --[[@as Panel]]
+        local showRoute = Session.ShowRoute()
+        if check.value ~= showRoute then check.value = showRoute end
     end
 
     panel = gui.Panel {
@@ -286,6 +335,11 @@ function RegionMapLogPanel.Create(ctx)
         popupsInheritStyles = true,
         data = { width = nil, editing = false },
         bind = function() Bind() end,
+        -- The next rows of a long list (see BuildList).
+        buildMore = function()
+            if mod.unloaded or data.panelMode ~= "log" then return end
+            BuildList(Log.Entries())
+        end,
         -- Esc while a note is open saves it and closes only the editor (R2).
         closeEditor = function() if editingId ~= nil then CloseEditor() end end,
         gui.Panel {
@@ -303,7 +357,7 @@ function RegionMapLogPanel.Create(ctx)
                 list,
                 gui.Panel { classes = { "regionMapRule" }, interactable = false },
                 gui.Panel { classes = { "regionMapButtonRow" }, addNoteButton, undoButton },
-                routeCheck,
+                routeSlot,
             },
         },
     }

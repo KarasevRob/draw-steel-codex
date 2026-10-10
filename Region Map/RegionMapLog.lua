@@ -43,27 +43,33 @@ local function Newer(a, b)
 end
 
 local cached = nil --- @type nil|RegionMapLogEntryRecord[]
-local cachedKey = nil --- @type nil|string
-
-local function CacheKey()
-    return tostring(dmhub.ngameupdate) .. ":" .. tostring(dmhub.tablesUpdateId)
-end
+local cachedRevision = nil --- @type nil|integer
 
 local function Invalidate()
     cached = nil
 end
 
---- Every valid entry, newest first, not filtered for the viewer.
+--- Every valid entry, newest first, not filtered for the viewer. Rebuilt when
+--- the data changed (Model.Revision) or this client wrote an entry.
 --- @return RegionMapLogEntryRecord[]
 local function AllEntries()
-    local key = CacheKey()
-    if cached ~= nil and cachedKey == key then return cached end
+    local key = Model.Revision()
+    if cached ~= nil and cachedRevision == key then return cached end
     local list = {} --- @type RegionMapLogEntryRecord[]
+    local times = {} --- @type table<RegionMapLogEntryRecord, number>
     for _, row in pairs(R.LogTable()) do
-        if R.IsValidLogEntry(row) then list[#list + 1] = row end
+        if R.IsValidLogEntry(row) then
+            list[#list + 1] = row
+            times[row] = TimeOf(row)
+        end
     end
-    table.sort(list, Newer)
-    cached, cachedKey = list, key
+    -- Times are read once up front: the sort compares each entry many times.
+    table.sort(list, function(a, b)
+        local ta, tb = times[a], times[b]
+        if ta ~= tb then return ta > tb end
+        return a.id > b.id
+    end)
+    cached, cachedRevision = list, key
     return list
 end
 
@@ -97,13 +103,23 @@ function RegionMapLog.ShowsPath(entry)
 end
 local ShowsPath = RegionMapLog.ShowsPath
 
---- The entries the viewer may see, newest first.
+-- The filtered list and routes are kept until the entries are rebuilt (a new
+-- AllEntries list) or the viewer changes; every refresh asks for them.
+local visible = nil --- @type nil|RegionMapLogEntryRecord[]
+local visibleFrom, visibleDirector = nil, nil --- @type nil|RegionMapLogEntryRecord[], nil|boolean
+local routes = {} --- @type table<string, RegionMapRoutePoint[][]>
+
+--- The entries the viewer may see, newest first. Shared: callers must not change it.
 --- @return RegionMapLogEntryRecord[]
 function RegionMapLog.Entries()
+    local all = AllEntries()
+    local director = Model.IsDirector()
+    if visible ~= nil and visibleFrom == all and visibleDirector == director then return visible end
     local result = {} --- @type RegionMapLogEntryRecord[]
-    for _, entry in ipairs(AllEntries()) do
+    for _, entry in ipairs(all) do
         if CanSeeEntry(entry) then result[#result + 1] = entry end
     end
+    visible, visibleFrom, visibleDirector, routes = result, all, director, {}
     return result
 end
 
@@ -120,15 +136,19 @@ end
 --- The route the viewer may see on one map: one point list per entry, oldest
 --- entry first. Consecutive entries share their joining point, so the lists
 --- read as one path.
+--- Shared like Entries: callers must not change it.
 --- @param mapId string
 --- @return RegionMapRoutePoint[][]
 function RegionMapLog.Route(mapId)
-    local legs = {} --- @type RegionMapRoutePoint[][]
     local entries = RegionMapLog.Entries()
+    local legs = routes[mapId]
+    if legs ~= nil then return legs end
+    legs = {} --- @type RegionMapRoutePoint[][]
     for i = #entries, 1, -1 do
         local entry = entries[i]
         if entry.mapId == mapId and #entry.route > 0 and ShowsPath(entry) then legs[#legs + 1] = entry.route end
     end
+    routes[mapId] = legs
     return legs
 end
 

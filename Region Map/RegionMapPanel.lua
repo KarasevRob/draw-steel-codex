@@ -90,6 +90,8 @@ function RegionMapPanel.Create(options)
         refreshScheduled = false, refreshing = false, refreshPending = false,
         toastVersion = -1, toastCanUndo = nil, director = dmhub.isDM,
         transition = nil, -- set while Open map zooms into a pin; other map changes wait for it
+        -- What the breadcrumb and banners were last built for; never a real key at first, so the first refresh builds.
+        crumbKey = "\0", bannerKey = "\0",
     }
 
     local RefreshAll
@@ -409,19 +411,29 @@ function RegionMapPanel.Create(options)
     end
 
     local function RefreshBreadcrumb(map)
-        local children = {} --- @type Panel[]
-        children[1] = Crumb(T("crumb.root"), map == nil, function() ctx.GoAtlas() end)
+        -- A player's path lists only the levels they can see (R4).
+        local levels = {} --- @type RegionMapLocationRecord[]
+        local parts = { map ~= nil and "map" or "atlas" }
         if map ~= nil then
             for _, level in ipairs(Model.Ancestors(map.id)) do
-                -- A player's path lists only the levels they can see (R4).
                 if Model.CanOpenMap(level) then
-                    children[#children + 1] = CrumbSeparator()
-                    local isCurrent = level.id == map.id
-                    children[#children + 1] = Crumb(Copy.Literal(Model.DisplayName(level)), isCurrent, function()
-                        if isCurrent then ctx.Select(level.id, "read") else ctx.OpenMap(level.id, "up") end
-                    end, level.id)
+                    levels[#levels + 1] = level
+                    parts[#parts + 1] = level.id .. "|" .. Model.DisplayName(level)
                 end
             end
+        end
+        -- The crumbs are new panels, so they are built again only when the path changed.
+        local key = table.concat(parts, ",")
+        if key == shell.crumbKey then return end
+        shell.crumbKey = key
+        local children = {} --- @type Panel[]
+        children[1] = Crumb(T("crumb.root"), map == nil, function() ctx.GoAtlas() end)
+        for _, level in ipairs(levels) do
+            children[#children + 1] = CrumbSeparator()
+            local isCurrent = map ~= nil and level.id == map.id
+            children[#children + 1] = Crumb(Copy.Literal(Model.DisplayName(level)), isCurrent, function()
+                if isCurrent then ctx.Select(level.id, "read") else ctx.OpenMap(level.id, "up") end
+            end, level.id)
         end
         breadcrumb.children = children
     end
@@ -489,7 +501,8 @@ function RegionMapPanel.Create(options)
         statusChip.data.mapId = party ~= nil and party.mapId or nil
         -- On a point crawl map a click opens the Party section (G1).
         statusChip.data.travel = kind ~= "elsewhere" and kind ~= "none" and RegionMapPartyPanel.Available(ctx)
-        statusChip:SetClass("link", kind == "elsewhere" or statusChip.data.travel)
+        -- Wherever the Party is, a click takes the camera there.
+        statusChip:SetClass("link", kind ~= "none")
         -- The chip moves left of the side panel while the panel is open.
         local inset = 8
         local rightPanel = sidePanel
@@ -526,6 +539,9 @@ function RegionMapPanel.Create(options)
             and #Model.Children(map.id) < 2 then
             lines[#lines + 1] = T("hint.pointcrawl.empty")
         end
+        local key = table.concat(lines, "\n")
+        if key == shell.bannerKey then return end
+        shell.bannerKey = key
         local children = {} --- @type Panel[]
         for _, line in ipairs(lines) do
             children[#children + 1] = gui.Label { classes = { "regionMapBanner" }, text = line, interactable = false }
@@ -715,15 +731,25 @@ function RegionMapPanel.Create(options)
         id = "region-map-status", classes = { "regionMapStatus" }, floating = true, text = "",
         data = { kind = "none", mapId = nil, travel = false },
         hover = function(element)
-            if element.data.kind == "elsewhere" then gui.Tooltip(T("status.elsewhere.tooltip"))(element)
-            elseif element.data.kind == "none" and Model.IsDirector() then gui.Tooltip(T("status.none.hint"))(element) end
+            if element.data.kind == "none" then
+                if Model.IsDirector() then gui.Tooltip(T("status.none.hint"))(element) end
+            else
+                gui.Tooltip(T("status.elsewhere.tooltip"))(element)
+            end
         end,
+        -- Goes to the Party: opens its map when it is elsewhere, then eases the camera onto
+        -- it. On a point crawl map it also opens the Party section with Travel to (G1),
+        -- first, so the camera centers in the part of the map the section leaves visible.
         click = function(element)
-            if element.data.kind == "elsewhere" and element.data.mapId ~= nil then
+            local kind = element.data.kind
+            if kind == "none" then return end
+            if kind == "elsewhere" then
+                if element.data.mapId == nil then return end
                 ctx.OpenMap(element.data.mapId, "restore")
             elseif element.data.travel then
                 ctx.ShowParty()
             end
+            canvas:FireEvent("centerOnParty")
         end,
     }
     banners = gui.Panel { classes = { "regionMapBanners" }, floating = true, interactable = false }
@@ -834,7 +860,12 @@ function RegionMapPanel.Create(options)
             Model.SetViewAsPlayer(false)
             Styles.Unsubscribe(element)
         end,
-        refreshAssets = function() QueueRefresh() end,
+        -- Another client changed one of our tables: mark the data changed, whatever
+        -- the engine's table counter did, so no cache serves the old rows.
+        refreshAssets = function()
+            Model.InvalidateIndex()
+            QueueRefresh()
+        end,
         refreshGame = function()
             present.Receive()
             QueueRefresh()

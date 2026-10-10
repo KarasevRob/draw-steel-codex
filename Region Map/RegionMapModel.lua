@@ -129,16 +129,30 @@ end
 -- Index ------------------------------------------------------------------------------------
 
 local cachedIndex = nil --- @type nil|RegionMapLocationIndex
-local cachedKey = nil --- @type nil|string
+local cachedRevision = nil --- @type nil|integer
 
--- Changes whenever cloud data arrives; this client's own writes call InvalidateIndex.
-local function IndexKey()
-    return tostring(dmhub.ngameupdate) .. ":" .. tostring(dmhub.tablesUpdateId)
+-- The engine's tablesUpdateId moves on every data table change, this client's
+-- writes and cloud updates alike, but not on token moves, chat or document
+-- writes, which happen all the time in play and leave our data alone.
+local dataRevision, seenTablesUpdate = 0, nil
+
+--- A number that changes whenever Overland Map data may have changed. The
+--- Location, path and log caches, and any UI signature built from that data,
+--- key on it.
+--- @return integer
+function RegionMapModel.Revision()
+    local tablesUpdate = dmhub.tablesUpdateId
+    if tablesUpdate ~= seenTablesUpdate then
+        seenTablesUpdate = tablesUpdate
+        dataRevision = dataRevision + 1
+    end
+    return dataRevision
 end
+local Revision = RegionMapModel.Revision
 
---- Drop the cached index so the next question rebuilds it.
+--- Mark the data changed, so every cache keyed on Revision rebuilds on its next question.
 function RegionMapModel.InvalidateIndex()
-    cachedIndex = nil
+    dataRevision = dataRevision + 1
 end
 local InvalidateIndex = RegionMapModel.InvalidateIndex
 
@@ -149,8 +163,8 @@ end
 --- The validated Location tree, rebuilt only when the data changed.
 --- @return RegionMapLocationIndex
 function RegionMapModel.Index()
-    local key = IndexKey()
-    if cachedIndex ~= nil and cachedKey == key then return cachedIndex end
+    local key = Revision()
+    if cachedIndex ~= nil and cachedRevision == key then return cachedIndex end
     local candidates = {} --- @type table<string, RegionMapLocationRecord>
     for id, row in pairs(Locations()) do
         if R.IsValidLocationFields(row) then candidates[id] = row end
@@ -174,7 +188,7 @@ function RegionMapModel.Index()
     end
     for _, list in pairs(childrenOf) do table.sort(list, Before) end
     cachedIndex = { byId = byId, childrenOf = childrenOf }
-    cachedKey = key
+    cachedRevision = key
     return cachedIndex
 end
 local Index = RegionMapModel.Index

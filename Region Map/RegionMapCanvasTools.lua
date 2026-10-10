@@ -297,6 +297,34 @@ function RegionMapCanvasTools.PlaceCentered(panel, layout, x, y)
 end
 local PlaceCentered = RegionMapCanvasTools.PlaceCentered
 
+--- While a zoom is in motion (a camera ease or a burst of wheel notches), a
+--- layer of pieces placed against `ref` is shown at `layout` by scaling the
+--- whole layer about its center and shifting it, instead of placing every
+--- piece again each frame; lines look thicker or thinner until the zoom
+--- settles and the layer is placed for real. Returns false, changing nothing,
+--- when the view has left the area placed around ref (on screen and half a
+--- view around it), so the caller places again.
+--- @param panel Panel a floating layer the size of the canvas
+--- @param ref RegionMapLayout the layout its pieces were placed against
+--- @param layout RegionMapLayout the current layout
+--- @return boolean
+function RegionMapCanvasTools.Stretch(panel, ref, layout)
+    local k = layout.width / ref.width
+    if not IsFinite(k) or k <= 0 then return false end
+    local viewWidth, viewHeight = layout.viewWidth, layout.viewHeight
+    -- The screen edges in ref's frame: a screen point s shows ref point ref.x + (s - layout.x) / k.
+    local left, right = ref.x - layout.x / k, ref.x + (viewWidth - layout.x) / k
+    local top, bottom = ref.y - layout.y / k, ref.y + (viewHeight - layout.y) / k
+    if left < -viewWidth / 2 or right > viewWidth * 1.5 or top < -viewHeight / 2 or bottom > viewHeight * 1.5 then
+        return false
+    end
+    panel.selfStyle.scale = k
+    panel.selfStyle.x = layout.x - ref.x * k - viewWidth / 2 * (1 - k)
+    panel.selfStyle.y = layout.y - ref.y * k - viewHeight / 2 * (1 - k)
+    return true
+end
+local Stretch = RegionMapCanvasTools.Stretch
+
 -- The part of segment a-b inside the rectangle [x0,x1]x[y0,y1], as 0..1
 -- parameters along it (Liang-Barsky), or nil when it misses the rectangle.
 local function ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
@@ -329,13 +357,14 @@ end
 --- @field ruler Panel non-interactable layer with the ruler line and end dots
 --- @field label Panel the ruler's label; a direct canvas child so it can show a tooltip
 --- @field Bind fun()
---- @field Layout fun(layout: nil|RegionMapLayout, imageWidth: nil|number, imageHeight: nil|number)
+--- @field Layout fun(layout: nil|RegionMapLayout, imageWidth: nil|number, imageHeight: nil|number, moving: nil|boolean) moving: a zoom is in motion (see Stretch)
 
 --- @param ctx RegionMapContext
 --- @return RegionMapOverlay
 function RegionMapCanvasTools.CreateOverlay(ctx)
     local data = ctx.data
-    local legs = {} --- @type RegionMapRoutePoint[][]
+    local noLegs = {} --- @type RegionMapRoutePoint[][] one shared empty route, so "no route" compares equal
+    local legs = noLegs --- @type RegionMapRoutePoint[][]
     local legsKey = "" -- which route the dots were built from
     local dots = {} --- @type Panel[]
     local shownDots = 0
@@ -344,6 +373,7 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
     -- placed again only on zoom, after a long pan or when the route changes.
     local routeRef = nil --- @type nil|RegionMapLayout
     local routeX, routeY = 0, 0
+    local routeStretched = false -- scaled mid-zoom (Stretch) rather than placed
 
     -- Sized inline: this layer never changes class, so the engine never re-resolves
     -- its styles after it is attached and the class size alone left it at 100x100.
@@ -419,8 +449,20 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         SetDotCount(count)
     end
 
-    local function LayoutRoute(layout)
+    local function LayoutRoute(layout, moving)
         local ref = routeRef
+        -- Mid-zoom, the dots placed last stretch with the map (see Stretch).
+        if moving and ref ~= nil and ref.viewWidth == layout.viewWidth and ref.viewHeight == layout.viewHeight
+            and (ref.width ~= layout.width or routeStretched) and Stretch(route, ref, layout) then
+            routeStretched = true
+            -- The stretch moved the layer; the next slide must write its place again.
+            routeX, routeY = -math.huge, -math.huge
+            return
+        end
+        if routeStretched then
+            routeStretched = false
+            route.selfStyle.scale = 1
+        end
         if ref == nil or ref.width ~= layout.width or ref.height ~= layout.height
             or ref.viewWidth ~= layout.viewWidth or ref.viewHeight ~= layout.viewHeight
             or math.abs(layout.x - ref.x) > layout.viewWidth / 2 or math.abs(layout.y - ref.y) > layout.viewHeight / 2 then
@@ -435,13 +477,18 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         end
     end
 
+    -- Layout runs every frame of a pan or zoom, and a class change costs engine work
+    -- even when it changes nothing, so classes are touched only when they flip.
+    local function ShowPart(panel, show)
+        if panel:HasClass("collapsed") == show then panel:SetClass("collapsed", not show) end
+    end
+
     local function HideRuler()
-        ruler:SetClass("collapsed", true)
-        if not label:HasClass("collapsed") then label:SetClass("collapsed", true) end
+        ShowPart(ruler, false)
+        ShowPart(label, false)
     end
 
     local function LayoutRuler(layout, imageWidth, imageHeight)
-        local map = ctx.CurrentMap()
         local measure = nil --- @type nil|RegionMapMeasure
         local isScale = false
         if data.tool == "scale" or (data.scaleDraft ~= nil and data.popover == "settings") then
@@ -449,16 +496,22 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         elseif data.tool == "ruler" then
             measure = data.ruler
         end
-        if map == nil or measure == nil or measure.mapId ~= map.id then
+        -- No measure (the usual case) needs no model question at all.
+        if measure == nil then
             HideRuler()
             return
         end
-        ruler:SetClass("collapsed", false)
+        local map = ctx.CurrentMap()
+        if map == nil or measure.mapId ~= map.id then
+            HideRuler()
+            return
+        end
+        ShowPart(ruler, true)
         local ax, ay = RegionMapCanvasTools.ImageToPanel(layout, measure.u1, measure.v1)
         PlaceCentered(startDot, layout, ax, ay)
         local complete = measure.u2 ~= nil and measure.v2 ~= nil
-        line:SetClass("collapsed", not complete)
-        endDot:SetClass("collapsed", not complete)
+        ShowPart(line, complete)
+        ShowPart(endDot, complete)
         if not complete then
             if not label:HasClass("collapsed") then label:SetClass("collapsed", true) end
             return
@@ -489,8 +542,10 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         label = label,
         Bind = function()
             local map = ctx.CurrentMap()
-            local newLegs = {}
+            local newLegs = noLegs
             if map ~= nil and Session.ShowRoute() then newLegs = RegionMapLog.Route(map.id) end
+            -- The log keeps one route list per map until its entries change, so the same list means no change.
+            if newLegs == legs then return end
             -- Rows are replaced, not edited, when an entry changes, so table identity and size tell a change.
             local parts = { map and map.id or "" }
             for _, points in ipairs(newLegs) do parts[#parts + 1] = tostring(points) .. "#" .. #points end
@@ -501,14 +556,14 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
                 routeRef = nil
             end
         end,
-        Layout = function(layout, imageWidth, imageHeight)
+        Layout = function(layout, imageWidth, imageHeight, moving)
             if layout == nil then
                 routeRef = nil
                 SetDotCount(0)
                 HideRuler()
                 return
             end
-            LayoutRoute(layout)
+            LayoutRoute(layout, moving == true)
             LayoutRuler(layout, imageWidth, imageHeight)
         end,
     }

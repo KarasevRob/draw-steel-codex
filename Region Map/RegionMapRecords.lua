@@ -203,6 +203,12 @@ function RegionMapRecords.IsPositiveInteger(value)
 end
 local IsPositiveInteger = RegionMapRecords.IsPositiveInteger
 
+-- A plain function, not a closure per call: index rebuilds read thousands of fields.
+local function TryGet(object, key, default)
+    if type(object.try_get) == "function" then return object:try_get(key, default) end
+    return object[key]
+end
+
 --- Read a field of an untrusted row. Rows may come from older or foreign
 --- clients, and game types raise on reads of fields they do not declare.
 --- @param object any
@@ -211,10 +217,7 @@ local IsPositiveInteger = RegionMapRecords.IsPositiveInteger
 --- @return any
 function RegionMapRecords.Field(object, key, default)
     if type(object) ~= "table" and type(object) ~= "userdata" then return default end
-    local ok, value = pcall(function()
-        if type(object.try_get) == "function" then return object:try_get(key, default) end
-        return object[key]
-    end)
+    local ok, value = pcall(TryGet, object, key, default)
     if not ok or value == nil then return default end
     return value
 end
