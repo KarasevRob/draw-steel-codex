@@ -185,11 +185,6 @@ function RegionMapImport.GridPositions(count, aspect)
     return positions
 end
 
--- How many more pins a map holds (IM6).
-local function Room(mapId)
-    return math.max(0, C.labelLimit - #Model.Children(mapId))
-end
-
 -- Commit -----------------------------------------------------------------------------------------
 
 -- Create the plan's Locations on a map, a batch at a time: each batch waits
@@ -345,13 +340,6 @@ function RegionMapImport.Create(ctx)
         for _, reason in ipairs(reasons) do rows[#rows + 1] = Line(reason, { "regionMapImportLine", "item" }) end
     end
 
-    local function ShowTooMany(mapId, count)
-        local map = Model.GetLocation(mapId)
-        Show({ Line(T("import.tooMany", {
-            count = count, map = Model.DisplayName(map), room = Room(mapId),
-        })) }, nil)
-    end
-
     local function Preview(mapId, data, readError)
         local map = Model.GetLocation(mapId)
         if map == nil or not ctx.IsAlive() then return end
@@ -368,10 +356,6 @@ function RegionMapImport.Create(ctx)
             local rows = { Line(T("import.error.allSkipped")) }
             Reasons(rows, plan.skipped)
             Show(rows, nil)
-            return
-        end
-        if #plan.entries > Room(mapId) then
-            ShowTooMany(mapId, #plan.entries)
             return
         end
         local count = #plan.entries
@@ -400,11 +384,6 @@ function RegionMapImport.Create(ctx)
         if job == nil or running then return end
         if Model.GetLocation(job.mapId) == nil then
             Close()
-            return
-        end
-        -- Pins may have been added while the card was open.
-        if #job.plan.entries > Room(job.mapId) then
-            ShowTooMany(job.mapId, #job.plan.entries)
             return
         end
         Close()

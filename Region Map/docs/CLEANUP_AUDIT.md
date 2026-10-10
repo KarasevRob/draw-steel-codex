@@ -128,9 +128,9 @@ menu.
 - **On-screen text outside `RegionMapCopy.lua`**: PartyPanel:93-94 (`" (" .. time .. ")"`;
   the copy id `ctx.party.travel` meant for it is unused), LogPanel:189-190 (`" - "`),
   Panel:371 (`"..."`), Journal:59 (`"Untitled"`), Records:381 (`"Unknown user"`).
-- **Copy that hard-codes limits**: `import.tooMany` and `limit.locations` (250),
-  `import.skip.name` (80), `set.timeUnit.hint` (6 watches). `image.hint` already shows the
-  right pattern (placeholders filled from Constants).
+- **Copy that hard-codes limits**: `import.skip.name` (80), `set.timeUnit.hint` (6 watches).
+  `image.hint` already shows the right pattern (placeholders filled from Constants).
+  `import.tooMany` and `limit.locations` (250) went with the per-map cap on 2026-10-10.
 - **The `danger` class**: the mod applies DefaultStyles' `danger` (red text) and overrides
   it back to `@fgStrong` in three compound rules for contrast (Styles:30-41). Any new use
   silently gets the low-contrast red. A mod-only class name removes the trap.
