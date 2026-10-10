@@ -98,9 +98,19 @@ local Model = RegionMapModel
 
 -- Preferences (per viewer and game) ------------------------------------------------------------
 
-local function ReadPreferences()
+local noPreferences = {}
+
+-- The stored preferences, for reading only: the canvas asks for Reduce motion on
+-- every think, and a copy of every saved camera each time was pure garbage.
+local function Preferences()
     local prefs = dmhub.GetSettingValue(C.preferencesSettingId)
-    return type(prefs) == "table" and DeepCopy(prefs) or {}
+    return type(prefs) == "table" and prefs or noPreferences
+end
+
+-- A copy to change and write back, so the setting's own table is never edited in place.
+local function ReadPreferences()
+    local prefs = Preferences()
+    return prefs ~= noPreferences and DeepCopy(prefs) or {}
 end
 
 local function WritePreferences(prefs)
@@ -117,7 +127,7 @@ end
 --- @return RegionMapCamera camera
 --- @return boolean restored false when nothing was saved for the current image
 function RegionMapSession.ReadCamera(location)
-    local prefs = ReadPreferences()
+    local prefs = Preferences()
     local camera = type(prefs.cameras) == "table" and prefs.cameras[CameraKey(location)] or nil
     if type(camera) ~= "table" or not Model.IsFinite(camera.zoom) or not Model.IsFinite(camera.centerX)
         or not Model.IsFinite(camera.centerY) then
@@ -151,7 +161,7 @@ end
 --- The map this viewer had open last (D13c).
 --- @return nil|string
 function RegionMapSession.LastMapId()
-    local id = ReadPreferences().selectedMapId
+    local id = Preferences().selectedMapId
     return type(id) == "string" and id or nil
 end
 
@@ -163,49 +173,36 @@ function RegionMapSession.SaveLastMap(id)
     WritePreferences(prefs)
 end
 
---- "Show names" forces every pin name visible (R9).
---- @return boolean
-function RegionMapSession.ShowNames()
-    return ReadPreferences().showNames == true
+--- An on/off preference: the getter answers default until the viewer sets it.
+--- @param key string
+--- @param default boolean
+--- @return fun(): boolean get
+--- @return fun(value: boolean) set
+local function OnOffPreference(key, default)
+    local function Get()
+        local value = Preferences()[key]
+        if type(value) ~= "boolean" then return default end
+        return value
+    end
+    local function Set(value)
+        local prefs = ReadPreferences()
+        prefs[key] = value == true
+        WritePreferences(prefs)
+    end
+    return Get, Set
 end
 
---- @param value boolean
-function RegionMapSession.SetShowNames(value)
-    local prefs = ReadPreferences()
-    prefs.showNames = value == true
-    WritePreferences(prefs)
-end
-
---- "Reduce motion" turns off the map transitions and the control fade (R9).
---- @return boolean
-function RegionMapSession.ReduceMotion()
-    return ReadPreferences().reduceMotion == true
-end
-
---- @param value boolean
-function RegionMapSession.SetReduceMotion(value)
-    local prefs = ReadPreferences()
-    prefs.reduceMotion = value == true
-    WritePreferences(prefs)
-end
-
---- "Show route" draws the Party's past route from the session log (D14d).
---- @return boolean
-function RegionMapSession.ShowRoute()
-    return ReadPreferences().showRoute ~= false
-end
-
---- @param value boolean
-function RegionMapSession.SetShowRoute(value)
-    local prefs = ReadPreferences()
-    prefs.showRoute = value == true
-    WritePreferences(prefs)
-end
+-- "Show names" forces every pin name visible (R9).
+RegionMapSession.ShowNames, RegionMapSession.SetShowNames = OnOffPreference("showNames", false)
+-- "Reduce motion" turns off the map transitions and the control fade (R9).
+RegionMapSession.ReduceMotion, RegionMapSession.SetReduceMotion = OnOffPreference("reduceMotion", false)
+-- "Show route" draws the Party's past route from the session log (D14d).
+RegionMapSession.ShowRoute, RegionMapSession.SetShowRoute = OnOffPreference("showRoute", true)
 
 --- The icon, importance, style and visibility the next new pin copies (R10).
 --- @return RegionMapPinStyle
 function RegionMapSession.LastPinStyle()
-    local style = ReadPreferences().lastPinStyle
+    local style = Preferences().lastPinStyle
     if type(style) ~= "table" then return {} end
     return DeepCopy(style)
 end
@@ -229,7 +226,7 @@ end
 --- gets Road and 1 day, or the first type when Road was deleted.
 --- @return {typeId: string, time: number}
 function RegionMapSession.LastPathStyle()
-    local style = ReadPreferences().lastPathStyle
+    local style = Preferences().lastPathStyle
     local typeId = type(style) == "table" and style.typeId or nil
     local time = type(style) == "table" and style.time or nil
     if RegionMapPaths.TypeById(typeId) == nil then
