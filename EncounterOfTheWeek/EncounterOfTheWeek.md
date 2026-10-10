@@ -102,6 +102,10 @@ handovers on a non-host screen.
 | **One Encounter of the Week + the Danger Rooms** (2026-10-06, user direction; see "The Encounter of the Week and the Danger Rooms"): a single scheduled Encounter of the Week at the Gate (blurb from its `# Town Gate`) + Past Encounters; community encounters moved to a new **Danger Rooms** location (practice: no Victory, treasure or outcome; a town-side debrief: vote, feedback for the creator, nomination); Danger Rooms unlock after a first Encounter of the Week win; admin rotation (Codex menu dialog, `SetWeek`, `tools/eotw_week.py`, `/eotw-rotate` skill); Goblin Ambush to be the first week, Angry Dwarves retired | Server: `cloudflare-game-server/src/city-core.ts` (schedule, debriefs, nominations, unlocks), `src/city.ts` (tables `city_settings`, `city_danger_feedback`, `city_nominations`; actions; `/city/week`; admin HTTP `/admin/city/{id}/week`), `src/index.ts` (route, `CITY_ADMINS` env), `wrangler.toml` + `wrangler.dmhub.toml` (`CITY_ADMINS`), `test/city-core.test.ts` (315 total pass). Codex: `Codex Titlescreen/EncounterOfTheWeek.lua` (schedule API, `CityRequest`, `ShowWeekDialog`, the two party boards, `WeekBanner`, Past Encounters, Danger Rooms board + location + art, creator feedback, debrief), `Codex Titlescreen/EotwRoster.lua` (`DangerRoomsUnlocked`), `EncounterOfTheWeek/EncounterOfTheWeek.lua` (`practice` stamp, `IsPracticeGame`, no award / outcome / treasure, `eotw-practice` card note, `eotw:pendingDebrief`). Tools: NEW `tools/eotw_week.py`, NEW skill `.claude/skills/eotw-rotate/`; `/eotw` skill text. Art: core image `92f3f806-...` from `~/Downloads/Steel Draw monsters cover.psd` | Server unit tests + tsc pass; luac + typing clean. **Worker DEPLOYED to staging 2026-10-06** (version `97d3fe50`; `/api/city/blackbottom/doc` shows `city.week = null`). Schedule SEEDED: Goblin Ambush (now week 3 after a test rotation and restore). VERIFIED 2026-10-06 single client, titlescreen town: see that section's "Verified". NOT seen: a practice game played (game side), the locked Danger Rooms node (this account is unlocked), a second client, `tools/eotw_week.py` (no admin secret here). UNCOMMITTED |
 | **Every test has a critical** (2026-10-07, user direction; see "Montage beats"): a missing 4th tier is built as tier 3 + an additional hero token; the critical stays hidden (roll dialog, stage rows, icons) until a natural 19-20 lands, then the stage shows a "Critical" row | `EncounterScript.lua` (`AutoCriticalText`, `critAuto`, hero-token "additional"/"extra", `OptionEffectLists` `includeCritical`), `EncounterMontage.lua` (`TeaserTiers` 1-3 only), `EncounterMontageStage.lua` (`TierName`, `TierRows`, "Critical" labels), `EncounterScriptValidator.lua`; `tests/encounter_script_test.lua` (923); skill `script-reference.md` | luac + parser tests + typing clean. UNTESTED in the app (needs an app restart; check: a forced natural 19-20 shows tiers 1-3 while rolling, then the Critical row with the bonus token, +1 hero token in the pool). Modules NOT republished (the change is code only; no script edits needed). UNCOMMITTED |
 | **Companions + pre-roll assists + roll button pings** (2026-10-08, user direction; see "Turn lifecycle (montage)", "What companions bring", the stage's "The hero group" and "Roll button pings"): after an approach other heroes join through an "Accompany them" box (once a round each, Teamwork twice in round 1) and stack behind the hero; their knacks, secret options and languages count (edge/bane riders still read only the roller); the assist moved BEFORE the roll (companions step forward, pick an unused listed skill, never the hero's last; results are edge/bane chips; Make the test / automatic); Pardon My Friend implemented; Ritualist limited to the group; companions follow into delves (one assist per event); the old post-roll assist window, its 30s timeout and the old Teamwork rule removed. Ghost Accept / Re-roll on other players' roll cards ping the button for everyone with a pulse in the pinger's colour | `EncounterMontage.lua`, `EncounterMontageStage.lua`, `EncounterScript.lua` (`AssistSkillChoices`, `MainTestSkill`) + `tests/encounter_script_test.lua` (934); core `Timeline/EmbeddedRollDialog.lua` (ping helpers on `CharacterPanel`, `pingButtons`, broadcast, pulse watcher), `Timeline/AbilitySidebar.lua` (`CreateGhostRollButtons`); docs `KNACKS_REFERENCE.md`, skill `script-reference.md` / `lua-toolkit.md` | luac + parser tests + typing clean (all 5 files 0). VERIFIED 2026-10-08 single client in the live EotW game `HugeWretchedFireyDragon` (four heroes, one player): gathering view, drag into the box twice (new box each time, x on companions, "Ampeth +2" on the entry), Continue -> stack, intro, choose, pre-roll assist with only the eligible companion offered (Nature protected as the hero's last skill), assist roll (Presence + Skilled in Empathize), edge chip on the main roll (Skilled in Nature + assist edge), automatic roll once nobody else could assist, resolve + log/summary lines, the roller's dialog broadcasting `pingButtons` and the Re-roll button pulsing on a ping. The 90s claim timeout fired during testing -> raised to 300s (needs a restart to take effect). NOT seen: the ghost buttons on a second client, Pardon My Friend, Ritualist from a companion, stay-behind x, companions in a delve, a companion knack/secret option/language actually unlocking something, Teamwork's second go-along, the wider stack peek (100, changed after the test). UNCOMMITTED |
+| **Players leaving and coming back, phase 1** (2026-10-09, user direction; see "Players leaving and coming back"): a player who leaves hands everything they control to the host as free agents; a notice under the title bar's players row on every screen; the players-row popout lists who is here and lets the host hand a free agent to another player; a returning player gets their free agents back; the montage turn in progress follows its hero | NEW `EncounterPresence.lua` (registered in the EncounterOfTheWeek codemod after `EncounterTest.lua`, Firebase confirmed); `EncounterOfTheWeek.lua` (host tick calls `EncounterPresence.HostTick`), `EncounterOfTheWeekHud.lua` (`playersPopout`), `EncounterMontage.lua` (`SyncTurnToOwners`); core `Codex Titlescreen/CodexTitleBar.lua` (`CodexTitleBar.ShowPlayersToast` / `OpenPlayersPopout`, the custom popout, the player host's portrait in a directorless game), `DMHub Core UI/Hud.lua` (`playersPopout` provider field, `GameHud.CustomInterfacePlayersPopout`) | luac + typing clean. VERIFIED 2026-10-09 single client in `RadiantFascinatingLoudWorg` (combat, round 1) with `EncounterPresence.DevSimulateLeave/Return` and a placeholder userid on two heroes: the host's portrait in the players row, the notices (stacked under the row, above the hud), Reassign opening the popout, the popout (free agents marked, a hand-over dropdown for the host), ownership moving both ways, the error paths of `Give`. NOT seen: a real second client leaving (session-driven detection and its timing), a hand-over to another real player, a montage turn changing hands, a returning player's re-arrival. UNCOMMITTED |
+| **Players leaving and coming back, phase 2** (2026-10-09, user direction; see "Players leaving and coming back"): leaving or quitting an EotW game asks "You are leaving the Encounter of the Week. You can resume later" -- Leave / **Abandon Game** (red, second click confirms); abandoning keeps the heroes as free agents for good and tells the others; the last member who has not abandoned deletes the game on abandoning (when they own it); a player away at a victory gets "While You Were Away" in town to claim it or count the game as abandoned | Engine: `LuaInterface.cs` (`QuitApplication` asks the Lua global `OnQuitRequested`; new `ForceQuitApplication`; `Application.wantsToQuit` routed through it), `GameHarness.cs` (a launched window's Leave forces the quit); stub `Definitions/dmhub.lua` (hand-added to match). Core: `Hud.lua` (`confirmExit` provider field, `GameHud.CustomInterfaceConfirmExit`), `CodexTitleBar.lua` (`OnQuitRequested`; the close button defers to it), `Commands.lua` (Leave Game asks it). EotW: `EncounterPresence.lua` (`ConfirmExit`, `Abandon`, `eotwleave-<userid>` documents, abandoned events, `Members` / `IsLastMember`), `EncounterOfTheWeekHud.lua` (`confirmExit`), `EncounterOfTheWeek.lua` (`eotw:abandonedgame`, `OutcomeDecided`, `VictoryOutcomesFor`, `OfferAbsentOutcomes`). Town: `Codex Titlescreen/EncounterOfTheWeek.lua` (abandon cleanup, `DestroyPreviousGame` keepIfOthers/neverDelete, "While You Were Away"), `EotwRoster.lua` (`AddPendingOutcomes`). Server: `city-core.ts` / `city.ts` (`offer-outcomes`, `list-offered-outcomes`, `resolve-offered-outcomes`, table `city_offered_outcomes`) + tests; `index.ts` (delete-game releases a game marked `deleted` + `releaseStorage`). Cloud function `eotwAbandonGame` (`cloud-functions/functions/index.js`, `eotw-games.js` + test) | luac + typing clean; server tsc clean, 319 tests pass; functions 208 tests pass. `eotwAbandonGame` DEPLOYED 2026-10-09 (refuses an unvalidated call, checked). Game server DEPLOYED to staging 2026-10-09 (version `c6028b38`; delete-game still demands auth for an unflagged game, checked); release NOT deployed. C# NEEDS BUILD; Lua needs a RESTART. Nothing run in the app. UNCOMMITTED |
+| **Players leaving and coming back, phase 3: host migration** (2026-10-09, user direction; see "Players leaving and coming back"): the host leaving puts a sticky "X, the host, has left" notice with **Claim Host** on every player's screen; a claim makes that player the host (the old host's heroes become their free agents, the Monster AI moves with the host tick); the owner coming back loads as a player and is offered **Reclaim Host**; every screen is told who the new host is | Cloud function `eotwSetHost` (`cloud-functions/functions/index.js`; `gameHosts` / `sessionIsLive` in `eotw-games.js` + tests). EotW: `EncounterPresence.lua` (`WatchHost`, `RequestHost`, `data.host` + "newhost" events), `EncounterOfTheWeek.lua` (map script `onLoseHost` -> `MapScriptLoseHost` stops the AI). Core: `CodexTitleBar.lua` (`HasPlayersToast`, `DismissPlayersToast`) | luac + typing clean; functions 210 tests pass. `eotwSetHost` DEPLOYED 2026-10-09 (refuses an unvalidated call, checked). Lua needs a RESTART (and phase 2's C# build). Nothing run in the app. UNCOMMITTED |
+| **Consumables in a montage** (2026-10-09, user direction; see "Consumables in a montage" under "Runtime state and authority"): the strip shows every carried consumable; click for a use menu (free, any time in the rounds but mid-roll); short effects last one location, long ones the encounter; an alert "!" + "Use it now:" tooltip + option highlight when an item would reveal a secret option, open a knack or add an edge | `EncounterMontage.lua` (`GetStripItems`, the "consumables in the montage" and "what an item could do" sections, the `consumed` request, `MaintainMontageUses` in the host tick, `EndMontageUses` in `ApplyPendingCombatBoons`, the `HeroFacts` override + consumeSeq), `EncounterMontageStage.lua` (`CreateItemIcon` menu / badge / tooltip / highlight, `CreateItemStrip`, `TurnSignature`, styles) | luac + typing clean. Needs an app RESTART. UNTESTED: nothing has been run in the app. Check: Healing Potion heals and leaves the strip; Buzz Balm's Speed +2 survives the turn it was used in and ends when it resolves; Float Powder / Concealment Potion last into combat; Imp's Tongue on a companion raises the "!" where a `you speak X` secret option exists and the option appears after use; Concealment Potion "!" on a Sneak test; a garbled Hyrallic line on screen fades into plain words when a hero in the group uses Imp's Tongue (and the "!" offered it), and later lines show plain; a dice-rolling item (Restorative) shows its roll over the stage; Black Ash Dart greyed "combat only"; a second client sees the "!" and the effects end there too. UNCOMMITTED |
 | This document | | |
 
 The codex working copy also holds plenty of unrelated uncommitted work, so
@@ -124,9 +128,11 @@ published. Review the directory before committing it wholesale.
   `GL_OvergroundDwarvenCityCenter_Original_Day` and `9325d163`). Low severity:
   a placed object embeds its own copy of the art. This is the other standing
   publish warning. Exporting the assets to `C:\dev\eotw` would close it.
-- **A player who disconnects wedges the story.** A montage round waits for
-  every hero, and a narrative section waits for every voter. Neither has a
-  timeout or a "skip" control. The host has `/eotwnarrative force` only.
+- **A player who disconnects** no longer wedges the story once phase 1 of
+  "Players leaving and coming back" is live: their heroes pass to the host,
+  and every wait is keyed on who controls a hero. Still open: a player who
+  never ARRIVES (a crash during load) holds the party gate, and the HOST
+  leaving stops everything (phase 3).
 - **Publisher has no script awareness** (plan steps 35/45). An item or
   monster a clause names that is not in the core data module silently
   grants nothing for players. See "Compendium content the script needs".
@@ -181,14 +187,21 @@ In a real EotW game with **at least two clients** and the current week:
    orphaned floor-object assets, move the two stray pregens, then republish
    without `--force`.
 4. Publisher validation of the script grammar (plan steps 35 and 45).
-5. Decide the disconnected-player rule (montage and narrative share it).
-   The gathering and the assists add two more waits on the acting player
-   (Continue / Make the test); same rule.
+5. ~~Decide the disconnected-player rule~~ DECIDED 2026-10-09: the host
+   takes a leaver's heroes as free agents (see "Players leaving and coming
+   back"). Phase 1 BUILT; verify it with two clients, then phase 2 (the
+   leave dialog, Abandon, outcomes for absent players) and phase 3 (host
+   migration).
 5a. **Companions** (BUILT 2026-10-08, see the status table): restart the
    app (the 300s claim timeout and the stack peek of 100 were changed after
    the live test), then check what the table lists as NOT seen -- above all
    the ghost buttons from a second client, Pardon My Friend and a companion
    unlocking a knack / secret option / language line.
+5b. **Consumables in a montage** (BUILT 2026-10-09, untested; see the status
+   table and "Consumables in a montage"): restart, start a montage with
+   `/eotwmontage start` in an authoring game, give the pregens a few
+   consumables (Healing Potion, Buzz Balm, Concealment Potion, Imp's Tongue,
+   Black Ash Dart) and run the table's checks.
 6. Before opening EotW beyond the dev machine: verify a non-owner account can
    fetch the unlisted module and create a game from it; deploy the lobby to
    release and switch `LOBBY_OPTIONS`/`GAME_BACKEND` off staging.
@@ -539,6 +552,14 @@ graveyard.
     and the player returns to the guild.
   - **Recruit** adds a pregen to the roster. The player is asked to name them;
     the pregen's generic name ("Dwarf Fury") is the suggested default.
+  - **Recruit also offers the player's own titlescreen heroes** (user
+    direction 2026-10-09), in a "Your Heroes" section above the pregens. A
+    **copy** joins the roster; the titlescreen hero is never touched
+    (decision 1 below still holds). The copy is brought to **level 1** and
+    arrives with **no items** (inventory and every equipment slot emptied;
+    the kit is kept), so treasure is only earned in town. A titlescreen
+    hero with a living copy in the roster shows faded, "Already in your
+    roster", and cannot be picked again.
   - Each hero in the list can be made active or inactive (at most four
     active), opened read-only, or dismissed (deleted, after a confirmation).
 - **The Town Gate** is locked until the player has at least one hero. Opening
@@ -950,7 +971,20 @@ holds.
   lobby's player party, and pushes. If the city refuses the push (the roster
   is full), the local copy is deleted.
 - **Recruit**: export the pregen token -> `ImportCharacter{name}` ->
-  `JoinRoster`. **Create**: `TitlescreenHeroes.Create`, then `JoinRoster`
+  `JoinRoster`. **Recruit a titlescreen hero**
+  (`EotwRoster.RecruitTitlescreenHero(source, name)`, BUILT and verified
+  live 2026-10-09): the same export/import of the lobby character, then one
+  `ModifyProperties` on the copy before `JoinRoster` stamps
+  `eotwSourceId` = the original's charid, re-points `originalid` at the
+  copy (so the lobby char-cache sync can never save the stripped copy over
+  the original), sets every class entry to level 1 and `levelOverride` to 1
+  (as the game's `NormalizeHeroLevel` does), and empties `inventory`,
+  `equipment` and `equipmentMeta`. `currency`, Victories, damage taken and
+  conditions are copied as they are (not decided; see below).
+  `EotwRoster.FindCopyOf(charid)` finds the living copy that blocks a second
+  pick. The list comes from the NEW `TitlescreenHeroes.List()` in
+  `CodexTitlescreen.lua`: the first 8 of `LobbyHeroes()` (the HEROES slots),
+  minus `HeroIsUnstarted` shells. **Create**: `TitlescreenHeroes.Create`, then `JoinRoster`
   if the builder kept the hero. **Edit**: `TitlescreenHeroes.Edit`, then
   push on close.
 
@@ -999,8 +1033,15 @@ holds.
 - **Guild**: a stacked list, up to 12 rows. Each row has a portrait,
   details, a star (active, max 4), a pencil (edit) and a trash can (dismiss,
   with a confirm). Above it "Your Roster" with the counts; below it Create a
-  Hero and Recruit a Hero (a grid of the week's pregens, then a name prompt
-  prefilled with the pregen's name). `EotwRoster.GuildPanel(host)` returns
+  Hero and Recruit a Hero. The recruit picker has two sections: **Your
+  Heroes** (the titlescreen heroes; hidden when there are none) and
+  **Adventurers for Hire** (the week's pregens). Picking one opens a name
+  prompt: a pregen's is prefilled with a rolled name, a titlescreen hero's
+  with its own name, and the reroll button rolls from the ancestry's name
+  table for both. The picker mounts on the town screen, outside the Guild
+  list that carries `GUILD_STYLES`, so its card styles live in their own
+  `PICKER_STYLES` (before 2026-10-09 the cards had no background or hover
+  at all for that reason). `EotwRoster.GuildPanel(host)` returns
   the card's body (it was the `ShowGuild` dialog).
 - **Gate**: since 2026-10-06 a "This Week's Encounter" banner (title,
   creator credit, the `# Town Gate` blurb), then "Parties Forming" and
@@ -2612,6 +2653,234 @@ the bubble offers End Turn for a zero-token entry to anyone who can run
 initiative. Both are core and apply to every game. Manual unlock:
 `GameHud.instance:NextInitiative(function() dmhub:UploadInitiativeQueue() end)`.
 
+## Players leaving and coming back (phases 1-3 BUILT 2026-10-09)
+
+User direction (2026-10-09). Three phases:
+
+1. **Leave and rejoin (BUILT).** A player who leaves (quits, crashes, loses
+   the connection) hands everything they control -- heroes, montage allies,
+   companions -- to the **host**, as **free agents**. Every screen gets a
+   notice under the title bar's players row: the host's says "X has left.
+   You control A and B until they return." (with a **Reassign** button), the
+   others' say who controls them now. The players-row popout lists every
+   player, whether they are here, and the heroes each controls; free agents
+   are marked, and the host has a "give to" dropdown on each (any player who
+   is here, the host included). When the player comes back their free agents
+   return to them, with a notice.
+2. **Leaving the game (BUILT 2026-10-09, untested).** Quitting or leaving
+   shows "You are leaving the Encounter of the Week. You can resume later"
+   with **Leave** (a normal exit) and **Abandon Game** (red; a second click
+   confirms). Abandoning: the player's heroes stay and fight as free agents
+   for good (user decision: anything else is too hard), and the others'
+   notices say the player abandoned. If the abandoner is the **last member
+   who has not abandoned** (user decision; not "the last one online"), the
+   game is deleted -- see "Leaving and abandoning" below for the one case
+   that cannot delete yet.
+3. **Host migration (BUILT 2026-10-09, untested).** The host leaving: the
+   others get "X, the host, has left" with **Claim Host**; the AI moves to
+   the new host; a returning host gets their heroes back and an offer to
+   reclaim. See "Host migration" below.
+
+**Host migration** (phase 3):
+- **Who hosts** is the engine's `GameInfo.IsDM`: the owner unless
+  `ownerRevokedDMStatus`, plus the game's `dm` list. The game record is
+  monitored live (`GamesMonitor`), and `isDMOrPlayerHost` /
+  `isDMPossiblyImpersonating` read it on every call, so a change takes
+  effect without a reload. Not yet proven live: the few engine pieces set up
+  once at load (the DM HUD container, permissions finding 16) are not
+  re-armed for a claimant.
+- **Only the owner may write `/games/{id}`**, so the cloud function
+  `eotwSetHost` (DEPLOYED) does it. `claim`: the caller is a member of a
+  `directorless` game and every current host's session on the game server
+  (`/api/{gameid}/store/game?path=/usersToSessions/{uid}`) is logged out or
+  more than 40s silent; then `dm = [caller]`, `ownerRevokedDMStatus = true`.
+  `reclaim` (the owner only): `dm = []`, `ownerRevokedDMStatus = false`.
+  Revoking the owner on a claim is what makes a returning owner load as a
+  plain player (`SetupOnArrival` takes the member path) and be OFFERED the
+  role, rather than both machines hosting at once.
+- **Every client** (`WatchHost`, once a second, not on a host, not in an
+  authoring test) watches the hosts' sessions: all gone (a clean exit at
+  once, a silent one after the same 35s + 15s as any player) -> a sticky
+  notice "X, the host, has left. Nobody can play on until someone takes over
+  hosting." with **Claim Host**. The first claim wins; a second one is
+  refused (the first claimant is now a live host) and says so. The owner,
+  back while someone else hosts, gets "Welcome back. X is hosting the game
+  while you were away." with **Reclaim Host**. A notice clicked away comes
+  back after 30s while it still applies; a host appearing takes it down.
+- **The hand-over** needs nothing else: the claimant passes
+  `isDMOrPlayerHost` as soon as the record lands, wins the map-script
+  election once its session pings with `dm = true` (<= ~12s), and its host
+  tick then (a) records itself as `eotwpresence.host` and announces the
+  "newhost" event to every screen, (b) departs the old host like any player
+  who left (their heroes become the new host's free agents), and (c) starts
+  the Monster AI. The old host's client, if it is still running when it is
+  demoted (a reclaim), stops its AI in the map script's new `onLoseHost`
+  (`MapScriptLoseHost`).
+- **Known gaps.** `LiveEncounter.IsElectedHost` (core) reads the session
+  `dm` flag of players present within 140s, so after a host CRASH (no
+  logout) its stale session can keep that election away from the new host
+  for up to ~2 minutes. A Monster AI turn cut off mid-action by the host
+  leaving is untested (the new host's AI picks up from the board as it is).
+  The host tick's in-memory state (award timers, the arrangement) was built
+  to survive a Lua reload and is expected to survive a hand-over the same
+  way; not audited line by line. A false claim is possible only when the
+  host is really silent for 40s (a network drop); the owner can always
+  reclaim.
+
+**Outcomes for absent players (user decision 2026-10-09; BUILT, untested).**
+A player who ABANDONED gets nothing. A player who left without abandoning
+gets a dialog the next time they are in town: what happened to their heroes
+while they were away, and a choice to claim the result or count it as an
+abandon and ignore it. Only VICTORIES travel, exactly as for a present
+player (`RecordPendingOutcomes` sends surviving heroes' victories and
+treasure; deaths and defeats send nothing today), so the dialog only ever
+offers a won game.
+- The host, the moment it sees the victory (`OfferAbsentOutcomes`, from
+  `UpdateEncounterConclusion`), sends `offer-outcomes {userid, gameid,
+  entries}` to the City for each player in `eotwpresence.away` who has not
+  abandoned. Entries are built by `VictoryOutcomesFor(userid, encounter)`,
+  the same builder the player's own client uses.
+- The City keeps them in `city_offered_outcomes`. An offer applies nothing;
+  it skips heroes that do not exist, have fallen, or already have an
+  outcome for that game. Anyone can offer to anyone (the City does not know
+  who played which game), so the worst a false offer can do is ask.
+- The town asks `list-offered-outcomes` once per connection (beside the
+  Danger Rooms debrief check) and shows **While You Were Away** per game:
+  each hero's Victory and treasure, **Claim the Victory** (the entries join
+  the usual `eotw:pendingOutcomes` queue through
+  `EotwRoster.AddPendingOutcomes`, which applies them and sends
+  `record-outcome`) or **Count as Abandoned**. Either way
+  `resolve-offered-outcomes {gameid}` drops the offer.
+- A player who comes back before the end records their own outcome as
+  usual; a duplicate is harmless (record-outcome is idempotent per hero and
+  game, and the hero's `eotwOutcomes[gameid]` stamp blocks a second
+  Victory).
+
+**Leaving and abandoning** (phase 2):
+- **One exit hook for everything.** The engine's `QuitApplication` (the
+  window's close button, Alt+F4, the menus' Quit to Desktop) and
+  `Application.wantsToQuit` (Cmd+Q on macOS, a native close) first call the
+  Lua global `OnQuitRequested()` (`CodexTitleBar.lua`); true holds the quit
+  and the Lua side later calls `dmhub.ForceQuitApplication`. The in-game
+  Leave Game command asks the same thing. Both go to the active custom
+  interface's new `confirmExit(kind, proceed)` provider field
+  (`GameHud.CustomInterfaceConfirmExit`), so other games are untouched. The
+  EotW provider answers with `EncounterPresence.ConfirmExit`, which steps
+  aside in an authoring test and once the encounter is decided (the
+  conclusion's own `dmhub.LeaveGame` never goes through the hook).
+- **The dialog**: "Leave the Encounter?" / "Quit the Encounter?", the
+  resume-later line, and notes: the host is warned the others cannot play
+  on until they come back (host migration is phase 3), and Abandon Game
+  explains what it does (or that it ends the game for the last player).
+- **Abandon** (`EncounterPresence.Abandon`): writes the player's own
+  document `eotwleave-<userid>` (`abandoned = serverTime`; one writer, so
+  the state doc's clobbering cannot touch it), stamps the machine-local
+  `eotw:abandonedgame` = `{gameid}`, and goes 0.75s later so the note
+  reaches the server first. (`IsLastMember` -- every other member, from
+  `Members()`: expected users, placed heroes, current hero owners,
+  free-agent owners, has abandoned -- only picks the dialog's wording; the
+  server decides the deletion.)
+- **The host** reads the abandon documents every presence tick: a player
+  seen abandoning is departed with `abandoned` (event "abandoned"), or a
+  player already away is upgraded (`MarkAbandoned`). An abandoned player's
+  free agents are never handed back, and the popout shows them as
+  Abandoned.
+- **The town** finishes it on its next refresh (`RefreshResumeState` ->
+  `DestroyPreviousGame(gameid, {abandon = true})` -> `AbandonGame`): it calls
+  the **`eotwAbandonGame` cloud function** (DEPLOYED 2026-10-09), which
+  deletes the game only when no OTHER member still holds it in their EotW
+  account slot -- owner or not -- and then leaves it
+  (`LuaGameInfo:Leave()`: off the player list, slot cleared). A player who
+  merely left keeps their slot, so the game stays for them. The town's
+  other ways of walking away -- the resume row's **Abandon**, and creating
+  or joining a new game -- go the same way. (Before, the owner deleted the
+  game outright, from under anyone still playing.) Concluded games still
+  delete as before (owner deletes, members leave).
+- **How a non-owner's delete works.** Only the owner may write
+  `/games/{id}`, so the function (admin rights) marks it `deleted` +
+  `releaseStorage` and asks the game server to release the Durable Object;
+  the game server's delete-game route now lets anyone release a game whose
+  record says both (`isReleasedGame` in `cloudflare-game-server/src/index.ts`).
+  That route change is DEPLOYED to staging (2026-10-09), where EotW games
+  live; the release worker still needs it before launch. Details in
+  `cloud-functions/CLOUD_FUNCTIONS.md`.
+- **Known gap: the host abandoning while others play** freezes their game
+  (no host tick) until phase 3. The dialog warns the host.
+
+**Why free agents unwedge the game.** Every wait asks who controls a hero:
+narrative votes and the preparation / arrangement Proceed group heroes by
+`ownerId` (`EncounterNarrative.Voters`), and montage requests are checked
+with `UserControlsHero`. Moving the leaver's heroes to the host removes the
+leaver from every wait; the host then votes or acts for them.
+
+**How it works** (`EncounterPresence.lua`):
+- The HOST decides, from the map script's host tick (`HostTick`, once a
+  second; not in an authoring test; not in the first 10s after loading).
+  A player has left when their session says `loggedOut` (a clean exit:
+  acted on at the next check, so the notices go up within a second or two)
+  or has not pinged for 35s (sessions ping every ~12s), confirmed over 15s
+  more: after a reconnect the game server re-sends session records with
+  timestamps rounded down to 5 minutes, so a present player can look silent
+  until their next ping. A crash is therefore noticed after about a minute.
+- **The engine announces a clean exit** (2026-10-09, C# NEEDS BUILD):
+  `GameController.AnnounceLeaving` writes `loggedOut` while the game's
+  connection is still up and stops the pings. `LuaInterface.QuitApplication`
+  (the window's close button, Alt+F4, Quit to Desktop, and a launched
+  window's Leave Game) hides the window, announces, and quits once the
+  server confirms or 1.5s pass; `GameHarness.LeaveGame` and a direct
+  game-to-game `EnterGame` announce first thing. Before this the only write
+  was in `GameController.OnDestroy`, which on a QUIT runs after the
+  connection has closed, so a player who closed the window was only noticed
+  by the silence timeout (seen 2026-10-09). `GameHarness.RefreshGame`
+  suppresses the write (`SuppressLeaveAnnouncement`): an in-place reload is
+  not a departure, and the old backstop briefly marked the player logged out.
+- Only players who control something on the map are watched; a player with
+  no session record has never been here and is ignored.
+- A player is back when their session is fresh (pinged within 20s) and their
+  client has re-stamped `eotwstate.arrived` since they left (their heroes
+  are placed again), or after 30s back regardless.
+- The document `eotwpresence` has the host as its only writer, so the state
+  doc's concurrent-write clobbering cannot touch it: `away[userid] = {name,
+  at}`, `agents[charid] = {owner, controller}`, and the newest 16 `events`
+  (left / returned / given) for the notices. Every client watches the events
+  and shows a notice for each new one; events from before it started
+  watching the game are history, not news.
+- `Give(charid, userid)` (host only, from the popout) moves a free agent and
+  any montage allies of it that are free agents too. A free agent given to
+  B, who then leaves, goes back to the host, still owned by its original
+  player. Ownership changes go through `token.ownerId` (undoable, applied
+  locally at once).
+- **The montage turn follows its hero** (`EncounterMontage.SyncTurnToOwners`,
+  every presence tick): the acting user, an assist's or Pardon My Friend's
+  roller, and the companions' users become whoever controls that hero now.
+  A roll already out stays with its roller unless they are away; the new
+  controller's client then rolls it afresh (its own `m_launchedRollSeq`
+  differs). A chest roll works the same way.
+- **The title bar** (core): `CodexTitleBar.ShowPlayersToast{text, actions,
+  duration, id}` shows the notices as a popup of a zero-size anchor under
+  the players plate. The title bar itself draws BELOW the game hud, so a
+  plain child was hidden behind the End Turn banner. The popup is rebuilt
+  whole whenever a notice comes or goes: popup placement is computed from
+  the panel as first shown, and a column grown afterwards spilled upward
+  over the bar. A click elsewhere closes the notices, like any popup.
+  `CodexTitleBar.OpenPlayersPopout()` opens the plate's popout; a custom
+  interface supplies its content through the new `playersPopout` provider
+  field (`GameHud.CustomInterfacePlayersPopout`). In a directorless game the
+  players row now shows the host too (it skipped every `dm` session, which
+  hid the player host).
+- Dev: `EncounterPresence.DevSimulateLeave(userid)` /
+  `DevSimulateReturn(userid)` play a departure / return on one machine. Set
+  some heroes' `ownerId` to a placeholder userid first, and restore them
+  after.
+
+**Known gaps (phase 1).** A player who leaves before they ever arrive still
+holds the party gate (`AllPlayersArrived`). A free agent's trigger prompts
+and saves are answered on the host's client the normal way (the hero card's
+trigger badge jumps to the hero); a prompt that was already open on the
+leaver's screen when they went has not been tested, and the AI's save wait
+has no timeout. Nothing yet tells a player in town that their game went on
+without them (phase 2).
+
 ---
 
 # The EotW interface (custom HUD)
@@ -3066,6 +3335,7 @@ narrative = { beatIndex, sectionIndex, phase, choices, decision, result,
 prep      = { ... }            -- Tactical Preparation
 allies    = { [heroCharid] = { charid, ... } }
 items     = { [heroCharid] = { {itemid, name, qty}, ... } }   -- the montage haul
+montage.consumeSeq                     -- bumped by every item use (see "Consumables in a montage")
 initiative, surprised = {party, enemy}, noSurprise, surges = { [heroCharid] = n }
 zoneSetup, revealZones, zonesRevealed, unlocked, intelligence, intelligenceLog,
 chestSeen, stageDismissAt
@@ -3177,7 +3447,90 @@ removed from the `applied` list.
 **Haul hand-over**: a hero's player can drag a haul icon onto another hero's
 card to give one unit (`giveItem {heroid, targetId, itemid}`; the host
 re-checks ownership, the haul record and the real inventory). The icon
-decrements optimistically.
+decrements optimistically. Only montage finds can be handed over; consumables
+the hero carried in show on the strip but stay with them.
+
+**Consumables in a montage** (BUILT 2026-10-09, user direction; untested in
+the app). Heroes can use their consumables during the montage rounds:
+
+- **The strip** beside each hero card (`EncounterMontage.GetStripItems`) holds
+  the montage haul plus every consumable the hero carries, so items brought
+  from town are usable too. A consumable's count is what the hero really
+  holds.
+- **Using one**: the hero's own player clicks the icon and gets a menu with
+  one entry per use (each mode of a multi-mode item). Free (no maneuver), any
+  time in the rounds, except while that hero's own test, assist or Pardon
+  roll is out (`ConsumeBlockedReason`). The owning client casts the item's
+  ability exactly as the action bar would (`EncounterMontage.ConsumeItem`:
+  `ability:Cast` with `pay = true` and a `costOverride` that spends only the
+  item), then sends `consumed`, which only bumps `m.consumeSeq` so every
+  stage rebuilds (it is in `TurnSignature` and retires the `HeroFacts`
+  cache). That request waits for the user's previous one to be handled
+  (requests share one slot per user).
+- **Which uses work away from the map** (`ConsumableUses`): the ability
+  targets the user (self, or a target ability that may target itself), or
+  is "you and each ally" (`targetType all`, ally, self-target), which in a
+  montage means the heroes at the location with the user; and every
+  behavior is an ongoing effect, heal, purge, temporary Stamina or
+  Recoveries (or invokes a self ability made only of those). Anything else
+  (strikes, areas, auras, walls, forced movement, raising the dead,
+  trigger-only items like Mirror Token) shows greyed "(combat only)". An
+  ability filter that fails (Elixir of Saint Elspeth with no Victories)
+  greys it with its own reason. Greyed context-menu entries show no tooltip,
+  so the reason is in the entry text.
+- **Durations** (user decision 2026-10-09). A SHORT effect (numeric rounds,
+  end of turn, save ends, end of encounter) lasts one location: the turn
+  the hero is in when they use it, else the next turn they take part in
+  (approaching or going along); it ends when that turn resolves, and
+  anything left ends when the rounds end. A LONG effect (until respite, or
+  no duration -- "for an hour" items are authored that way) lasts the whole
+  encounter, combat included. Mechanism: an effect counted in rounds that
+  is made outside combat expires at once
+  (`CharacterOngoingEffectInstance:Expired`), so EotW wraps
+  `creature:ApplyOngoingEffect`: while a montage use is casting on this
+  client (`Consume.capture`) a short effect on the targeted heroes is made
+  with NO duration and marked `instance.eotwMontageUse = {itemid, item,
+  turnSeq}`. The marker lives on the token, not in a request. The host tick
+  (`MaintainMontageUses`) binds an unbound marker to the turn its hero
+  joins, unbinds it if the hero is sent back during the gathering, removes
+  it when its turn resolves or another turn starts, and removes every
+  marked effect once the phase leaves "rounds". `EncounterMontage.
+  EndMontageUses` (from `ApplyPendingCombatBoons`, every combat host tick)
+  is the backstop. The same tick trims the haul record of a used
+  consumable to what the hero holds.
+- **The alert** (`EncounterMontage.ItemBenefits`): while a hero stands at an
+  entry (gathering, scene, choosing, or assist once the test is chosen),
+  each item of a hero in the turn group is tried on: its effects are added
+  as TRANSIENT built-in effects (`_tmp_builtinOngoingEffects`, never saved
+  or sent), `TestRiders.CreatureFacts` is read off the creature, and the
+  options are weighed again through a facts override in `HeroFacts`. It
+  reports a secret option that would appear ("Could reveal a hidden
+  option here", unnamed), a knack version that would open, and -- for the
+  hero making the test only -- more edges from riders, or a power-roll
+  modifier that would switch on for the test (Concealment Potion on a
+  Sneak test). A companion's item counts for secret options and knacks,
+  exactly as companions do. Cached 2s per (hero, item, turn state). The
+  icon gets a green border and a "!" badge (everyone sees it), its tooltip
+  leads with "Use it now:" and the benefits, and hovering it lights up the
+  options it helps (`itemBenefitHighlight` on the scene option buttons and
+  the option detail card).
+- **Translating garbled speech** (user direction 2026-10-09). The host keeps
+  a garbled line's own words on the step (`step.plain`, set in
+  `BuildScenePart`). The stage asks `EncounterMontage.GroupSpeaks(t, lang)`
+  (the same group test `SceneEnv` uses) when it shows a line: once the group
+  speaks the language, a garbled line shows as written. While a garbled line
+  is on screen the narration label checks every 0.5s; when the group gains
+  the language (an item such as Imp's Tongue -- the `consumed` bump retires
+  the facts cache) the line is "transposed": it fades out (`transposing`,
+  0.45s), its words and font are swapped, the speaker reads "(in X)", and it
+  fades back in with a brief green glow (`translated` pulse). `ItemBenefits`
+  also flags an item that would teach the language of a garbled line in the
+  scene ("Lets you understand the X being spoken").
+- **Not covered**: a characteristic change from an item is not weighed for
+  the alert; lines already paged past are not re-shown, and `if PC speaks
+  X` scene branches stay as the host built them; a Recovery item is not
+  flagged before "Press deeper"; using the same short effect twice keeps one
+  instance, which ends with the earlier binding.
 
 **Allies in combat**: `GatherCombatSides` puts player-controlled non-heroes
 on the heroes' side; the AI ignores owned tokens; defeat counts heroes only;
@@ -3841,9 +4194,9 @@ EotW codemod all changed):
 
 # Open questions
 
-- **A disconnected player** blocks a montage round and a narrative section.
-  Options: a host-visible "skip hero/voter" control, or a timeout. One answer
-  for both.
+- ~~**A disconnected player** blocks a montage round and a narrative
+  section.~~ Decided 2026-10-09: free agents (see "Players leaving and
+  coming back").
 - **Observers**: join as a player with no heroes (works today), or a true
   spectator mechanism?
 - **Does the player host see the monsters it runs?** With `canControl`
@@ -3948,7 +4301,15 @@ draws once its image arrives), and other players' active heroes in town.
 revision map `eotw:heroRevs`). Recruit and edit pushes verified live;
 conflict reload and a second machine untested.
 [~] 59 **Hero's Guild**: built; Recruit, the active toggle and edit verified.
-Create through a full builder session and dismiss untested.
+Create through a full builder session untested. Recruiting a titlescreen
+hero (2026-10-09, `EotwRoster.lua` + `TitlescreenHeroes.List` in
+`CodexTitlescreen.lua`) verified live on one client with a temporary level 3
+Human Censor carrying an item: the copy reached the city at level 1 with no
+items and its kit, the original stayed level 3 with its item, the faded
+"Already in your roster" card showed after a restart, and dismissing the
+copy through `DismissHero` worked. Uncommitted. **Open:** whether the copy
+should also drop the original's `currency`, Victories, damage taken and
+conditions (it carries them today).
 [x] 60 **active-hero strip**: `EotwHeroCard.lua` shared with the montage HUD;
 verified live.
 [~] 61 **Town Gate**: unlock rule, lists and Form a Party verified to open;

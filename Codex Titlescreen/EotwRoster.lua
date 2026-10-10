@@ -665,6 +665,25 @@ local function SyncWorkingCopies()
     ApplyPendingOutcomes()
 end
 
+--Queue won encounters for heroes to bring home -- the same queue the game
+--fills at a victory (eotw:pendingOutcomes) -- and start applying them.
+--entries: { { gameid, heroid, outcome }, ... }. Used for results a game's
+--host left with the city while this player was away (see the town's
+--"While You Were Away").
+function EotwRoster.AddPendingOutcomes(entries)
+    local all, mine = LoadPendingOutcomes()
+    for _, entry in ipairs(entries) do
+        mine[entry.gameid .. "|" .. entry.heroid] = {
+            gameid = entry.gameid,
+            heroid = entry.heroid,
+            stage = "new",
+            outcome = entry.outcome,
+        }
+    end
+    dmhub.SetSettingValue("eotw:pendingOutcomes", dmhub.ToJson(all))
+    ApplyPendingOutcomes()
+end
+
 --Re-list this account's roster from the city (and sync the working copies).
 function EotwRoster.Refresh()
     if m_conn == nil or not m_conn.connected then
@@ -953,6 +972,78 @@ function EotwRoster.RecruitPregen(pregenId, name, onDone)
     end)
 end
 
+--The living roster hero copied from this titlescreen hero, if any (the copy
+--carries properties.eotwSourceId = the titlescreen hero's charid).
+function EotwRoster.FindCopyOf(sourceCharid)
+    for _,tok in ipairs(table.values(dmhub.GetAllCharacters())) do
+        local match = false
+        pcall(function()
+            match = IsTownHero(tok) and rawget(tok.properties, "eotwSourceId") == sourceCharid
+        end)
+        if match and EotwRoster.FindHero(tok.charid) ~= nil then
+            return tok
+        end
+    end
+    return nil
+end
+
+--Recruit one of the player's own titlescreen heroes: a COPY joins the town
+--roster, and the titlescreen hero is never touched. Town heroes start fresh,
+--so the copy comes in at level 1 (as NormalizeHeroLevel does in an EotW
+--game) with no items (treasure is earned in town); its kit is kept.
+function EotwRoster.RecruitTitlescreenHero(source, name, onDone)
+    if not EotwRoster.CanAddHero() then
+        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+        return
+    end
+    if source == nil or not source.valid then
+        Fail("that hero is not available")
+        return
+    end
+    local sourceid = source.charid
+    local data = dmhub.ExportCharacter(source)
+    if data == nil then
+        Fail("could not copy that hero")
+        return
+    end
+    local charid = dmhub.ImportCharacter{
+        record = data.record,
+        assets = data.assets,
+        name = name,
+    }
+    if charid == nil then
+        Fail("could not copy that hero")
+        return
+    end
+    m_pendingCreates[charid] = true
+    WhenCharacterExists(charid, function(tok)
+        tok:ModifyProperties{
+            description = "Encounter of the Week: a fresh copy",
+            undoable = false,
+            execute = function()
+                local props = tok.properties
+                props.eotwSourceId = sourceid
+                --the copy still names the original as its lobby-sync source;
+                --JoinRoster re-points it, but do it here too so nothing ever
+                --saves this stripped copy over the original's char-cache.
+                props.originalid = charid
+                --level 1: CharacterLevel() is max(class levels, levelOverride).
+                if props:try_get("levelOverride", 1) ~= 1 then
+                    props.levelOverride = 1
+                end
+                for _,entry in ipairs(props:try_get("classes", {})) do
+                    entry.level = 1
+                end
+                --no items: the pack and every equipment slot.
+                props.inventory = {}
+                props.equipment = {}
+                props.equipmentMeta = {}
+            end,
+        }
+        JoinRoster(tok, onDone)
+    end)
+end
+
 --Open a roster hero: in the EotW builder while it can still be rebuilt
 --(and a host to mount on is given), otherwise in the character sheet.
 --Saved back to the city on close either way.
@@ -1167,9 +1258,12 @@ local function RecruitName(pregen)
     return name or pregen.name or ""
 end
 
---The name prompt for a recruit: prefilled with a name rolled from its
---ancestry's name table.
-local function ShowRecruitNamePrompt(host, pregen, onDone)
+--The name prompt for a recruit. recruit = {
+--  initialName = the prefilled name,
+--  rollName = function() -> a fresh name (the reroll button),
+--  prompt = the line under the title,
+--  confirm = function(name, onDone) that does the recruiting }.
+local function ShowRecruitNamePrompt(host, recruit, onDone)
     local nameInput = nil
     local dlg
     local Confirm = function()
@@ -1177,7 +1271,7 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
         if name == "" then
             return
         end
-        EotwRoster.RecruitPregen(pregen.id, name, onDone)
+        recruit.confirm(name, onDone)
         dlg:DestroySelf()
     end
     dlg = ModalFrame{
@@ -1195,7 +1289,7 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
                 tmargin = 18,
             },
             gui.Label{
-                text = string.format("A %s joins your roster. What do they call themselves?", EotwRoster.FormatDetails(pregen.level, pregen.ancestry, pregen.className)),
+                text = recruit.prompt,
                 fontSize = 17,
                 color = DIM,
                 width = "90%",
@@ -1219,7 +1313,7 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
                     placeholderText = "Hero name...",
                     create = function(element)
                         nameInput = element
-                        element.text = RecruitName(pregen)
+                        element.text = recruit.initialName or ""
                         element.hasInputFocus = true
                     end,
                     submit = function(element)
@@ -1247,7 +1341,7 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
                     press = function()
                         audio.FireSoundEvent("Mouse.Click")
                         if nameInput ~= nil and nameInput.valid then
-                            nameInput.text = RecruitName(pregen)
+                            nameInput.text = recruit.rollName()
                         end
                     end,
                 },
@@ -1267,84 +1361,209 @@ local function ShowRecruitNamePrompt(host, pregen, onDone)
     host:AddChild(dlg)
 end
 
---The pregen picker: every pregenerated hero of the week's module.
+--The recruit picker's card styles. The picker mounts on the town screen,
+--outside the Guild list that carries GUILD_STYLES, so it brings its own.
+local PICKER_STYLES = {
+    {
+        selectors = { "eotwGuildPick" },
+        bgcolor = "#ffffff0c",
+    },
+    {
+        selectors = { "eotwGuildPick", "hover" },
+        bgcolor = "#ffffff20",
+        brightness = 1.1,
+    },
+    --a card that cannot be picked (that hero is already in the roster).
+    {
+        selectors = { "eotwGuildPick", "blocked", "hover" },
+        bgcolor = "#ffffff0c",
+        brightness = 1,
+    },
+}
+
+--One card in the recruit picker. blockedText, when set, greys the card out
+--and says why it cannot be picked.
+local function RecruitCard(portrait, name, details, press, blockedText)
+    local art = Portrait(portrait, 150, 190, "center")
+    if blockedText ~= nil and type(portrait) == "string" and portrait ~= "" then
+        --the tint's alpha fades the portrait image itself.
+        art.selfStyle.bgcolor = "#ffffff59"
+    end
+    return gui.Panel{
+        classes = { "eotwGuildPick", cond(blockedText ~= nil, "blocked", nil) },
+        width = 170,
+        height = 250,
+        hmargin = 6,
+        vmargin = 6,
+        flow = "vertical",
+        bgimage = "panels/square.png",
+        cornerRadius = 8,
+        press = function()
+            if blockedText ~= nil then
+                return
+            end
+            audio.FireSoundEvent("Mouse.Click")
+            press()
+        end,
+        art,
+        gui.Label{
+            interactable = false,
+            text = name,
+            fontSize = 16,
+            bold = true,
+            color = cond(blockedText ~= nil, DIM, TEXT),
+            width = "96%",
+            height = "auto",
+            halign = "center",
+            textAlignment = "center",
+            textWrap = false,
+            minFontSize = 10,
+        },
+        gui.Label{
+            interactable = false,
+            text = blockedText or details,
+            fontSize = 12,
+            color = DIM,
+            width = "96%",
+            height = "auto",
+            halign = "center",
+            textAlignment = "center",
+            textWrap = false,
+            minFontSize = 8,
+        },
+    }
+end
+
+--A character's portrait id, or nil.
+local function PortraitOf(tok)
+    local portrait = nil
+    pcall(function()
+        if tok == nil then return end
+        local p = tok.offTokenPortrait
+        if type(p) == "string" then
+            portrait = p
+        end
+    end)
+    return portrait
+end
+
+--A section heading inside the recruit picker.
+local function PickerHeading(text, subtitle)
+    return gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "vertical",
+        tmargin = 10,
+        bmargin = 4,
+        gui.Label{
+            text = text,
+            fontSize = 22,
+            bold = true,
+            color = TEXT,
+            width = "auto",
+            height = "auto",
+            lmargin = 8,
+        },
+        gui.Label{
+            text = subtitle,
+            fontSize = 15,
+            italics = true,
+            color = DIM,
+            width = "100%-16",
+            height = "auto",
+            lmargin = 8,
+        },
+    }
+end
+
+local function CardGrid(cards)
+    return gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "horizontal",
+        wrap = true,
+        children = cards,
+    }
+end
+
+--The recruit picker: the player's own titlescreen heroes (copied in at
+--level 1 with no items), then every pregenerated hero of the week's module.
 local function ShowRecruitPicker(host, onDone)
     local pregens = EncounterOfTheWeek.GetPregens()
     local dlg
-    local cards = {}
+
+    local ownCards = {}
+    for _,tok in ipairs(TitlescreenHeroes.List()) do
+        local className, ancestry, level = EotwRoster.HeroDetails(tok)
+        local name = tok.name
+        if name == nil or name == "" then
+            name = "Unnamed Hero"
+        end
+        local blocked = nil
+        if EotwRoster.FindCopyOf(tok.charid) ~= nil then
+            blocked = "Already in your roster"
+        end
+        ownCards[#ownCards+1] = RecruitCard(PortraitOf(tok), name, EotwRoster.FormatDetails(level, ancestry, className), function()
+            dlg:DestroySelf()
+            ShowRecruitNamePrompt(host, {
+                initialName = name,
+                rollName = function()
+                    return EotwBuild.GenerateName(tok.properties --[[@as character]]) or name
+                end,
+                prompt = string.format("A copy of %s joins your roster as a %s, without their items. Your titlescreen hero is unchanged.", name, EotwRoster.FormatDetails(1, ancestry, className)),
+                confirm = function(newName, done)
+                    EotwRoster.RecruitTitlescreenHero(tok, newName, done)
+                end,
+            }, onDone)
+        end, blocked)
+    end
+
+    local pregenCards = {}
     for _,pregen in ipairs(pregens or {}) do
         local tok = EncounterOfTheWeek.GetPregenToken(pregen.id)
-        local portrait = nil
-        pcall(function()
-            if tok == nil then return end
-            local p = tok.offTokenPortrait
-            if type(p) == "string" then
-                portrait = p
-            end
+        pregenCards[#pregenCards+1] = RecruitCard(PortraitOf(tok), pregen.name, EotwRoster.FormatDetails(pregen.level, pregen.ancestry, pregen.className), function()
+            dlg:DestroySelf()
+            ShowRecruitNamePrompt(host, {
+                initialName = RecruitName(pregen),
+                rollName = function()
+                    return RecruitName(pregen)
+                end,
+                prompt = string.format("A %s joins your roster. What do they call themselves?", EotwRoster.FormatDetails(pregen.level, pregen.ancestry, pregen.className)),
+                confirm = function(name, done)
+                    EotwRoster.RecruitPregen(pregen.id, name, done)
+                end,
+            }, onDone)
         end)
-        cards[#cards+1] = gui.Panel{
-            classes = { "eotwGuildPick" },
-            width = 170,
-            height = 250,
-            hmargin = 6,
-            vmargin = 6,
-            flow = "vertical",
-            bgimage = "panels/square.png",
-            cornerRadius = 8,
-            press = function()
-                audio.FireSoundEvent("Mouse.Click")
-                dlg:DestroySelf()
-                ShowRecruitNamePrompt(host, pregen, onDone)
-            end,
-            Portrait(portrait, 150, 190, "center"),
-            gui.Label{
-                interactable = false,
-                text = pregen.name,
-                fontSize = 16,
-                bold = true,
-                color = TEXT,
-                width = "96%",
-                height = "auto",
-                halign = "center",
-                textAlignment = "center",
-                textWrap = false,
-                minFontSize = 10,
-            },
-            gui.Label{
-                interactable = false,
-                text = EotwRoster.FormatDetails(pregen.level, pregen.ancestry, pregen.className),
-                fontSize = 12,
-                color = DIM,
-                width = "96%",
-                height = "auto",
-                halign = "center",
-                textAlignment = "center",
-                textWrap = false,
-                minFontSize = 8,
-            },
-        }
     end
-    local body
+
+    local sections = {}
+    if #ownCards > 0 then
+        sections[#sections+1] = PickerHeading("Your Heroes", "Copy one of your titlescreen heroes into town. The copy starts at level 1 with no items.")
+        sections[#sections+1] = CardGrid(ownCards)
+    end
+    sections[#sections+1] = PickerHeading("Adventurers for Hire", "Pregenerated heroes looking for work.")
     if pregens == nil then
-        body = gui.Label{ text = "The pregenerated heroes are still loading. Try again in a moment.", fontSize = 18, color = DIM, width = "90%", height = "auto", halign = "center", textAlignment = "center", vmargin = 40 }
+        sections[#sections+1] = gui.Label{ text = "The pregenerated heroes are still loading. Try again in a moment.", fontSize = 18, color = DIM, width = "90%", height = "auto", halign = "center", textAlignment = "center", vmargin = 40 }
     else
-        body = gui.Panel{
-            width = "96%",
-            height = "100%-150",
-            halign = "center",
-            vscroll = true,
-            rpad = 12,
-            borderBox = true,
-            gui.Panel{
-                width = "100%",
-                height = "auto",
-                flow = "horizontal",
-                wrap = true,
-                children = cards,
-            },
-        }
+        sections[#sections+1] = CardGrid(pregenCards)
     end
-    local titleParts = Title("Recruit a Hero", "Adventurers looking for work. Choose one and give them a name.")
+
+    local body = gui.Panel{
+        width = "96%",
+        height = "100%-150",
+        halign = "center",
+        vscroll = true,
+        rpad = 12,
+        borderBox = true,
+        styles = PICKER_STYLES,
+        gui.Panel{
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            children = sections,
+        },
+    }
+    local titleParts = Title("Recruit a Hero", "Choose a hero and give them a name.")
     dlg = ModalFrame{
         width = 1000,
         height = 720,
@@ -1412,15 +1631,6 @@ local GUILD_STYLES = {
         width = "auto",
         height = "auto",
         halign = "center",
-    },
-    {
-        selectors = { "eotwGuildPick" },
-        bgcolor = "#ffffff0c",
-    },
-    {
-        selectors = { "eotwGuildPick", "hover" },
-        bgcolor = "#ffffff20",
-        brightness = 1.1,
     },
     {
         selectors = { "eotwGuildIcon" },

@@ -15,6 +15,14 @@ MonsterAI.squadMembers = {}
 MonsterAI.chargeProbeCache = false --per-frame memo used by ChargeProbe.
 MonsterAI.chargeProbeCacheTime = -1
 MonsterAI.squadCaptain = false
+--A minion squad moves as one: each member sets off this many seconds after the one before.
+MonsterAI.squadMoveStagger = 0.2
+--The squad's battle cry: the caller's line, then two or three members shout an answer.
+MonsterAI.squadCallLines = {
+    melee = {"Attack together!", "Strike as one!", "Get 'em, boys!"},
+    ranged = {"Fire at will!", "Take them down!", "Shoot them down like dogs!"},
+}
+MonsterAI.squadAnswerLines = {"Raaah!", "Get 'em!", "Together!", "Hyaaah!", "Now!", "Yes, boss!"}
 MonsterAI.abilities = {}
 MonsterAI.tactics = {}
 MonsterAI.maliceAbilities = {}
@@ -1590,6 +1598,50 @@ end
 
 function MonsterAI:RunYieldingFunction(fn)
     return RunYieldingFunction(fn)
+end
+
+--Run several yielding actions side by side and return once all have finished,
+--starting each one `stagger` seconds after the one before. A minion squad uses
+--this to move together. An error in one action does not abandon the others,
+--whose tokens may be mid-move; the first error is raised once all are done.
+function MonsterAI:RunConcurrently(fns, stagger)
+    stagger = stagger or 0
+    local threads, wakeAt = {}, {}
+    local start = dmhub.Time()
+    for i,fn in ipairs(fns) do
+        threads[i] = coroutine.create(fn)
+        wakeAt[i] = start + (i-1)*stagger
+    end
+    local firstError = nil
+    while true do
+        local now = dmhub.Time()
+        local nextWake = nil
+        for i,thread in ipairs(threads) do
+            if coroutine.status(thread) ~= "dead" and now >= wakeAt[i] then
+                local ok, delay = coroutine.resume(thread)
+                if not ok then
+                    if firstError == nil then
+                        firstError = tostring(delay)
+                        pcall(function()
+                            firstError = debug.traceback(thread, tostring(delay))
+                        end)
+                    end
+                elseif coroutine.status(thread) ~= "dead" then
+                    wakeAt[i] = now + (type(delay) == "number" and delay or 0.1)
+                end
+            end
+            if coroutine.status(thread) ~= "dead" then
+                nextWake = math.min(nextWake or wakeAt[i], wakeAt[i])
+            end
+        end
+        if nextWake == nil then
+            break
+        end
+        coroutine.yield(math.max(0.01, nextWake - dmhub.Time()))
+    end
+    if firstError ~= nil then
+        error(firstError, 0)
+    end
 end
 
 --The control is kept in Creature.lua (creature.BeginAIControl), not on the
@@ -3271,15 +3323,128 @@ function MonsterAI:FindValidTargetsOfStrike(token, ability, loc, range)
     return result
 end
 
-function MonsterAI:FindSquadMemberStrikeOptions(squadMember, ability)
+--Squad reservations ---------------------------------------------------------
+--
+--A squad plans every member before any of them moves, then they all move at
+--once. So no two members end on the same square, and nobody charges through
+--a square a squad-mate is heading for, each planned member claims squares here.
+--`squares` are where members stand (a charger's start and landing); `lanes`
+--are the squares a charge sweeps. Keys are "x,y,floor": altitude is ignored,
+--which only errs toward keeping minions apart.
+
+---@class MonsterAISquadReservations
+---@field squares table<string, boolean>
+---@field lanes table<string, boolean>
+
+---@return MonsterAISquadReservations
+function MonsterAI.NewSquadReservations()
+    return {squares = {}, lanes = {}}
+end
+
+local function SquadSquareKey(x, y, floor)
+    return string.format("%d,%d,%s", x, y, tostring(floor))
+end
+
+--The squares a token covers, as offsets from its anchor square. They are the
+--same wherever it stands, so they are worked out once per member.
+function MonsterAI:SquadFootprintOffsets(token)
+    local mover = self:GetMovementToken(token)
+    local offsets = {}
+    for _,occupied in ipairs(mover:LocsOccupyingWhenAt(mover.loc)) do
+        offsets[#offsets+1] = {occupied.x - mover.loc.x, occupied.y - mover.loc.y}
+    end
+    if #offsets == 0 then
+        offsets[1] = {0, 0}
+    end
+    return offsets
+end
+
+local function SquadFootprintKeys(offsets, loc, keys)
+    keys = keys or {}
+    for _,offset in ipairs(offsets) do
+        keys[#keys+1] = SquadSquareKey(loc.x + offset[1], loc.y + offset[2], loc.floor)
+    end
+    return keys
+end
+
+--The squares a straight charge from start to landing sweeps, footprint included.
+local function SquadChargeLaneKeys(offsets, start, landing)
+    local keys = {}
+    local dx, dy = landing.x - start.x, landing.y - start.y
+    local steps = math.max(1, 4*math.max(math.abs(dx), math.abs(dy)))
+    for i=0,steps do
+        local x = math.floor(start.x + dx*i/steps + 0.5)
+        local y = math.floor(start.y + dy*i/steps + 0.5)
+        for _,offset in ipairs(offsets) do
+            keys[#keys+1] = SquadSquareKey(x + offset[1], y + offset[2], start.floor)
+        end
+    end
+    return keys
+end
+
+local function AnySquadKeyReserved(set, keys)
+    for _,key in ipairs(keys) do
+        if set[key] then
+            return true
+        end
+    end
+    return false
+end
+
+--True when a member can end at destLoc, and charge from there to chargeLoc,
+--without landing on or charging through a square a squad-mate has claimed.
+function MonsterAI.SquadOptionIsFree(reserved, offsets, destLoc, chargeLoc)
+    local destKeys = SquadFootprintKeys(offsets, destLoc)
+    if AnySquadKeyReserved(reserved.squares, destKeys) or AnySquadKeyReserved(reserved.lanes, destKeys) then
+        return false
+    end
+    if chargeLoc ~= nil then
+        if AnySquadKeyReserved(reserved.squares, SquadChargeLaneKeys(offsets, destLoc, chargeLoc)) then
+            return false
+        end
+        if AnySquadKeyReserved(reserved.lanes, SquadFootprintKeys(offsets, chargeLoc)) then
+            return false
+        end
+    end
+    return true
+end
+
+--Claim a planned member's squares: where it stops and, for a charge, its lane and landing.
+function MonsterAI:ReserveSquadOption(reserved, token, option)
+    local offsets = self:SquadFootprintOffsets(token)
+    for _,key in ipairs(SquadFootprintKeys(offsets, option.loc)) do
+        reserved.squares[key] = true
+    end
+    if option.charge ~= nil then
+        for _,key in ipairs(SquadFootprintKeys(offsets, option.charge)) do
+            reserved.squares[key] = true
+        end
+        for _,key in ipairs(SquadChargeLaneKeys(offsets, option.loc, option.charge)) do
+            reserved.lanes[key] = true
+        end
+    end
+end
+
+--Each reachable target's cheapest strike option for one squad member. With
+--`reserved`, squares and charge lanes squad-mates have claimed are skipped.
+---@param reserved? MonsterAISquadReservations
+function MonsterAI:FindSquadMemberStrikeOptions(squadMember, ability, reserved)
     squadMember.possibleTargets = {}
     local range = ability:GetRange(squadMember.token.properties)
     local numTargets = ability:GetNumTargets(squadMember.token)
+    local offsets = reserved ~= nil and self:SquadFootprintOffsets(squadMember.token) or nil
     for _,info in pairs(squadMember.paths) do
         local destLoc = info.loc
 
-        local targets = self:FindValidTargetsOfStrike(squadMember.token, ability, destLoc, range)
+        local targets = {}
+        if offsets == nil or self.SquadOptionIsFree(reserved, offsets, destLoc, nil) then
+            targets = self:FindValidTargetsOfStrike(squadMember.token, ability, destLoc, range)
+        end
         for _,target in ipairs(targets) do
+            --a charge from here that would cross a squad-mate's square is left out;
+            --other squares can still reach this target.
+            local blockedCharge = offsets ~= nil and target.charge ~= nil
+                and not self.SquadOptionIsFree(reserved, offsets, destLoc, target.charge)
             local cost = info.cost
             cost = cost - target.edges * 5 --we love to get edges
             if target.charge ~= nil then
@@ -3290,7 +3455,9 @@ function MonsterAI:FindSquadMemberStrikeOptions(squadMember, ability)
                 cost = cost - dotProduct*0.5
             end
             local existing = squadMember.possibleTargets[target.token.charid]
-            if existing == nil then
+            if blockedCharge then
+                --skipped
+            elseif existing == nil then
                 squadMember.possibleTargets[target.token.charid] = {
                     token = target.token,
                     charge = target.charge,
@@ -3359,143 +3526,22 @@ function MonsterAI:ExecuteSquadStrike(ability)
         assignedTargets = liveAssignedTargets
     end
 
-    local function PlanMember(squadMember, planningPass)
-        --planning never yields; it is closed before the member moves.
+    --Choose where one member moves and whom it strikes, against the board as it
+    --stands before anyone moves. Squad-mates planned earlier this round have
+    --claimed their squares in `reserved`, and their pairs already count toward
+    --the target limit. Never yields. Returns a plan, or nil and the reason:
+    --"assigned" (already in the volley), "unable", "capped" or "unreachable".
+    local function PlanMember(squadMember, reserved)
         local planProf = ProfBegin("squad: plan member")
-        RefreshAssignments()
         local memberToken = squadMember.token
         local memberAbility = AffordableMemberAbility(memberToken)
-        local alreadyAssigned = false
         for _,pair in ipairs(targetPairs) do
-            if pair.a == memberToken.charid then alreadyAssigned = true; break end
-        end
-        if alreadyAssigned then
-            ProfEnd(planProf)
-            return
-        end
-        if memberAbility ~= nil then
-            local memberName = self.TokenLogName(memberToken)
-            local memberId = memberToken.charid
-            local queue = dmhub.initiativeQueue
-            if queue ~= nil and not queue.hidden then
-                --A reaction can remove cached allies while another squad member
-                --is moving. Rebuild the lists before the next member plans.
-                self:RefreshCombatants(queue, memberToken)
-            end
-            --Extra main actions do not restore movement already spent this turn.
-            squadMember.paths = self:CalculateRemainingMovementPaths(memberToken)
-
-            local options = self:FindSquadMemberStrikeOptions(squadMember, memberAbility)
-            local bestOption = nil
-            local bestScore = nil
-            local targetLimitReached = false
-            for _,option in pairs(options) do
-                local assignedCount = assignedTargets[option.token.charid] or 0
-                --Use the same repeat-target rule as manual squad targeting,
-                --including abilities and creatures that waive the minion limit.
-                if assignedCount > 0 and not memberAbility:CanTargetAdditionalTimes(
-                    memberToken, {targetPairs = targetPairs}, assignedTargetIds, option.token) then
-                    targetLimitReached = true
-                else
-                    local score = option.cost + 10000*assignedCount
-                    if bestOption == nil or score < bestScore then
-                        bestOption = option
-                        bestScore = score
-                    end
-                end
-            end
-
-            if bestOption ~= nil then
-                self:LogDecision("MINION ASSIGNMENT", {
-                    actor = memberName,
-                    actorId = memberId,
-                    category = "Main Action",
-                    move = "Minion Signature Ability",
-                    ability = abilityName,
-                    from = self.LocLogName(memberToken.loc),
-                    to = self.LocLogName(bestOption.loc),
-                    targets = self.TargetsLogName({{token = bestOption.token}}),
-                    plan = bestOption.charge ~= nil
-                        and string.format("charge through %s", self.LocLogName(bestOption.charge))
-                        or "strike from destination",
-                })
-
+            if pair.a == memberToken.charid then
                 ProfEnd(planProf)
-                local _, memberSurvived = self:MoveToken(memberToken, bestOption.loc,
-                    {maxCost = 10000, ignoreFalling = false}, true)
-                self.Sleep(0.6)
-
-                if memberSurvived and self.TokenIsLiveCombatant(memberToken)
-                    and bestOption.charge ~= nil then
-                    self:Speech(memberToken, "Charge!")
-                    self.Sleep(0.3)
-                    --A Charge's movement is part of the ability, not the creature's
-                    --move action, so it does not consume the remaining move budget.
-                    local reached, chargeSurvived = self:ExecuteChargeMovement(memberToken, bestOption.charge, true)
-                    memberSurvived = chargeSurvived and reached
-                    self.Sleep(1)
-                end
-
-                local targetToken = bestOption.token
-                local rejectionReason = nil
-                local distance, range, lineOfSight
-                if not memberSurvived or not self.TokenIsLiveCombatant(memberToken) then
-                    rejectionReason = "attacker died or charge failed while movement resolved"
-                elseif not self.TokenIsLiveCombatant(targetToken) then
-                    rejectionReason = "target is no longer a live combatant"
-                else
-                    distance = MonsterAI.TargetDistance(memberToken, targetToken)
-                    range = memberAbility:GetRange(memberToken.properties)
-                    lineOfSight = memberToken:GetLineOfSight(targetToken, memberToken.properties:GetPierceWalls())
-                    if distance > range then
-                        rejectionReason = "target is out of range after movement"
-                    elseif lineOfSight <= 0 then
-                        rejectionReason = "target has no line of sight after movement"
-                    end
-                end
-                if rejectionReason == nil then
-                    assignedTargets[targetToken.charid] = (assignedTargets[targetToken.charid] or 0) + 1
-                    targetPairs[#targetPairs+1] = {a = memberId, b = targetToken.charid}
-                    dmhub.Schedule(0.8, function()
-                        if self.TokenIsLiveCombatant(memberToken)
-                            and self.TokenIsLiveCombatant(targetToken) then
-                            rays[#rays+1] = dmhub.MarkLineOfSight(memberToken, targetToken,
-                                memberToken.properties:GetPierceWalls())
-                        end
-                    end)
-                else
-                    self:LogDecision("MINION ASSIGNMENT CANCELLED", {
-                        actor = memberName,
-                        actorId = memberId,
-                        category = "Main Action",
-                        move = "Minion Signature Ability",
-                        ability = abilityName,
-                        targets = self.TargetsLogName({{token = targetToken}}),
-                        reason = rejectionReason,
-                        from = self.LocLogName(memberToken.loc),
-                        to = self.LocLogName(bestOption.loc),
-                        distance = distance,
-                        range = range,
-                        lineOfSight = lineOfSight,
-                        result = "continuing with surviving squad members",
-                    })
-                end
-            else
-                self:LogDecision("MINION ASSIGNMENT REJECTED", {
-                    actor = memberName,
-                    actorId = memberId,
-                    category = "Main Action",
-                    move = "Minion Signature Ability",
-                    ability = abilityName,
-                    reason = targetLimitReached and "all reachable targets have reached the squad target limit"
-                        or "no legal target can be reached",
-                })
-                ProfEnd(planProf)
-                if not targetLimitReached and planningPass == 1 then
-                    advanced = self:ExecuteAdvanceFallback(memberToken) or advanced
-                end
+                return nil, "assigned"
             end
-        else
+        end
+        if memberAbility == nil then
             ProfEnd(planProf)
             self:LogDecision("MINION ASSIGNMENT CANCELLED", {
                 actor = self.TokenLogName(memberToken),
@@ -3506,14 +3552,212 @@ function MonsterAI:ExecuteSquadStrike(ability)
                 reason = "squad member is dead or cannot afford the signature ability",
                 result = "continuing with eligible squad members",
             })
+            return nil, "unable"
+        end
+
+        local memberName = self.TokenLogName(memberToken)
+        local memberId = memberToken.charid
+        local queue = dmhub.initiativeQueue
+        if queue ~= nil and not queue.hidden then
+            --A reaction can remove cached allies while the squad is moving.
+            --Rebuild the lists before planning.
+            self:RefreshCombatants(queue, memberToken)
+        end
+        --Extra main actions do not restore movement already spent this turn.
+        squadMember.paths = self:CalculateRemainingMovementPaths(memberToken)
+
+        local options = self:FindSquadMemberStrikeOptions(squadMember, memberAbility, reserved)
+        local bestOption = nil
+        local bestScore = nil
+        local targetLimitReached = false
+        for _,option in pairs(options) do
+            local assignedCount = assignedTargets[option.token.charid] or 0
+            --Use the same repeat-target rule as manual squad targeting,
+            --including abilities and creatures that waive the minion limit.
+            if assignedCount > 0 and not memberAbility:CanTargetAdditionalTimes(
+                memberToken, {targetPairs = targetPairs}, assignedTargetIds, option.token) then
+                targetLimitReached = true
+            else
+                local score = option.cost + 10000*assignedCount
+                if bestOption == nil or score < bestScore then
+                    bestOption = option
+                    bestScore = score
+                end
+            end
+        end
+
+        if bestOption == nil then
+            ProfEnd(planProf)
+            self:LogDecision("MINION ASSIGNMENT REJECTED", {
+                actor = memberName,
+                actorId = memberId,
+                category = "Main Action",
+                move = "Minion Signature Ability",
+                ability = abilityName,
+                reason = targetLimitReached and "all reachable targets have reached the squad target limit"
+                    or "no legal target can be reached",
+            })
+            return nil, targetLimitReached and "capped" or "unreachable"
+        end
+
+        self:LogDecision("MINION ASSIGNMENT", {
+            actor = memberName,
+            actorId = memberId,
+            category = "Main Action",
+            move = "Minion Signature Ability",
+            ability = abilityName,
+            from = self.LocLogName(memberToken.loc),
+            to = self.LocLogName(bestOption.loc),
+            targets = self.TargetsLogName({{token = bestOption.token}}),
+            plan = bestOption.charge ~= nil
+                and string.format("charge through %s", self.LocLogName(bestOption.charge))
+                or "strike from destination",
+        })
+
+        --Hold the square and the target slot now, so members planned after
+        --this one go elsewhere. A pair that fails after movement is dropped.
+        self:ReserveSquadOption(reserved, memberToken, bestOption)
+        local pair = {a = memberId, b = bestOption.token.charid}
+        targetPairs[#targetPairs+1] = pair
+        assignedTargets[pair.b] = (assignedTargets[pair.b] or 0) + 1
+        assignedTargetIds[#assignedTargetIds+1] = pair.b
+        ProfEnd(planProf)
+        return {
+            token = memberToken,
+            ability = memberAbility,
+            option = bestOption,
+            pair = pair,
+            survived = true,
+        }
+    end
+
+    --Every planned member moves together, each a beat after the last. Chargers
+    --first move to where their charge starts, then all shout and charge together.
+    local function MovePlans(plans)
+        local moves = {}
+        for _,plan in ipairs(plans) do
+            --a member already in place (a sniper, or a charger starting where it
+            --stands) has no move to make and would only delay the stagger.
+            if not self:MovementTokenIsAtLoc(plan.token, plan.option.loc) then
+                moves[#moves+1] = function()
+                    local _, survived = self:MoveToken(plan.token, plan.option.loc,
+                        {maxCost = 10000, ignoreFalling = false}, true)
+                    plan.survived = survived
+                end
+            end
+        end
+        if #moves > 0 then
+            self:RunConcurrently(moves, self.squadMoveStagger)
+            self.Sleep(0.4)
+        end
+
+        local charges = {}
+        for _,plan in ipairs(plans) do
+            if plan.survived and plan.option.charge ~= nil and self.TokenIsLiveCombatant(plan.token) then
+                self:SpeakNow(plan.token, "Charge!")
+                charges[#charges+1] = function()
+                    --A Charge's movement is part of the ability, not the creature's
+                    --move action, so it does not consume the remaining move budget.
+                    local reached, survived = self:ExecuteChargeMovement(plan.token, plan.option.charge, true)
+                    plan.survived = survived and reached
+                end
+            end
+        end
+        if #charges > 0 then
+            self.Sleep(0.3)
+            self:RunConcurrently(charges, self.squadMoveStagger)
+            self.Sleep(0.6)
         end
     end
 
-    --Reconsider members who advanced before resolving the shared action.
-    --They must join this volley rather than save their action for a later one.
-    for planningPass=1,2 do
+    --After movement, keep the member's pair only if it can still make the strike.
+    local function ConfirmPlan(plan)
+        local memberToken = plan.token
+        local targetToken = plan.option.token
+        local rejectionReason = nil
+        local distance, range, lineOfSight
+        if not plan.survived or not self.TokenIsLiveCombatant(memberToken) then
+            rejectionReason = "attacker died or charge failed while movement resolved"
+        elseif not self.TokenIsLiveCombatant(targetToken) then
+            rejectionReason = "target is no longer a live combatant"
+        else
+            distance = MonsterAI.TargetDistance(memberToken, targetToken)
+            range = plan.ability:GetRange(memberToken.properties)
+            lineOfSight = memberToken:GetLineOfSight(targetToken, memberToken.properties:GetPierceWalls())
+            if distance > range then
+                rejectionReason = "target is out of range after movement"
+            elseif lineOfSight <= 0 then
+                rejectionReason = "target has no line of sight after movement"
+            end
+        end
+
+        if rejectionReason == nil then
+            dmhub.Schedule(0.8, function()
+                if self.TokenIsLiveCombatant(memberToken)
+                    and self.TokenIsLiveCombatant(targetToken) then
+                    rays[#rays+1] = dmhub.MarkLineOfSight(memberToken, targetToken,
+                        memberToken.properties:GetPierceWalls())
+                end
+            end)
+            return
+        end
+
+        for i,pair in ipairs(targetPairs) do
+            if pair == plan.pair then
+                table.remove(targetPairs, i)
+                break
+            end
+        end
+        RefreshAssignments()
+        self:LogDecision("MINION ASSIGNMENT CANCELLED", {
+            actor = self.TokenLogName(memberToken),
+            actorId = memberToken.charid,
+            category = "Main Action",
+            move = "Minion Signature Ability",
+            ability = abilityName,
+            targets = self.TargetsLogName({{token = targetToken}}),
+            reason = rejectionReason,
+            from = self.LocLogName(memberToken.loc),
+            to = self.LocLogName(plan.option.loc),
+            distance = distance,
+            range = range,
+            lineOfSight = lineOfSight,
+            result = "continuing with surviving squad members",
+        })
+    end
+
+    --Round 1 plans the whole squad, calls the attack, and moves everyone at once.
+    --Round 2 gives members that advanced, or whose plan failed (or whose target
+    --slot a fallen squad-mate freed), a second chance to join the same volley
+    --rather than save their action for a later one.
+    local announced = false
+    for round=1,2 do
+        RefreshAssignments()
+        local reserved = self.NewSquadReservations()
+        local plans = {}
+        local advancers = {}
         for _,squadMember in ipairs(self.squadMembers) do
-            PlanMember(squadMember, planningPass)
+            local plan, outcome = PlanMember(squadMember, reserved)
+            if plan ~= nil then
+                plans[#plans+1] = plan
+            elseif outcome == "unreachable" and round == 1 then
+                advancers[#advancers+1] = squadMember.token
+            end
+        end
+
+        if #plans > 0 then
+            if not announced then
+                announced = true
+                self:AnnounceSquadStrike(plans, ability)
+            end
+            MovePlans(plans)
+            for _,plan in ipairs(plans) do
+                ConfirmPlan(plan)
+            end
+        end
+
+        for _,memberToken in ipairs(advancers) do
+            advanced = self:ExecuteAdvanceFallback(memberToken) or advanced
         end
     end
     RefreshAssignments()
@@ -3536,15 +3780,7 @@ function MonsterAI:ExecuteSquadStrike(ability)
     if #targetPairs > 0 and casterToken ~= nil then
         --casterToken is only set once castAbility was found non-nil, and the loop then breaks.
         ---@cast castAbility -nil
-        if self.squadCaptain and self.TokenIsLiveCombatant(self.squadCaptain) then
-            if castAbility:HasKeyword("Melee") then
-                self:Speech(self.squadCaptain, {"Attack together!", "Strike as one!", "Get 'em, boys!"})
-            else
-                self:Speech(self.squadCaptain, {"Fire at will!", "Take them down!", "Shoot them down like dogs!"})
-            end
-            
-        end
-
+        --The battle cry was called before the squad moved (AnnounceSquadStrike).
         local symbols = {
             targetPairs = targetPairs,
         }
@@ -5411,6 +5647,76 @@ function MonsterAI:Speech(token, text, options)
 
     MCDMUtils.DeepReplace(ability, "<<text>>", text)
     self:ExecuteAbility(token, ability, {}, options)
+end
+
+--Show a speech bubble over a token straight away. Speech() casts an ability
+--and waits for it, so several tokens could not talk at once; this writes the
+--bubble directly, as the Character Speech behavior does. A creature that
+--speaks no language says "...".
+function MonsterAI:SpeakNow(token, text)
+    if not self.TokenIsLiveCombatant(token) then
+        return
+    end
+    if type(text) == "table" then
+        text = text[math.random(1, #text)]
+    end
+    local language = token.properties:CurrentlySpokenLanguage()
+    if language == nil then
+        text = "..."
+    end
+    token:ModifyProperties{
+        description = "Speech",
+        undoable = false,
+        execute = function()
+            token.properties:CharacterSpeech{
+                text = text,
+                langid = language,
+            }
+        end,
+    }
+end
+
+--A squad's battle cry before it moves: the captain (or, without one, a
+--planned member) calls the attack, then two or three others shout back together.
+function MonsterAI:AnnounceSquadStrike(plans, ability)
+    local speakers = {}
+    for _,plan in ipairs(plans) do
+        if self.TokenIsLiveCombatant(plan.token) then
+            speakers[#speakers+1] = plan.token
+        end
+    end
+    for i=#speakers,2,-1 do
+        local j = math.random(1, i)
+        speakers[i], speakers[j] = speakers[j], speakers[i]
+    end
+
+    local caller = nil
+    if self.squadCaptain and self.TokenIsLiveCombatant(self.squadCaptain) then
+        caller = self.squadCaptain
+    else
+        caller = table.remove(speakers)
+    end
+    if caller == nil then
+        return
+    end
+    self:SpeakNow(caller, ability:HasKeyword("Melee") and self.squadCallLines.melee or self.squadCallLines.ranged)
+
+    local answerCount = math.min(#speakers, math.random(2, 3))
+    if answerCount > 0 then
+        self.Sleep(0.35)
+        local lines = {}
+        for i,line in ipairs(self.squadAnswerLines) do
+            lines[i] = line
+        end
+        for i=#lines,2,-1 do
+            local j = math.random(1, i)
+            lines[i], lines[j] = lines[j], lines[i]
+        end
+        for i=1,answerCount do
+            self:SpeakNow(speakers[i], lines[(i-1) % #lines + 1])
+        end
+    end
+    self.Sleep(0.8)
 end
 
 function MonsterAI:LogMove(monsterType, moveid, message, options)

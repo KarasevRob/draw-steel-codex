@@ -10222,6 +10222,54 @@ local function IconRailUIHeight()
     return 1080
 end
 
+--Returns a rail window position moved so the whole window is on screen.
+--Why: a window dropped outside the app window has no title bar left to
+--grab, and its saved position would strand it again on every restart.
+--  x, y: the window's top-left in rail units (dialog.x / dialog.y); a nil
+--      coordinate passes through untouched.
+--  width, height: the window's UNzoomed size; nil means the default size.
+--      The Font Size zoom is applied here, since that is what shows on screen.
+--Lives on PanelDocument because this file has hit Lua's 200-locals limit.
+function PanelDocument.ClampWindowOnScreen(x, y, width, height)
+    local scale = WindowUIScale()
+    local w = (width or PanelDocument.DefaultWidth) * scale
+    local h = (height or PanelDocument.DefaultHeight) * scale
+    local margin = 8
+    --math.max runs last on purpose: if the window is bigger than the
+    --screen, its top-left (and so its title bar) is what stays visible.
+    if type(x) == "number" then
+        x = math.max(margin, math.min(x, IconRailUIWidth() - w - margin))
+    end
+    if type(y) == "number" then
+        y = math.max(margin, math.min(y, IconRailUIHeight() - h - margin))
+    end
+    return x, y
+end
+
+--Call from a rail window's onMoved, before saving its position: moves
+--the window back on screen so the saved position is one the user can reach.
+--  dialog: the window panel that was just dropped.
+--  doc: the PanelDocument that owns the window.
+function PanelDocument.ClampDroppedWindow(dialog, doc)
+    local w = dialog.renderedWidth
+    local h = dialog.renderedHeight
+    local x, y = PanelDocument.ClampWindowOnScreen(dialog.x, dialog.y,
+        cond(type(w) == "number" and w > 0, w, nil),
+        cond(type(h) == "number" and h > 0, h, nil))
+    if x == dialog.x and y == dialog.y then
+        return
+    end
+    dialog.x = x
+    dialog.y = y
+    --the drag handler already saved the unclamped drop in _tmp_location,
+    --and reopening the window this session reads it from there.
+    local loc = doc:try_get("_tmp_location")
+    if loc ~= nil then
+        loc.x = x
+        loc.y = y
+    end
+end
+
 --Buttons occupy SLOTS on their rail: a sparse column where empty slots
 --render as gaps, so users can leave blank spots between buttons. Slot
 --pitch is one button plus one gap. MAX_SLOT is the rearrange-drop clamp:
@@ -11225,6 +11273,9 @@ function ToggleCharacterPanelDocument(charid, anchorToken, anchorPanel)
             if MaybeMinimizeCharacterWindow(key, element) then
                 return
             end
+            --clamp only after the dock check: dropping a character window
+            --past the screen edge is how it docks into the rail.
+            PanelDocument.ClampDroppedWindow(element, doc)
             RailRememberWindow(key, element.x, element.y, doc)
         end
         --a plain resize keeps a stuck window's recorded size current
@@ -11720,6 +11771,9 @@ local function OpenIconRailWindow(panelName, placement)
             if MaybeMinimizeCharacterWindow(key, element) then
                 return
             end
+            --clamp only after the dock check: dropping a character window
+            --past the screen edge is how it docks into the rail.
+            PanelDocument.ClampDroppedWindow(element, doc)
             RailRememberWindow(key, element.x, element.y, doc)
             --a cluster member dragged by hand STAYS in the cluster,
             --following its strip from the new relative spot (owner
@@ -11795,8 +11849,10 @@ local function OpenIconRailWindow(panelName, placement)
         end,
     }
     if placement ~= nil then
-        args.x = placement.x
-        args.y = placement.y
+        --startup restore and Views pass saved positions straight through,
+        --and positions saved before drops were clamped can be off screen.
+        args.x, args.y = PanelDocument.ClampWindowOnScreen(placement.x, placement.y,
+            placement.width, placement.height)
         args.width = placement.width
         args.height = placement.height
         args.anchor = placement.anchor

@@ -970,6 +970,27 @@ pcall(function()
             return { test.CreateTitlebarItem() }
         end,
 
+        --the players row's popout lists who is here and their heroes, and
+        --lets the host hand a departed player's heroes to someone else
+        --(EncounterPresence loads after this file: looked up at call time).
+        playersPopout = function()
+            local presence = rawget(_G, "EncounterPresence")
+            if presence == nil then
+                return nil
+            end
+            return presence.CreatePlayersPopout()
+        end,
+
+        --leaving or quitting asks whether the player will come back (Leave)
+        --or gives the game up (Abandon Game).
+        confirmExit = function(kind, proceed)
+            local presence = rawget(_G, "EncounterPresence")
+            if presence == nil then
+                return false
+            end
+            return presence.ConfirmExit(kind, proceed)
+        end,
+
         suppressPanel = { ["Compendium"] = true },
 
         suppressSearchBucket = { ["compendium"] = true },

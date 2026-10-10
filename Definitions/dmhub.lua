@@ -1689,8 +1689,11 @@ function dmhub.CancelActionRequest(id) end
 --- (Undocumented: engine-internal, not part of the modding API.)
 function dmhub.TermsOfServiceAccepted() end
 
---- Quit the application.
+--- Quit the application. Every quit -- this call, the window's close button, Alt+F4, Cmd+Q -- first calls the Lua global function OnQuitRequested() if it is defined. If that returns true, the quit is put on hold: the Lua code has taken over (typically to show its own confirmation) and must call @see ForceQuitApplication to really quit. Any other result, or an error, quits as normal.
 function dmhub.QuitApplication() end
+
+--- Quit the application now, without asking the Lua OnQuitRequested hook. Call this from a quit confirmation that hook put up.
+function dmhub.ForceQuitApplication() end
 
 --- Try to recover the user's password to the supplied email address.
 --- @param email? string

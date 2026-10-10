@@ -899,6 +899,16 @@ end
 --      characterPanelAccess = function(token) end,
 --                                       --override CharacterPanel access:
 --                                       --"edit"|"view"|"none"|nil=normal
+--      playersPopout = function() end,  --content for the popout under the
+--                                       --title bar's players row (replaces
+--                                       --the Heroes panel there); nil=normal
+--      confirmExit = function(kind, proceed) end,
+--                                       --the user is leaving the game
+--                                       --(kind "leave") or quitting the app
+--                                       --("quit"): return true to put up
+--                                       --your own confirmation, which calls
+--                                       --proceed() to really go; false or
+--                                       --nil lets the exit happen as normal
 --  }
 --
 --Everything but id/active is optional. The FIRST registered provider whose
@@ -1032,6 +1042,38 @@ GameHud.CustomInterfaceCharacterPanelAccess = function(token)
 	local ok, access = pcall(provider.characterPanelAccess, token)
 	if ok and (access == "edit" or access == "view" or access == "none") then
 		return access
+	end
+	return nil
+end
+
+--Offer the active interface a say in the user leaving the game ("leave")
+--or quitting the app ("quit"). True when it has put up its own
+--confirmation, which will call proceed() if the user goes ahead; the
+--caller must then do nothing more. False when the exit should go ahead as
+--normal (no interface, no hook, or the hook declined or failed).
+GameHud.CustomInterfaceConfirmExit = function(kind, proceed)
+	local provider = GameHud.CustomInterface()
+	if provider == nil or type(provider.confirmExit) ~= "function" then
+		return false
+	end
+	local ok, handled = pcall(provider.confirmExit, kind, proceed)
+	if not ok then
+		dmhub.Error(string.format("custom interface exit confirmation failed: %s", tostring(handled)))
+		return false
+	end
+	return handled == true
+end
+
+--The panel the interface wants in the players-row popout, or nil for the
+--normal Heroes panel.
+GameHud.CustomInterfacePlayersPopout = function()
+	local provider = GameHud.CustomInterface()
+	if provider == nil or type(provider.playersPopout) ~= "function" then
+		return nil
+	end
+	local ok, panel = pcall(provider.playersPopout)
+	if ok and panel ~= nil then
+		return panel
 	end
 	return nil
 end

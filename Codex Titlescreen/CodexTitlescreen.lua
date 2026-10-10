@@ -9897,4 +9897,17 @@ TitlescreenHeroes = {
             return false
         end)
     end,
+    --The heroes in the titlescreen's HEROES slots, in slot order: the first
+    --8 of LobbyHeroes() (one per hard-coded MakeHeroPanel slot), minus
+    --abandoned empty shells. The EotW Guild offers these to copy into town.
+    List = function()
+        local result = {}
+        local chars = LobbyHeroes()
+        for i = 1, math.min(8, #chars) do
+            if not HeroIsUnstarted(chars[i]) then
+                result[#result+1] = chars[i]
+            end
+        end
+        return result
+    end,
 }
