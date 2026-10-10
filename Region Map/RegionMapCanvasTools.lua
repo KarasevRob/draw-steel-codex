@@ -325,14 +325,28 @@ function RegionMapCanvasTools.Stretch(panel, ref, layout)
 end
 local Stretch = RegionMapCanvasTools.Stretch
 
--- The part of segment a-b inside the rectangle [x0,x1]x[y0,y1], as 0..1
--- parameters along it (Liang-Barsky), or nil when it misses the rectangle.
-local function ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
+--- The part of segment a-b inside the rectangle [x0,x1]x[y0,y1], as 0..1
+--- parameters along it (Liang-Barsky), or nil when it misses the rectangle.
+--- Shared by the route dots and the path layer, which cull to the view with it.
+--- @param ax number
+--- @param ay number
+--- @param bx number
+--- @param by number
+--- @param x0 number
+--- @param y0 number
+--- @param x1 number
+--- @param y1 number
+function RegionMapCanvasTools.ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
     local t0, t1 = 0, 1
     local dx, dy = bx - ax, by - ay
-    local checks = { { -dx, ax - x0 }, { dx, x1 - ax }, { -dy, ay - y0 }, { dy, y1 - ay } }
-    for _, check in ipairs(checks) do
-        local p, q = check[1], check[2]
+    -- The four edges as (p, q) pairs, unrolled: this runs for every segment on every
+    -- re-place, and a table per edge was garbage each time.
+    local p, q
+    for edge = 1, 4 do
+        if edge == 1 then p, q = -dx, ax - x0
+        elseif edge == 2 then p, q = dx, x1 - ax
+        elseif edge == 3 then p, q = -dy, ay - y0
+        else p, q = dy, y1 - ay end
         if p == 0 then
             if q < 0 then return nil end
         else
@@ -347,6 +361,44 @@ local function ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
         end
     end
     return t0, t1
+end
+local ClipSegment = RegionMapCanvasTools.ClipSegment
+
+--- A pool of panels in one z-layer, reused by index. Each pass calls Begin,
+--- then Next once for every panel it needs, then Finish. Panels past the count
+--- in use are collapsed, never destroyed, so a dense map reuses them on every
+--- zoom, and the layer's children are set once per pass, only after it grew.
+--- @param make fun(): Panel builds one new panel
+--- @param group nil|Panel the layer to fill; nil makes a full-size one (pool.group)
+function RegionMapCanvasTools.Pool(make, group)
+    -- Sized inline: a layer whose classes never change gets no class styles (V2 lesson).
+    group = group or gui.Panel { floating = true, interactable = false, width = "100%", height = "100%", flow = "none" }
+    local pool = { group = group, items = {}, used = 0, shown = 0, grown = false }
+    function pool.Next()
+        pool.used = pool.used + 1
+        local item = pool.items[pool.used]
+        if item == nil then
+            item = make()
+            pool.items[pool.used] = item
+            pool.grown = true
+        else
+            Session.SetClassIf(item, "collapsed", false)
+        end
+        return item
+    end
+    function pool.Begin() pool.used = 0 end
+    function pool.Finish()
+        if pool.grown then
+            pool.grown = false
+            group.children = pool.items
+        end
+        for i = pool.used + 1, pool.shown do
+            local item = pool.items[i]
+            if item ~= nil then Session.SetClassIf(item, "collapsed", true) end
+        end
+        pool.shown = pool.used
+    end
+    return pool
 end
 
 --- The canvas layers that draw the Party's past route (below pins) and the
@@ -366,8 +418,6 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
     local noLegs = {} --- @type RegionMapRoutePoint[][] one shared empty route, so "no route" compares equal
     local legs = noLegs --- @type RegionMapRoutePoint[][]
     local legsKey = "" -- which route the dots were built from
-    local dots = {} --- @type Panel[]
-    local shownDots = 0
     local labelTooltip = nil --- @type nil|string
     -- Like the pin layer, the route layer slides while the map pans; dots are
     -- placed again only on zoom, after a long pan or when the route changes.
@@ -399,29 +449,12 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         end,
     }
 
-    -- The pool only grows; dots past the count in use are collapsed, not destroyed.
-    local function EnsurePool(count)
-        if count <= #dots then return end
-        for _ = #dots + 1, count do dots[#dots + 1] = Dot({ "regionMapRouteDot" }) end
-        route.children = dots
-    end
-
-    local function SetDotCount(count)
-        EnsurePool(count)
-        for i = 1, math.max(count, shownDots) do
-            local dot = dots[i]
-            if dot ~= nil then
-                local hide = i > count
-                if dot:HasClass("collapsed") ~= hide then dot:SetClass("collapsed", hide) end
-            end
-        end
-        shownDots = count
-    end
+    local dots = RegionMapCanvasTools.Pool(function() return Dot({ "regionMapRouteDot" }) end, route)
 
     -- Dots every routeDotSpacing screen px along the legs, only on screen and
     -- half a view around it, so a pan of up to half a view needs no new dots.
     local function PlaceDots(layout)
-        local count = 0
+        dots.Begin()
         local spacing = C.routeDotSpacing
         local marginX, marginY = layout.viewWidth / 2 + spacing, layout.viewHeight / 2 + spacing
         local x0, y0, x1, y1 = -marginX, -marginY, layout.viewWidth + marginX, layout.viewHeight + marginY
@@ -437,16 +470,14 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
                     local first = math.ceil(t0 * length / spacing)
                     local last = math.floor(t1 * length / spacing)
                     for step = first, last do
-                        if count >= C.routeDotLimit then break end
-                        count = count + 1
-                        EnsurePool(count)
+                        if dots.used >= C.routeDotLimit then break end
                         local t = step * spacing / length
-                        PlaceCentered(dots[count], layout, ax + (bx - ax) * t, ay + (by - ay) * t)
+                        PlaceCentered(dots.Next(), layout, ax + (bx - ax) * t, ay + (by - ay) * t)
                     end
                 end
             end
         end
-        SetDotCount(count)
+        dots.Finish()
     end
 
     local function LayoutRoute(layout, moving)
@@ -558,7 +589,8 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         Layout = function(layout, imageWidth, imageHeight, moving)
             if layout == nil then
                 routeRef = nil
-                SetDotCount(0)
+                dots.Begin()
+                dots.Finish()
                 HideRuler()
                 return
             end

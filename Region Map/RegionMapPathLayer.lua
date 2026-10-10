@@ -17,6 +17,8 @@ local C = RegionMapConstants
 local Model = RegionMapModel
 local Paths = RegionMapPaths
 local Tools = RegionMapCanvasTools
+local ClipSegment = Tools.ClipSegment
+local Pool = Tools.Pool
 
 --- How a path draws: its type's look, or the plain "No type" line (N3).
 --- @class RegionMapPathLook
@@ -111,28 +113,6 @@ local function Across(look, scale)
     return thickness
 end
 
--- The part of segment a-b inside the rectangle, as 0..1 parameters (Liang-Barsky), or nil.
-local function ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
-    local t0, t1 = 0, 1
-    local dx, dy = bx - ax, by - ay
-    for _, check in ipairs({ { -dx, ax - x0 }, { dx, x1 - ax }, { -dy, ay - y0 }, { dy, y1 - ay } }) do
-        local p, q = check[1], check[2]
-        if p == 0 then
-            if q < 0 then return nil end
-        else
-            local t = q / p
-            if p < 0 then
-                if t > t1 then return nil end
-                if t > t0 then t0 = t end
-            else
-                if t < t0 then return nil end
-                if t < t1 then t1 = t end
-            end
-        end
-    end
-    return t0, t1
-end
-
 -- Distance from point p to segment a-b, in px.
 local function DistanceToSegment(px, py, ax, ay, bx, by)
     local dx, dy = bx - ax, by - ay
@@ -141,39 +121,6 @@ local function DistanceToSegment(px, py, ax, ay, bx, by)
     if lengthSquared > 0 then t = math.max(0, math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared)) end
     local cx, cy = ax + dx * t, ay + dy * t
     return math.sqrt((px - cx) ^ 2 + (py - cy) ^ 2)
-end
-
--- A group of pooled panels in one z-layer. Panels past the count in use are
--- collapsed, never destroyed, so a dense map reuses them on every zoom.
-local function Pool(make)
-    -- Sized inline: a layer whose classes never change gets no class styles (V2 lesson).
-    local group = gui.Panel { floating = true, interactable = false, width = "100%", height = "100%", flow = "none" }
-    local pool = { group = group, items = {}, used = 0, shown = 0, grown = false }
-    function pool.Next()
-        pool.used = pool.used + 1
-        local item = pool.items[pool.used]
-        if item == nil then
-            item = make()
-            pool.items[pool.used] = item
-            pool.grown = true
-        elseif item:HasClass("collapsed") then
-            item:SetClass("collapsed", false)
-        end
-        return item
-    end
-    function pool.Begin() pool.used = 0 end
-    function pool.Finish()
-        if pool.grown then
-            pool.grown = false
-            group.children = pool.items
-        end
-        for i = pool.used + 1, pool.shown do
-            local item = pool.items[i]
-            if item ~= nil and not item:HasClass("collapsed") then item:SetClass("collapsed", true) end
-        end
-        pool.shown = pool.used
-    end
-    return pool
 end
 
 --- Build the path layer for a canvas.
@@ -746,24 +693,15 @@ end
 --- @return Panel sample with data.set(look) to redraw it
 function RegionMapPathLayer.Sample(width)
     local height = 12
-    local pieces = {} --- @type Panel[]
     local panel = gui.Panel {
         classes = { "regionMapPathSample" }, width = width, height = height, flow = "none", interactable = false,
         data = {},
     }
-    local function Piece(index)
-        local piece = pieces[index]
-        if piece == nil then
-            piece = gui.Panel { classes = { "regionMapPathPiece" }, floating = true, halign = "left", valign = "top", interactable = false }
-            pieces[index] = piece
-            panel.children = pieces
-        end
-        piece:SetClass("collapsed", false)
-        return piece
-    end
+    local pieces = Pool(function()
+        return gui.Panel { classes = { "regionMapPathPiece" }, floating = true, halign = "left", valign = "top", interactable = false }
+    end, panel)
     -- Horizontal pieces only, so plain x/y place them.
-    local function Bar(index, x1, x2, y, thickness, color, opacity)
-        local piece = Piece(index)
+    local function Bar(piece, x1, x2, y, thickness, color, opacity)
         piece.selfStyle.x, piece.selfStyle.y = x1, y - thickness / 2
         piece.selfStyle.width, piece.selfStyle.height = math.max(thickness, x2 - x1), thickness
         piece.selfStyle.cornerRadius = thickness / 2
@@ -776,10 +714,9 @@ function RegionMapPathLayer.Sample(width)
         local key = table.concat({ look.pattern, look.color, look.casing, tostring(look.width) }, "|")
         if key == shown then return end
         shown = key
-        local count = 0
+        pieces.Begin()
         local function Add(x1, x2, y, thickness, color)
-            count = count + 1
-            Bar(count, x1, x2, y, thickness, color)
+            Bar(pieces.Next(), x1, x2, y, thickness, color)
         end
         local mid = height / 2
         local thickness = look.width
@@ -812,7 +749,7 @@ function RegionMapPathLayer.Sample(width)
                 end
             end
         end
-        for i = count + 1, #pieces do pieces[i]:SetClass("collapsed", true) end
+        pieces.Finish()
     end
     return panel
 end
