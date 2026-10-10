@@ -72,7 +72,8 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
   only while they have no map. Only the Director adds maps, so a map and everything on it is
   Director content; a player's Location that has one loses its Delete entry.
 - Limits: names 1-80 characters on one line; description 4000; Director note 8000; nesting
-  16 levels; 250 Locations per map (soft guard, counted per viewer).
+  16 levels. A map holds any number of Locations (the 250 cap was removed 2026-10-10;
+  performance is measured only up to 250 pins a map, section 5).
 
 ### Map images (V2.1)
 
@@ -90,8 +91,7 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
 - Director: "Import locations..." in the map right-click menu and the open map's "..." menu
   reads a JSON file ([docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md)) into the open map.
 - A preview lists the count, skipped entries with the reason for each, and names already on
-  the map. An import that would pass the 250-pin guard is refused whole. Entries without
-  u/v go on a grid near the center. One Undo removes the whole import.
+  the map. Entries without u/v go on a grid near the center. One Undo removes the whole import.
 
 ### Point crawl maps (V2.1)
 

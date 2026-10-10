@@ -245,7 +245,6 @@ function RegionMapModel.Children(mapId)
     end
     return result
 end
-local Children = RegionMapModel.Children
 
 --- Top-level maps the viewer may open, sorted by name (the Atlas).
 --- @return RegionMapLocationRecord[]
@@ -462,8 +461,6 @@ end
 function RegionMapModel.CanAdd(mapId)
     if not CanWrite() or not CanOpenMap(Raw(mapId)) then return false, "permission" end
     if not IsDirector() and not RegionMapModel.PlayersCanAddLocations() then return false, "permission" end
-    -- Counted per viewer, so hidden pins neither leak nor block a player (V1 RM-02).
-    if #Children(mapId) >= C.labelLimit then return false, "limit" end
     return true, nil
 end
 local CanAdd = RegionMapModel.CanAdd

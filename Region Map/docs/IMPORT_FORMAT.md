@@ -51,9 +51,9 @@ Only `name` is required. Unknown fields are ignored.
 - **Skipped entries:** an entry with a missing or invalid field is skipped, and the preview
   gives its number in the file and the reason. The other entries still import.
 - **Names already on the map:** they are listed, and they are imported again.
-- **The pin limit:** a map holds up to 250 Locations. A file that would go over is refused
-  whole, and the card says how many more the map has room for. Split the file and import it
-  in parts.
+- **No pin limit:** a map holds any number of Locations, so a file of any size imports.
+  Very large files are slow (rows are created a batch at a time) and pin counts above 250 a
+  map are not performance-tested.
 - **Errors:** a file that isn't valid JSON, has no entries, or has no entry that can be
   imported shows a card with the reason, and nothing is imported.
 

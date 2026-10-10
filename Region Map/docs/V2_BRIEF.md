@@ -231,6 +231,7 @@ description, journal link; Director notes stay Director-only.
 | 2026-10-05 | D14c | Ruler uses a per-map scale (calibrate a known distance once); shows distance and travel time at a chosen pace; uncalibrated maps show % of width | Meaningful distances |
 | 2026-10-05 | D13e | Keyboard nudges for a selected pin are removed; arrow keys only pan | Follows from locked pins and D13d; confirmed by user |
 | 2026-10-05 | D13f | The 250-per-map soft creation guard stays for Locations | V1 performance guard; confirmed by user |
+| 2026-10-10 | D13f (revised) | The per-map Location cap is removed: a map holds any number of Locations | User decision. Performance was measured up to 250 pins a map (README section 5); above that it is not measured |
 | 2026-10-05 | D12e | The session log has its own toolbar button | Confirmed by user |
 | 2026-10-05 | D14d | Session log: automatic entries when the Party arrives or is placed (where, when, by whom), Director can edit/delete/annotate; players see entries for revealed places; past route drawn on the map | Recap and continuity |
 

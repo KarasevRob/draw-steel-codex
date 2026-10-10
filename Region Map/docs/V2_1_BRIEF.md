@@ -97,6 +97,7 @@ deferred), fog, planned multi-leg routes (3.1).
 | 2026-10-08 | IM4 | Importing the same file twice creates new Locations each time; the preview warns about names already on the map | Simple and predictable |
 | 2026-10-08 | IM5 | Choosing the file opens a preview (count, skipped entries with reasons, names already on the map), then Import / Cancel; one undo removes the whole import | Nothing surprising, cheap recovery |
 | 2026-10-08 | IM6 | A file that would pass the map's 250-pin limit is refused whole; the preview says how many fit | Nothing half-imports |
+| 2026-10-10 | IM6 (revised) | No size check: with the per-map cap gone (V2 D13f revised), every entry that passes its checks is imported | User decision |
 | 2026-10-08 | M5 | Build order: 11 size guidance, 10 borders (soft fade first, the others when the art arrives), 9 import; then point crawl in slices (mode and paths, travel, log) | Early wins; point crawl gets the most review |
 | 2026-10-08 | M6 | Before lock: a clickable mockup of the point crawl screens with their copy, then three critique reviews (UX, Director in session, accessibility) | User |
 | 2026-10-08 | K8 | Until the Director first picks a border, new maps get Soft fade | Organic from the start |
