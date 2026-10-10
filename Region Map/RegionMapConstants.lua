@@ -42,6 +42,13 @@ RegionMapConstants.logCap = 500                      -- newest session log entri
 RegionMapConstants.logRowsPerFrame = 40              -- log rows built per frame; a full log builds over several frames
 RegionMapConstants.undoDepth = 20                    -- undo entries kept per session
 
+-- Allowed values, in the order the editors list them. RegionMapRecords builds its checks
+-- from these lists. The values are stored in rows, so never rename one.
+RegionMapConstants.pinStyles = { "iconName", "plate", "iconOnly" }
+RegionMapConstants.importances = { "major", "normal", "minor" }
+RegionMapConstants.visibilities = { "hidden", "revealed" }
+RegionMapConstants.scaleUnits = { "mi", "km" }
+
 -- Map image size guidance (V2.1 J1, brief W5): a newly picked image narrower or wider
 -- than this warns with a toast; nothing is blocked. Measured 2026-10-08 (TECH_TASK_V2_1).
 RegionMapConstants.imageMinWidth = 1500             -- narrower blurs as soon as it is zoomed in
@@ -80,6 +87,7 @@ RegionMapConstants.watchesPerDay = 6
 RegionMapConstants.pathTimeMax = 6 * 999             -- watches; a typo guard, not a game rule
 RegionMapConstants.defaultTimeUnit = "days"
 RegionMapConstants.pathTimeUnits = { "days", "watches" }
+RegionMapConstants.pathBacks = { "same", "different", "none" } -- the other way: same time, its own time, not possible
 -- Line looks (N1, Q3). Patterns and widths are drawn in screen pixels, the same at every zoom (Q2).
 RegionMapConstants.pathPatterns = { "solid", "dashed", "dotted", "double", "dashDot", "longDash" }
 RegionMapConstants.pathWidthOrder = { "thin", "normal", "thick" }

@@ -500,14 +500,25 @@ function RegionMapRecords.LogTable()
     return (dmhub.GetTable(C.logTableName) or {}) --[[@as table<string, RegionMapLogEntryRecord>]]
 end
 
--- Allowed values of the Location and log entry enums.
-RegionMapRecords.pinStyles = { iconName = true, plate = true, iconOnly = true }
-RegionMapRecords.importances = { major = true, normal = true, minor = true }
-RegionMapRecords.visibilities = { hidden = true, revealed = true }
-RegionMapRecords.scaleUnits = { mi = true, km = true }
-RegionMapRecords.borders = { none = true, fade = true, torn = true, frame = true }
-RegionMapRecords.modes = { free = true, pointcrawl = true }
-RegionMapRecords.pathBacks = { same = true, different = true, none = true }
+--- A lookup set from a list of allowed values: { "a", "b" } gives { a = true, b = true }.
+--- @param list string[]
+--- @return table<string, boolean>
+function RegionMapRecords.SetOf(list)
+    local set = {}
+    for _, value in ipairs(list) do set[value] = true end
+    return set
+end
+local SetOf = RegionMapRecords.SetOf
+
+-- Allowed values of the Location, path and log entry enums. The lists live in
+-- Constants, where the editors read them in order.
+RegionMapRecords.pinStyles = SetOf(C.pinStyles)
+RegionMapRecords.importances = SetOf(C.importances)
+RegionMapRecords.visibilities = SetOf(C.visibilities)
+RegionMapRecords.scaleUnits = SetOf(C.scaleUnits)
+RegionMapRecords.borders = SetOf(C.borders)
+RegionMapRecords.modes = SetOf(C.modes)
+RegionMapRecords.pathBacks = SetOf(C.pathBacks)
 RegionMapRecords.logKinds = { arrived = true, traveling = true, travelingOn = true, placed = true, leg = true, stopped = true }
 RegionMapRecords.legRests = { [""] = true, on = true, back = true }
 

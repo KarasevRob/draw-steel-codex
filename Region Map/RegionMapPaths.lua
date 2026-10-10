@@ -27,11 +27,8 @@ local IsFinite = R.IsFinite
 --- @field onMap table<string, RegionMapPathRecord[]>
 --- @field ofLocation table<string, RegionMapPathRecord[]>
 
-local patterns, widths, colors = {}, {}, {}
-for _, key in ipairs(C.pathPatterns) do patterns[key] = true end
-for _, key in ipairs(C.pathWidthOrder) do widths[key] = true end
-for _, key in ipairs(C.pathColorOrder) do colors[key] = true end
-local units = { days = true, watches = true }
+local patterns, widths, colors = R.SetOf(C.pathPatterns), R.SetOf(C.pathWidthOrder), R.SetOf(C.pathColorOrder)
+local units = R.SetOf(C.pathTimeUnits)
 
 local function T(id, args) return RegionMapCopy.T(id, args) end
 
