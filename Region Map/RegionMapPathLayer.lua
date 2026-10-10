@@ -25,10 +25,9 @@ local Tools = RegionMapCanvasTools
 --- @field casing string hex
 --- @field width number px at Font Size 100
 
---- One drawn path: its record, look and points in image units, a to b.
+--- One drawn path: its id, look and points in image units, a to b.
 --- @class RegionMapDrawnPath
 --- @field id string
---- @field path RegionMapPathRecord
 --- @field look RegionMapPathLook
 --- @field hidden boolean drawn faded with eye-slash badges (Director only sees these)
 --- @field points {u: number, v: number}[]
@@ -478,10 +477,6 @@ function RegionMapPathLayer.Create()
         PlaceLabels()
         layerX, layerY = 0, 0
         layer.selfStyle.x, layer.selfStyle.y = 0, 0
-        if stretched then
-            stretched = false
-            layer.selfStyle.scale = 1
-        end
         dirty = false
     end
 
@@ -508,7 +503,7 @@ function RegionMapPathLayer.Create()
                     points[#points + 1] = { u = b.u, v = b.v }
                     local hidden = path.visibility == "hidden"
                     list[#list + 1] = {
-                        id = path.id, path = path, look = RegionMapPathLayer.LookOf(path), hidden = hidden,
+                        id = path.id, look = RegionMapPathLayer.LookOf(path), hidden = hidden,
                         points = points, label = Paths.Label(path),
                         aName = Model.DisplayName(a), bName = Model.DisplayName(b),
                     }
