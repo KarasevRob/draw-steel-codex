@@ -388,10 +388,9 @@ function RegionMapCanvas.Create(ctx)
 
     local function ShowPart(pin, key, show)
         if show then
-            local part = PinPart(pin, key)
-            if part:HasClass("collapsed") then part:SetClass("collapsed", false) end
-        elseif pin.data[key] ~= nil and not pin.data[key]:HasClass("collapsed") then
-            pin.data[key]:SetClass("collapsed", true)
+            Session.SetClassIf(PinPart(pin, key), "collapsed", false)
+        elseif pin.data[key] ~= nil then
+            Session.SetClassIf(pin.data[key], "collapsed", true)
         end
     end
 
@@ -1245,7 +1244,7 @@ function RegionMapCanvas.Create(ctx)
             state.lastPointerMove = dmhub.Time()
         end
         local faded = not Session.ReduceMotion() and dmhub.Time() - state.lastPointerMove > C.controlsFadeSeconds
-        if controls:HasClass("faded") ~= faded then controls:SetClass("faded", faded) end
+        Session.SetClassIf(controls, "faded", faded)
     end
 
     -- Controls -----------------------------------------------------------------------------------

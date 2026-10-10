@@ -17,36 +17,7 @@ local Copy = RegionMapCopy
 
 local T = Copy.T
 local SetText = Session.SetText
-
-local function Label(classes, text)
-    return gui.Label { classes = classes, text = text or "", interactable = false }
-end
-
-local function Button(text, action)
-    return gui.Button {
-        classes = { "regionMapButton", "sizeS" }, text = text,
-        click = function() if not mod.unloaded then action() end end,
-    }
-end
-
--- A row of segment buttons, one per value (same control as the side panel's).
-local function Segments(values, copyPrefix, onPick)
-    local buttons = {}
-    local row = gui.Panel { classes = { "regionMapSegments" }, data = {} }
-    for _, value in ipairs(values) do
-        buttons[#buttons + 1] = gui.Label {
-            classes = { "regionMapSegment" }, text = T(copyPrefix .. value),
-            width = string.format("%.4f%%", 100 / #values),
-            data = { value = value },
-            click = function(element) onPick(element.data.value) end,
-        }
-    end
-    row.children = buttons
-    row.data.select = function(current)
-        for _, button in ipairs(buttons) do button:SetClass("selected", button.data.value == current) end
-    end
-    return row
-end
+local Label, Button, Segments = Session.Label, Session.Button, Session.Segments
 
 -- A positive number typed by the user, or nil. Accepts a decimal comma.
 local function ParsePositive(text)
@@ -123,9 +94,7 @@ local function BuildSearch(ctx)
     body.data.open = function()
         if input.text ~= "" then input.text = "" end
         Run("")
-        dmhub.Schedule(0.05, function()
-            if not mod.unloaded and input.valid and ctx.data.popover == "search" then gui.SetFocus(input) end
-        end)
+        Session.FocusSoon(input, function() return ctx.data.popover == "search" end)
     end
     return body
 end
@@ -583,9 +552,7 @@ local function BuildSettings(ctx)
         -- Fresh from the scale tool: put the caret in Distance.
         local draft = data.scaleDraft
         if draft ~= nil and draft.u2 ~= nil then
-            dmhub.Schedule(0.05, function()
-                if not mod.unloaded and distance.valid and data.popover == "settings" then gui.SetFocus(distance) end
-            end)
+            Session.FocusSoon(distance, function() return data.popover == "settings" end)
         end
     end
     return body

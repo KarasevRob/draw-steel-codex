@@ -204,6 +204,7 @@ RegionMapConstants.presentTtl = 10
 RegionMapConstants.autosaveDelay = 1.5               -- side panel saves after this long without typing
 RegionMapConstants.busyRetryDelay = 0.3              -- Delete / Remove map wait this long while a save of the row is in flight
 RegionMapConstants.busyRetries = 10                  -- then report Not saved
+RegionMapConstants.afterLayoutDelay = 0.05           -- a panel just shown has laid out: focus its input, scroll it
 RegionMapConstants.toastSeconds = 10                 -- paused while hovered (R9)
 RegionMapConstants.transitionSeconds = 0.3           -- zoom into a pin, then crossfade to its map
 -- The Party banner walking a leg or stop along its path's line (point crawl maps).

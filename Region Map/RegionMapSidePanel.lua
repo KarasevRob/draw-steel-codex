@@ -18,17 +18,7 @@ local Journal = RegionMapJournal
 
 local SetText = Session.SetText
 local T = Copy.T
-
-local function Label(classes, text)
-    return gui.Label { classes = classes, text = text or "", interactable = false }
-end
-
-local function Button(text, action)
-    return gui.Button {
-        classes = { "regionMapButton", "sizeS" }, text = text,
-        click = function() if not mod.unloaded then action() end end,
-    }
-end
+local Label, Button, Segments = Session.Label, Session.Button, Session.Segments
 
 local function NameOf(location)
     return Model.DisplayName(location)
@@ -215,25 +205,6 @@ function RegionMapSidePanel.MenuEntries(ctx, id)
         Add("menu.delete", function() ConfirmDelete(ctx, location) end)
     end
     return entries
-end
-
--- A row of segment buttons, one per value; onPick gets the chosen value.
-local function Segments(values, copyPrefix, onPick)
-    local buttons = {}
-    local row = gui.Panel { classes = { "regionMapSegments" }, data = {} }
-    for _, value in ipairs(values) do
-        buttons[#buttons + 1] = gui.Label {
-            classes = { "regionMapSegment" }, text = T(copyPrefix .. value),
-            width = string.format("%.4f%%", 100 / #values),
-            data = { value = value },
-            click = function(element) onPick(element.data.value) end,
-        }
-    end
-    row.children = buttons
-    row.data.select = function(current)
-        for _, button in ipairs(buttons) do button:SetClass("selected", button.data.value == current) end
-    end
-    return row
 end
 
 --- Build the side panel.
@@ -567,10 +538,7 @@ function RegionMapSidePanel.Create(ctx)
     }
 
     local function TextArea(field, limit, placeholder)
-        return gui.TextEditor {
-            classes = { "input", "bordered", "sizeS", "regionMapTextArea" }, borderBox = true,
-            characterLimit = limit, multiline = true, verticalScrollbar = true, editlag = 0,
-            selectAllOnFocus = false, resetOnDeActivation = false, textAlignment = "topleft",
+        return Session.TextArea(limit, {
             placeholderText = placeholder,
             edit = function(element)
                 if not panel.data.binding then Edited(field, element.text) end
@@ -581,7 +549,7 @@ function RegionMapSidePanel.Create(ctx)
                     Flush()
                 end
             end,
-        }
+        })
     end
     local descriptionInput = TextArea("description", C.descriptionLimit, T("edit.desc.placeholder"))
     local journalLabel = Label({ "regionMapFormLabel" }, T("edit.journal"))
@@ -686,9 +654,7 @@ function RegionMapSidePanel.Create(ctx)
 
         if data.focusName then
             data.focusName = false
-            dmhub.Schedule(0.05, function()
-                if not mod.unloaded and nameInput.valid then gui.SetFocus(nameInput) end
-            end)
+            Session.FocusSoon(nameInput)
         end
     end
 

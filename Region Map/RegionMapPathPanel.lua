@@ -21,36 +21,7 @@ local Copy = RegionMapCopy
 
 local SetText = Session.SetText
 local T = Copy.T
-
-local function Label(classes, text)
-    return gui.Label { classes = classes, text = text or "", interactable = false }
-end
-
-local function Button(text, action)
-    return gui.Button {
-        classes = { "regionMapButton", "sizeS" }, text = text,
-        click = function() if not mod.unloaded then action() end end,
-    }
-end
-
--- A row of segment buttons, one per value (same control as the side panel's).
-local function Segments(values, copyPrefix, onPick)
-    local buttons = {}
-    local row = gui.Panel { classes = { "regionMapSegments" }, data = {} }
-    for _, value in ipairs(values) do
-        buttons[#buttons + 1] = gui.Label {
-            classes = { "regionMapSegment" }, text = T(copyPrefix .. value),
-            width = string.format("%.4f%%", 100 / #values),
-            data = { value = value },
-            click = function(element) onPick(element.data.value) end,
-        }
-    end
-    row.children = buttons
-    row.data.select = function(current)
-        for _, button in ipairs(buttons) do button:SetClass("selected", button.data.value == current) end
-    end
-    return row
-end
+local Label, Button, Segments = Session.Label, Session.Button, Session.Segments
 
 local function SetVisibility(ctx, path, visibility)
     local ok, reason, entry = Paths.SetVisibility(path.id, visibility)
@@ -501,10 +472,7 @@ function RegionMapPathPanel.Create(ctx)
     }
 
     local function TextArea(field, limit, placeholder)
-        return gui.TextEditor {
-            classes = { "input", "bordered", "sizeS", "regionMapTextArea" }, borderBox = true,
-            characterLimit = limit, multiline = true, verticalScrollbar = true, editlag = 0,
-            selectAllOnFocus = false, resetOnDeActivation = false, textAlignment = "topleft",
+        return Session.TextArea(limit, {
             placeholderText = placeholder,
             edit = function(element)
                 if not panel.data.binding then Edited(field, element.text) end
@@ -515,7 +483,7 @@ function RegionMapPathPanel.Create(ctx)
                     Flush()
                 end
             end,
-        }
+        })
     end
     local descriptionInput = TextArea("description", C.descriptionLimit, T("edit.desc.placeholder"))
     local noteInput = TextArea("note", C.noteLimit, T("path.note.placeholder"))
@@ -720,9 +688,7 @@ function RegionMapPathPanel.Create(ctx)
         panel.data.pickFor = location.id
         if pickInput.text ~= "" then pickInput.text = "" end
         RunPick("")
-        dmhub.Schedule(0.05, function()
-            if not mod.unloaded and pickInput.valid and data.panelMode == "pickPathEnd" then gui.SetFocus(pickInput) end
-        end)
+        Session.FocusSoon(pickInput, function() return data.panelMode == "pickPathEnd" end)
     end
 
     -- Binding --------------------------------------------------------------------------------------

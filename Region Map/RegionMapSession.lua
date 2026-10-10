@@ -1,8 +1,9 @@
 local mod = dmhub.GetModLoading()
 
 --- What the Region Map components share: the context contract, the viewer's
---- own preferences (last map, cameras, Show names, last pin style) and the
---- Font Size scale for pins and panels.
+--- own preferences (last map, cameras, Show names, last pin style), the
+--- Font Size scale for pins and panels, and the small controls every panel
+--- builds (labels, buttons, segments, text areas, icon buttons).
 --- @class RegionMapSession: GameType
 --- @field new fun(o?: table): RegionMapSession
 RegionMapSession = RegisterGameType("RegionMapSession")
@@ -338,4 +339,89 @@ end
 function RegionMapSession.SetText(element, value)
     value = value or ""
     if element.text ~= value then element.text = value end
+end
+
+--- Add or remove a class only when it flips. A class change costs engine work
+--- even when it changes nothing, and canvas layers run this every frame of a pan.
+--- @param element Panel
+--- @param class string
+--- @param on boolean
+function RegionMapSession.SetClassIf(element, class, on)
+    if element:HasClass(class) ~= on then element:SetClass(class, on) end
+end
+
+--- A non-interactive label; text nil shows nothing until it is set.
+--- @param classes string[]
+--- @param text nil|string
+--- @return Panel
+function RegionMapSession.Label(classes, text)
+    return gui.Label { classes = classes, text = text or "", interactable = false }
+end
+
+--- A small text button. A click is ignored after an unload or while the
+--- button has the "disabled" class.
+--- @param text string
+--- @param action fun()
+--- @return Panel
+function RegionMapSession.Button(text, action)
+    return gui.Button {
+        classes = { "regionMapButton", "sizeS" }, text = text,
+        click = function(element)
+            if not mod.unloaded and not element:HasClass("disabled") then action() end
+        end,
+    }
+end
+
+--- A row of segment buttons, one per value, labeled by the copy id
+--- copyPrefix .. value. onPick gets the clicked value; row.data.select(value)
+--- marks the current one.
+--- @param values string[]
+--- @param copyPrefix string
+--- @param onPick fun(value: string)
+--- @return Panel
+function RegionMapSession.Segments(values, copyPrefix, onPick)
+    local T = RegionMapCopy.T
+    local buttons = {}
+    local row = gui.Panel { classes = { "regionMapSegments" }, data = {} }
+    for _, value in ipairs(values) do
+        buttons[#buttons + 1] = gui.Label {
+            classes = { "regionMapSegment" }, text = T(copyPrefix .. value),
+            width = string.format("%.4f%%", 100 / #values),
+            data = { value = value },
+            click = function(element) onPick(element.data.value) end,
+        }
+    end
+    row.children = buttons
+    row.data.select = function(current)
+        for _, button in ipairs(buttons) do button:SetClass("selected", button.data.value == current) end
+    end
+    return row
+end
+
+--- A multi-line text field (descriptions and notes). args goes into the
+--- editor as well, so the caller adds its text, placeholder and handlers.
+--- @param limit integer characters
+--- @param args table
+--- @return Panel
+function RegionMapSession.TextArea(limit, args)
+    local editor = {
+        classes = { "input", "bordered", "sizeS", "regionMapTextArea" }, borderBox = true,
+        characterLimit = limit, multiline = true, verticalScrollbar = true, editlag = 0,
+        selectAllOnFocus = false, resetOnDeActivation = false, textAlignment = "topleft",
+    }
+    for key, value in pairs(args) do editor[key] = value end
+    return gui.TextEditor(editor)
+end
+
+--- Put keyboard focus in an input once the panel that shows it has laid out.
+--- stillWanted, when given, is asked again then, so a panel closed meanwhile
+--- does not take focus.
+--- @param element Panel
+--- @param stillWanted nil|fun(): boolean
+function RegionMapSession.FocusSoon(element, stillWanted)
+    dmhub.Schedule(C.afterLayoutDelay, function()
+        if mod.unloaded or not element.valid then return end
+        if stillWanted ~= nil and not stillWanted() then return end
+        gui.SetFocus(element)
+    end)
 end
