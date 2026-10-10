@@ -204,7 +204,7 @@ local function BuildSettings(ctx)
             if scale ~= nil then WriteMap({ scale = scale }, "Set map scale") end
         end,
     }
-    local units = Segments({ "mi", "km" }, "set.map.scale.unit.", function(unit)
+    local units = Segments(C.scaleUnits, "set.map.scale.unit.", function(unit)
         local map = ctx.CurrentMap()
         if map == nil then return end
         local draft = data.scaleDraft
@@ -320,10 +320,11 @@ local function BuildSettings(ctx)
             if name ~= "" then EditType({ name = name }) end
         end,
     }
-    -- Two rows of three keep every line choice readable at the popover's width.
+    -- Two rows (three patterns each today) keep every line choice readable at the popover's width.
+    local half = math.ceil(#C.pathPatterns / 2)
     local patternRows = {
-        Segments({ "solid", "dashed", "dotted" }, "pattern.", function(value) EditType({ pattern = value }) end),
-        Segments({ "double", "dashDot", "longDash" }, "pattern.", function(value) EditType({ pattern = value }) end),
+        Segments({ table.unpack(C.pathPatterns, 1, half) }, "pattern.", function(value) EditType({ pattern = value }) end),
+        Segments({ table.unpack(C.pathPatterns, half + 1) }, "pattern.", function(value) EditType({ pattern = value }) end),
     }
     patternRows[2].selfStyle.tmargin = 4
     -- Swatches name their colour in a tooltip and mark the pick with a check, so colour is never the only cue (Q26).
