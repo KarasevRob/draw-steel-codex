@@ -131,6 +131,8 @@ local SCENE_SHAKE_PX = 7
 local SCENE_ROW_SCALE = 0.6
 local SCENE_ROW_MIN_SCALE = 0.4
 local SCENE_GROUP_GAP = 10
+--gap between the "Accompany them" box and the text dialog below it.
+local SCENE_ACCOMPANY_MARGIN = 12
 --Afterwards they stack behind the hero: each a little smaller and higher,
 --peeking out to the right.
 local SCENE_STACK_SCALE = 0.8
@@ -859,6 +861,25 @@ local function StageRules()
             borderColor = "#9cc4ffff",
             border = 3,
         },
+        --while a hero is dragged the engine adds "drag-target" (and
+        --"drag-target-hover" under the cursor), which the theme fills light;
+        --its text fix only reaches direct children, and these labels sit in
+        --a wrapper, so keep the box dark here instead (priority beats the
+        --theme's 5).
+        {
+            selectors = {"eotwAccompanySlot", "drag-target"},
+            bgcolor = "#1b2740e0",
+            borderColor = "#9cc4ffff",
+            border = 3,
+            priority = 6,
+        },
+        {
+            selectors = {"eotwAccompanySlot", "drag-target-hover"},
+            bgcolor = "#2a3d63f0",
+            borderColor = "#ffffffff",
+            border = 3,
+            priority = 6,
+        },
         {
             selectors = {"eotwAccompanyPlus"},
             fontSize = 44,
@@ -868,8 +889,10 @@ local function StageRules()
             height = "auto",
             textAlignment = "center",
         },
+        --"droppable" is set on the whole slot tree (SetClassTree), since the
+        --labels are not direct children of the slot.
         {
-            selectors = {"eotwAccompanyPlus", "parent:droppable"},
+            selectors = {"eotwAccompanyPlus", "droppable"},
             color = "#9cc4ffff",
         },
         {
@@ -1050,6 +1073,19 @@ local function StageRules()
             italics = true,
             color = "#b9ab94",
         },
+        --a garbled line being translated in place: it fades out, its words
+        --are swapped for the real ones, and it fades back in with a brief
+        --green glow (born-with/pulse pattern: the timing is on these rules).
+        {
+            selectors = {"eotwSceneNarration", "transposing"},
+            opacity = 0,
+            transitionTime = 0.45,
+        },
+        {
+            selectors = {"eotwSceneNarration", "translated"},
+            color = "#9fffc4",
+            transitionTime = 1.5,
+        },
         {
             selectors = {"eotwSceneSpeaker"},
             fontSize = 16,
@@ -1147,6 +1183,13 @@ local function StageRules()
             borderColor = "#ffffff20",
             bgcolor = "#0e1116e0",
         },
+        --an option on someone else's turn: a dotted outline, like the ghost
+        --Accept / Re-roll buttons, since clicking it only pings it.
+        {
+            selectors = {"eotwSceneOption", "pingGhost"},
+            border = 2,
+            borderStyle = "dotted",
+        },
         --brightness on the button does not reach its label, so the name
         --dims itself.
         {
@@ -1177,6 +1220,36 @@ local function StageRules()
             width = "auto",
             height = "auto",
             lmargin = 8,
+        },
+        --an item that would help at the entry (EncounterMontage.ItemBenefits),
+        --its "!" and the options it would help while it is hovered.
+        {
+            selectors = {"eotwItemIcon", "benefit"},
+            borderColor = "#7dffb0ff",
+            border = 2,
+        },
+        {
+            selectors = {"eotwItemAlert"},
+            width = 16,
+            height = 16,
+            fontSize = 12,
+            bold = true,
+            color = "#0c1a12",
+            textAlignment = "center",
+            bgimage = "panels/square.png",
+            bgcolor = "#7dffb0ff",
+            cornerRadius = 8,
+        },
+        {
+            selectors = {"eotwSceneOption", "itemBenefit"},
+            borderColor = "#7dffb0ff",
+            border = 2,
+            brightness = 1.2,
+        },
+        {
+            selectors = {"eotwOptionCard", "itemBenefit"},
+            borderColor = "#7dffb0ff",
+            border = 2,
         },
         --the "!" a hero wears while they could assist the test in flight.
         {
@@ -2126,13 +2199,15 @@ local function CreateEntryCard(entry, appearIn)
     local nameReserve = math.max(ENTRY_HERO_SLOT_WIDTH + ENTRY_HERO_SLOT_GAP, cond(#outcomes > 0, #outcomes * 22 + 8, 0))
     --the title is only as wide as its text (up to the column), so the bar
     --that crosses it out can be sized to the words rather than the column.
-    local nameLabel = gui.Label{ classes = {"eotwEntryName"}, text = entry.name, interactable = false, halign = "left",
-        width = "auto", maxWidth = string.format("100%%-%d", nameReserve) }
     --the bar through the title once the entry is out of contention (taken,
     --vanquished, or carried off by the round). It sweeps left to right over
     --ENTRY_STRIKE_TIME from `start`; a card built already struck draws it
-    --whole. It floats over the title, so it is sized off the title's own
-    --rendered box each frame of the sweep.
+    --whole. It is a floating CHILD of the title, so its y is measured from
+    --the title's own top. (It used to be a sibling on the card, measured from
+    --the card's padded top -- but the card's vertical flow spreads its rows
+    --over the card's height, so the title sits a varying distance below that
+    --and no constant offset could find its letters.)
+    local nameLabel
     local strike = gui.Panel{
         classes = {"eotwEntryStrike", "hidden"},
         floating = true,
@@ -2156,11 +2231,10 @@ local function CreateEntryCard(entry, appearIn)
             --ease in and out, so the stroke reads as drawn by hand.
             local eased = p * p * (3 - 2 * p)
             element.selfStyle.width = w * eased
-            --the font draws the title's letters low in the label's line box
-            --(h = 22.8 at 19pt, the lowercase body around 17-19 down), so the
-            --bar sits below the box's centre to run through the letters
-            --rather than over their tops. Measured live on the stage.
-            element.selfStyle.y = math.floor(h * 0.8 - ENTRY_STRIKE_THICKNESS / 2 + 1)
+            --the font draws the letters low in the label's line box: at 19pt
+            --the box is 22.8 tall and the lowercase body runs from 9 to 18
+            --down (measured on screen), so the bar centres at 0.55 of the box.
+            element.selfStyle.y = math.floor(h * 0.55 - ENTRY_STRIKE_THICKNESS / 2 + 0.5)
             --once drawn, keep following the title at a slow tick rather than
             --stopping: a card built already struck draws whole on its first
             --frame, when the title's box may not have its final height yet,
@@ -2171,6 +2245,10 @@ local function CreateEntryCard(entry, appearIn)
             end
         end,
     }
+    --the title is only as wide as its text (up to the column), so the bar
+    --that crosses it out can be sized to the words rather than the column.
+    nameLabel = gui.Label{ classes = {"eotwEntryName"}, text = entry.name, interactable = false, halign = "left",
+        width = "auto", maxWidth = string.format("100%%-%d", nameReserve), children = {strike} }
     local function StrikeTitle(animate)
         if strike.data.struck then
             return
@@ -2213,9 +2291,8 @@ local function CreateEntryCard(entry, appearIn)
         }
     end
     cardChildren[#cardChildren + 1] = statusLabel
-    --the slot and the strike float, so they go last: later siblings draw on top.
+    --the slot floats, so it goes last: later siblings draw on top.
     cardChildren[#cardChildren + 1] = heroSlot
-    cardChildren[#cardChildren + 1] = strike
 
     local card = gui.Panel{
         classes = {"eotwEntryCard", entry.kind},
@@ -2516,6 +2593,10 @@ local function OptionCard(entry, option, index, m)
         vmargin = 5,
         bgimage = "panels/square.png",
         children = children,
+        --lit while the player hovers an item that would help this test.
+        itemBenefitHighlight = function(element, set)
+            element:SetClass("itemBenefit", set ~= nil and set[index] == true)
+        end,
         press = function(element)
             --a "Delve:" option has no roll; it enters its delve instead.
             if not mine or locked or not takeable then
@@ -2766,26 +2847,83 @@ local function AssistChildren(m, t)
         return children
     end
     Add(gui.Label{ classes = {"eotwSceneHint"}, text = AssistRulesText(t) })
+    --players who do not control a companion get its assist buttons as dotted
+    --ghosts: a click pings that button for the whole table ("please help
+    --me!"), and every copy -- the companion's real one included -- pulses in
+    --the pinger's colour. Same roll button pings as the option ghosts
+    --(OptionButtons), keyed to this test's assist step.
+    local canPing = CharacterPanel ~= nil and CharacterPanel.SendRollButtonPing ~= nil
+    local pingKey = string.format("assist:%s:%s", tostring(t.entryId), tostring(t.seq))
+    local pingSince = dmhub.serverTime
+    local pingSeen = {}
+    local assistPanels = {}
+    local assistButtons = {}
+    local pingDocPath = nil
+    if canPing then
+        pingDocPath = CharacterPanel.RollButtonPingDocPath()
+    end
     for _, candidate in ipairs(candidates) do
         if LocalControls(candidate.charid) then
             for _, skill in ipairs(candidate.skills) do
-                Add(BoxButton(string.format("%s: assist with %s", candidate.name or "Your hero", skill.skillName or "a skill"),
+                local button = BoxButton(string.format("%s: assist with %s", candidate.name or "Your hero", skill.skillName or "a skill"),
                     string.format("Roll to assist %s's test with %s. Each companion assists one test here.", t.heroName or "the hero", skill.skillName or "this skill"),
                     function()
                         EncounterMontage.SendRequest("assist", { heroid = candidate.charid, skillid = skill.skillid })
-                    end))
+                    end)
+                assistPanels[string.format("%s|%s", tostring(candidate.charid), tostring(skill.skillid))] = button
+                assistButtons[#assistButtons + 1] = button
+            end
+        elseif canPing then
+            for _, skill in ipairs(candidate.skills) do
+                local pingButton = string.format("%s|%s", tostring(candidate.charid), tostring(skill.skillid))
+                local ghost = gui.Panel{
+                    classes = {"eotwSceneOption", "pingGhost"},
+                    width = "auto",
+                    height = "auto",
+                    halign = "left",
+                    hpad = 14,
+                    vpad = 5,
+                    borderBox = true,
+                    vmargin = 2,
+                    bgimage = "panels/square.png",
+                    gui.Label{ classes = {"eotwSceneOptionName"}, text = string.format("%s: assist with %s", candidate.name or "A companion", skill.skillName or "a skill"), interactable = false },
+                    linger = function(element)
+                        gui.Tooltip(string.format("Ping this for everyone: ask %s to assist with %s.", candidate.name or "this companion", skill.skillName or "this skill"))(element)
+                    end,
+                    press = function(element)
+                        audio.FireSoundEvent("Mouse.Click")
+                        CharacterPanel.SendRollButtonPing(pingKey, pingButton)
+                    end,
+                }
+                assistPanels[pingButton] = ghost
+                assistButtons[#assistButtons + 1] = ghost
             end
         else
             local names = {}
             for _, skill in ipairs(candidate.skills) do
                 names[#names + 1] = skill.skillName
             end
-            Add(gui.Label{
+            assistButtons[#assistButtons + 1] = gui.Label{
                 classes = {"eotwSceneHint"},
                 text = string.format("%s may assist (%s)...", candidate.name or "A companion", table.concat(names, ", ")),
-            })
+            }
         end
     end
+    Add(gui.Panel{
+        width = "100%",
+        height = "auto",
+        flow = "vertical",
+        children = assistButtons,
+        monitorGame = pingDocPath,
+        refreshGame = function(element)
+            if not canPing then
+                return
+            end
+            for _, ping in ipairs(CharacterPanel.TakeRollButtonPings(pingKey, pingSince, pingSeen)) do
+                CharacterPanel.PulseRollButton(assistPanels[ping.button], ping.userid)
+            end
+        end,
+    })
     if IsMyTurn(m) then
         Add(BoxButton(cond(#(t.assists or {}) > 0, "Make the test", "Make the test without help"),
             "Roll the test now. Companions who have not assisted will not.",
@@ -2859,6 +2997,8 @@ local function TurnSignature(m)
         tostring((t.pardon or {}).rollSeq),
         tostring(t.knackIndex), tostring(#(t.offers or {})), tostring(t.blessing ~= nil and t.blessing.heroid or nil),
         tostring(m.teamLeader ~= nil), tostring(m.perkSeq),
+        --an item used here can reveal an option or open a knack.
+        tostring(m.consumeSeq),
     }, "|")
 end
 
@@ -3083,6 +3223,9 @@ local function CreateSceneStage()
     local m_textKey = nil
     --the line being typed: { label, full, total, start }.
     local m_typing = nil
+    --the garbled line on screen, while it is still garbled: { key, plain,
+    --speaker, lang, t }. Watched so it can be translated in place.
+    local m_garbledShown = nil
     --the prompt belonging to the text on screen.
     local m_prompt = nil
     local m_boxKey = nil
@@ -3198,7 +3341,8 @@ local function CreateSceneStage()
             halign = "left",
             valign = "bottom",
             width = SCENE_FIGURE_WIDTH * SCENE_ROW_SCALE,
-            height = SCENE_PORTRAIT_HEIGHT * SCENE_ROW_SCALE,
+            height = SCENE_PORTRAIT_HEIGHT * SCENE_ROW_SCALE - SCENE_ACCOMPANY_MARGIN,
+            y = -SCENE_ACCOMPANY_MARGIN,
             bgimage = "panels/square.png",
             flow = "none",
             dragTarget = true,
@@ -3227,10 +3371,10 @@ local function CreateSceneStage()
                 EncounterMontage.SendRequest("accompany", { heroid = heroid })
             end,
             dragTargets = function(element, on, mode)
-                element:SetClass("droppable", on == true and mode == "accompany")
+                element:SetClassTree("droppable", on == true and mode == "accompany")
             end,
             selectHero = function(element, heroid, mode)
-                element:SetClass("droppable", heroid ~= nil and mode == "accompany")
+                element:SetClassTree("droppable", heroid ~= nil and mode == "accompany")
             end,
         }
     end
@@ -3366,7 +3510,7 @@ local function CreateSceneStage()
         if showSlot and m_accompanySlot ~= nil then
             m_accompanySlot.selfStyle.x = x
             m_accompanySlot.selfStyle.width = W * scale
-            m_accompanySlot.selfStyle.height = SCENE_PORTRAIT_HEIGHT * scale
+            m_accompanySlot.selfStyle.height = SCENE_PORTRAIT_HEIGHT * scale - SCENE_ACCOMPANY_MARGIN
         end
 
         --the x on a companion: their own player, or the approaching one,
@@ -3414,9 +3558,52 @@ local function CreateSceneStage()
     --top-aligned: a short line reads from the top of the box, not its middle.
     --the dialog box: who is speaking (collapsed for narration), then the line.
     local speakerLabel = gui.Label{ classes = {"eotwSceneSpeaker", "collapsed"}, valign = "top", text = "", interactable = false }
-    local narration = gui.Label{ classes = {"eotwSceneNarration"}, valign = "top", text = "", interactable = false }
+    local narration
     local boxExtra = gui.Panel{ width = "100%", height = "auto", valign = "top", flow = "vertical" }
     local boxPrompt = ScenePrompt(true)
+    local StartTyping
+
+    --The group has just come to speak the language of the garbled line on
+    --screen (an item such as Imp's Tongue): the garbled words fade out and the
+    --line fades back in as written, in an ordinary font.
+    local function TransposeLine()
+        local shown = m_garbledShown
+        m_garbledShown = nil
+        if shown == nil then
+            return
+        end
+        narration:SetClass("transposing", true)
+        dmhub.Schedule(0.5, function()
+            if mod.unloaded or narration == nil or not narration.valid then
+                return
+            end
+            if m_textKey ~= shown.key then
+                --the page turned while it faded.
+                narration:SetClass("transposing", false)
+                return
+            end
+            narration:SetClass("garbled", false)
+            narration.selfStyle.fontFace = nil
+            speakerLabel.text = string.format("%s (in %s)", shown.speaker, shown.lang)
+            StartTyping(narration, shown.plain, true)
+            narration:SetClass("transposing", false)
+            narration:PulseClass("translated")
+        end)
+    end
+
+    narration = gui.Label{
+        classes = {"eotwSceneNarration"},
+        valign = "top",
+        text = "",
+        interactable = false,
+        thinkTime = 0.5,
+        think = function(element)
+            local shown = m_garbledShown
+            if shown ~= nil and shown.key == m_textKey and EncounterMontage.GroupSpeaks(shown.t, shown.lang) then
+                TransposeLine()
+            end
+        end,
+    }
 
     local function ShowPrompt()
         boxPrompt:SetClass("collapsed", true)
@@ -3445,7 +3632,7 @@ local function CreateSceneStage()
         ShowPrompt()
     end
 
-    local function StartTyping(label, text, instant)
+    StartTyping = function(label, text, instant)
         m_typing = nil
         if instant or text == "" then
             label.text = text
@@ -3585,6 +3772,20 @@ local function CreateSceneStage()
         local mine = IsMyTurn(m)
         local parse = CurrentParse()
         local buttons = {}
+        --everyone but the chooser gets the options as dotted ghosts: a click
+        --pings that option for the whole table, and every copy -- the
+        --chooser's real one included -- pulses in the pinger's colour. Rides
+        --the roll button pings (Timeline's EmbeddedRollDialog.lua), keyed to
+        --this turn; only pings made after these buttons were built pulse.
+        local canPing = CharacterPanel ~= nil and CharacterPanel.SendRollButtonPing ~= nil
+        local pingKey = string.format("montage:%s:%s", tostring(t.entryId), tostring(t.seq))
+        local pingSince = dmhub.serverTime
+        local pingSeen = {}
+        local optionPanels = {}
+        local pingDocPath = nil
+        if canPing then
+            pingDocPath = CharacterPanel.RollButtonPingDocPath()
+        end
         for i, option in ipairs(entry.options) do
             --a secret option the hero at the entry does not qualify for is
             --not drawn at all -- for them, or for anyone watching them.
@@ -3597,8 +3798,8 @@ local function CreateSceneStage()
             local locked = verdict ~= nil and not verdict.allowed
             local unlocked = (verdict ~= nil and verdict.gated and verdict.allowed) or version.knack ~= nil
             local takeable = version.roll ~= nil or version.free ~= nil or (option.delve ~= nil and t.delve == nil)
-            buttons[#buttons + 1] = gui.Panel{
-                classes = Classes("eotwSceneOption", mine and not locked and "actionable", locked and "locked", unlocked and "unlocked"),
+            local optionPanel = gui.Panel{
+                classes = Classes("eotwSceneOption", mine and not locked and "actionable", locked and "locked", unlocked and "unlocked", canPing and not mine and "pingGhost"),
                 width = "auto",
                 height = "auto",
                 halign = "left",
@@ -3616,18 +3817,36 @@ local function CreateSceneStage()
                 hover = function(element)
                     ShowDetail({ OptionCard(entry, option, i, m) })
                 end,
+                --lit while the player hovers an item that would help here.
+                itemBenefitHighlight = function(element, set)
+                    element:SetClass("itemBenefit", set ~= nil and set[i] == true)
+                end,
                 dehover = function(element)
                     ShowDetail(m_detailDefault)
                 end,
+                linger = function(element)
+                    if canPing and not mine and not locked and takeable then
+                        gui.Tooltip(string.format("Ping this option for everyone: suggest it to %s.", t.heroName or "the hero"))(element)
+                    end
+                end,
                 press = function(element)
-                    --a "Delve:" option has no roll; it enters its delve instead.
-                    if not mine or locked or not takeable then
+                    if locked or not takeable then
                         return
                     end
+                    if not mine then
+                        if canPing then
+                            audio.FireSoundEvent("Mouse.Click")
+                            CharacterPanel.SendRollButtonPing(pingKey, tostring(i))
+                        end
+                        return
+                    end
+                    --a "Delve:" option has no roll; it enters its delve instead.
                     audio.FireSoundEvent("Mouse.Click")
                     EncounterMontage.SendRequest("choose", { optionIndex = i })
                 end,
             }
+            optionPanels[tostring(i)] = optionPanel
+            buttons[#buttons + 1] = optionPanel
             ::nextOption::
         end
         --inside a delve the way out is turning back at a chest, not leaving
@@ -3662,7 +3881,21 @@ local function CreateSceneStage()
                 text = cond(mine, "Choose how to approach it:", string.format("%s is choosing...", t.heroName or "The hero")),
             },
             --one option per row, like an RPG choice menu.
-            gui.Panel{ width = "100%", height = "auto", flow = "vertical", children = buttons },
+            gui.Panel{
+                width = "100%",
+                height = "auto",
+                flow = "vertical",
+                children = buttons,
+                monitorGame = pingDocPath,
+                refreshGame = function(element)
+                    if not canPing then
+                        return
+                    end
+                    for _, ping in ipairs(CharacterPanel.TakeRollButtonPings(pingKey, pingSince, pingSeen)) do
+                        CharacterPanel.PulseRollButton(optionPanels[ping.button], ping.userid)
+                    end
+                end,
+            },
         }
     end
 
@@ -3957,21 +4190,34 @@ local function CreateSceneStage()
                 PlayEmotes(step.emotes)
             end
             m_prompt = boxPrompt
+            m_garbledShown = nil
+            narration:SetClass("transposing", false)
+            local text = step.text or ""
             if step.kind == "say" then
                 --speech takes the narrator's place in the box, under the
                 --speaker's name, and the speaker lights up on stage.
                 local side = cond(step.side == "left", "left", "right")
+                --a line garbled when the scene was built reads as written
+                --once the group speaks its language (an item used since).
+                local garbled = step.garbled == true
+                if garbled and step.plain ~= nil and EncounterMontage.GroupSpeaks(t, step.lang) then
+                    garbled = false
+                    text = step.plain
+                end
                 local name = step.speaker or ""
                 if step.lang ~= nil then
-                    name = string.format("%s (%s %s)", name, cond(step.garbled, "speaking", "in"), step.lang)
+                    name = string.format("%s (%s %s)", name, cond(garbled, "speaking", "in"), step.lang)
                 end
                 speakerLabel.text = name
                 speakerLabel:SetClass("collapsed", false)
                 narration:SetClass("speech", true)
-                narration:SetClass("garbled", step.garbled == true)
+                narration:SetClass("garbled", garbled)
                 --words the hero can't understand appear in the language's
                 --own script (Dwarvish runes, Tengwar, ...).
-                narration.selfStyle.fontFace = cond(step.garbled == true, Language.UnreadableFontForName(step.lang), nil)
+                narration.selfStyle.fontFace = cond(garbled, Language.UnreadableFontForName(step.lang), nil)
+                if garbled and step.plain ~= nil then
+                    m_garbledShown = { key = key, plain = step.plain, speaker = step.speaker or "", lang = step.lang, t = t }
+                end
                 SetSpeaking(side, step.speaker)
             else
                 speakerLabel:SetClass("collapsed", true)
@@ -3980,7 +4226,7 @@ local function CreateSceneStage()
                 narration.selfStyle.fontFace = nil
                 SetSpeaking(nil)
             end
-            StartTyping(narration, step.text or "", instant)
+            StartTyping(narration, text, instant)
             return
         end
 
@@ -4116,6 +4362,7 @@ local function CreateSceneStage()
             m_textKey = nil
             m_boxKey = nil
             m_typing = nil
+            m_garbledShown = nil
             element.thinkTime = nil
             SyncCast({}, true)
             heroSlot.children = {}
@@ -4359,11 +4606,131 @@ local function CreateItemIcon(entry, animate, delay, charid)
     local m_handoff = false
     local HandOff
 
+    --The "!" an item wears while using it now would help at the entry its
+    --hero stands at (EncounterMontage.ItemBenefits): a secret option, a
+    --knack, an edge on the roll. Everyone sees it; the party decides together.
+    local alertBadge = gui.Label{
+        classes = {"eotwItemAlert", "collapsed"},
+        text = "!",
+        floating = true,
+        halign = "left",
+        valign = "top",
+        x = -6,
+        y = -6,
+        interactable = false,
+    }
+
+    --What using it now would do, as tooltip lines over the item's own card.
+    local function BenefitTooltip(benefits)
+        local item = ItemGear(entry.itemid)
+        ---@type Panel[]
+        local lines = {
+            gui.Label{
+                text = "Use it now:",
+                fontSize = 15,
+                bold = true,
+                color = "#8fffb8",
+                width = "100%",
+                height = "auto",
+            },
+        }
+        for _, b in ipairs(benefits) do
+            lines[#lines + 1] = gui.Label{
+                text = "- " .. b.text,
+                fontSize = 14,
+                color = "#d8ffe6",
+                width = "100%",
+                height = "auto",
+                textWrap = true,
+            }
+        end
+        lines[#lines + 1] = gui.Panel{ width = "100%", height = 1, bgimage = "panels/square.png", bgcolor = "#ffffff30", vmargin = 6 }
+        if item ~= nil then
+            pcall(function()
+                lines[#lines + 1] = item:Render({ noninteractive = true, width = 360 }, nil)
+            end)
+        end
+        local frame = gui.TooltipFrame(gui.Panel{
+            width = 360,
+            height = "auto",
+            flow = "vertical",
+            children = lines,
+        }, { halign = "left", valign = "center" })
+        frame:MakeNonInteractiveRecursive()
+        return frame
+    end
+
     local icon = gui.Panel{
         classes = classes,
         bgimage = "panels/square.png",
         data = { itemid = entry.itemid, charid = charid },
-        draggable = charid ~= nil and LocalUserControlsHero(charid),
+        --only a montage find can be handed to another hero; anything the
+        --hero carried in stays with them.
+        draggable = charid ~= nil and entry.haul ~= false and LocalUserControlsHero(charid),
+        thinkTime = 0.5,
+        think = function(element)
+            local benefits = nil
+            if charid ~= nil then
+                benefits = EncounterMontage.ItemBenefits(charid, entry.itemid)
+            end
+            element:SetClass("benefit", benefits ~= nil)
+            alertBadge:SetClass("collapsed", benefits == nil)
+        end,
+        --the hero's own player clicks an item to use it: one menu entry per
+        --use (each mode of a multi-mode item), greyed with the reason when it
+        --needs the battle map or the moment is wrong. (click, not press: a
+        --find can also be dragged to another hero, and a drag is no click.)
+        click = function(element)
+            if charid == nil or not LocalUserControlsHero(charid) then
+                return
+            end
+            local item = ItemGear(entry.itemid)
+            local uses = EncounterMontage.ConsumableUses(charid, entry.itemid)
+            if item == nil or #uses == 0 then
+                return
+            end
+            local blocked = EncounterMontage.ConsumeBlockedReason(charid)
+            local entries = {}
+            for _, use in ipairs(uses) do
+                local text = string.format("Use %s", item.name)
+                if use.mode ~= nil then
+                    text = string.format("Use: %s", use.label)
+                end
+                --a greyed entry shows no tooltip, so why it is greyed goes in
+                --its text.
+                if not use.usable then
+                    text = string.format("%s (%s)", text, use.shortReason or "combat only")
+                elseif blocked ~= nil then
+                    text = string.format("%s (%s)", text, blocked)
+                elseif use.lasts == "location" then
+                    text = text .. " (lasts one location)"
+                elseif use.lasts == "encounter" then
+                    text = text .. " (lasts the whole encounter)"
+                end
+                local tooltip = use.rules
+                entries[#entries + 1] = {
+                    text = text,
+                    disabled = (not use.usable) or blocked ~= nil,
+                    tooltip = tooltip,
+                    click = function()
+                        element.popup = nil
+                        if (not use.usable) or EncounterMontage.ConsumeBlockedReason(charid) ~= nil then
+                            return
+                        end
+                        audio.FireSoundEvent("Mouse.Click")
+                        local ok, why = EncounterMontage.ConsumeItem(charid, entry.itemid, use.mode)
+                        if not ok then
+                            printf("EotW montage: could not use %s: %s", tostring(item.name), tostring(why))
+                        end
+                    end,
+                }
+            end
+            element.popup = gui.ContextMenu{
+                width = 280,
+                entries = entries,
+                click = function() element.popup = nil end,
+            }
+        end,
         beginDrag = function(element)
             element:SetClass("dragging", true)
             element.tooltip = nil
@@ -4395,6 +4762,24 @@ local function CreateItemIcon(entry, animate, delay, charid)
         end,
         hover = function(element)
             local item = ItemGear(entry.itemid)
+            --an item that would help at the entry says how, and lights up
+            --the options it helps.
+            local benefits = charid ~= nil and EncounterMontage.ItemBenefits(charid, entry.itemid) or nil
+            if benefits ~= nil then
+                local set = {}
+                for _, b in ipairs(benefits) do
+                    if b.optionIndex ~= nil then
+                        set[b.optionIndex] = true
+                    end
+                end
+                Broadcast("itemBenefitHighlight", set)
+                local ok = pcall(function()
+                    element.tooltip = BenefitTooltip(benefits)
+                end)
+                if ok then
+                    return
+                end
+            end
             local tooltipFn = rawget(_G, "CreateItemTooltip")
             if item ~= nil and tooltipFn ~= nil then
                 local ok = pcall(function()
@@ -4406,7 +4791,11 @@ local function CreateItemIcon(entry, animate, delay, charid)
             end
             gui.Tooltip(entry.name or "Item")(element)
         end,
+        dehover = function(element)
+            Broadcast("itemBenefitHighlight", nil)
+        end,
         qtyLabel,
+        alertBadge,
     }
 
     --`animateChange` is for a refresh that lands while the stage is up: a
@@ -4424,6 +4813,11 @@ local function CreateItemIcon(entry, animate, delay, charid)
         else
             icon.bgimage = "panels/square.png"
             icon.selfStyle.bgcolor = "#232a33"
+        end
+        --a carried item becomes a find (handable) once the montage grants one.
+        local canDrag = charid ~= nil and newEntry.haul ~= false and LocalUserControlsHero(charid)
+        if icon.draggable ~= canDrag then
+            icon.draggable = canDrag
         end
         local qty = newEntry.qty or 1
         if m_handoff then
@@ -4508,8 +4902,17 @@ local function CreateItemStrip(charid)
         flow = "vertical",
         halign = "left",
         valign = "top",
+        --a used consumable reaches this client as a token change, which does
+        --not refresh the montage; look again now and then.
+        thinkTime = 1,
+        think = function(element)
+            if m_primed then
+                element:FireEvent("refreshMontage")
+            end
+        end,
         refreshMontage = function(element)
-            local entries = EncounterMontage.GetItems(charid)
+            --the haul and every consumable the hero carries.
+            local entries = EncounterMontage.GetStripItems(charid)
             local children = {}
             local added = false
             --items landing together drop one after another, not all at once.

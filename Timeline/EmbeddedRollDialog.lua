@@ -92,12 +92,14 @@ function CharacterPanel.PulseRollButton(button, userid)
         end
     end)
     local start = dmhub.Time()
+    --sized in pixels: a "100%" floating child of an auto-sized button (the
+    --montage options) resolves against the grandparent and rings the whole list.
     button:AddChild(gui.Panel{
         floating = true,
         halign = "center",
         valign = "center",
-        width = "100%",
-        height = "100%",
+        width = button.renderedWidth,
+        height = button.renderedHeight,
         bgimage = "panels/square.png",
         bgcolor = "#00000000",
         border = 3,

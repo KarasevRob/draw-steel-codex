@@ -97,6 +97,16 @@ setting{
     storage = "preference",
 }
 
+--Set by the game-side EotW codemod when the player abandons a game: JSON
+--{ gameid }. The resume refresh abandons that game (AbandonGame: deleted
+--when nobody else still holds it, otherwise left to the others) and resets
+--this. Same setting id as the game codemod's declaration.
+setting{
+    id = "eotw:abandonedgame",
+    default = "",
+    storage = "preference",
+}
+
 --Set by the game-side EotW codemod after a Danger Rooms game: the debrief
 --this player owes, { [userid] = {gameid, encounter, result} } as JSON. The
 --town asks for it (ShowDebriefDialog) and clears it. Same id as the game
@@ -2404,9 +2414,44 @@ CreateScreen = function(args)
     local m_resumeInfo = nil
     local RefreshResumeState = nil
 
+    --Give up an EotW game for good. The eotwAbandonGame cloud function
+    --deletes it (and releases its storage) only when no other member still
+    --holds it in their Encounter of the Week slot -- whoever we are, owner or
+    --not, since only the server may delete a game for a non-owner. Then we
+    --leave it: off its player list, account slot cleared.
+    local AbandonGame = function(gameid, gameinfo)
+        local function Leave()
+            if gameinfo ~= nil then
+                gameinfo:Leave()
+            end
+        end
+        net.Post{
+            url = dmhub.cloudFunctionsBaseUrl .. "/eotwAbandonGame",
+            data = { gameid = gameid },
+            success = function(data)
+                if type(data) == "table" and data.ok then
+                    printf("EotW: abandoned game %s is deleted (storage released: %s)", gameid, tostring(data.released))
+                else
+                    --usually "Other players still have this game": they play on.
+                    printf("EotW: abandoned game %s stays for the others: %s", gameid,
+                        tostring(type(data) == "table" and data.error or "invalid response"))
+                end
+                Leave()
+            end,
+            error = function(msg)
+                printf("EotW: could not reach eotwAbandonGame for %s: %s", gameid, tostring(msg))
+                Leave()
+            end,
+        }
+    end
+
     --Destroy/leave the EotW game we had before entering a new one, and
     --drop any lobby roster record we still hold for it.
-    local DestroyPreviousGame = function(prevGameid)
+    --opts.abandon: walking away from a game others may still be playing --
+    --AbandonGame above, rather than the owner deleting it from under them.
+    --Without it (a concluded game), the owner deletes and others leave.
+    local DestroyPreviousGame = function(prevGameid, opts)
+        opts = opts or {}
         if prevGameid == nil then
             return
         end
@@ -2426,6 +2471,10 @@ CreateScreen = function(args)
                 if lobby.ClearEotwGame ~= nil then
                     lobby:ClearEotwGame(prevGameid)
                 end
+                return
+            end
+            if opts.abandon then
+                AbandonGame(prevGameid, gameinfo)
                 return
             end
             if gameinfo.DeleteAndReleaseStorage ~= nil then
@@ -2474,7 +2523,7 @@ CreateScreen = function(args)
                 local prev = EotwSlotGameid()
                 EngineJoinEotw(gameid)
                 if prev ~= nil and prev ~= gameid then
-                    DestroyPreviousGame(prev)
+                    DestroyPreviousGame(prev, { abandon = true })
                 end
                 ClaimActiveHeroes(gameid, prev)
                 if OpenGameView ~= nil then
@@ -3738,8 +3787,10 @@ CreateScreen = function(args)
                 EnterWorld(resumeGameid)
             end),
 
-            --Abandon destroys the in-progress game (engine game deleted,
-            --storage released, account slot cleared); second click confirms.
+            --Abandon gives up the in-progress game: it is deleted (storage
+            --released) only when nobody else still holds it (AbandonGame);
+            --otherwise we just leave it to the others. Account slot cleared
+            --either way; second click confirms.
             gui.Button{
                 text = "Abandon",
                 fontSize = 20,
@@ -3760,7 +3811,7 @@ CreateScreen = function(args)
                         element:ScheduleEvent("resetConfirm", 4)
                         return
                     end
-                    DestroyPreviousGame(resumeGameid)
+                    DestroyPreviousGame(resumeGameid, { abandon = true })
                     if rowPanel ~= nil and rowPanel.valid then
                         rowPanel:DestroySelf()
                     end
@@ -4081,6 +4132,25 @@ CreateScreen = function(args)
         --the host's machine deletes it and releases its storage, a member's
         --machine leaves it -- both clear the account slot and drop any
         --lingering lobby roster record.
+        --a game the player abandoned from inside (EncounterPresence.Abandon)
+        --is left behind for the others, or deleted when nobody else still
+        --holds it (AbandonGame).
+        local abandonedText = dmhub.GetSettingValue("eotw:abandonedgame")
+        if type(abandonedText) == "string" and abandonedText ~= "" then
+            dmhub.SetSettingValue("eotw:abandonedgame", "")
+            local parsed = dmhub.FromJson(abandonedText)
+            local abandoned = (type(parsed) == "table" and parsed.success) and parsed.result or nil
+            if type(abandoned) == "table" and type(abandoned.gameid) == "string" then
+                printf("EotW: cleaning up abandoned game %s", abandoned.gameid)
+                DestroyPreviousGame(abandoned.gameid, { abandon = true })
+                if EotwSlotGameid() == abandoned.gameid then
+                    m_resumeGameid = nil
+                    m_resumeInfo = nil
+                    return
+                end
+            end
+        end
+
         local concluded = dmhub.GetSettingValue("eotw:concludedgame")
         if concluded ~= nil and concluded ~= "" then
             dmhub.SetSettingValue("eotw:concludedgame", "")
@@ -4496,7 +4566,7 @@ CreateScreen = function(args)
                         directorless = true,
                         create = function(gameid)
                             if prev ~= nil and prev ~= gameid then
-                                DestroyPreviousGame(prev)
+                                DestroyPreviousGame(prev, { abandon = true })
                             end
                             --Confirm even if the dialog was closed meanwhile:
                             --the engine game now exists, and only a confirm
@@ -5278,6 +5348,180 @@ CreateScreen = function(args)
             end
             ShowDebriefDialog(entry)
         end)
+    end
+
+    ---- results left while we were away ------------------------------------
+
+    --A game this player left WITHOUT abandoning went on with their heroes as
+    --free agents; when it was won, its host left the heroes' results with
+    --the city (offer-outcomes). Back in town the player chooses: claim them
+    --(the usual pending-outcome queue brings the Victories home) or count
+    --the game as abandoned and drop them. One game at a time; asked once a
+    --connection.
+    local m_offersAsked = false
+    local m_offersOpen = false
+
+    local function ShowOfferedOutcomes(games, index)
+        local game = games[index]
+        if game == nil or resultPanel == nil or not resultPanel.valid then
+            m_offersOpen = false
+            return
+        end
+
+        local encounter = nil
+        local lines = {}
+        for _, hero in ipairs(game.heroes or {}) do
+            local outcome = type(hero.outcome) == "table" and hero.outcome or {}
+            encounter = encounter or outcome.encounter
+            local parts = {}
+            local victories = tonumber(outcome.victories) or 0
+            if victories > 0 then
+                parts[#parts + 1] = string.format("%d %s", victories, cond(victories == 1, "Victory", "Victories"))
+            elseif outcome.completed then
+                parts[#parts + 1] = "no Victory (already completed)"
+            end
+            local found = {}
+            for _, t in ipairs(type(outcome.treasures) == "table" and outcome.treasures or {}) do
+                found[#found + 1] = tostring(t.name or "an item")
+            end
+            if #found > 0 then
+                parts[#parts + 1] = "found " .. table.concat(found, ", ")
+            end
+            local name = (hero.name ~= nil and hero.name ~= "") and hero.name or "Your hero"
+            lines[#lines + 1] = string.format("<b>%s</b>%s", name, cond(#parts > 0, ": " .. table.concat(parts, "; "), ""))
+        end
+        local title = encounter ~= nil and EncounterOfTheWeek.EncounterTitle(encounter) or "your Encounter of the Week"
+
+        local dlg = nil
+        local busy = false
+        local function Done(claim)
+            if busy then
+                return
+            end
+            busy = true
+            if claim then
+                local entries = {}
+                for _, hero in ipairs(game.heroes or {}) do
+                    entries[#entries + 1] = { gameid = game.gameid, heroid = hero.heroid, outcome = hero.outcome }
+                end
+                EotwRoster.AddPendingOutcomes(entries)
+            end
+            local function Next()
+                if dlg ~= nil and dlg.valid then
+                    dlg:DestroySelf()
+                end
+                ShowOfferedOutcomes(games, index + 1)
+            end
+            if m_conn == nil then
+                Next()
+                return
+            end
+            m_conn:Request{
+                action = "resolve-offered-outcomes",
+                args = { gameid = game.gameid },
+                success = function() Next() end,
+                --the offer stays for next time; a claim already queued is
+                --not doubled by a second one (one outcome per hero a game).
+                error = function(err)
+                    printf("EotW town: could not settle the results of %s: %s", tostring(game.gameid), tostring(err))
+                    Next()
+                end,
+            }
+        end
+
+        dlg = ModalDialog{
+            title = "While You Were Away",
+            width = 760,
+            escape = function() end,
+            children = {
+                gui.Label{
+                    text = string.format("Your party finished <b>%s</b> after you left, with your heroes fighting on as free agents, and won.", title),
+                    fontSize = 20,
+                    color = Styles.textColor,
+                    width = "100%",
+                    height = "auto",
+                    textWrap = true,
+                    vmargin = 6,
+                },
+                gui.Label{
+                    text = table.concat(lines, "\n"),
+                    fontSize = 18,
+                    color = Styles.textColor,
+                    width = "100%",
+                    height = "auto",
+                    textWrap = true,
+                    vmargin = 6,
+                },
+                gui.Label{
+                    text = "Claim the victory for your heroes, or count the game as abandoned and leave it be.",
+                    fontSize = 16,
+                    color = Styles.textColor,
+                    opacity = 0.7,
+                    width = "100%",
+                    height = "auto",
+                    textWrap = true,
+                    vmargin = 6,
+                },
+            },
+            buttons = {
+                gui.Button{
+                    text = "Claim the Victory",
+                    fontSize = 20,
+                    width = 240,
+                    height = 44,
+                    hmargin = 8,
+                    click = function()
+                        Done(true)
+                    end,
+                },
+                gui.Button{
+                    text = "Count as Abandoned",
+                    fontSize = 20,
+                    width = 240,
+                    height = 44,
+                    hmargin = 8,
+                    click = function()
+                        Done(false)
+                    end,
+                },
+            },
+        }
+        if dlg == nil then
+            --another dialog is up: ask again on the next refresh.
+            m_offersOpen = false
+            m_offersAsked = false
+        end
+    end
+
+    local MaybeShowOfferedOutcomes = function()
+        if m_offersAsked or m_offersOpen or m_debriefOpen or m_conn == nil or not m_conn.connected then
+            return
+        end
+        if m_modalDialog ~= nil and m_modalDialog.valid then
+            return
+        end
+        m_offersAsked = true
+        m_offersOpen = true
+        m_conn:Request{
+            action = "list-offered-outcomes",
+            args = {},
+            success = function(result)
+                if mod.unloaded or resultPanel == nil or not resultPanel.valid then
+                    m_offersOpen = false
+                    return
+                end
+                local games = type(result) == "table" and result.games or nil
+                if type(games) ~= "table" or #games == 0 then
+                    m_offersOpen = false
+                    return
+                end
+                ShowOfferedOutcomes(games, 1)
+            end,
+            error = function(err)
+                m_offersOpen = false
+                printf("EotW town: could not list results left while away: %s", tostring(err))
+            end,
+        }
     end
 
     --── the town ──────────────────────────────────────────────────────────
@@ -6479,6 +6723,7 @@ CreateScreen = function(args)
                 RefreshAll()
                 EotwRoster.Refresh()
                 MaybeShowDebrief()
+                MaybeShowOfferedOutcomes()
             elseif string.starts_with(path, "/city/week") then
                 --the week rotated: the boards re-sort the encounters, and
                 --the Danger Rooms may have opened (an earlier win of the
@@ -6511,6 +6756,7 @@ CreateScreen = function(args)
                 RefreshAll()
                 EotwRoster.Refresh()
                 MaybeShowDebrief()
+                MaybeShowOfferedOutcomes()
             end
         end)
     end

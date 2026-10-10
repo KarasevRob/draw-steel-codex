@@ -60,6 +60,13 @@ MonsterAI = {
     AbilityActionLogName = function() return "Main Action" end,
     LogDecision = noop, LogMove = noop, SetLogContext = noop, SetMoveLogContext = noop,
     RefreshCombatants = noop, Sleep = noop,
+    --The squad's speech, reservations and side-by-side movement are covered by
+    --ai_squad_volley_test.lua; here the moves simply run one after another.
+    SpeakNow = noop, ReserveSquadOption = noop,
+    NewSquadReservations = function() return {squares = {}, lanes = {}} end,
+    AnnounceSquadStrike = function(self) self.announcements = (self.announcements or 0) + 1 end,
+    RunConcurrently = function(_, fns) for _,fn in ipairs(fns) do fn() end end,
+    MovementTokenIsAtLoc = function(_, t, loc) return t.loc == loc end,
 }
 local prefix = 'local g_moveResultExecuted="executed"; local g_moveResultNone="none"; local g_moveResultUnsafe="unsafe";\n'
 assert(load(section("function MonsterAI.TargetDistance", "-- Use the real token volume")))()

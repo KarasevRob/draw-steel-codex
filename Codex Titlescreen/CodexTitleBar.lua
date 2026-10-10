@@ -668,15 +668,36 @@ end
 --of this file also treats as "not in a game" -- there is nothing to interrupt,
 --so the close stays immediate.
 --
---This guards OUR control only. A close that never reaches Lua (Alt+F4, the
+--This generic prompt guards OUR control only. Other closes (Alt+F4, the
 --taskbar menu, the system menu, the native caption in legacy strip mode)
---still quits straight away; catching those would need an engine-side WM_CLOSE
---hook.
+--reach Lua only through OnQuitRequested below, which consults a custom
+--interface's exit confirmation and otherwise lets them quit straight away.
 local m_quitConfirmDialog = nil
+
+--The engine calls this global before ANY quit (dmhub.QuitApplication, the
+--close button, Alt+F4, Cmd+Q). Returning true holds the quit: a custom
+--interface (Encounter of the Week) is showing its own confirmation, which
+--quits with dmhub.ForceQuitApplication if the user goes ahead.
+function OnQuitRequested()
+    if (not dmhub.inGame) or dmhub.isLobbyGame then
+        return false
+    end
+    local hud = rawget(_G, "GameHud")
+    if hud == nil then
+        return false
+    end
+    return hud.CustomInterfaceConfirmExit("quit", function() dmhub.ForceQuitApplication() end)
+end
 
 local function ConfirmCloseWindow()
     if (not dmhub.inGame) or dmhub.isLobbyGame then
         dmhub.CloseWindow()
+        return
+    end
+
+    --a custom interface with its own exit confirmation replaces the
+    --generic prompt below.
+    if OnQuitRequested() then
         return
     end
 
@@ -1333,6 +1354,11 @@ local function CreatePlayerStatusIcon(userid, charid, extraCount)
     return resultPanel
 end
 
+--the zero-size panel beneath the players row that the column hangs from.
+local g_playersToastAnchor = nil
+--the players panel itself, so CodexTitleBar.OpenPlayersPopout can click it.
+local g_connectivityPanel = nil
+
 local function CreateConnectivityPanel()
     local m_wifiIcon
 
@@ -1376,9 +1402,13 @@ local function CreateConnectivityPanel()
             end
             local newCache = {}
             local children = {}
+            --a directorless game's host is a player like the rest (their
+            --session still says dm), so they get a portrait too.
+            local directorless = false
+            pcall(function() directorless = dmhub.directorlessGame == true end)
             for _, userid in ipairs(dmhub.users or {}) do
                 local info = dmhub.GetSessionInfo(userid)
-                if info ~= nil and not info.dm then
+                if info ~= nil and (directorless or not info.dm) then
                     local owned = CharacterIdsOwnedBy(userid)
                     local mainid = info.primaryCharacter or owned[1]
                     local extraCount = 0
@@ -1441,7 +1471,16 @@ local function CreateConnectivityPanel()
                 element.popup = nil
                 return
             end
-            local factory = rawget(_G, "CreateHeroesPanelPopoutContent")
+            --a custom interface (Encounter of the Week) may put its own
+            --content here instead of the Heroes panel.
+            local factory = nil
+            local custom = nil
+            pcall(function() custom = GameHud.CustomInterfacePlayersPopout() end)
+            if custom ~= nil then
+                factory = function() return custom end
+            else
+                factory = rawget(_G, "CreateHeroesPanelPopoutContent")
+            end
             if factory == nil then
                 return
             end
@@ -1515,6 +1554,20 @@ local function CreateConnectivityPanel()
 
         contentPanel,
     }
+
+    --notices about the players hang beneath this panel
+    --(CodexTitleBar.ShowPlayersToast) as a popup of this anchor: the popup
+    --layer draws above the game hud, which the title bar itself does not.
+    --Its own anchor, so a notice never closes the Heroes popout.
+    g_playersToastAnchor = gui.Panel{
+        floating = true,
+        width = 1,
+        height = 1,
+        halign = "left",
+        valign = "bottom",
+    }
+    resultPanel:AddChild(g_playersToastAnchor)
+    g_connectivityPanel = resultPanel
     return resultPanel
 end
 
@@ -1535,6 +1588,253 @@ local g_initiativeStatusContainer = nil
 --`X = X or {}` idiom cannot be used here.
 if rawget(_G, "CodexTitleBar") == nil then
     CodexTitleBar = {}
+end
+
+local PLAYERS_TOAST_STYLES = {
+    {
+        selectors = {"playersToast"},
+        bgcolor = "#1b1c20ff",
+        borderColor = "#6a6f7a",
+    },
+    {
+        selectors = {"playersToast", "create", "~settled"},
+        transitionTime = 0.25,
+        opacity = 0,
+    },
+    {
+        selectors = {"playersToastButton"},
+        bgcolor = "#3a3d46",
+        color = "#e8e8e8",
+    },
+    {
+        selectors = {"playersToastButton", "hover"},
+        bgcolor = "#4e525e",
+    },
+    {
+        selectors = {"playersToastButton", "danger"},
+        bgcolor = "#7a2a2a",
+    },
+    {
+        selectors = {"playersToastButton", "danger", "hover"},
+        bgcolor = "#a03636",
+    },
+}
+
+--Open the popout under the players row (the Heroes panel, or what a custom
+--interface puts there), as if the player had clicked it.
+function CodexTitleBar.OpenPlayersPopout()
+    local panel = g_connectivityPanel
+    if panel == nil or not panel.valid or panel.popup ~= nil then
+        return
+    end
+    panel:FireEvent("click")
+end
+
+--the notices showing now, oldest first: { key, text, actions, fresh }.
+local g_playersToasts = {}
+local g_playersToastSeq = 0
+
+local RebuildPlayersToasts
+
+local function DismissPlayersToast(key)
+    for i, t in ipairs(g_playersToasts) do
+        if t.key == key then
+            table.remove(g_playersToasts, i)
+            RebuildPlayersToasts()
+            return
+        end
+    end
+end
+
+local function BuildPlayersToast(t)
+    local buttons = {}
+    for _, action in ipairs(t.actions or {}) do
+        local fn = action.click
+        buttons[#buttons + 1] = gui.Label{
+            classes = {"playersToastButton", cond(action.danger, "danger", nil)},
+            bgimage = "panels/square.png",
+            text = action.text,
+            fontSize = 13,
+            bold = true,
+            width = "auto",
+            height = "auto",
+            hpad = 10,
+            vpad = 4,
+            borderBox = true,
+            cornerRadius = 4,
+            lmargin = 8,
+            valign = "center",
+            textWrap = false,
+            click = function(element)
+                DismissPlayersToast(t.key)
+                if fn ~= nil then
+                    fn()
+                end
+            end,
+        }
+    end
+
+    --only a notice that just arrived fades in; the rest were already up.
+    local classes = {"playersToast"}
+    if not t.fresh then
+        classes[#classes + 1] = "settled"
+    end
+    t.fresh = false
+
+    return gui.Panel{
+        classes = classes,
+        styles = PLAYERS_TOAST_STYLES,
+        bgimage = "panels/square.png",
+        borderWidth = 1,
+        cornerRadius = 6,
+        flow = "horizontal",
+        width = "auto",
+        height = "auto",
+        maxWidth = 520,
+        hpad = 10,
+        vpad = 8,
+        borderBox = true,
+        tmargin = 4,
+        halign = "left",
+
+        gui.Label{
+            text = t.text or "",
+            fontSize = 14,
+            color = "#ececec",
+            width = "auto",
+            maxWidth = 360,
+            height = "auto",
+            valign = "center",
+            textWrap = true,
+        },
+
+        gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            valign = "center",
+            children = buttons,
+        },
+
+        --close
+        gui.Panel{
+            bgimage = "ui-icons/close.png",
+            bgcolor = "#a0a0a0",
+            width = 12,
+            height = 12,
+            lmargin = 10,
+            valign = "center",
+            click = function()
+                DismissPlayersToast(t.key)
+            end,
+        },
+    }
+end
+
+--The popup is rebuilt whole, contents included, whenever the list changes:
+--popup placement is worked out from the panel as it is first shown, so a
+--column that grows afterwards spills upward over the bar.
+RebuildPlayersToasts = function()
+    local anchor = g_playersToastAnchor
+    if anchor == nil or not anchor.valid then
+        return
+    end
+    anchor.popup = nil
+    if #g_playersToasts == 0 then
+        return
+    end
+    local panels = {}
+    for _, t in ipairs(g_playersToasts) do
+        panels[#panels + 1] = BuildPlayersToast(t)
+    end
+    --the title bar's below-bar popup recipe (see ShowOverlayMenu): a
+    --sizeless shim placed against the whole players plate, and the column
+    --shifted back by the plate's width so it hangs from the plate's left
+    --edge.
+    local plate = g_connectivityPanel or anchor
+    anchor.popupPositioning = plate
+    anchor.popup = gui.Panel{
+        width = "auto",
+        height = "auto",
+        halign = "right",
+        valign = "bottom",
+        gui.Panel{
+            flow = "vertical",
+            width = "auto",
+            height = "auto",
+            x = -plate.renderedWidth,
+            valign = "bottom",
+            tmargin = 2,
+            children = panels,
+        },
+    }
+end
+
+--Is the notice with this id (ShowPlayersToast's args.id) still showing?
+function CodexTitleBar.HasPlayersToast(id)
+    if g_playersToastAnchor == nil or not g_playersToastAnchor.valid or g_playersToastAnchor.popup == nil then
+        return false
+    end
+    for _, t in ipairs(g_playersToasts) do
+        if t.id == id then
+            return true
+        end
+    end
+    return false
+end
+
+--Take down the notice with this id, if it is showing.
+function CodexTitleBar.DismissPlayersToast(id)
+    for _, t in ipairs(g_playersToasts) do
+        if t.id == id then
+            DismissPlayersToast(t.key)
+            return
+        end
+    end
+end
+
+--Show a notice hanging beneath the title bar's players row: who left, who
+--came back, who controls what. Newer notices stack below older ones.
+--  args.text      the message
+--  args.actions   optional { { text, click = fn, danger = bool }, ... };
+--                 pressing one runs it and dismisses the notice
+--  args.duration  seconds before it goes (default 8; 0 = stays until an
+--                 action or its close button)
+--  args.id        optional: a notice with the same id replaces this one
+--Clicking elsewhere closes the notices, as it does any popup.
+function CodexTitleBar.ShowPlayersToast(args)
+    args = args or {}
+    if g_playersToastAnchor == nil or not g_playersToastAnchor.valid then
+        return
+    end
+    --a click away closed the popup: those notices are gone.
+    if g_playersToastAnchor.popup == nil then
+        g_playersToasts = {}
+    end
+    if args.id ~= nil then
+        for i = #g_playersToasts, 1, -1 do
+            if g_playersToasts[i].id == args.id then
+                table.remove(g_playersToasts, i)
+            end
+        end
+    end
+    g_playersToastSeq = g_playersToastSeq + 1
+    local key = g_playersToastSeq
+    g_playersToasts[#g_playersToasts + 1] = {
+        key = key,
+        id = args.id,
+        text = args.text,
+        actions = args.actions,
+        fresh = true,
+    }
+    RebuildPlayersToasts()
+
+    local duration = args.duration or 8
+    if duration > 0 then
+        dmhub.Schedule(duration, function()
+            DismissPlayersToast(key)
+        end)
+    end
 end
 
 local function CreateInitiativeStatusHost()
