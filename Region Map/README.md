@@ -199,12 +199,12 @@ Load order (the CodeMod file list must match):
 | 4 | `RegionMapRecords.lua` | Record types, safe reads, validation, uploads |
 | 5 | `RegionMapModel.lua` | Location tree, permissions, visibility, writes, Party, settings, search, map kind and border, cascades |
 | 6 | `RegionMapUndo.lua` | Undo entries and the toast queue |
-| 7 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops |
-| 8 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording |
+| 7 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops and their one wording (`LegCopy`) |
+| 8 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording and time fields, path names, the other end |
 | 9 | `RegionMapTravel.lua` | *V2.1.* Travel options, travel, stop partway, the Party's spot on a path |
 | 10 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
-| 11 | `RegionMapSession.lua` | Context type, local view state and preferences, Esc layers, icon buttons |
-| 12 | `RegionMapCanvasTools.lua` | Layout math, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
+| 11 | `RegionMapSession.lua` | Context type, local view state and preferences, the small controls every panel builds (label, button, segments, text area, icon button, focus) |
+| 12 | `RegionMapCanvasTools.lua` | Layout math, segment clipping, the panel pool, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
 | 13 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
 | 14 | `RegionMapPathTool.lua` | *V2.1.* Path tool steps, Connect, Redraw line, bend edits |
 | 15 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
@@ -216,7 +216,7 @@ Load order (the CodeMod file list must match):
 | 21 | `RegionMapImport.lua` | *V2.1.* JSON import: read, check, preview, create |
 | 22 | `RegionMapLogPanel.lua` | Session log panel |
 | 23 | `RegionMapPresent.lua` | Show to players send and receive |
-| 24 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, layout, refresh |
+| 24 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, Esc layers, layout, refresh |
 | 25 | `RegionMap.lua` | Capability check, registration, host window adapter, Expand |
 
 The V1 files (`Main.lua`, `RegionMapViews.lua`, `RegionMapMigration.lua`,
