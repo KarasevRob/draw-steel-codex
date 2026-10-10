@@ -643,7 +643,7 @@ function RegionMapSidePanel.Create(ctx)
         -- Only this panel shows the save state, so only it is bound again.
         if text == T("edit.saving") and not panel.data.recheckScheduled then
             panel.data.recheckScheduled = true
-            dmhub.Schedule(0.5, function()
+            dmhub.Schedule(C.saveRecheckDelay, function()
                 if mod.unloaded or not panel.valid then return end
                 panel.data.recheckScheduled = false
                 panel:FireEvent("bind")
