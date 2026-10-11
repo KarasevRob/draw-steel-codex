@@ -76,7 +76,7 @@ end
 --- @field spent nil|number watches spent from pathFrom; u/v are worked out from it
 --- @field revision integer
 
---- @alias RegionMapWriteReason "permission"|"invalid"|"busy"|"limit"|"unavailable"
+--- @alias RegionMapWriteReason "permission"|"invalid"|"busy"|"unavailable"
 
 local Locations = R.LocationsTable
 local ValidName = R.ValidName
