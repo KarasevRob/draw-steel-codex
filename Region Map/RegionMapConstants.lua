@@ -79,7 +79,6 @@ RegionMapConstants.modes = { "free", "pointcrawl" }
 RegionMapConstants.pathTableName = "RegionMapPaths"   -- persisted; never rename
 RegionMapConstants.pathSchemaVersion = 1
 RegionMapConstants.pathBendLimit = 32
-RegionMapConstants.pathTypeLimit = 24                -- path types a game can hold
 RegionMapConstants.pathTypeIdLimit = 64
 -- Travel times are stored in watches (4 hours); the unit setting changes only the display (C9).
 RegionMapConstants.watchesPerDay = 6
