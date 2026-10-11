@@ -211,8 +211,20 @@ local Types = RegionMapPaths.Types
 --- @param id any
 --- @return nil|RegionMapPathType
 function RegionMapPaths.TypeById(id)
-    for _, item in ipairs(Types()) do
-        if item.id == id then return item end
+    local data = R.StateData()
+    local stored = data and data.pathTypes
+    if type(stored) ~= "table" then
+        for _, item in ipairs(StarterTypes()) do
+            if item.id == id then return item end
+        end
+        return nil
+    end
+    -- Same answer as searching Types() (the first valid entry with this id), but only the
+    -- matching entry is checked and copied: every drawn path looks its type up.
+    for _, item in ipairs(stored) do
+        if type(item) == "table" and item.id == id and ValidType(item) then
+            return { id = item.id, name = item.name, pattern = item.pattern, color = item.color, width = item.width }
+        end
     end
     return nil
 end
@@ -223,7 +235,6 @@ local function WriteTypes(list, description)
     for _, item in ipairs(list) do
         if not ValidType(item) then return false, "invalid", nil end
     end
-    if #list > C.pathTypeLimit then return false, "limit", nil end
     local step = Model.WriteStateKey("pathTypes", list, description)
     if step == nil then return false, "unavailable", nil end
     return true, nil, Entry(description, { step })

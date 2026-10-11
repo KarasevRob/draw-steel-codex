@@ -73,7 +73,9 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
   Director content; a player's Location that has one loses its Delete entry.
 - Limits: names 1-80 characters on one line; description 4000; Director note 8000; nesting
   16 levels. A map holds any number of Locations (the 250 cap was removed 2026-10-10;
-  performance is measured only up to 250 pins a map, section 5).
+  performance is measured only up to 250 pins a map, section 5). A game holds any number
+  of path types (the 24 cap was removed 2026-10-11; the whole list is stored in
+  `regionMapState` and rewritten on every type edit).
 
 ### Map images (V2.1)
 

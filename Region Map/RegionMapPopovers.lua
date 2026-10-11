@@ -445,7 +445,6 @@ local function BuildSettings(ctx)
             typesList.children = children
         end
         typeEditor:SetClass("collapsed", editing == nil)
-        addType:SetClass("collapsed", #types >= C.pathTypeLimit)
         if editing == nil then return end
         SetInput(typeName, editing.name)
         for _, row in ipairs(patternRows) do row.data.select(editing.pattern) end
