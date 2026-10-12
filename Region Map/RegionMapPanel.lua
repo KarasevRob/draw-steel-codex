@@ -20,6 +20,8 @@ local SetText = Session.SetText
 
 local escapePriorities = rawget(_G, "EscapePriority") or {}
 local ESCAPE_PRIORITY = (escapePriorities.EXIT_DIALOG or 0) + 0.5
+-- Closing the fullscreen map yields to every window: they are all drawn over it.
+local CLOSE_PRIORITY = (escapePriorities.EXIT_DIALOG or 0) - 0.5
 
 -- monitorAssets accepts data table names too; the stub types it as the
 -- built-in asset kinds only, so the list is returned untyped.
@@ -29,13 +31,12 @@ local function MonitoredTables(...)
 end
 
 --- Build the Region Map content panel.
---- Host hooks from RegionMap.lua. Expand hooks are absent or answer false
---- where the host cannot resize the window (native popouts, pinned windows).
+--- Host hooks from RegionMap.lua; each adds its toolbar button when present.
+--- The fullscreen host passes close and popOut, the native popout passes popIn.
 --- @class RegionMapHostOptions
---- @field fitHost nil|fun(root: Panel)
---- @field canExpand nil|fun(root: Panel): boolean
---- @field isExpanded nil|fun(root: Panel): boolean
---- @field toggleExpand nil|fun(root: Panel)
+--- @field close nil|fun() close the fullscreen map (also Esc at the Atlas)
+--- @field popOut nil|fun() move the map into its own OS window
+--- @field popIn nil|fun() bring a popped-out map back to fullscreen
 
 --- @param options nil|RegionMapHostOptions
 --- @return Panel
@@ -46,7 +47,7 @@ function RegionMapPanel.Create(options)
         mapId = nil, selectedId = nil, selectedPathId = nil, panelMode = "none", pickKind = nil, newMapMode = nil,
         locked = true, tool = "none", toolTargetId = nil, pathDraft = nil, panelInset = 0,
         camera = { zoom = C.minZoom, centerX = 0.5, centerY = 0.5 },
-        focusName = false, popover = nil, ruler = nil, scaleDraft = nil, expanded = false,
+        focusName = false, popover = nil, ruler = nil, scaleDraft = nil,
     }
     -- The service functions are attached below, before any component is built.
     ---@diagnostic disable-next-line: missing-fields
@@ -71,8 +72,10 @@ function RegionMapPanel.Create(options)
     local showButton
     local viewAsButton
     local logButton
-    local expandButton
     local settingsButton
+    local popOutButton
+    local popInButton
+    local closeButton
     local statusChip
     local banners
     local toast
@@ -303,14 +306,11 @@ function RegionMapPanel.Create(options)
         ctx.Select(location.id, "read")
     end
 
-    function ctx.CanExpand()
-        return options.canExpand ~= nil and ctx.IsAlive() and options.canExpand(root)
-    end
-
-    function ctx.ToggleExpand()
-        if not ctx.CanExpand() or options.toggleExpand == nil then return end
-        options.toggleExpand(root)
-        RefreshAll()
+    -- Leaving the map runs a host hook that destroys this panel; edits are saved first.
+    local function RunHostHook(hook)
+        if hook == nil or not ctx.IsAlive() then return end
+        ctx.FlushEdits()
+        hook()
     end
 
     function ctx.ShowMenu(element, id)
@@ -465,11 +465,6 @@ function RegionMapPanel.Create(options)
         viewAsButton:SetClass("on", Model.ViewingAsPlayer())
         Session.SetIconButton(viewAsButton, T(Model.ViewingAsPlayer() and "tb.viewAs.on" or "tb.viewAs.off"))
         logButton:SetClass("on", data.panelMode == "log")
-        data.expanded = options.isExpanded ~= nil and options.isExpanded(root)
-        expandButton:SetClass("collapsed", not ctx.CanExpand())
-        expandButton:SetClass("on", data.expanded)
-        Session.SetIconButton(expandButton, T(data.expanded and "tb.expand.on" or "tb.expand.off"),
-            data.expanded and C.iconRestore or C.iconExpand)
         settingsButton:SetClass("collapsed", not director)
         settingsButton:SetClass("on", data.popover == "settings")
     end
@@ -577,6 +572,17 @@ function RegionMapPanel.Create(options)
         return nil
     end
 
+    -- Esc goes to the map's own layers first; with none open, only the host can take it (close).
+    local function SyncEscape()
+        local layer = EscapeLayer()
+        root.captureEscape = layer ~= nil or options.close ~= nil
+        local priority = layer ~= nil and ESCAPE_PRIORITY or CLOSE_PRIORITY
+        if root.data.escapePriority ~= priority then
+            root.data.escapePriority = priority
+            root.escapePriority = priority
+        end
+    end
+
     -- Refresh ------------------------------------------------------------------------------------
 
     local function QueueRefresh(delay)
@@ -658,7 +664,7 @@ function RegionMapPanel.Create(options)
             RefreshStatus(map)
             RefreshBanners(map)
             RefreshToast()
-            root.captureEscape = EscapeLayer() ~= nil
+            SyncEscape()
         end)
         local pending = shell.refreshPending
         shell.refreshing = false
@@ -699,9 +705,18 @@ function RegionMapPanel.Create(options)
     logButton = Session.IconButton("region-map-log", C.iconLog, T("tb.log"), function()
         ctx.ToggleLog()
     end)
-    expandButton = Session.IconButton("region-map-expand", C.iconExpand, T("tb.expand.off"), function()
-        ctx.ToggleExpand()
+    popOutButton = Session.IconButton("region-map-pop-out", C.iconPopOut, T("tb.popOut"), function()
+        RunHostHook(options.popOut)
     end)
+    popOutButton:SetClass("collapsed", options.popOut == nil)
+    popInButton = Session.IconButton("region-map-pop-in", C.iconPopIn, T("tb.popIn"), function()
+        RunHostHook(options.popIn)
+    end)
+    popInButton:SetClass("collapsed", options.popIn == nil)
+    closeButton = Session.IconButton("region-map-close", C.iconClose, T("tb.close"), function()
+        RunHostHook(options.close)
+    end)
+    closeButton:SetClass("collapsed", options.close == nil)
     settingsButton = Session.IconButton("region-map-settings", C.iconSettings, T("tb.settings"), function()
         ctx.SetPopover("settings")
     end)
@@ -719,10 +734,11 @@ function RegionMapPanel.Create(options)
     end)
     local toolbar = gui.Panel {
         id = "region-map-toolbar", classes = { "regionMapToolbar" }, floating = true,
-        -- Brief order (D12a): Search, Add, Lock, Ruler, Show, View as player, Log, Expand, Settings;
-        -- the Path tool sits beside Add, the other way of making things on the map.
+        -- Brief order (D12a): Search, Add, Lock, Ruler, Show, View as player, Log, Settings;
+        -- the Path tool sits beside Add, the other way of making things on the map. The host's
+        -- buttons (pop out or return to fullscreen, then close) end the row.
         searchButton, addButton, pathButton, lockButton, rulerButton, showButton, viewAsButton, logButton,
-        expandButton, settingsButton,
+        settingsButton, popOutButton, popInButton, closeButton,
     }
 
     statusChip = gui.Label {
@@ -838,7 +854,7 @@ function RegionMapPanel.Create(options)
         monitorAssets = MonitoredTables(C.locationTableName, C.detailsTableName, C.notesTableName, C.logTableName,
             C.pathTableName),
         monitorGame = { Model.StatePath(), GameHud.PresentDialogPath() },
-        data = {},
+        data = { escapePriority = ESCAPE_PRIORITY },
         create = function(element)
             Styles.Subscribe(element)
             -- Players open on their last map (D13c); otherwise the first map, else the Atlas.
@@ -851,7 +867,6 @@ function RegionMapPanel.Create(options)
             RefreshAll()
             present.Receive()
             RegionMapLog.EnforceCap()
-            if options.fitHost ~= nil then element:ScheduleEvent("regionMapFitHost", 0.01) end
         end,
         destroy = function(element)
             ctx.FlushEdits()
@@ -872,9 +887,6 @@ function RegionMapPanel.Create(options)
             shell.refreshScheduled = false
             RefreshAll()
         end,
-        regionMapFitHost = function(element)
-            if options.fitHost ~= nil then options.fitHost(element) end
-        end,
         think = function()
             if not ctx.IsAlive() then return end
             if shell.director ~= dmhub.isDM then
@@ -884,11 +896,10 @@ function RegionMapPanel.Create(options)
             end
             present.Receive()
             RefreshToast()
-            -- A resize by hand ends Expand; the toggle then offers Expand again.
-            if data.expanded and options.isExpanded ~= nil and not options.isExpanded(root) then RefreshAll() end
-            root.captureEscape = EscapeLayer() ~= nil
+            SyncEscape()
         end,
-        -- Esc order (R2): stop the tool -> leave edit mode -> close the panel -> go up a level.
+        -- Esc order (R2): stop the tool -> leave edit mode -> close the panel -> go up a level,
+        -- and at the Atlas close the fullscreen map (a window closes itself there instead).
         escape = function()
             local layer = EscapeLayer()
             if layer == "confirm" then
@@ -920,6 +931,8 @@ function RegionMapPanel.Create(options)
                 ctx.Select(nil, nil)
             elseif layer == "map" then
                 ctx.GoUp()
+            else
+                RunHostHook(options.close)
             end
         end,
 

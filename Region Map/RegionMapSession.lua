@@ -35,7 +35,6 @@ local Model = RegionMapModel
 --- @field popover nil|"search"|"settings" the popover open under the toolbar
 --- @field ruler nil|RegionMapMeasure the ruler's points (local, never written)
 --- @field scaleDraft nil|RegionMapMeasure the two scale points picked so far, until a distance is entered
---- @field expanded boolean the window fills the play area (D13a)
 
 --- Two points on the open map. The second is absent while only a start is picked.
 --- @class RegionMapMeasure
@@ -93,8 +92,6 @@ local Model = RegionMapModel
 --- @field FocusLocation fun(id: string) open the map a Location is on, center it and select it (Search)
 --- @field SetPopover fun(popover: nil|"search"|"settings") open or close a toolbar popover
 --- @field ToggleLog fun() open or close the session log panel
---- @field CanExpand fun(): boolean
---- @field ToggleExpand fun()
 
 -- Preferences (per viewer and game) ------------------------------------------------------------
 
@@ -250,8 +247,9 @@ end
 -- Font Size ------------------------------------------------------------------------------------
 
 --- How much bigger pins, the Party and the side panel draw than at Font Size
---- 100. In rail mode the host already zooms the whole window by Font Size
---- (WindowUIScale), so only the other hosts scale here.
+--- 100. In rail mode the host already zooms the whole map by Font Size
+--- (WindowUIScale: the fullscreen host and the popout both apply it), so
+--- this scales only outside rail mode.
 --- @return number
 function RegionMapSession.UIScale()
     local document = rawget(_G, "PanelDocument")

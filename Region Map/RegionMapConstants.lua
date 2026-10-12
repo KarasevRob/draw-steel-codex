@@ -11,7 +11,6 @@ RegionMapConstants = RegisterGameType("RegionMapConstants")
 -- placement under the old name no longer applies.
 RegionMapConstants.panelName = "Overland Map"
 RegionMapConstants.panelIcon = "phosphor/map-trifold.png"
-RegionMapConstants.openHandlerId = "00-regionmap"   -- sorts before the icon rail's "iconrail" handler
 
 -- Storage. Table and document names are persisted; never rename them.
 -- The details and notes tables date from V1 and keep their row format.
@@ -232,21 +231,22 @@ RegionMapConstants.partyMoveEdge = 0.15              -- share of the walk spent 
 RegionMapConstants.partyMoveFresh = 5                -- only legs logged this recently play; older ones (late join, reopen) do not
 RegionMapConstants.controlsFadeSeconds = 2           -- camera controls fade after this long without pointer movement
 
--- Host window (icon-rail window or the mod's own floating window)
+-- Native popout window (the map is otherwise fullscreen). The popout opens at
+-- windowWidth x popoutHeight; the bounds limit resizing it.
 RegionMapConstants.windowWidth = 1000
 RegionMapConstants.windowHeight = 800
 RegionMapConstants.windowMinWidth = 720
 RegionMapConstants.windowMinHeight = 480
-RegionMapConstants.windowMaxWidth = 4096              -- large enough for Expand on wide screens
+RegionMapConstants.windowMaxWidth = 4096
 RegionMapConstants.windowMaxHeight = 2160
 RegionMapConstants.popoutHeight = 720
-RegionMapConstants.hostEdgeMargin = 40             -- the app menu bar sits inside that space
-RegionMapConstants.hostVirtualHeight = 1080         -- PresentDocument places windows in a space this tall
--- Expand: the icon rails' measures (DocumentSystem.lua ICON_RAIL_*), in window units before Font Size zoom.
-RegionMapConstants.expandRailButton = 40
-RegionMapConstants.expandRailInset = 12
-RegionMapConstants.expandTopInset = 64
-RegionMapConstants.expandGap = 8
+-- The icon rails' measures (DocumentSystem.lua ICON_RAIL_*, IconRailTop), in layer
+-- units before Font Size zoom: the fullscreen map sits between the rails.
+RegionMapConstants.railButton = 40
+RegionMapConstants.railInset = 12
+RegionMapConstants.railGap = 8
+RegionMapConstants.railStopGap = 12
+RegionMapConstants.railTopMin = 64
 
 -- Icons (Phosphor masks, tinted by style rules). Verified live 2026-10-06.
 RegionMapConstants.iconParty = "phosphor/users-three.png"
@@ -269,7 +269,7 @@ RegionMapConstants.iconMap = "phosphor/map-trifold.png"
 RegionMapConstants.iconSearch = "phosphor/magnifying-glass-bold.png"
 RegionMapConstants.iconRuler = "phosphor/ruler.png"
 RegionMapConstants.iconLog = "phosphor/scroll.png"
-RegionMapConstants.iconExpand = "phosphor/corners-out.png"
-RegionMapConstants.iconRestore = "phosphor/corners-in.png"
+RegionMapConstants.iconPopOut = "drawsteel/Icons_Nav_MaxWindow.png"  -- the host's own pop out and pop in icons
+RegionMapConstants.iconPopIn = "drawsteel/Icons_Nav_MinWindow.png"
 RegionMapConstants.iconSettings = "phosphor/gear-six.png"
 RegionMapConstants.iconPath = "phosphor/path.png"
