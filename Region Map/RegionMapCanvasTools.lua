@@ -287,28 +287,51 @@ end
 
 --- Puts a center-aligned panel's middle at canvas point (x, y). The engine's
 --- pivot does not move a panel, so offsets are measured from the canvas center.
+--- Positions on the map go through panel.x/y, never selfStyle: a selfStyle write
+--- re-matches the panel, and a layer's whole subtree, against every style rule
+--- (544 on the map), which made a pan at close zoom run near 10 fps.
+-- Where each piece was last placed (its offset from the canvas center), so a zoom
+-- in motion can move it from there; weak keys let destroyed panels go.
+local placedX = setmetatable({}, { __mode = "k" }) --- @type table<Panel, number>
+local placedY = setmetatable({}, { __mode = "k" }) --- @type table<Panel, number>
+
+--- Puts a panel at offset (x, y) from the canvas center and remembers it (see Stretch).
+--- Positions on the map go through panel.x/y, never selfStyle: a selfStyle write
+--- re-matches the panel, and a layer's whole subtree, against every style rule
+--- (544 on the map), which made a pan at close zoom run near 10 fps.
+--- @param panel Panel
+--- @param x number
+--- @param y number
+function RegionMapCanvasTools.PlaceAt(panel, x, y)
+    panel.x, panel.y = x, y
+    placedX[panel], placedY[panel] = x, y
+end
+local PlaceAt = RegionMapCanvasTools.PlaceAt
+
+--- Puts a center-aligned panel's middle at canvas point (x, y). The engine's
+--- pivot does not move a panel, so offsets are measured from the canvas center.
 --- @param panel Panel
 --- @param layout RegionMapLayout
 --- @param x number
 --- @param y number
 function RegionMapCanvasTools.PlaceCentered(panel, layout, x, y)
-    panel.selfStyle.x = x - layout.viewWidth * 0.5
-    panel.selfStyle.y = y - layout.viewHeight * 0.5
+    PlaceAt(panel, x - layout.viewWidth * 0.5, y - layout.viewHeight * 0.5)
 end
 local PlaceCentered = RegionMapCanvasTools.PlaceCentered
 
---- While a zoom is in motion (a camera ease or a burst of wheel notches), a
---- layer of pieces placed against `ref` is shown at `layout` by scaling the
---- whole layer about its center and shifting it, instead of placing every
---- piece again each frame; lines look thicker or thinner until the zoom
---- settles and the layer is placed for real. Returns false, changing nothing,
---- when the view has left the area placed around ref (on screen and half a
---- view around it), so the caller places again.
---- @param panel Panel a floating layer the size of the canvas
+--- While a zoom is in motion (a camera ease or a burst of wheel notches), the
+--- pieces of a layer placed against `ref` are moved to where `layout` shows those
+--- points, keeping their size, instead of being placed again each frame; the
+--- caller places them for real once the zoom settles. Pieces move through
+--- panel.x/y: scaling the layer is a style write, ~100 ms a frame on the map.
+--- Returns false, changing nothing, when the view has left the area placed
+--- around ref (on screen and half a view around it), so the caller places again.
+--- @param panel Panel a floating layer the size of the canvas, holding the pools
+--- @param pools {items: Panel[], used: integer}[] the pools whose pieces were placed against ref
 --- @param ref RegionMapLayout the layout its pieces were placed against
 --- @param layout RegionMapLayout the current layout
 --- @return boolean
-function RegionMapCanvasTools.Stretch(panel, ref, layout)
+function RegionMapCanvasTools.Stretch(panel, pools, ref, layout)
     local k = layout.width / ref.width
     if not IsFinite(k) or k <= 0 then return false end
     local viewWidth, viewHeight = layout.viewWidth, layout.viewHeight
@@ -318,9 +341,20 @@ function RegionMapCanvasTools.Stretch(panel, ref, layout)
     if left < -viewWidth / 2 or right > viewWidth * 1.5 or top < -viewHeight / 2 or bottom > viewHeight * 1.5 then
         return false
     end
-    panel.selfStyle.scale = k
-    panel.selfStyle.x = layout.x - ref.x * k - viewWidth / 2 * (1 - k)
-    panel.selfStyle.y = layout.y - ref.y * k - viewHeight / 2 * (1 - k)
+    panel.x, panel.y = 0, 0
+    -- A piece at offset p (from the center, in ref) shows at layout.x + (p + view/2 - ref.x) * k.
+    local offsetX = layout.x + (viewWidth / 2 - ref.x) * k - viewWidth / 2
+    local offsetY = layout.y + (viewHeight / 2 - ref.y) * k - viewHeight / 2
+    for _, pool in ipairs(pools) do
+        local items = pool.items
+        for i = 1, pool.used do
+            local item = items[i]
+            local x, y = placedX[item], placedY[item]
+            if x ~= nil and y ~= nil then
+                item.x, item.y = offsetX + x * k, offsetY + y * k
+            end
+        end
+    end
     return true
 end
 local Stretch = RegionMapCanvasTools.Stretch
@@ -423,7 +457,7 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
     -- placed again only on zoom, after a long pan or when the route changes.
     local routeRef = nil --- @type nil|RegionMapLayout
     local routeX, routeY = 0, 0
-    local routeStretched = false -- scaled mid-zoom (Stretch) rather than placed
+    local routeStretched = false -- moved mid-zoom (Stretch) rather than placed
 
     -- Sized inline: this layer never changes class, so the engine never re-resolves
     -- its styles after it is attached and the class size alone left it at 100x100.
@@ -484,15 +518,16 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         local ref = routeRef
         -- Mid-zoom, the dots placed last stretch with the map (see Stretch).
         if moving and ref ~= nil and ref.viewWidth == layout.viewWidth and ref.viewHeight == layout.viewHeight
-            and (ref.width ~= layout.width or routeStretched) and Stretch(route, ref, layout) then
+            and (ref.width ~= layout.width or routeStretched) and Stretch(route, { dots }, ref, layout) then
             routeStretched = true
             -- The stretch moved the layer; the next slide must write its place again.
             routeX, routeY = -math.huge, -math.huge
             return
         end
         if routeStretched then
+            -- The dots sit where the stretch left them, so place them again even if the zoom came back.
             routeStretched = false
-            route.selfStyle.scale = 1
+            ref = nil
         end
         if ref == nil or ref.width ~= layout.width or ref.height ~= layout.height
             or ref.viewWidth ~= layout.viewWidth or ref.viewHeight ~= layout.viewHeight
@@ -504,7 +539,7 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         local x, y = layout.x - ref.x, layout.y - ref.y
         if x ~= routeX or y ~= routeY then
             routeX, routeY = x, y
-            route.selfStyle.x, route.selfStyle.y = x, y
+            route.x, route.y = x, y
         end
     end
 
