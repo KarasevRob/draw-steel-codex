@@ -79,8 +79,9 @@ local function IsFullscreen()
 end
 
 local function CloseFullscreen()
-    if IsFullscreen() then fullscreen:DestroySelf() end
+    local host = fullscreen
     fullscreen = nil
+    if host ~= nil and host.valid then host:DestroySelf() end
 end
 
 local OpenFullscreen
