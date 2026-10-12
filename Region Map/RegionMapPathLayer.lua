@@ -170,7 +170,7 @@ function RegionMapPathLayer.Create()
     local layerX, layerY = 0, 0
     local hoverId, selectedId, showNames = nil, nil, false
     local dirty = true
-    local stretched = false -- scaled mid-zoom (Tools.Stretch) rather than placed
+    local stretched = false -- moved mid-zoom (Tools.Stretch) rather than placed
     -- The top layer: the draft line, whose handles show, and a handle drag in progress.
     local draft = nil --- @type nil|{points: {u: number, v: number}[], cursor: nil|{u: number, v: number}, look: RegionMapPathLook}
     local handlesId = nil --- @type nil|string
@@ -204,9 +204,7 @@ function RegionMapPathLayer.Create()
         Set(panel, "width", math.max(thickness, length))
         Set(panel, "height", thickness)
         Set(panel, "cornerRadius", thickness / 2)
-        -- As Tools.PlaceCentered: offsets from the canvas center.
-        Set(panel, "x", (x1 + x2) / 2 - layout.viewWidth * 0.5)
-        Set(panel, "y", (y1 + y2) / 2 - layout.viewHeight * 0.5)
+        Tools.PlaceCentered(panel, layout, (x1 + x2) / 2, (y1 + y2) / 2)
         Set(panel, "rotate", length > 0 and -math.deg(math.atan(y2 - y1, x2 - x1)) or 0)
     end
 
@@ -423,7 +421,7 @@ function RegionMapPathLayer.Create()
         PlaceHalos()
         PlaceLabels()
         layerX, layerY = 0, 0
-        layer.selfStyle.x, layer.selfStyle.y = 0, 0
+        layer.x, layer.y = 0, 0
         dirty = false
     end
 
@@ -482,14 +480,15 @@ function RegionMapPathLayer.Create()
         -- costs tens of ms on a full map, every frame of the zoom.
         if moving and not dirty and last ~= nil and scale == refScale and last.viewWidth == layout.viewWidth
             and last.viewHeight == layout.viewHeight and (last.width ~= layout.width or stretched)
-            and Tools.Stretch(layer, last, layout) then
+            and Tools.Stretch(layer, { halos, casings, marks, badges, labels }, last, layout) then
             stretched = true
             layerX, layerY = -math.huge, -math.huge
             return
         end
         if stretched then
+            -- The pieces sit where the stretch left them, so place them again even if the zoom came back.
             stretched = false
-            layer.selfStyle.scale = 1
+            dirty = true
         end
         if dirty or last == nil or scale ~= refScale or last.width ~= layout.width or last.height ~= layout.height
             or last.viewWidth ~= layout.viewWidth or last.viewHeight ~= layout.viewHeight
@@ -501,7 +500,7 @@ function RegionMapPathLayer.Create()
         local x, y = layout.x - last.x, layout.y - last.y
         if x ~= layerX or y ~= layerY then
             layerX, layerY = x, y
-            layer.selfStyle.x, layer.selfStyle.y = x, y
+            layer.x, layer.y = x, y
         end
     end
 

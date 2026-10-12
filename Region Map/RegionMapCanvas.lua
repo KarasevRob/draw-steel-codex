@@ -99,6 +99,8 @@ local ImageToPanel = Tools.ImageToPanel
 --- @field pinInputs string what the pins were last bound from
 --- @field lastWheel number dmhub.Time() of the last wheel zoom step
 --- @field zoomMoving boolean the last Layout stretched the line layers mid-zoom
+--- @field imageSizeW nil|number the size last written to the image and border (nil: write it)
+--- @field imageSizeH nil|number
 --- @field layerX number the pin layer's offset from pinRef (the pan since then)
 --- @field layerY number
 --- @field border "none"|"fade"|"torn"|"frame" the open map's border
@@ -171,6 +173,7 @@ function RegionMapCanvas.Create(ctx)
         hovered = false, lastPointerX = nil, lastPointerY = nil, lastPointerMove = 0,
         keyEdges = {}, scale = 1,
         pinRef = nil, pinsDirty = true, pinInputs = "", lastWheel = -math.huge, zoomMoving = false, layerX = 0, layerY = 0,
+        imageSizeW = nil, imageSizeH = nil,
         border = "none", fadeShown = nil, hoverPathId = nil, hoverX = nil, hoverY = nil, draftKey = "",
         move = nil, partyKey = "", partyLook = "", partyNow = nil, partyBefore = nil, moveWatchUntil = 0, movedIds = {},
     }
@@ -687,8 +690,7 @@ function RegionMapCanvas.Create(ctx)
     local function PartyDrawnPoint(element, party)
         local ref = state.pinRef
         if ref ~= nil and state.layout ~= nil then
-            local u, v = Tools.PanelToImage(ref, element.selfStyle.x + ref.viewWidth * 0.5,
-                element.selfStyle.y + ref.viewHeight * 0.5)
+            local u, v = Tools.PanelToImage(ref, element.x + ref.viewWidth * 0.5, element.y + ref.viewHeight * 0.5)
             if u ~= nil and v ~= nil then return u, v end
         end
         return party.u, party.v
@@ -828,13 +830,16 @@ function RegionMapCanvas.Create(ctx)
             edgeFade:SetClass("collapsed", not fadeShown)
         end
         if layout == nil then return end
-        imagePanel.selfStyle.x, imagePanel.selfStyle.y = layout.x, layout.y
-        imagePanel.selfStyle.width, imagePanel.selfStyle.height = layout.width, layout.height
-        if fadeShown then
-            edgeFade.selfStyle.x, edgeFade.selfStyle.y = layout.x, layout.y
+        -- Position through panel.x/y and size only when it changes: every selfStyle
+        -- write costs a style pass (see Tools.PlaceCentered), and a pan changes only position.
+        imagePanel.x, imagePanel.y = layout.x, layout.y
+        if state.imageSizeW ~= layout.width or state.imageSizeH ~= layout.height then
+            state.imageSizeW, state.imageSizeH = layout.width, layout.height
+            imagePanel.selfStyle.width, imagePanel.selfStyle.height = layout.width, layout.height
             edgeFade.selfStyle.width, edgeFade.selfStyle.height = layout.width, layout.height
             Tools.SetFadeBand(edgeFade, Tools.FadeBand(layout.width, layout.height))
         end
+        if fadeShown then edgeFade.x, edgeFade.y = layout.x, layout.y end
 
         -- A pan keeps the image's size, so pins keep their places in the layer and
         -- only the layer moves. Zoom, a resize or a model change places them again.
@@ -861,7 +866,7 @@ function RegionMapCanvas.Create(ctx)
         local layerX, layerY = layout.x - ref.x, layout.y - ref.y
         if layerX ~= state.layerX or layerY ~= state.layerY then
             state.layerX, state.layerY = layerX, layerY
-            pinLayer.selfStyle.x, pinLayer.selfStyle.y = layerX, layerY
+            pinLayer.x, pinLayer.y = layerX, layerY
         end
 
         -- A dragged pin or Party follows the pointer (in the layer's frame, which is ref's).
@@ -878,6 +883,8 @@ function RegionMapCanvas.Create(ctx)
     -- Image ------------------------------------------------------------------------------------
 
     CreateImagePanel = function(request, opacity)
+        -- A new image panel has no size yet, so the next Layout must write it.
+        state.imageSizeW, state.imageSizeH = nil, nil
         return gui.Panel {
             classes = { "regionMapImage" },
             floating = true, halign = "left", valign = "top", interactable = false,

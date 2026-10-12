@@ -303,7 +303,7 @@ samples only show costs over 33 ms; with and without the test paths they matched
 | First draw at Fit, 1401 line pieces | 123 ms, then one re-place of ~115 ms as the window settles its size |
 | First draw three zoom steps in, 1963 pieces | 554 ms (panel creation, ~0.14-0.28 ms a piece; once per window) |
 | Zoom re-layout (re-places every piece) | 23-34 ms; 77-125 ms the first time a deeper zoom grows the pool |
-| Pan | ~0.02 ms a frame in the path layer (the layer slides); a long pan re-places, as a zoom |
+| Pan | ~0.02 ms a frame of Lua in the path layer (the layer slides); a long pan re-places, as a zoom. The whole frame was far slower until positions moved off `selfStyle` (see below) |
 | Hover hit test / label pass with Show names | 0.2 ms / ~1 ms |
 | Pieces by zoom, Fit to four steps in | 1401, 1639, 1963, 2329, then the 2500 cap (`C.pathPieceLimit`): past it a segment draws solid |
 
@@ -321,6 +321,32 @@ memory), before and after:
 | Animated zoom (Fit, Go to Party) | every line piece placed each frame | placed once, when it lands |
 | Zoom step under Reduce motion | 24-38 ms | 22-30 ms |
 | Window build | 160-175 ms | 145-160 ms (Settings is built on first open) |
+
+Pan and zoom frame time, measured 2026-10-13 in the app (focused, 60 Hz, PC test map zoomed in:
+~760 path pieces, 600 route dots, 33 pin panels), whole frames rather than Lua time:
+
+| Measure | Before | After |
+|---|---|---|
+| Drag pan at close zoom | every frame 100 ms or more (~10 fps) | 16.7 ms (60 fps) |
+| Path, route and pin layers slid every frame | ~100 ms a frame | 16.9 ms |
+| All 1357 line and route pieces moved every frame | ~100 ms a frame | 18 ms |
+| Animated Fit zoom | not measured | 16.7 ms a frame |
+| Line and route layers scaled every frame (the old mid-zoom stretch) | ~100 ms a frame | pieces moved instead: see below |
+| Four wheel notches, stall time | ~1.1 s (14 slow frames, most 100 ms) | ~0.4 s (8 slow frames, worst 83 ms) |
+
+Mid-zoom, `Tools.Stretch` used to scale the layer (`selfStyle.scale`, a style pass over every
+piece); it now moves each placed piece through `panel.x` / `panel.y` from where it was placed,
+keeping its size until the zoom settles. What remains is the re-place when the zoom settles:
+pieces are handed out from a shared pool in drawing order, so after a zoom most of them change
+segment and get new width, angle and colour styles (one style write on each of ~1500 pieces
+costs a 50 ms and a 100 ms frame).
+
+The Lua side was always cheap (under 1 ms a frame). The cost was the engine's style pass: every
+`selfStyle` write re-matches that panel against the map's 544 style rules, and a write on a layer
+re-matches its whole subtree. So positions on the map go through `panel.x` / `panel.y` (an
+offset the engine applies without a style pass), never `selfStyle.x` / `selfStyle.y`; see
+`RegionMapCanvasTools.PlaceCentered`. The piece count, rounded corners and clipping made no
+measurable difference.
 
 How it stays cheap: one data revision (`RegionMapModel.Revision`) moves only when an Overland
 Map table changes (the engine's `tablesUpdateId`, this client's writes, or another client's
