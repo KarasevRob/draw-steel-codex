@@ -128,14 +128,15 @@ designed, approved or scheduled. The open ideas are ranked at the end.
     Phosphor's `compass` icon, enough for a plain version; a decorated rose needs art, like
     the Torn edge and Frame borders (idea 10). Within the mod: one tinted image panel.
 
-17. **Checkered distance ruler.** *Added 2026-10-13.* A scale bar: a strip of alternating
-    dark and light blocks with distances marked along it (for example 0, 5, 10, 20 miles), as
-    on printed maps, so the map's scale reads at a glance without the Ruler tool. It uses the
-    scale the Director already sets per map in Settings (two points plus a distance, miles or
-    km), so it can only show on a calibrated map. Open questions: fixed in a corner, with
-    round lengths that relabel as the camera zooms, or placed on the map at one fixed length;
-    whether it also shows travel time when the map has a pace; whether players see it.
-    Within the mod: a handful of panels, drawn on the same opposite-tone casing as paths.
+17. **Scale bar (checkered distance ruler).** *Added 2026-10-13; the user confirmed
+    2026-10-13 that a scale bar is meant.* A strip of alternating dark and light blocks with
+    distances marked along it (for example 0, 5, 10, 20 miles), as on printed maps, so the
+    map's scale reads at a glance without the Ruler tool. It uses the scale the Director
+    already sets per map in Settings (two points plus a distance, miles or km), so it can
+    only show on a calibrated map. Open questions: fixed in a corner, with round lengths
+    that relabel as the camera zooms, or placed on the map at one fixed length; whether it
+    also shows travel time when the map has a pace; whether players see it. Within the mod:
+    a handful of panels, drawn on the same opposite-tone casing as paths.
 
 ## Open ideas, ranked
 
@@ -152,7 +153,7 @@ its distance and travel time), the Party's route in the session log, and the bre
 | Later | 12. Route planning | Medium | Small to medium | None for a preview; some if a planned route is kept | Saved for later by the user. The search is cheap at the tested sizes (250 pins, about 300 paths a map; the per-map cap was removed 2026-10-10, so larger maps are possible). The open questions are design ones: what "travel the route" does to the log and to encounters along the way, and what players may see. |
 | - | 13. Edit a path's route (change its end pins) | Small | Small to medium | None: `aId` / `bId` exist, but a Party stopped on the path must move with it | Bend editing and Redraw line already exist, so the scope needs agreeing first. A moved end can create a second path between the same two pins, which must then bow apart, and the log's past legs on the path must stay readable. |
 | - | 14. Curved paths | Medium | Medium | Small if per path (a curve flag; bends become control points) | Reverses V2.1 decision D1. Many more line pieces per path, so it depends on making the path re-place cheaper (or on `panel.shapes`); hit testing and labels must follow the curve. |
-| - | 17. Checkered distance ruler | Small | Small | None (reads the map's `scale`); at most an on/off per map | Picking round lengths that stay a sensible width from 1x to 20x zoom. Nothing to show on an uncalibrated map, so the Director needs a hint to set the scale. |
+| - | 17. Scale bar | Small | Small | None (reads the map's `scale`); at most an on/off per map | Picking round lengths that stay a sensible width from 1x to 20x zoom. Nothing to show on an uncalibrated map, so the Director needs a hint to set the scale. |
 | - | 16. Compass | Small | Small | Small, an optional per-map field (on/off; maybe position and north angle) | A decorated rose waits for art, as Torn edge and Frame do; the Phosphor icon covers a plain one. Placed on the map, it can cover pins. |
 | - | 15. Map labels | Medium | Medium | Yes: a new table of label rows (map, text, u/v, size, angle, visibility); V1's `RegionMapLabelRecords` stays unused (decision 8.3) | Bringing back the label/Location overlap V2 removed. Readability on busy art (V2's halo helps), collisions with pins and path labels, very large text at 20x zoom, and bent text needing a panel per letter. |
 | TBA | 3. Hex overlay with distances | Medium | Medium | Small, added fields: hex size, orientation, offset per map | Deferred by the user. Drawing hundreds of hexes on a canvas that zooms and pans, at V2's frame times. May need a tiled grid image instead of a panel per hex. The path layer's pooled pieces (V2.1) cost ~0.14 ms each to create, so a panel per hex is costly. |
@@ -176,7 +177,7 @@ of 7.3. Next: Torn edge and Frame when the art arrives.
 TBA, so there is no V2.2 hex leg. Route planning (12) is saved for later; its design starts
 from the draft frame under idea 12.
 
-2026-10-13: the user added labels (15), a compass (16) and a checkered distance ruler (17),
-all within the mod. None is framed yet. 17 and 16 are small and need no art for a plain
-version, so they could ship together as one V2.x addition. 15 needs a frame first, since
-it reopens what V2 settled in idea 2.
+2026-10-13: the user added labels (15), a compass (16) and a scale bar (17), all
+within the mod. None is framed yet. 17 and 16 are small and need no art for a plain version,
+so they could ship together as one V2.x addition. 15 needs a frame first, since it reopens
+what V2 settled in idea 2.
