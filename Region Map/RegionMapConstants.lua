@@ -208,7 +208,9 @@ RegionMapConstants.breadcrumbHeight = 34
 RegionMapConstants.belowChromeBar = RegionMapConstants.chromeInset * 2 + RegionMapConstants.chromeBarHeight
 
 -- Timings (seconds)
-RegionMapConstants.canvasThinkActive = 0.02          -- pointer over the canvas, a drag, or a transition
+-- Active: pointer over the canvas, a drag, or a transition. 0.001 means every frame;
+-- a fixed 0.02 (50 Hz) skipped frames on 60 Hz+ screens, so pans and zooms judder.
+RegionMapConstants.canvasThinkActive = 0.001
 RegionMapConstants.canvasThinkIdle = 0.25
 RegionMapConstants.rootThink = 0.1
 RegionMapConstants.refreshDelay = 0.05               -- coalesces bursts of table/document changes

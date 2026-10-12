@@ -332,7 +332,7 @@ values that changed; pins and the Party sit on one layer that slides as a whole 
 pin panels are reused across refreshes, keyed by Location id, and restyled only when they
 changed; name plates and badges are created only when shown; route dots are rebuilt only
 when the log changes, after a zoom or after a pan of more than half the view; the canvas
-thinks every 0.02 s only while hovered, dragging or animating (0.25 s otherwise); refreshes
+thinks every frame (0.001 s) only while hovered, dragging or animating (0.25 s otherwise); refreshes
 coalesce over 0.05 s; camera saves are debounced 0.5 s. Pins appear only once the image size
 is known, and the new image fades in only after it has loaded. Paths follow the same plan:
 their pieces are pooled (collapsed, never destroyed), placed only on screen plus half a view

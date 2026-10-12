@@ -234,6 +234,9 @@ function RegionMapCanvas.Create(ctx)
             from = { zoom = data.camera.zoom, centerX = data.camera.centerX, centerY = data.camera.centerY },
             to = to, start = dmhub.Time(), onDone = onDone, noSave = noSave == true,
         }
+        -- Started from outside the canvas, think may still be at the idle rate: its
+        -- next tick would come most of the way through the 0.3 s animation.
+        if canvas ~= nil then canvas.thinkTime = C.canvasThinkActive end
     end
 
     local function Zoom(factor)
@@ -890,7 +893,10 @@ function RegionMapCanvas.Create(ctx)
                 end
                 if width == nil or height == nil or width <= 0 or height <= 0 then return end
                 state.imageWidth, state.imageHeight = width, height
-                if state.crossfade then state.fadeStart = dmhub.Time() end
+                if state.crossfade then
+                    state.fadeStart = dmhub.Time()
+                    if canvas ~= nil then canvas.thinkTime = C.canvasThinkActive end
+                end
                 Layout()
                 if state.animOnLoad ~= nil then
                     local target = state.animOnLoad
