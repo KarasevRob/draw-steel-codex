@@ -1,7 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 -- Region Map bootstrap: checks the host once, registers the panel and the
--- presentable dialog, and adapts the host window to the map's size. Region Map
+-- presentable dialog, and hosts the map fullscreen or in a native popout. Region Map
 -- is an opt-in CodeMod; it depends only on public DMHub UI and game services.
 local C = RegionMapConstants
 
@@ -13,11 +13,11 @@ local function MissingHostApis()
     local dockable = rawget(_G, "DockablePanel")
     local panelDocument = rawget(_G, "PanelDocument")
     local gameHud = rawget(_G, "GameHud")
-    Need(type(rawget(_G, "RegisterDockablePanelOpenHandler")) == "function", "RegisterDockablePanelOpenHandler")
     Need(dockable ~= nil and type(dockable.Register) == "function"
-        and type(dockable.ShowPanelByName) == "function" and type(dockable.LaunchPanelByName) == "function", "DockablePanel")
-    Need(panelDocument ~= nil and type(panelDocument.Get) == "function"
-        and type(panelDocument.IsPinned) == "function", "PanelDocument")
+        and type(dockable.LaunchPanelByName) == "function", "DockablePanel")
+    Need(panelDocument ~= nil and type(panelDocument.OpenPopout) == "function"
+        and type(panelDocument.PopoutHost) == "function" and type(panelDocument.PopoutForgetWindow) == "function"
+        and type(panelDocument.WindowUIScale) == "function", "PanelDocument popouts")
     Need(gameHud ~= nil and type(gameHud.RegisterPresentableDialog) == "function"
         and type(gameHud.GetPresentDialogDocRaw) == "function", "GameHud presentation")
     Need(type(gui.IconEditor) == "function", "gui.IconEditor")
@@ -39,26 +39,32 @@ if #missing > 0 then
     return
 end
 
--- Host window adapter ---------------------------------------------------------------
--- Everything below reads documented host details that are not a formal API:
--- PanelDocument._tmp_location (remembered window geometry), the window's
--- "journalViewer" class, dialog.data.resizePanel (DialogResize.lua) and
--- RailModeActive. Each is guarded; if one disappears the window simply keeps
--- the host's default size.
+-- Fullscreen host ----------------------------------------------------------------------
+-- The map opens over the whole game screen, on each client separately: the rail
+-- button and the Game menu toggle it, Esc at the Atlas closes it, and Show to
+-- players opens it on every client, where each player closes it when they like.
+-- It sits at the bottom of the documents layer, so the icon rails, the chat
+-- bubble and any window opened over it (a journal page, a character sheet) stay
+-- on top. It can also move into its own OS window (the host's native popout).
 
-local function ScreenKey()
-    return dmhub.screenDimensionsBelowTitlebar.x, dmhub.screenDimensionsBelowTitlebar.y
+local POPOUT_KEY = string.lower(C.panelName)
+
+local fullscreen = nil --- @type Panel|nil the open fullscreen host, if any
+
+-- The action bar draws above the documents layer, so it would cover the bottom
+-- of the map; hide it through the transient setting it monitors while the map is up.
+local actionBarRestore = nil --- @type boolean|nil
+
+local function HideActionBar()
+    if actionBarRestore ~= nil then return end
+    actionBarRestore = dmhub.GetSettingValue("hideactionbar") == true
+    dmhub.SetSettingValue("hideactionbar", true)
 end
 
--- The first open of a session carries the map's default size. Seeded only when
--- nothing is remembered, so a size the user chose is never overwritten.
-local function SeedWindowSize(doc)
-    local ok, remembered = pcall(function() return doc:try_get("_tmp_location") end)
-    if not ok or remembered ~= nil then return end
-    local sx, sy = ScreenKey()
-    pcall(function()
-        doc._tmp_location = { width = C.windowWidth, height = C.windowHeight, screenx = sx, screeny = sy }
-    end)
+local function RestoreActionBar()
+    if actionBarRestore == nil then return end
+    dmhub.SetSettingValue("hideactionbar", actionBarRestore)
+    actionBarRestore = nil
 end
 
 local function RailMode()
@@ -68,150 +74,142 @@ local function RailMode()
     return ok and active == true
 end
 
-local function WindowSize(window)
-    local w, h = window.selfStyle.width, window.selfStyle.height
-    if type(w) ~= "number" then w = window.renderedWidth end
-    if type(h) ~= "number" then h = window.renderedHeight end
-    return w, h
+local function IsFullscreen()
+    return fullscreen ~= nil and fullscreen.valid
 end
 
---- Grow the host window to the map's minimum size (or to its default size on a
---- first open at the host's generic size) and keep it on screen. Follows the
---- resize overlay's contract in DialogResize.lua: write the size, then announce
---- it as deltas so the resize handles stay on the window edges. Native popouts
---- have no journalViewer ancestor, so this is a no-op there.
---- @param root Panel the Region Map content root
-local function FitHostWindow(root)
-    if mod.unloaded or not root.valid or PanelDocument.IsPinned(C.panelName) then return end
-    local window = root:FindParentWithClass("journalViewer")
-    local doc = PanelDocument.Get(C.panelName)
-    if window == nil or not window.valid or doc == nil then return end
-    local w, h = WindowSize(window)
-    if type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then return end
-    local remembered = doc:try_get("_tmp_location")
-    local targetW = math.max(w, C.windowMinWidth)
-    local targetH = math.max(h, C.windowMinHeight)
-    if remembered == nil and math.abs(w - PanelDocument.DefaultWidth) < 1 then
-        targetW, targetH = C.windowWidth, C.windowHeight
-    end
-    local sx, sy = ScreenKey()
-    -- PresentDocument places windows in a space 1080 tall and as wide as the screen's aspect.
-    local virtualWidth = C.hostVirtualHeight * sx / sy
-    -- In rail mode the window is drawn scaled by Font Size, growing down and
-    -- right from its top-left corner, so its on-screen extent is size * scale.
+local function CloseFullscreen()
+    if IsFullscreen() then fullscreen:DestroySelf() end
+    fullscreen = nil
+end
+
+local OpenFullscreen
+
+local function PopOut()
+    CloseFullscreen()
+    PanelDocument.OpenPopout(C.panelName, { width = C.windowWidth, height = C.windowHeight, scale = 1 })
+end
+
+-- The popout's own "return to the app" button cannot reopen an action
+-- registration, so the map offers this in its toolbar instead.
+local function PopIn()
+    PanelDocument.PopoutForgetWindow(POPOUT_KEY)
+    local host = PanelDocument.PopoutHost(POPOUT_KEY)
+    if host ~= nil then host:DestroySelf() end
+    OpenFullscreen()
+end
+
+--- Lay the map out in the documents layer: between the icon rails in rail mode
+--- (measured like the rails themselves, DocumentSystem.lua ICON_RAIL_* and
+--- IconRailTop), the whole layer otherwise. In rail mode Font Size zooms the
+--- map as it zooms windows (PanelDocument.WindowUIScale), so `zoom` carries
+--- that scale and a size that is the frame's divided by it.
+--- @param host Panel
+local function FitFullscreen(host)
+    local layer = host.parent
+    local frame, zoom = host.data.frame, host.data.zoom
+    if layer == nil or frame == nil or zoom == nil then return end
+    local layerW, layerH = layer.renderedWidth, layer.renderedHeight
+    if type(layerW) ~= "number" or type(layerH) ~= "number" or layerW <= 0 or layerH <= 0 then return end
     local scale = 1
-    local scaleOk, value = pcall(PanelDocument.WindowUIScale)
-    if scaleOk and type(value) == "number" and value > 0 then scale = value end
-    local extentW, extentH = targetW * scale, targetH * scale
-    local x, y = window.x, window.y
-    local maxRight, maxBottom = virtualWidth - C.hostEdgeMargin, C.hostVirtualHeight - C.hostEdgeMargin
-    if type(x) == "number" and x + extentW > maxRight then x = math.max(0, maxRight - extentW) end
-    if type(y) == "number" and y + extentH > maxBottom then y = math.max(0, maxBottom - extentH) end
-    if targetW == w and targetH == h and x == window.x and y == window.y then return end
-    window.selfStyle.width, window.selfStyle.height = targetW, targetH
-    if x ~= window.x then window.x = x end
-    if y ~= window.y then window.y = y end
-    local overlay = window.data.resizePanel
-    if overlay ~= nil and overlay.valid and (targetW ~= w or targetH ~= h) then
-        overlay:FireEventTree("resize", nil, { deltax = targetW - w, deltay = targetH - h })
-    end
-    doc._tmp_location = {
-        x = window.x, y = window.y, width = targetW, height = targetH,
-        moved = remembered ~= nil and remembered.moved == true,
-        screenx = sx, screeny = sy,
-    }
-end
-
--- Expand (D13a) ------------------------------------------------------------------------
--- Fills the play area: the screen minus the two icon rails and the title-bar
--- gap, measured like the rail itself (DocumentSystem.lua ICON_RAIL_* and
--- IconRailTop). The window's previous geometry is kept here, not in
--- _tmp_location, so Restore returns exactly to it.
-
-local expandedFrom = nil --- @type nil|{x: number, y: number, width: number, height: number}
-local expandedTo = nil --- @type nil|{width: number, height: number}
-
-local function HostWindow(root)
-    if mod.unloaded or not root.valid or PanelDocument.IsPinned(C.panelName) then return nil, nil end
-    local window = root:FindParentWithClass("journalViewer")
-    local doc = PanelDocument.Get(C.panelName)
-    if window == nil or not window.valid or doc == nil then return nil, nil end
-    return window, doc
-end
-
-local function UIScale()
     local ok, value = pcall(PanelDocument.WindowUIScale)
-    if ok and type(value) == "number" and value > 0 then return value end
-    return 1
-end
-
--- Move and resize the window, then announce the size change to the resize
--- overlay (same contract as FitHostWindow) and remember it like a user resize.
-local function SetWindowGeometry(window, doc, x, y, width, height)
-    local w, h = WindowSize(window)
-    window.selfStyle.width, window.selfStyle.height = width, height
-    window.x, window.y = x, y
-    local overlay = window.data.resizePanel
-    if overlay ~= nil and overlay.valid and type(w) == "number" and type(h) == "number" and (width ~= w or height ~= h) then
-        overlay:FireEventTree("resize", nil, { deltax = width - w, deltay = height - h })
+    if ok and type(value) == "number" and value > 0 then scale = value end
+    local side, top, bottom = 0, 0, 0
+    if RailMode() then
+        side = C.railInset + C.railButton * scale + C.railGap
+        top = math.max(C.railTopMin, (C.railButton + C.railStopGap) * scale + C.railStopGap)
+        bottom = C.railGap
     end
-    local sx, sy = ScreenKey()
-    doc._tmp_location = { x = x, y = y, width = width, height = height, moved = true, screenx = sx, screeny = sy }
+    local width, height = math.max(1, layerW - 2 * side), math.max(1, layerH - top - bottom)
+    local key = string.format("%.3f %.1f %.1f %.1f %.1f", scale, side, top, width, height)
+    if host.data.fit == key then return end
+    host.data.fit = key
+    frame.selfStyle.lmargin, frame.selfStyle.tmargin = side, top
+    frame.selfStyle.width, frame.selfStyle.height = width, height
+    -- Named pivot on the top-left corner, the same recipe as the host's rail windows.
+    zoom.selfStyle.pivot = { x = 0, y = 1 }
+    zoom.selfStyle.uiscale = scale
+    zoom.selfStyle.width, zoom.selfStyle.height = width / scale, height / scale
 end
 
---- The play area in window units: x, y, width, height. Measured against the
---- layer the window lives in (the screen below the app's title bar); the
---- 1080-tall placement space is only an estimate when that is not laid out.
-local function PlayArea(window)
-    local sx, sy = ScreenKey()
-    local scale = UIScale()
-    local layer = window.parent
-    local layerW, layerH = C.hostVirtualHeight * sx / sy, C.hostVirtualHeight
-    if layer ~= nil and type(layer.renderedWidth) == "number" and type(layer.renderedHeight) == "number"
-        and layer.renderedWidth > 0 and layer.renderedHeight > 0 then
-        layerW, layerH = layer.renderedWidth, layer.renderedHeight
-    end
-    local side = C.expandRailInset + C.expandRailButton * scale + C.expandGap
-    local top = math.max(C.expandTopInset, (C.expandRailButton + C.expandRailInset) * scale + C.expandRailInset)
-    local width = math.min(C.windowMaxWidth, (layerW - 2 * side) / scale)
-    local height = math.min(C.windowMaxHeight, (layerH - top - C.expandGap) / scale)
-    return side, top, width, height
+OpenFullscreen = function()
+    if mod.unloaded then return end
+    if IsFullscreen() then return end
+    local layer = nil
+    pcall(function() layer = GameHud.instance.documentsPanel end)
+    if layer == nil or not layer.valid then return end
+    local zoom = gui.Panel {
+        width = "100%",
+        height = "100%",
+        halign = "left",
+        valign = "top",
+        RegionMapPanel.Create { close = CloseFullscreen, popOut = PopOut },
+    }
+    local frame = gui.Panel {
+        floating = true,
+        width = "100%",
+        height = "100%",
+        halign = "left",
+        valign = "top",
+        zoom,
+    }
+    local host
+    host = gui.Panel {
+        id = "region-map-fullscreen",
+        -- The root's styles and class give the margins under the rails the map's background.
+        classes = { "regionMapRoot" },
+        styles = ThemeEngine.MergeStyles(RegionMapStyles.Build()),
+        halign = "left",
+        valign = "top",
+        -- The board below must not take presses meant for the map.
+        swallowPress = true,
+        thinkTime = 0.25,
+        data = { fit = nil, frame = frame, zoom = zoom },
+        multimonitor = { "fontsize", "iconrail" },
+        monitor = function(element) FitFullscreen(element) end,
+        create = function(element)
+            RegionMapStyles.Subscribe(element)
+            HideActionBar()
+            FitFullscreen(element)
+        end,
+        think = function(element)
+            -- A Lua reload builds a new host; this one goes with the old code.
+            if mod.unloaded then
+                element:DestroySelf()
+                return
+            end
+            -- Stay under everything else on the layer (the chat bubble parks itself at the bottom).
+            if element.siblingIndex ~= 1 then element:SetAsFirstSibling() end
+            FitFullscreen(element)
+        end,
+        destroy = function(element)
+            if fullscreen == host then fullscreen = nil end
+            RegionMapStyles.Unsubscribe(element)
+            RestoreActionBar()
+        end,
+        frame,
+    }
+    fullscreen = host
+    layer:AddChild(host)
+    host:SetAsFirstSibling()
 end
 
-local function CanExpand(root)
-    return HostWindow(root) ~= nil
-end
-
---- Whether the window is still expanded. A resize by the user since Expand
---- clears the state, so the toggle then offers Expand again.
-local function IsExpanded(root)
-    if expandedTo == nil then return false end
-    local window = HostWindow(root)
-    local w, h = nil, nil
-    if window ~= nil then w, h = WindowSize(window) end
-    if window == nil or type(w) ~= "number" or type(h) ~= "number"
-        or math.abs(w - expandedTo.width) > 1 or math.abs(h - expandedTo.height) > 1 then
-        expandedFrom, expandedTo = nil, nil
-        return false
-    end
-    return true
-end
-
-local function ToggleExpand(root)
-    local window, doc = HostWindow(root)
-    if window == nil or doc == nil then return end
-    if IsExpanded(root) and expandedFrom ~= nil then
-        local from = expandedFrom
-        expandedFrom, expandedTo = nil, nil
-        SetWindowGeometry(window, doc, from.x, from.y, from.width, from.height)
+local function ShowFullscreen()
+    -- Popped out: bring that window forward rather than opening a second map.
+    local popout = PanelDocument.PopoutHost(POPOUT_KEY)
+    if popout ~= nil then
+        pcall(function() popout:RaiseNativeWindow() end)
         return
     end
-    local w, h = WindowSize(window)
-    if type(w) ~= "number" or type(h) ~= "number" then return end
-    expandedFrom = { x = window.x, y = window.y, width = w, height = h }
-    local x, y, width, height = PlayArea(window)
-    expandedTo = { width = width, height = height }
-    SetWindowGeometry(window, doc, x, y, width, height)
+    OpenFullscreen()
+end
+
+local function ToggleFullscreen()
+    if IsFullscreen() then
+        CloseFullscreen()
+    else
+        ShowFullscreen()
+    end
 end
 
 -- Registration -------------------------------------------------------------------------
@@ -219,7 +217,9 @@ end
 -- Close any legacy instance before replacing its registration (Lua reloads).
 DockablePanel.LaunchPanelByName(C.panelName, "hide")
 DockablePanel.Deregister(C.panelName)
-local registration = {
+-- An action registration: the rail button, the Game menu and ShowPanelByName run
+-- launch instead of opening a window. content is still built for the native popout.
+DockablePanel.Register {
     name = C.panelName,
     icon = C.panelIcon,
     dmonly = false,
@@ -232,73 +232,20 @@ local registration = {
     resizableWidth = true,
     resizableHeight = true,
     menu = "game",
+    launch = ToggleFullscreen,
     content = function()
-        return RegionMapPanel.Create {
-            fitHost = FitHostWindow, canExpand = CanExpand, isExpanded = IsExpanded, toggleExpand = ToggleExpand,
-        }
+        return RegionMapPanel.Create { popIn = PopIn }
     end,
 }
-DockablePanel.Register(registration)
-
--- The registration's height bounds describe the content; the window adds its
--- header. Derive that header from the public resize options rather than
--- copying the host's constant, so the window's minimum is the mod's minimum.
-local function ContentMinHeight()
-    local doc = PanelDocument.Get(C.panelName)
-    if doc == nil then return nil end
-    local ok, resizeOptions = pcall(function() return doc:WindowResizeOptions() end)
-    if not ok or type(resizeOptions) ~= "table" or type(resizeOptions.minHeight) ~= "number" then return nil end
-    local header = resizeOptions.minHeight - registration.minHeight
-    if header < 0 or header >= C.windowMinHeight then return nil end
-    return C.windowMinHeight - header
-end
-
-local contentMinHeight = ContentMinHeight()
-if contentMinHeight ~= nil then
-    registration.minHeight = contentMinHeight
-    DockablePanel.Register(registration)
-end
-
--- Runs before the icon rail's "iconrail" handler (ids run in sorted order) so
--- the first open of a session can carry the map's default size. In rail mode it
--- only seeds geometry and returns false: the rail keeps the button, anchoring,
--- pinning and persistence. With the rail off, a 720px canvas cannot live in a
--- dock column, so the mod hosts its own floating window.
-RegisterDockablePanelOpenHandler(C.openHandlerId, function(panelName, operation)
-    if mod.unloaded or string.lower(panelName or "") ~= string.lower(C.panelName) then
-        return false
-    end
-    local doc = PanelDocument.Get(C.panelName)
-    if doc == nil then return false end
-    if operation ~= "hide" then SeedWindowSize(doc) end
-    if RailMode() then return false end
-
-    if doc:PresentDocumentOpen() then
-        if operation == "show" or PanelDocument.IsPinned(C.panelName) then
-            doc:PresentPanel()
-        else
-            doc:ClosePanel()
-        end
-        return true
-    end
-    if operation ~= "hide" then
-        doc:PresentPanel { width = C.windowWidth, height = C.windowHeight }
-    end
-    return true
-end)
-
-local function Open()
-    if mod.unloaded then return false end
-    return DockablePanel.ShowPanelByName(C.panelName)
-end
 
 -- keeplocal = false: every client, the presenter included, opens its own
--- Region Map window; the panel then reads the presentation itself.
+-- map; the panel then reads the presentation itself. Show, never toggle:
+-- a map that is already open stays open.
 GameHud.RegisterPresentableDialog {
     id = C.panelName,
     keeplocal = false,
     create = function()
-        Open()
+        ShowFullscreen()
         return nil
     end,
 }
