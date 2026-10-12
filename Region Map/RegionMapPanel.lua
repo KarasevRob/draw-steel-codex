@@ -18,10 +18,15 @@ local Undo = RegionMapUndo
 local T = Copy.T
 local SetText = Session.SetText
 
+-- The engine stores escapePriority as a whole number, and on a tie a hidden
+-- panel can take Esc and drop it (the inventory dialogs at 13 do), so use
+-- whole numbers that no always-present panel holds.
 local escapePriorities = rawget(_G, "EscapePriority") or {}
-local ESCAPE_PRIORITY = (escapePriorities.EXIT_DIALOG or 0) + 0.5
--- Closing the fullscreen map yields to every window: they are all drawn over it.
-local CLOSE_PRIORITY = (escapePriorities.EXIT_DIALOG or 0) - 0.5
+-- In the popout the map is a window like any other.
+local WINDOW_PRIORITY = escapePriorities.EXIT_DIALOG or 14
+-- Fullscreen, every window is drawn over the map, the character sheet (10)
+-- included, so all of the map's Esc handling yields to them.
+local FULLSCREEN_PRIORITY = (escapePriorities.EXIT_CHARACTER_SHEET or 10) - 1
 
 -- monitorAssets accepts data table names too; the stub types it as the
 -- built-in asset kinds only, so the list is returned untyped.
@@ -574,13 +579,7 @@ function RegionMapPanel.Create(options)
 
     -- Esc goes to the map's own layers first; with none open, only the host can take it (close).
     local function SyncEscape()
-        local layer = EscapeLayer()
-        root.captureEscape = layer ~= nil or options.close ~= nil
-        local priority = layer ~= nil and ESCAPE_PRIORITY or CLOSE_PRIORITY
-        if root.data.escapePriority ~= priority then
-            root.data.escapePriority = priority
-            root.escapePriority = priority
-        end
+        root.captureEscape = EscapeLayer() ~= nil or options.close ~= nil
     end
 
     -- Refresh ------------------------------------------------------------------------------------
@@ -850,11 +849,11 @@ function RegionMapPanel.Create(options)
         styles = ThemeEngine.MergeStyles(Styles.Build()),
         popupsInheritStyles = true,
         thinkTime = C.rootThink,
-        escapePriority = ESCAPE_PRIORITY,
+        escapePriority = options.close ~= nil and FULLSCREEN_PRIORITY or WINDOW_PRIORITY,
         monitorAssets = MonitoredTables(C.locationTableName, C.detailsTableName, C.notesTableName, C.logTableName,
             C.pathTableName),
         monitorGame = { Model.StatePath(), GameHud.PresentDialogPath() },
-        data = { escapePriority = ESCAPE_PRIORITY },
+        data = {},
         create = function(element)
             Styles.Subscribe(element)
             -- Players open on their last map (D13c); otherwise the first map, else the Atlas.
