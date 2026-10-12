@@ -130,8 +130,9 @@ function RegionMapPathLayer.Create()
         return gui.Panel { classes = classes, floating = true, halign = "center", valign = "center", interactable = false }
     end
     local halos = Pool(function() return Piece({ "regionMapPathHalo" }) end)
-    local casings = Pool(function() return Piece({ "regionMapPathPiece" }) end)
-    local marks = Pool(function() return Piece({ "regionMapPathPiece" }) end)
+    -- One run of pieces per segment of each path (see Tools.RunPool).
+    local casings = Tools.RunPool(function() return Piece({ "regionMapPathPiece" }) end)
+    local marks = Tools.RunPool(function() return Piece({ "regionMapPathPiece" }) end)
     local badges = Pool(function()
         return gui.Panel {
             classes = { "regionMapPathBadge" }, floating = true, halign = "center", valign = "center", interactable = false,
@@ -196,38 +197,43 @@ function RegionMapPathLayer.Create()
         end
     end
 
+    -- Sizes and angles are rounded to 1/100: the same dash computed after a zoom
+    -- differs in the last digits, and an unrounded compare would write its style again.
+    local function Round(value) return math.floor(value * 100 + 0.5) / 100 end
+
     -- A rotated bar from (x1,y1) to (x2,y2), `thickness` across, with round ends.
     -- Placed against `at`, or the layout the sliding layer was last placed against.
     local function Bar(panel, x1, y1, x2, y2, thickness, at)
         local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
         local layout = (at or ref) --[[@as RegionMapLayout]]
-        Set(panel, "width", math.max(thickness, length))
-        Set(panel, "height", thickness)
-        Set(panel, "cornerRadius", thickness / 2)
+        Set(panel, "width", Round(math.max(thickness, length)))
+        Set(panel, "height", Round(thickness))
+        Set(panel, "cornerRadius", Round(thickness / 2))
         Tools.PlaceCentered(panel, layout, (x1 + x2) / 2, (y1 + y2) / 2)
-        Set(panel, "rotate", length > 0 and -math.deg(math.atan(y2 - y1, x2 - x1)) or 0)
+        Set(panel, "rotate", length > 0 and Round(-math.deg(math.atan(y2 - y1, x2 - x1))) or 0)
     end
 
     -- One mark with its casing under it; the casing reaches casingWidth past every edge.
-    local function Mark(entry, x1, y1, x2, y2, thickness, casingAcross, offsetX, offsetY)
+    -- key names the run (one segment of one path) the pieces come from.
+    local function Mark(entry, key, x1, y1, x2, y2, thickness, casingAcross, offsetX, offsetY)
         local casing = C.pathCasing * refScale
         local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
         local ux, uy = 0, 0
         if length > 0 then ux, uy = (x2 - x1) / length * casing, (y2 - y1) / length * casing end
         if casingAcross ~= nil then
-            local under = casings.Next()
+            local under = casings.Next(key)
             Bar(under, x1 - ux, y1 - uy, x2 + ux, y2 + uy, casingAcross + casing * 2)
             Set(under, "bgcolor", entry.look.casing)
         end
-        local mark = marks.Next()
+        local mark = marks.Next(key)
         Bar(mark, x1 + (offsetX or 0), y1 + (offsetY or 0), x2 + (offsetX or 0), y2 + (offsetY or 0), thickness)
         Set(mark, "bgcolor", entry.look.color)
         -- A hidden path fades its colour but keeps its casing at full strength (Q12).
         Set(mark, "opacity", entry.hidden and C.pathHiddenOpacity or 1)
     end
 
-    -- Draws the visible part [t0, t1] of one segment in the path's pattern.
-    local function DrawSegment(entry, ax, ay, bx, by, t0, t1)
+    -- Draws the visible part [t0, t1] of segment `index` of a path in its pattern.
+    local function DrawSegment(entry, index, ax, ay, bx, by, t0, t1)
         local scale = refScale
         local look = entry.look
         local thickness = look.width * scale
@@ -235,14 +241,17 @@ function RegionMapPathLayer.Create()
         if length <= 0 then return end
         local function At(s) return ax + (bx - ax) * s / length, ay + (by - ay) * s / length end
         local from, to = t0 * length, t1 * length
+        -- Dots and dashes get runs of their own, so a run's pieces all share one size.
+        local key = entry.id .. "#" .. index
+        local dotKey = key .. "o"
         if look.pattern == "double" then
             local line, gap, across = DoubleLine(thickness, scale)
             local nx, ny = -(by - ay) / length, (bx - ax) / length
             local offset = (gap + line) / 2
             local x1, y1 = At(from)
             local x2, y2 = At(to)
-            Mark(entry, x1, y1, x2, y2, line, across, nx * offset, ny * offset)
-            Mark(entry, x1, y1, x2, y2, line, nil, -nx * offset, -ny * offset)
+            Mark(entry, key, x1, y1, x2, y2, line, across, nx * offset, ny * offset)
+            Mark(entry, key, x1, y1, x2, y2, line, nil, -nx * offset, -ny * offset)
             return
         end
         local rhythm = Rhythm(look.pattern, thickness, scale)
@@ -253,7 +262,7 @@ function RegionMapPathLayer.Create()
         if rhythm == nil or period <= 0 or marks.used + casings.used + estimate > C.pathPieceLimit then
             local x1, y1 = At(from)
             local x2, y2 = At(to)
-            Mark(entry, x1, y1, x2, y2, thickness, thickness)
+            Mark(entry, key, x1, y1, x2, y2, thickness, thickness)
             return
         end
         -- Marks sit at whole periods from the segment's start, so they stay put while the view pans.
@@ -266,14 +275,14 @@ function RegionMapPathLayer.Create()
                     local center = s + size / 2
                     if center >= from and center <= to then
                         local x, y = At(center)
-                        Mark(entry, x, y, x, y, size, size)
+                        Mark(entry, dotKey, x, y, x, y, size, size)
                     end
                 elseif kind == "dash" then
                     local a, b = math.max(s, from), math.min(s + size, to)
                     if b > a then
                         local x1, y1 = At(a)
                         local x2, y2 = At(b)
-                        Mark(entry, x1, y1, x2, y2, thickness, thickness)
+                        Mark(entry, key, x1, y1, x2, y2, thickness, thickness)
                     end
                 end
                 s = s + size
@@ -403,13 +412,14 @@ function RegionMapPathLayer.Create()
                 local bx, by = Tools.ImageToPanel(layout, entry.points[i + 1].u, entry.points[i + 1].v)
                 local t0, t1 = ClipSegment(ax, ay, bx, by, x0, y0, x1, y1)
                 if t0 ~= nil and t1 ~= nil then
-                    DrawSegment(entry, ax, ay, bx, by, t0, t1)
+                    DrawSegment(entry, i, ax, ay, bx, by, t0, t1)
                     -- The eye-slash repeats on every segment of a hidden path (Q12).
                     if entry.hidden and t0 <= 0.5 and t1 >= 0.5 then
                         local badge = badges.Next()
                         local size = C.pathBadgeSize * scale
-                        badge.selfStyle.width, badge.selfStyle.height = size, size
-                        badge.selfStyle.cornerRadius = size / 2
+                        Set(badge, "width", size)
+                        Set(badge, "height", size)
+                        Set(badge, "cornerRadius", size / 2)
                         Tools.PlaceCentered(badge, layout, (ax + bx) / 2, (ay + by) / 2)
                     end
                 end
@@ -554,9 +564,11 @@ function RegionMapPathLayer.Create()
         end
     end
 
+    -- Runs on every Layout while handles show, so sizes go through Set (written once).
     local function Spot(panel, layout, x, y, size)
-        panel.selfStyle.width, panel.selfStyle.height = size, size
-        panel.selfStyle.cornerRadius = size / 2
+        Set(panel, "width", size)
+        Set(panel, "height", size)
+        Set(panel, "cornerRadius", size / 2)
         Tools.PlaceCentered(panel, layout, x, y)
     end
 

@@ -435,6 +435,78 @@ function RegionMapCanvasTools.Pool(make, group)
     return pool
 end
 
+--- @class RegionMapRunPool
+--- @field group Panel the layer holding every piece
+--- @field items Panel[] the pieces in use after the last Finish
+--- @field used integer during a pass, pieces handed out so far; after Finish, #items
+--- @field Begin fun()
+--- @field Next fun(key: string): Panel
+--- @field Finish fun()
+
+--- Like Pool, but pieces are handed out in runs: Next(key) gives the next piece of
+--- that key's run, and a run keeps its pieces from pass to pass. Key a run by what
+--- its pieces share (one segment of one path), and a re-place after a zoom or pan
+--- gets back the pieces that already have its angle, colour and size, so only
+--- their positions change; a style write per piece is what made the re-place stall.
+--- After Finish, items and used list the pieces in use (for Stretch).
+--- @param make fun(): Panel builds one new panel
+--- @return RegionMapRunPool
+function RegionMapCanvasTools.RunPool(make)
+    local group = gui.Panel { floating = true, interactable = false, width = "100%", height = "100%", flow = "none" }
+    ---@diagnostic disable-next-line: missing-fields
+    local pool = { group = group, items = {}, used = 0 } --- @type RegionMapRunPool
+    local all = {} --- @type Panel[] every piece made: the group's children
+    local free = {} --- @type Panel[] pieces in no run, collapsed
+    local runs = {} --- @type table<string, {items: Panel[], used: integer}>
+    local grown = false
+    function pool.Begin()
+        pool.used = 0
+        for _, run in pairs(runs) do run.used = 0 end
+    end
+    function pool.Next(key)
+        local run = runs[key]
+        if run == nil then
+            run = { items = {}, used = 0 }
+            runs[key] = run
+        end
+        run.used = run.used + 1
+        pool.used = pool.used + 1
+        local item = run.items[run.used]
+        if item == nil then
+            item = table.remove(free)
+            if item == nil then
+                item = make()
+                all[#all + 1] = item
+                grown = true
+            else
+                Session.SetClassIf(item, "collapsed", false)
+            end
+            run.items[run.used] = item
+        end
+        return item
+    end
+    function pool.Finish()
+        if grown then
+            grown = false
+            group.children = all
+        end
+        local items = {}
+        for key, run in pairs(runs) do
+            -- A run that shrank gives its spare pieces to the free list for any run to take.
+            for i = #run.items, run.used + 1, -1 do
+                local item = run.items[i]
+                run.items[i] = nil
+                Session.SetClassIf(item, "collapsed", true)
+                free[#free + 1] = item
+            end
+            if run.used == 0 then runs[key] = nil end
+            for i = 1, run.used do items[#items + 1] = run.items[i] end
+        end
+        pool.items, pool.used = items, #items
+    end
+    return pool
+end
+
 --- The canvas layers that draw the Party's past route (below pins) and the
 --- ruler (above them). The canvas adds route and ruler to its children,
 --- calls Bind when the model changes and Layout whenever it lays out.
