@@ -111,10 +111,11 @@ setting{
     storage = "preference",
 }
 
---Handoff to the town: what a won encounter means for each of this
+--Handoff to the town: what a decided encounter means for each of this
 --machine's town heroes, written before leaving the game and applied by the
 --town once the player is back (EotwRoster.ApplyPendingOutcomes: the
---Victory onto the roster hero, then the city's record-outcome). JSON text:
+--Victory onto the roster hero, then the city's record-outcome, or for a
+--hero with outcome.died, record-outcome {died} to bury them). JSON text:
 --{ [userid] = { ["<gameid>|<heroid>"] = {gameid, heroid, outcome, stage} } }.
 --Machine-local so it survives the game switch and a crash on the way home.
 --The titlescreen re-declares it.
@@ -1293,26 +1294,56 @@ pcall(function()
     end)
 end)
 
---Note what this won encounter means for each of MY town heroes, for the
---town to apply once the player is home (see eotw:pendingOutcomes). Only
---heroes alive at the end count: the dead are left for the burial
---write-back (not built yet), and a defeat records nothing for the same
---reason. A hero who had already won it records the outcome with 0
---Victories.
---The victory each of a player's surviving town heroes takes home from this
---game: { { heroid, outcome }, ... } (heroid = the town roster id). The
---player's own client sends these home; for a player who was away at the
---end, the host offers them through the city (OfferAbsentOutcomes).
-local function VictoryOutcomesFor(userid, encounter)
+--A surviving hero's wounds, to carry home (Downtime: nothing heals on the
+--way back to town; a respite at the Blue Fish Inn does). Stamina lost and
+--Recoveries spent, as the town applies them: absolute values, since this
+--copy started the encounter from the town's working copy.
+local function HeroWounds(tok)
+    local wounds = nil
+    pcall(function()
+        local props = tok.properties
+        local id = CharacterResource.recoveryResourceId
+        wounds = {
+            damage = math.max(0, math.floor(tonumber(props.damage_taken) or 0)),
+            recoveriesUsed = math.max(0, math.floor(tonumber(props:GetResourceUsage(id, "long")) or 0)),
+        }
+    end)
+    return wounds
+end
+
+--What this decided encounter means for each of a player's town heroes:
+--{ { heroid, outcome }, ... } (heroid = the town roster id), for the town to
+--apply once the player is home (see eotw:pendingOutcomes). `result` is
+--"victory" or "defeat". A hero who is fully dead (not merely dying) at the
+--end is buried: outcome.died, at a victory or a defeat. A survivor of a
+--victory takes the Victory home (0 if they had won it before); every
+--survivor, of a victory or a defeat, takes their wounds home
+--(outcome.wounds). The player's own client sends these home; for a
+--player who was away at the end, the host offers them through the city
+--(OfferAbsentOutcomes).
+local function OutcomesFor(userid, encounter, result)
     local completed = AlreadyCompletedHeroes()
     local entries = {}
     for key, charid in pairs(GetPlacedHeroes(userid)) do
         --town heroes travel as "lobby:<heroid>" (see PlaceMyHeroes).
         local heroid = string.match(key, "^lobby:(.+)$")
+        --a dead hero is usually despawned into a corpse by the Hero Death
+        --rule; GetCharacterById still finds the despawned token.
         local tok = heroid ~= nil and dmhub.GetCharacterById(charid) or nil
-        local alive = false
-        pcall(function() alive = tok ~= nil and tok.properties ~= nil and not tok.properties:IsDead() end)
-        if alive then
+        local alive, dead = false, false
+        pcall(function()
+            if tok ~= nil and tok.properties ~= nil then
+                dead = tok.properties:IsDead()
+                alive = not dead
+            end
+        end)
+        if dead then
+            printf("EotW: %s fell in %s", tostring(tok ~= nil and tok.name or heroid), tostring(encounter))
+            entries[#entries + 1] = {
+                heroid = heroid,
+                outcome = { encounter = encounter, result = result, died = true },
+            }
+        elseif alive and result == "victory" then
             local outcome = {
                 encounter = encounter,
                 result = "victory",
@@ -1326,7 +1357,14 @@ local function VictoryOutcomesFor(userid, encounter)
                 outcome.treasures = treasure
                 printf("EotW: %s takes home %s", tostring(tok ~= nil and tok.name or heroid), DescribeTreasure(treasure))
             end
+            outcome.wounds = HeroWounds(tok)
             entries[#entries + 1] = { heroid = heroid, outcome = outcome }
+        elseif alive then
+            --a defeat's survivors bring nothing but their wounds home.
+            entries[#entries + 1] = {
+                heroid = heroid,
+                outcome = { encounter = encounter, result = result, wounds = HeroWounds(tok) },
+            }
         end
     end
     return entries
@@ -1337,19 +1375,22 @@ local function RecordedEncounter()
     local encounter = nil
     pcall(function() encounter = mod:GetDocumentSnapshot(STATE_DOC_ID).data.encounterMap end)
     if type(encounter) ~= "string" or encounter == "" then
-        printf("EotW: no encounter name recorded; the town will not hear of this victory")
+        printf("EotW: no encounter name recorded; the town will not hear of this outcome")
         return nil
     end
     return encounter
 end
 
-local function RecordPendingOutcomes()
+--Note this client's heroes' outcomes (`result` "victory" or "defeat") for
+--the town. Once per game.
+local function RecordPendingOutcomes(result)
     if m_outcomesRecorded then
         return
     end
     m_outcomesRecorded = true
 
-    --a Danger Rooms game sends nothing home: the debrief replaces it.
+    --a Danger Rooms game sends nothing home, not even a death: the debrief
+    --replaces it.
     if EncounterOfTheWeekGame.IsPracticeGame() then
         return
     end
@@ -1360,7 +1401,7 @@ local function RecordPendingOutcomes()
     end
 
     local entries = {}
-    for _, e in ipairs(VictoryOutcomesFor(dmhub.loginUserid, encounter)) do
+    for _, e in ipairs(OutcomesFor(dmhub.loginUserid, encounter, result)) do
         entries[#entries + 1] = {
             gameid = dmhub.gameid,
             heroid = e.heroid,
@@ -1393,12 +1434,13 @@ local function RecordPendingOutcomes()
     printf("EotW: %d hero outcome(s) saved for the town", #entries)
 end
 
---Host, at a victory: players who left without abandoning are not here to
---send their heroes' victories home, so leave them with the city as offers;
---each player claims or ignores them in town ("While You Were Away"). A
---player who abandoned gets nothing (user decision 2026-10-09).
+--Host, at a victory or defeat: players who left without abandoning are not
+--here to send their heroes' outcomes home (Victories, and burial for the
+--dead), so leave them with the city as offers; each player accepts or
+--ignores them in town ("While You Were Away"), and an ignored death buries
+--no one. A player who abandoned gets nothing (user decision 2026-10-09).
 local m_absentOffered = false
-local function OfferAbsentOutcomes()
+local function OfferAbsentOutcomes(result)
     if m_absentOffered or not IsDMOrPlayerHost() or EncounterOfTheWeekGame.IsPracticeGame() then
         return
     end
@@ -1413,7 +1455,7 @@ local function OfferAbsentOutcomes()
     end
     for userid, rec in pairs(presence.GetData().away or {}) do
         if type(rec) == "table" and not rec.abandoned and not presence.HasAbandoned(userid) then
-            local entries = VictoryOutcomesFor(userid, encounter)
+            local entries = OutcomesFor(userid, encounter, result)
             if #entries > 0 then
                 SendLobbyRequest("offer-outcomes", { userid = userid, gameid = dmhub.gameid, entries = entries }, function(ok, result)
                     if ok then
@@ -1504,13 +1546,15 @@ local function UpdateEncounterConclusion()
             m_outcomeSeen = true
             m_outcomeKind = outcome
             if outcome == "victory" then
-                OfferAbsentOutcomes()
+                OfferAbsentOutcomes(outcome)
             end
         end
         --the Victory has landed: note it for the town now, not only on the
-        --way out, so a crash on the victory screen does not lose it.
+        --way out, so a crash on the victory screen does not lose it. A
+        --defeat waits for the way out: a hero's Recovery on Death prompt can
+        --still be open under the defeat screen, and must not bury them.
         if outcome == "victory" and awarded and not testing then
-            RecordPendingOutcomes()
+            RecordPendingOutcomes(outcome)
         end
         return
     end
@@ -1554,9 +1598,11 @@ local function UpdateEncounterConclusion()
         printf("EotW: encounter concluded; returning to the titlescreen")
 
         --a victory whose award this client never saw (the host tore combat
-        --down in the same moment) is still a victory for the town.
-        if m_outcomeKind == "victory" then
-            RecordPendingOutcomes()
+        --down in the same moment) is still a victory for the town; a defeat
+        --is noted here, once the screen has been dismissed (see above).
+        if m_outcomeKind == "victory" or m_outcomeKind == "defeat" then
+            RecordPendingOutcomes(m_outcomeKind)
+            OfferAbsentOutcomes(m_outcomeKind)
         end
         RecordPendingDebrief(m_outcomeKind)
 
@@ -3899,6 +3945,31 @@ end
 --host has stamped setupReady. The engine's loading screen hold times out
 --after 20s unless renewed, so renew it while waiting. Gives up after
 --HOST_SETUP_TIMEOUT_SECONDS and carries on, as a late joiner would.
+--Installs this player's switched-on Hero modules (HeroModules.lua) into the
+--game, from inside the arrival coroutine. Each client installs its own, so a
+--member's modules arrive with the member. Renews the loading screen hold while
+--it waits; HeroModules gives up after HERO_MODULES_TIMEOUT_SECONDS.
+local HERO_MODULES_TIMEOUT_SECONDS = 20
+local function InstallMyHeroModules()
+    local heroModules = rawget(_G, "HeroModules")
+    if heroModules == nil or heroModules.InstallIntoGame == nil then
+        return
+    end
+    local done = false
+    heroModules.InstallIntoGame(function()
+        done = true
+    end, HERO_MODULES_TIMEOUT_SECONDS)
+    local sinceRenew = 0
+    while not done and not mod.unloaded do
+        if sinceRenew >= 5 then
+            sinceRenew = 0
+            pcall(function() dmhub.HoldLoadingScreen() end)
+        end
+        coroutine.yield(0.1)
+        sinceRenew = sinceRenew + 0.1
+    end
+end
+
 local HOST_SETUP_TIMEOUT_SECONDS = 120
 local function WaitForHostSetup()
     local waited = 0
@@ -4189,6 +4260,11 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
             --end of this client's own setup.
             AttachMapScript()
         end
+
+        --a hero built with a class or ancestry from one of this player's Hero
+        --modules needs the module in this game before it lands.
+        InstallMyHeroModules()
+        EotwProf("hero modules installed")
 
         local myPasted, anchor = PlaceMyHeroes(args.heroes, args.clipboardIds)
         RecordCompletedHeroes(args.heroes)

@@ -1126,6 +1126,25 @@ local function ImportForgeSteel(element)
     end)
 end
 
+--Imports a hero from a Codex JSON file (the character sheet's Export -> Codex JSON).
+local function ImportCodexJson(element)
+    CharSheetPDFExport.ImportCharacterFromFile(function(c)
+        c:ModifyProperties {
+            description = "Create Character",
+            execute = function()
+                c.properties.mtime = ServerTimestamp()
+                c.properties.creatorid = dmhub.userid
+                --The file carries the source hero's id; this copy has a new one.
+                c.properties.originalid = c.charid
+                --A file exported from an Encounter of the Week hero keeps these
+                --flags, which would hide it from the lobby list.
+                c.properties.eotwHero = nil
+                c.properties.eotwDraft = nil
+            end,
+        }
+    end)
+end
+
 --onCreated (optional) runs once the builder closes on a hero that was kept
 --(not discarded as unstarted), with the character.
 local function CreateHero(element, onCreated)
@@ -1187,6 +1206,24 @@ local function ParseDevJoinCode(text)
     end
     local gameid, reportId = string.match(text, "^%s*bug:([^:%s]+):([^:%s]+)%s*$")
     return gameid, reportId
+end
+
+--Wraps the function that pastes a hero into the game being entered so it runs
+--once the player's Hero modules (HeroModules.lua) are installed there too, and
+--the hero's class and ancestry exist when it lands. The wrapper runs in the
+--destination game, after this file may have unloaded, so HeroModules is looked
+--up there rather than captured here.
+--- @param paste fun()
+--- @return fun()
+local function AfterHeroModulesInstalled(paste)
+    return function()
+        local heroModules = rawget(_G, "HeroModules")
+        if heroModules ~= nil and heroModules.InstallIntoGame ~= nil then
+            heroModules.InstallIntoGame(paste)
+        else
+            paste()
+        end
+    end
 end
 
 local function CreateJoinGameModal(tokenToImport)
@@ -1572,9 +1609,9 @@ local function CreateJoinGameModal(tokenToImport)
                                         local callback
                                         if tokenToImport ~= nil then
                                             dmhub.CopyTokenToClipboard(tokenToImport)
-                                            callback = function()
+                                            callback = AfterHeroModulesInstalled(function()
                                                 dmhub.PasteTokenFromClipboard(core.Loc { x = 0, y = 0 })
-                                            end
+                                            end)
                                         end
                                         if devJoin ~= nil then
                                             -- Tell the table why a stranger just walked in.
@@ -1652,7 +1689,7 @@ local function CreateJoinGameModal(tokenToImport)
 
                     dmhub.CopyTokenToClipboard(tokenToImport)
                     local root = element.root
-                    local callback = function()
+                    local callback = AfterHeroModulesInstalled(function()
                         local newCharId = dmhub.PasteTokenFromClipboard(core.Loc { x = 0, y = 0 })
                         print("AddCharacterToGame:: pasted charid =", tostring(newCharId), "addingAsDM =", tostring(addingAsDM))
                         if not addingAsDM or newCharId == nil then
@@ -1677,7 +1714,7 @@ local function CreateJoinGameModal(tokenToImport)
                             end
                             print("AddCharacterToGame:: gave up waiting for token/party to settle")
                         end)
-                    end
+                    end)
 
                     if root ~= nil and root.valid then
                         root:FireEventTree("overrideLoadingScreenArt", gameInfo.coverart, gameid)
@@ -9100,6 +9137,38 @@ function CreateTitlescreen(dialog, options)
                                     end,
 
                                     press = ImportForgeSteel,
+                                },
+
+                                --Codex JSON import button.
+                                gui.Button {
+                                    width = 48,
+                                    height = 48,
+                                    halign = "right",
+                                    valign = "center",
+                                    beveledcorners = true,
+                                    cornerRadius = 8,
+                                    y = -10,
+
+                                    hover = function(element)
+                                        gui.Tooltip("Import a Hero from a Codex JSON file")(element)
+                                    end,
+
+                                    monitorGame = "/characters",
+                                    refreshGame = function(element)
+                                        local _, nheroes = LobbyHeroes()
+                                        element:SetClass("hidden", nheroes >= 8)
+                                    end,
+
+                                    press = ImportCodexJson,
+
+                                    gui.Panel {
+                                        classes = { "headerActionIcon" },
+                                        width = "70%",
+                                        height = "70%",
+                                        halign = "center",
+                                        valign = "center",
+                                        bgimage = "game-icons/cloud-upload.png",
+                                    },
                                 },
                             }
                         },

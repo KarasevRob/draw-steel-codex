@@ -46,8 +46,11 @@ function EotwRoster.FetchHeadcount(callback)
     }
 end
 
---Server-enforced limits (city-core.ts); these only drive the UI.
-EotwRoster.MAX_LIVING = 12
+--Server-enforced limits (city-core.ts); these only drive the UI. A roster
+--starts with BASE_SLOTS hero slots; each completion of the Expand the Guild
+--project adds one, up to MAX_SLOTS (the city reports the account's slots).
+EotwRoster.BASE_SLOTS = 4
+EotwRoster.MAX_SLOTS = 9
 EotwRoster.MAX_ACTIVE = 4
 
 --Bumped whenever the roster (or a working copy) changes; UIs poll it.
@@ -78,6 +81,13 @@ local m_heroes = nil
 --What this account has unlocked in town (list-heroes' `unlocks`), or nil
 --while not yet listed: { dangerRooms = bool }.
 local m_unlocks = nil
+--This account's roster slots (list-heroes' `slots`), or nil while not listed.
+local m_slots = nil
+--The leads this account has learned by carousing (list-heroes' `leads`),
+--and the respite whose carouse is still open (`carouse`, false when none).
+--See EotwLeads.lua.
+local m_leads = nil
+local m_carouse = nil
 local m_refreshing = false
 local m_refreshAgain = false
 --heroids being imported right now, so a second refresh does not import twice.
@@ -205,7 +215,33 @@ local function BuildSummary(tok)
             summary.portraitBackground = bg
         end
     end)
+    --a hero who came home dying cannot join a party until they rest (the
+    --city refuses the claim; see checkHeroClaim).
+    if EotwRoster.TokenIsDying(tok) then
+        summary.dying = true
+    end
     return summary
+end
+
+--Is this character dying (Stamina at 0 or below, but not dead)? Such a
+--hero must rest at the Blue Fish Inn before setting out again.
+function EotwRoster.TokenIsDying(tok)
+    local dying = false
+    pcall(function()
+        dying = tok.properties:CurrentHitpoints() <= 0 and not tok.properties:IsDead()
+    end)
+    return dying
+end
+
+--Is this roster hero dying? Reads the working copy when it has loaded,
+--else the city's summary.
+function EotwRoster.IsDying(heroid)
+    local tok = dmhub.GetCharacterById(heroid)
+    if tok ~= nil then
+        return EotwRoster.TokenIsDying(tok)
+    end
+    local hero = EotwRoster.FindHero(heroid)
+    return hero ~= nil and hero.summary ~= nil and hero.summary.dying == true
 end
 
 local function IsTownHero(tok)
@@ -221,6 +257,9 @@ function EotwRoster.Attach(conn)
     m_conn = conn
     m_heroes = nil
     m_unlocks = nil
+    m_slots = nil
+    m_leads = nil
+    m_carouse = nil
     EotwRoster.lastError = nil
     Bump()
 end
@@ -253,6 +292,46 @@ function EotwRoster.LivingCount()
     return #(m_heroes or {})
 end
 
+--This account's hero slots (4 plus one per Guild expansion).
+function EotwRoster.Slots()
+    return m_slots or EotwRoster.BASE_SLOTS
+end
+
+--A roster hero's unspent Downtime Activities, as the city last listed them
+--(they are earned at a respite and spent on projects; see EotwDowntime).
+function EotwRoster.GetDowntime(heroid)
+    local hero = EotwRoster.FindHero(heroid)
+    return hero ~= nil and tonumber(hero.downtime) or 0
+end
+
+--Record a hero's Downtime count the city just reported (after a grant or a
+--project roll), so cards update before the next list arrives.
+function EotwRoster.SetListedDowntime(heroid, downtime)
+    local hero = EotwRoster.FindHero(heroid)
+    if hero ~= nil and type(downtime) == "number" then
+        hero.downtime = downtime
+        Bump()
+    end
+end
+
+--The account's slots as the city just reported them (a Guild expansion).
+function EotwRoster.SetListedSlots(slots)
+    if type(slots) == "number" then
+        m_slots = slots
+        Bump()
+    end
+end
+
+--Is the hero's working copy loaded and in step with the city, with nothing
+--in flight that would overwrite a change made to it now?
+function EotwRoster.IsInStep(heroid)
+    local hero = EotwRoster.FindHero(heroid)
+    if hero == nil or dmhub.GetCharacterById(heroid) == nil then
+        return false
+    end
+    return GetRevs()[heroid] == hero.rev and not m_importing[heroid]
+end
+
 --The heroes marked active, in roster order.
 function EotwRoster.ActiveHeroes()
     local result = {}
@@ -274,6 +353,51 @@ function EotwRoster.DangerRoomsUnlocked()
     return m_unlocks.dangerRooms == true
 end
 
+--Has this account found the Arcane Market? It is not open to everyone: a
+--lead heard while carousing at the inn starts a project (Find the Arcane
+--Market), and completing it puts the market on the map (EotwLeads.lua).
+function EotwRoster.MarketUnlocked()
+    if m_unlocks ~= nil and m_unlocks.market == true then
+        return true
+    end
+    --the project's completion is known before the next list-heroes.
+    local state = EotwDowntime.GetProject("find-arcane-market")
+    return state ~= nil and (tonumber(state.completions) or 0) >= 1
+end
+
+--The lead ids this account has learned, as a set; empty while not listed.
+function EotwRoster.LearnedLeads()
+    local result = {}
+    for _, id in ipairs(m_leads or {}) do
+        result[id] = true
+    end
+    return result
+end
+
+--The respite whose one carouse is still open, or nil (none, or nothing
+--left to learn; the city decides).
+function EotwRoster.CarouseRespite()
+    if type(m_carouse) == "string" then
+        return m_carouse
+    end
+    return nil
+end
+
+--Record the leads and open carouse the city just reported (list-heroes,
+--a respite's grant-downtime, or a carouse). leads may be nil to keep them.
+function EotwRoster.SetListedLeads(leads, carouse)
+    if type(leads) == "table" then
+        local list = {}
+        for _, id in ipairs(leads) do
+            list[#list+1] = id
+        end
+        m_leads = list
+    end
+    --the city sends null (nil here) when no carouse is open.
+    m_carouse = cond(type(carouse) == "string", carouse, false)
+    Bump()
+end
+
 --Has this hero (a hero view from list-heroes) won the named encounter (a
 --map name, "Encounter: Goblin Ambush")? The city lists each hero's wins.
 function EotwRoster.HasCompleted(hero, encounter)
@@ -283,6 +407,98 @@ function EotwRoster.HasCompleted(hero, encounter)
         end
     end
     return false
+end
+
+--- the Blue Fish Inn: hidden until heroes come home ----------------------
+
+--A new player's town has no inn. It opens once a living hero comes home from
+--a Town Gate adventure (won or lost; the Danger Rooms send nothing home), and
+--the town then plays its reveal once (EncounterOfTheWeek.lua). Per account,
+--machine-local, as JSON text: { [userid] = { unlocked = bool, revealed = bool } }.
+setting{
+    id = "eotw:innState",
+    default = "",
+    storage = "preference",
+}
+
+--Heroes who came home alive this session, in the order their outcomes were
+--recorded: { { heroid, damage }, ... }. The inn's reveal picks its speaker here.
+local m_homecomings = {}
+
+local function LoadInnStates()
+    local all = nil
+    local text = dmhub.GetSettingValue("eotw:innState")
+    if type(text) == "string" and text ~= "" then
+        local parsed = dmhub.FromJson(text)
+        if type(parsed) == "table" and parsed.success then
+            all = parsed.result
+        end
+    end
+    if type(all) ~= "table" then
+        all = {}
+    end
+    local mine = all[dmhub.loginUserid]
+    if type(mine) ~= "table" then
+        mine = {}
+        all[dmhub.loginUserid] = mine
+    end
+    return all, mine
+end
+
+local function SetInnFlag(key)
+    local all, mine = LoadInnStates()
+    if mine[key] == true then
+        return
+    end
+    mine[key] = true
+    dmhub.SetSettingValue("eotw:innState", dmhub.ToJson(all))
+    Bump()
+end
+
+--Is the Blue Fish Inn open to this account? Besides the flag a homecoming
+--sets on this machine, a roster that has already won an encounter counts,
+--so an account that adventured before the inn was hidden (or on another
+--machine) keeps it. nil while the roster has not been listed.
+function EotwRoster.InnUnlocked()
+    local _, mine = LoadInnStates()
+    if mine.unlocked == true or mine.revealed == true then
+        return true
+    end
+    if m_heroes == nil then
+        return nil
+    end
+    if EotwRoster.DangerRoomsUnlocked() == true then
+        return true
+    end
+    for _,hero in ipairs(m_heroes) do
+        if #(hero.completed or {}) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+--Has this machine played the inn's reveal for this account?
+function EotwRoster.InnRevealed()
+    local _, mine = LoadInnStates()
+    return mine.revealed == true
+end
+
+function EotwRoster.MarkInnRevealed()
+    SetInnFlag("revealed")
+end
+
+--This session's homecomings (see m_homecomings), oldest first.
+function EotwRoster.Homecomings()
+    return m_homecomings
+end
+
+--A hero came home alive from a Town Gate adventure: the inn opens.
+local function NoteHomecoming(heroid, outcome)
+    local wounds = type(outcome) == "table" and outcome.wounds or nil
+    local damage = type(wounds) == "table" and tonumber(wounds.damage) or 0
+    m_homecomings[#m_homecomings + 1] = { heroid = heroid, damage = damage or 0 }
+    SetInnFlag("unlocked")
 end
 
 --heroid -> party name for each of this account's heroes claimed by a party
@@ -416,6 +632,11 @@ local m_outcomeBusy = {}
 local m_outcomeFailures = {}
 local MAX_OUTCOME_ATTEMPTS = 3
 
+--Is a returning hero's outcome being carried home right now?
+function EotwRoster.OutcomesInFlight()
+    return next(m_outcomeBusy) ~= nil
+end
+
 local function LoadPendingOutcomes()
     local all = nil
     local text = dmhub.GetSettingValue("eotw:pendingOutcomes")
@@ -457,10 +678,14 @@ end
 --record, so the Victories are never added twice -- not by a retry, nor by
 --another machine. The entry's stage says how far it got ("pushed" skips to
 --the record).
+--An outcome with `died` set is a hero who fell: it skips the copy and the
+--push, and record-outcome {died} buries the hero (fallen, off the roster, a
+--grave in the Graveyard); the next re-list drops the working copy.
 local function ApplyOutcome(key, entry, tok)
     m_outcomeBusy[key] = true
     local gameid = entry.gameid
     local heroid = entry.heroid
+    local died = type(entry.outcome) == "table" and entry.outcome.died == true
 
     local function Failed(message)
         m_outcomeBusy[key] = nil
@@ -475,19 +700,25 @@ local function ApplyOutcome(key, entry, tok)
         end
         m_conn:Request{
             action = "record-outcome",
-            args = { heroid = heroid, gameid = gameid, outcome = entry.outcome },
+            args = { heroid = heroid, gameid = gameid, outcome = entry.outcome, died = died },
             success = function(result)
                 m_outcomeBusy[key] = nil
                 SetOutcomeStage(key, nil)
-                printf("EotW town: %s's encounter recorded (%s)", tostring(tok.name), tostring(gameid))
-                --re-list: the hero's completed encounters changed.
+                if died then
+                    printf("EotW town: %s fell and is buried in the Graveyard (%s)", tostring(tok.name), tostring(gameid))
+                else
+                    printf("EotW town: %s's encounter recorded (%s)", tostring(tok.name), tostring(gameid))
+                    NoteHomecoming(heroid, entry.outcome)
+                end
+                --re-list: the hero's completed encounters changed, or the
+                --hero left the roster for the Graveyard.
                 EotwRoster.Refresh()
             end,
             error = Failed,
         }
     end
 
-    if entry.stage == "pushed" then
+    if died or entry.stage == "pushed" then
         Record()
         return
     end
@@ -521,6 +752,12 @@ local function ApplyOutcome(key, entry, tok)
                         end
                     end
                 end
+                --the hero's wounds come home with them (Downtime): only a
+                --respite at the Blue Fish Inn heals them.
+                local wounds = type(entry.outcome) == "table" and entry.outcome.wounds or nil
+                if type(wounds) == "table" then
+                    EotwRoster.SetWounds(props, wounds.damage, wounds.recoveriesUsed)
+                end
                 local applied = {}
                 local old = rawget(props, "eotwOutcomes")
                 if type(old) == "table" then
@@ -550,6 +787,21 @@ local function ApplyOutcome(key, entry, tok)
             Record()
         end)
     end)
+end
+
+--Set a hero's lost Stamina and spent Recoveries to the given values (the
+--state they ended an encounter in). Call inside ModifyProperties.
+function EotwRoster.SetWounds(props, damage, recoveriesUsed)
+    damage = math.max(0, math.floor(tonumber(damage) or 0))
+    props.damage_taken = damage
+    local id = CharacterResource.recoveryResourceId
+    local want = math.max(0, math.floor(tonumber(recoveriesUsed) or 0))
+    local used = props:GetResourceUsage(id, "long") or 0
+    if want > used then
+        props:ConsumeResource(id, "long", want - used, "Spent in the encounter")
+    elseif want < used then
+        props:RefreshResource(id, "long", used - want, "Encounter of the Week")
+    end
 end
 
 --Apply every pending outcome whose hero's working copy is in step with the
@@ -707,6 +959,8 @@ function EotwRoster.Refresh()
             end
             m_heroes = heroes
             m_unlocks = type(result.unlocks) == "table" and result.unlocks or {}
+            m_slots = tonumber(result.slots) or EotwRoster.BASE_SLOTS
+            EotwRoster.SetListedLeads(result.leads, result.carouse)
             Bump()
             SyncWorkingCopies()
             if m_refreshAgain then
@@ -723,9 +977,24 @@ end
 
 --- writes -----------------------------------------------------------------
 
+--Pushes waiting for the city's reply, by hero. Two pushes in flight would
+--send the same baseRev and the city would reject the later one as stale, so
+--a push asked for meanwhile waits and runs once the first lands.
+--heroid -> { again = bool, waiting = { onDone... } }
+local m_pushing = {}
+
 --Push a working copy to the city: creates the hero there the first time,
 --replaces it afterwards (revision-checked). onDone(ok, message) optional.
 function EotwRoster.PushHero(charid, onDone)
+    local inFlight = m_pushing[charid]
+    if inFlight ~= nil then
+        inFlight.again = true
+        if onDone ~= nil then
+            inFlight.waiting[#inFlight.waiting+1] = onDone
+        end
+        return
+    end
+
     local tok = dmhub.GetCharacterById(charid)
     if tok == nil or m_conn == nil then
         if onDone ~= nil then
@@ -742,6 +1011,26 @@ function EotwRoster.PushHero(charid, onDone)
         return
     end
     local baseRev = GetRevs()[charid] or 0
+    local state = { again = false, waiting = {} }
+    m_pushing[charid] = state
+
+    --the push landed or failed: let a push asked for meanwhile go (with the new
+    --rev), or after a failure tell its callers it did not happen
+    local function Settle(ok, message)
+        m_pushing[charid] = nil
+        if ok and state.again then
+            EotwRoster.PushHero(charid, function(againOk, againMessage)
+                for _,fn in ipairs(state.waiting) do
+                    fn(againOk, againMessage)
+                end
+            end)
+            return
+        end
+        for _,fn in ipairs(state.waiting) do
+            fn(ok, message)
+        end
+    end
+
     m_conn:Request{
         action = "put-hero",
         args = {
@@ -754,6 +1043,7 @@ function EotwRoster.PushHero(charid, onDone)
         success = function(result)
             SetRev(charid, result.rev)
             EotwRoster.lastError = nil
+            Settle(true)
             EotwRoster.Refresh()
             if onDone ~= nil then
                 onDone(true)
@@ -761,6 +1051,7 @@ function EotwRoster.PushHero(charid, onDone)
         end,
         error = function(message)
             Fail(message)
+            Settle(false, message)
             --a stale revision means another machine saved this hero first:
             --reload the city's copy.
             EotwRoster.Refresh()
@@ -831,7 +1122,15 @@ local function JoinRoster(tok, onDone)
 end
 
 function EotwRoster.CanAddHero()
-    return EotwRoster.LivingCount() < EotwRoster.MAX_LIVING
+    return EotwRoster.LivingCount() < EotwRoster.Slots()
+end
+
+--Why a hero cannot be added: the roster fills every slot.
+function EotwRoster.FullRosterMessage()
+    if EotwRoster.Slots() >= EotwRoster.MAX_SLOTS then
+        return string.format("Your roster is full (%d heroes).", EotwRoster.Slots())
+    end
+    return string.format("Your roster is full (%d slots). Start a project to expand the guild for another.", EotwRoster.Slots())
 end
 
 --The player's unfinished hero, if any: a lobby character the EotW builder
@@ -894,7 +1193,7 @@ end
 --builder mounts on (the town screen).
 function EotwRoster.CreateHero(host, onDone)
     if not EotwRoster.CanAddHero() then
-        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+        Fail(EotwRoster.FullRosterMessage())
         return
     end
     local draft = EotwRoster.FindDraft()
@@ -944,7 +1243,7 @@ end
 --player's chosen name, then add it to the roster.
 function EotwRoster.RecruitPregen(pregenId, name, onDone)
     if not EotwRoster.CanAddHero() then
-        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+        Fail(EotwRoster.FullRosterMessage())
         return
     end
     local source = EncounterOfTheWeek.GetPregenToken(pregenId)
@@ -993,7 +1292,7 @@ end
 --game) with no items (treasure is earned in town); its kit is kept.
 function EotwRoster.RecruitTitlescreenHero(source, name, onDone)
     if not EotwRoster.CanAddHero() then
-        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+        Fail(EotwRoster.FullRosterMessage())
         return
     end
     if source == nil or not source.valid then
@@ -1045,8 +1344,7 @@ function EotwRoster.RecruitTitlescreenHero(source, name, onDone)
 end
 
 --Open a roster hero: in the EotW builder while it can still be rebuilt
---(and a host to mount on is given), otherwise in the character sheet.
---Saved back to the city on close either way.
+--(and a host to mount on is given), otherwise in the EotW hero sheet.
 function EotwRoster.EditHero(heroid, host)
     local tok = dmhub.GetCharacterById(heroid)
     if tok == nil then
@@ -1066,9 +1364,10 @@ function EotwRoster.EditHero(heroid, host)
         }
         return
     end
-    TitlescreenHeroes.Edit(tok, function()
-        EotwRoster.PushHero(heroid)
-    end)
+    --past rebuilding, a roster Hero opens the EotW hero sheet, not the full
+    --editable sheet; its own controls (equip, spend a Recovery, appearance)
+    --push the Hero to the City themselves
+    EotwHeroSheet.Show{ charid = heroid, context = "town" }
 end
 
 --Dismiss a hero: gone from the city, then from this machine.
@@ -1211,10 +1510,12 @@ local function Button(text, click, width)
 end
 
 --A portrait thumbnail from a character's portrait id (or a silhouette).
-local function Portrait(portrait, width, height, halign)
+--click (optional): what clicking the portrait does.
+local function Portrait(portrait, width, height, halign, click)
     if type(portrait) == "string" and portrait ~= "" then
         return gui.Panel{
-            interactable = false,
+            interactable = click ~= nil,
+            click = click,
             width = width,
             height = height,
             halign = halign,
@@ -1225,7 +1526,8 @@ local function Portrait(portrait, width, height, halign)
         }
     end
     return gui.Panel{
-        interactable = false,
+        interactable = click ~= nil,
+        click = click,
         width = width,
         height = height,
         halign = halign,
@@ -1487,7 +1789,8 @@ local function CardGrid(cards)
 end
 
 --The recruit picker: the player's own titlescreen heroes (copied in at
---level 1 with no items), then every pregenerated hero of the week's module.
+--level 1 with no items), then every pregenerated hero of the week's module,
+--then the pregens of the player's Hero modules, one section per module.
 local function ShowRecruitPicker(host, onDone)
     local pregens = EncounterOfTheWeek.GetPregens()
     local dlg
@@ -1519,9 +1822,21 @@ local function ShowRecruitPicker(host, onDone)
     end
 
     local pregenCards = {}
+    --Hero module name -> its pregens' cards, and the names in first-seen order.
+    local heroModuleCards = {}
+    local heroModuleNames = {}
     for _,pregen in ipairs(pregens or {}) do
         local tok = EncounterOfTheWeek.GetPregenToken(pregen.id)
-        pregenCards[#pregenCards+1] = RecruitCard(PortraitOf(tok), pregen.name, EotwRoster.FormatDetails(pregen.level, pregen.ancestry, pregen.className), function()
+        local cards = pregenCards
+        if pregen.source ~= nil then
+            cards = heroModuleCards[pregen.source]
+            if cards == nil then
+                cards = {}
+                heroModuleCards[pregen.source] = cards
+                heroModuleNames[#heroModuleNames+1] = pregen.source
+            end
+        end
+        cards[#cards+1] = RecruitCard(PortraitOf(tok), pregen.name, EotwRoster.FormatDetails(pregen.level, pregen.ancestry, pregen.className), function()
             dlg:DestroySelf()
             ShowRecruitNamePrompt(host, {
                 initialName = RecruitName(pregen),
@@ -1546,6 +1861,10 @@ local function ShowRecruitPicker(host, onDone)
         sections[#sections+1] = gui.Label{ text = "The pregenerated heroes are still loading. Try again in a moment.", fontSize = 18, color = DIM, width = "90%", height = "auto", halign = "center", textAlignment = "center", vmargin = 40 }
     else
         sections[#sections+1] = CardGrid(pregenCards)
+    end
+    for _,source in ipairs(heroModuleNames) do
+        sections[#sections+1] = PickerHeading(source, "Pregenerated heroes from a Hero module in your inventory.")
+        sections[#sections+1] = CardGrid(heroModuleCards[source])
     end
 
     local body = gui.Panel{
@@ -1741,7 +2060,13 @@ local function GuildRow(hero, away, host)
     local heroid = hero.heroid
     local confirmingDismiss = false
 
-    local portraitPanel = Portrait(nil, 72, 96)
+    --the Hero's art and name open the EotW hero sheet (the row's icons keep
+    --their own actions, so the click sits here rather than on the row)
+    local function OpenSheet()
+        audio.FireSoundEvent("Mouse.Click")
+        EotwHeroSheet.Show{ charid = heroid, context = "town" }
+    end
+    local portraitPanel = Portrait(nil, 72, 96, nil, OpenSheet)
     portraitPanel:AddClass("eotwGuildPortrait")
     local shownPortrait = nil
     local statStrip, refreshStats = GuildStatStrip()
@@ -1750,6 +2075,7 @@ local function GuildRow(hero, away, host)
         text = "",
         fontSize = 24,
         bold = true,
+        click = OpenSheet,
         color = TEXT,
         width = "100%",
         height = "auto",
@@ -1966,9 +2292,11 @@ end
 function EotwRoster.GuildPanel(host)
     local listPanel = nil
     local headerLabel = nil
+    local slotPips = nil
     local statusLabel = nil
     local createButton = nil
     local recruitButton = nil
+    local projectButton = nil
     local discardButton = nil
     local confirmingDiscard = false
     local rowsById = {} --heroid -> that hero's GuildRow panel
@@ -2002,8 +2330,28 @@ function EotwRoster.GuildPanel(host)
         listPanel.children = rows
 
         local count = EotwRoster.LivingCount()
+        --one pip per slot the roster has: filled for a hero, hollow for a
+        --free slot. How many more the Guild could ever build is not shown
+        --(user direction): players just try to expand it.
+        if slotPips ~= nil and slotPips.valid then
+            local pips = {}
+            local slots = math.max(EotwRoster.Slots(), count)
+            for i = 1, slots do
+                local icon = cond(i <= count, "phosphor/circle-fill.png", "phosphor/circle.png")
+                local color = "#d9b56a"
+                pips[#pips+1] = gui.Panel{
+                    width = 14,
+                    height = 14,
+                    hmargin = 2,
+                    valign = "center",
+                    bgimage = icon,
+                    bgcolor = color,
+                }
+            end
+            slotPips.children = pips
+        end
         if headerLabel ~= nil and headerLabel.valid then
-            headerLabel.text = string.format("%d / %d heroes   <color=#d9b56a>%d / %d active</color>", count, EotwRoster.MAX_LIVING, #EotwRoster.ActiveHeroes(), EotwRoster.MAX_ACTIVE)
+            headerLabel.text = string.format("%d / %d slots   <color=#d9b56a>%d / %d active</color>", count, EotwRoster.Slots(), #EotwRoster.ActiveHeroes(), EotwRoster.MAX_ACTIVE)
         end
         if statusLabel ~= nil and statusLabel.valid then
             statusLabel.text = EotwRoster.lastError or ""
@@ -2013,6 +2361,17 @@ function EotwRoster.GuildPanel(host)
             if b ~= nil and b.valid then
                 b.selfStyle.opacity = cond(canAdd, 1, 0.45)
             end
+        end
+        --a full roster can start the project that builds another slot (no
+        --project runs by default; an ongoing one shows on the scene's left).
+        if projectButton ~= nil and projectButton.valid then
+            local downtime = rawget(_G, "EotwDowntime")
+            --offered whenever the roster is full and no project is under way,
+            --even once the guild cannot grow (its dialog then says so), so
+            --nothing hints at how many expansions there are.
+            local offer = heroes ~= nil and not canAdd
+                and downtime ~= nil and downtime.CanOffer("expand-guild")
+            projectButton:SetClass("collapsed", not offer)
         end
         local hasDraft = EotwRoster.FindDraft() ~= nil
         if createButton ~= nil and createButton.valid then
@@ -2054,6 +2413,20 @@ function EotwRoster.GuildPanel(host)
                 valign = "center",
                 create = function(element)
                     headerLabel = element
+                end,
+            },
+            gui.Panel{
+                width = "auto",
+                height = "auto",
+                flow = "horizontal",
+                halign = "right",
+                valign = "center",
+                lmargin = 10,
+                linger = function(element)
+                    gui.Tooltip(string.format("Your roster has %d hero slots.", EotwRoster.Slots()))(element)
+                end,
+                create = function(element)
+                    slotPips = element
                 end,
             },
         },
@@ -2107,7 +2480,7 @@ function EotwRoster.GuildPanel(host)
                 end,
                 click = function()
                     if not EotwRoster.CanAddHero() then
-                        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+                        Fail(EotwRoster.FullRosterMessage())
                         return
                     end
                     EotwRoster.lastError = nil
@@ -2154,11 +2527,30 @@ function EotwRoster.GuildPanel(host)
                 end,
                 click = function()
                     if not EotwRoster.CanAddHero() then
-                        Fail(string.format("Your roster is full (%d heroes).", EotwRoster.MAX_LIVING))
+                        Fail(EotwRoster.FullRosterMessage())
                         return
                     end
                     EotwRoster.lastError = nil
                     ShowRecruitPicker(host)
+                end,
+            },
+            gui.Button{
+                classes = { "collapsed" },
+                text = "Project: Expand Guild",
+                fontSize = 18,
+                width = 250,
+                height = 46,
+                hmargin = 6,
+                create = function(element)
+                    projectButton = element
+                end,
+                linger = function(element)
+                    gui.Tooltip("Start a project to build another hero slot.")(element)
+                end,
+                click = function()
+                    EotwRoster.lastError = nil
+                    Bump()
+                    EotwDowntime.ShowStartProjectDialog(host, "expand-guild")
                 end,
             },
         },
@@ -2172,18 +2564,96 @@ function EotwRoster.GuildPanel(host)
             data = { seen = -1 },
             thinkTime = 0.25,
             think = function(element)
-                if element.data.seen ~= EotwRoster.revision then
-                    element.data.seen = EotwRoster.revision
+                local downtime = rawget(_G, "EotwDowntime")
+                local rev = EotwRoster.revision + (downtime ~= nil and downtime.revision or 0) * 100000
+                if element.data.seen ~= rev then
+                    element.data.seen = rev
                     Rebuild()
                 end
             end,
         },
     }
     EotwRoster.Refresh()
+    EotwDowntime.RefreshProjects()
     return body
 end
 
 --- the Graveyard ----------------------------------------------------------
+
+--The Encounter of the Week number a grave belongs to, for the hero sheet's
+--epitaph ("Fell in X, week n"): the encounter's place in the City's schedule
+--(this week, or how many weeks back), else worked out from when they fell.
+--nil when there is no schedule to go by.
+local function GraveWeek(encounter, at)
+    local eotw = rawget(_G, "EncounterOfTheWeek")
+    if eotw == nil or eotw.GetWeek == nil then
+        return nil
+    end
+    local week = eotw.GetWeek()
+    if week == nil or type(week.week) ~= "number" then
+        return nil
+    end
+    if encounter ~= nil and encounter == week.current then
+        return week.week
+    end
+    for i,past in ipairs(type(week.past) == "table" and week.past or {}) do
+        if past == encounter then
+            return math.max(1, week.week - i)
+        end
+    end
+    if type(at) == "number" and type(week.since) == "number" then
+        --server times are in milliseconds (or seconds on older records)
+        local perDay = cond(at > 1e12, 86400000, 86400)
+        if at >= week.since then
+            return week.week
+        end
+        return math.max(1, week.week - math.ceil((week.since - at) / perDay / 7))
+    end
+    return nil
+end
+
+--Open a fallen Hero from the Graveyard in the EotW hero sheet as a memorial
+--(grey art, epitaph, no controls). The Hero is fetched from the City; one the
+--owner later dismissed can no longer load, and the sheet says so.
+local function OpenFallen(g)
+    local e = g.epitaph or {}
+    local where = e.encounter
+    local eotw = rawget(_G, "EncounterOfTheWeek")
+    if where ~= nil and eotw ~= nil and eotw.EncounterDisplayName ~= nil then
+        where = eotw.EncounterDisplayName(e.encounter)
+    end
+    local fallen = {
+        encounter = where,
+        week = GraveWeek(e.encounter, g.at),
+        playedBy = e.owner,
+    }
+    audio.FireSoundEvent("Mouse.Click")
+    --the sheet opens at once on its loading state, and fills in when the
+    --Hero arrives
+    EotwHeroSheet.Show{ charid = g.heroid, name = e.name, context = "town", fallen = fallen }
+    if m_conn == nil or g.userid == nil or g.heroid == nil then
+        return
+    end
+    m_conn:Request{
+        action = "get-hero",
+        args = { userid = g.userid, heroid = g.heroid, asJson = true },
+        success = function(result)
+            if mod.unloaded then
+                return
+            end
+            local tok = dmhub.CreateDetachedCharacter{
+                record = result.record,
+                assets = result.assets,
+            }
+            if tok ~= nil and EotwHeroSheet.IsShowing(g.heroid) then
+                EotwHeroSheet.Show{ token = tok, charid = g.heroid, name = e.name, context = "town", fallen = fallen, switching = true }
+            end
+        end,
+        error = function(message)
+            printf("EotW Graveyard: could not load %s: %s", tostring(e.name), tostring(message))
+        end,
+    }
+end
 
 --Everyone's fallen heroes, newest first, with this account's marked.
 function EotwRoster.ShowGraveyard(host)
@@ -2245,6 +2715,10 @@ function EotwRoster.ShowGraveyard(host)
                 flow = "horizontal",
                 bgimage = "panels/square.png",
                 bgcolor = cond(mine, "#2a2418cc", "#ffffff0a"),
+                --a grave opens its Hero's memorial sheet
+                click = function()
+                    OpenFallen(g)
+                end,
                 cornerRadius = 8,
                 pad = 8,
                 borderBox = true,

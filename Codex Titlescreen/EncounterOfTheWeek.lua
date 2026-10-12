@@ -143,9 +143,26 @@ CreatorCredit.RegisterArt(GATE_ART, "czepeku")
 --no creator credit. Sources in C:/dev/eotw/art/ (danger-rooms-*).
 local DANGER_ART = "92f3f806-327b-498c-9705-49972311c3e3"
 
+--The Blue Fish Inn: Czepeku Scenes' "Ages of the Vale Pt. 3" (Original Day),
+--a 30s looping 1080p video of a tavern's hearth, over its first frame as the
+--still. Sources in C:/dev/eotw/art/ (blue-fish-inn-*).
+local INN_VIDEO = "07d3b304-792c-4b5c-8340-814c9da9f864"
+local INN_ART = "e9f0c6ae-2041-476b-ba46-e945b374fa6b"
+CreatorCredit.RegisterArt(INN_VIDEO, "czepeku")
+CreatorCredit.RegisterArt(INN_ART, "czepeku")
+
+--The Arcane Market: Czepeku Scenes' "Black Market Streets" (Original Day), a
+--30s looping 1080p video, over its first frame as the still. Sources in
+--C:/dev/eotw/art/ (arcane-market-*).
+local MARKET_VIDEO = "2d82c3b6-de21-47f0-bfd2-f17708bf4c85"
+local MARKET_ART = "a2a30693-a725-48fc-90cd-dfd028e58dc8"
+CreatorCredit.RegisterArt(MARKET_VIDEO, "czepeku")
+CreatorCredit.RegisterArt(MARKET_ART, "czepeku")
+
 --The town's locations, as fractions of the map image (so they survive a
 --re-export at another size). open(ctx) runs on click; locked(ctx) returns
---the reason the location is closed, or nil. A location with a scene opens
+--the reason the location is closed, or nil; hidden(ctx), if given, takes the
+--location off the map entirely while it returns true. A location with a scene opens
 --full screen over its art instead of as a dialog over the map; focusX is
 --where to crop the art on screens that are not 16:9.
 local CITY_LOCATIONS = {
@@ -187,6 +204,71 @@ local CITY_LOCATIONS = {
             return nil
         end,
         open = function(ctx) ctx.OpenGate() end,
+    },
+    --Downtime (EotwDowntime.lua): a respite turns Victories into XP and
+    --Downtime Activities and heals every hero at home.
+    {
+        id = "inn",
+        label = "Blue Fish Inn",
+        icon = "phosphor/beer-stein-fill.png",
+        --the canal-side building west of the Guild: level with it, so the
+        --hero cards along the bottom of the screen do not cover it (it was
+        --at the "Drunken Fool" tavern, (0.335, 0.575), until 2026-10-11).
+        x = 0.235,
+        y = 0.455,
+        scene = {
+            art = INN_ART,
+            video = INN_VIDEO,
+            aspect = 16 / 9,
+            focusX = 0.65,
+            title = "The Blue Fish Inn",
+            tagline = "A warm hearth, a hot meal and a bed that does not sway. Rest here to turn your Victories into experience, or just catch your breath before the next fight.",
+        },
+        --not on the map at all until heroes first come home from the Town
+        --Gate; the town then plays its reveal (PlayInnReveal).
+        hidden = function(ctx) return not ctx.InnShown() end,
+        locked = function(ctx)
+            if EotwRoster.GetHeroes() == nil then
+                return "The guild is still checking your roster..."
+            end
+            if EotwRoster.LivingCount() == 0 then
+                return "You need a hero before you can rest. Visit the Hero's Guild."
+            end
+            return nil
+        end,
+        open = function(ctx) ctx.OpenInn() end,
+    },
+    --Consumable treasures (EotwMarket.lua): each hero makes a Presence test
+    --to find what is on offer and buys up to their Wealth, once between
+    --encounters. Not on the map until the player finds it: a lead heard
+    --carousing at the inn, then the Find the Arcane Market project
+    --(EotwLeads.lua); RevealFoundLocations shows it the moment it is found.
+    {
+        id = "market",
+        label = "Arcane Market",
+        icon = "phosphor/storefront-fill.png",
+        --the shop the map's own "Front and Back" label points at.
+        x = 0.695,
+        y = 0.18,
+        scene = {
+            art = MARKET_ART,
+            video = MARKET_VIDEO,
+            aspect = 16 / 9,
+            focusX = 0.5,
+            title = "The Arcane Market",
+            tagline = "Behind the honest shopfronts, carts and back rooms deal in potions, powders and stranger things. Ask the right questions and the right stall finds you.",
+        },
+        hidden = function(ctx) return not EotwRoster.MarketUnlocked() end,
+        locked = function(ctx)
+            if EotwRoster.GetHeroes() == nil then
+                return "The guild is still checking your roster..."
+            end
+            if EotwRoster.LivingCount() == 0 then
+                return "You need a hero before you can shop. Visit the Hero's Guild."
+            end
+            return nil
+        end,
+        open = function(ctx) ctx.OpenMarket() end,
     },
     --Where new, untried encounters made by the town's own players are run:
     --practice, with nothing kept. Opens for good once the account has won an
@@ -966,6 +1048,17 @@ local m_pregens = nil
 local m_pregenTokens = nil
 local m_pregensFetching = false
 
+--Pregens from the player's Hero modules (see "Hero module pregens" below).
+--nil until loaded; then a sorted list of {id, name, className, ancestry, level, source}.
+local m_heroPregens = nil
+local m_heroPregenTokens = {}
+--moduleid -> {token, version}: one of its pregens, to tell when its art needs registering again.
+local m_heroPregenArtSample = {}
+--the installed Hero modules the cache was built from (InstalledHeroModulesKey).
+local m_heroPregensKey = nil
+local m_heroPregensFetching = false
+local CacheHeroModulePregens
+
 --Best-effort class name for display; works for lobby hero tokens and for
 --detached module-snapshot tokens alike. pcall because token.properties
 --shapes vary (and game-typed instances raise on unknown members).
@@ -1143,18 +1236,133 @@ function EncounterOfTheWeek.CachePregens()
     }
 end
 
---nil while unavailable/loading; otherwise the {id, name, className} list.
+--nil while unavailable/loading; otherwise the {id, name, className, ...}
+--list: the week's official pregens, then those from the player's Hero
+--modules (which carry source = the module's name).
 function EncounterOfTheWeek.GetPregens()
     EncounterOfTheWeek.CachePregens()
-    return m_pregens
-end
-
---The snapshot token for a pregen id (nil until the cache is loaded).
-function EncounterOfTheWeek.GetPregenToken(id)
-    if m_pregenTokens == nil then
+    CacheHeroModulePregens()
+    if m_pregens == nil then
         return nil
     end
-    return m_pregenTokens[id]
+    if m_heroPregens == nil or #m_heroPregens == 0 then
+        return m_pregens
+    end
+    local result = {}
+    for _, entry in ipairs(m_pregens) do
+        result[#result+1] = entry
+    end
+    for _, entry in ipairs(m_heroPregens) do
+        result[#result+1] = entry
+    end
+    return result
+end
+
+--── Hero module pregens ──────────────────────────────────────────────
+--Heroes shipped inside the player's Hero modules (classes and ancestries
+--from their inventory, see HeroModules.lua) are pregens too. Only modules
+--actually installed in the lobby count: that is every switched-on module the
+--player may use, and only once its code (if any) is approved -- so a pregen's
+--class is always there to recruit it with. Each comes from the snapshot of the
+--INSTALLED version (a newer one may still await review), and the list is
+--rebuilt whenever that set changes.
+
+--"fullid@version" of every Hero module installed in the lobby, sorted.
+local function InstalledHeroModulesKey()
+    local parts = {}
+    for _, info in ipairs(module.GetLoadedModules()) do
+        if info.isHeroModule and info.installedVersion ~= nil then
+            parts[#parts+1] = string.format("%s@%s", info.fullid, info.installedVersion)
+        end
+    end
+    table.sort(parts)
+    return table.concat(parts, ",")
+end
+
+CacheHeroModulePregens = function()
+    if not dmhub.isLobbyGame or module.DownloadModuleSnapshot == nil then
+        return
+    end
+
+    local key = InstalledHeroModulesKey()
+    if m_heroPregensFetching or key == m_heroPregensKey then
+        --built from this set: just check the art is still registered
+        --(entering a game clears module art; the snapshot download redoes it).
+        for moduleid, sample in pairs(m_heroPregenArtSample) do
+            local portrait = nil
+            pcall(function() portrait = sample.token.offTokenPortrait end)
+            if IsUnresolvableAssetId(portrait) then
+                m_heroPregenArtSample[moduleid] = nil
+                module.DownloadModuleSnapshot{ moduleid = moduleid, version = sample.version, success = function() end, failure = function() end }
+            end
+        end
+        return
+    end
+
+    m_heroPregensFetching = true
+    local result = {}
+    local tokens = {}
+    local artSamples = {}
+    local pending = 0
+    local Finish = function()
+        if pending > 0 then
+            return
+        end
+        table.sort(result, function(a,b) return a.name < b.name end)
+        m_heroPregens = result
+        m_heroPregenTokens = tokens
+        m_heroPregenArtSample = artSamples
+        m_heroPregensKey = key
+        m_heroPregensFetching = false
+    end
+
+    for _, info in ipairs(module.GetLoadedModules()) do
+        if info.isHeroModule and info.installedVersion ~= nil then
+            pending = pending + 1
+            local fullid = info.fullid
+            local version = info.installedVersion
+            local source = info.name or fullid
+            module.DownloadModuleSnapshot{
+                moduleid = fullid,
+                version = version,
+                success = function(snapshot)
+                    for charid, tok in pairs(snapshot.characters or {}) do
+                        local isHero = false
+                        pcall(function() isHero = tok.properties:IsHero() == true end)
+                        if isHero then
+                            tokens[charid] = tok
+                            artSamples[fullid] = { token = tok, version = version }
+                            result[#result+1] = {
+                                id = charid,
+                                name = tok.name or "Hero",
+                                className = GetHeroClassName(tok),
+                                ancestry = GetHeroAncestry(tok),
+                                level = GetHeroLevel(tok),
+                                source = source,
+                            }
+                        end
+                    end
+                    pending = pending - 1
+                    Finish()
+                end,
+                failure = function(msg)
+                    printf("EotW: could not fetch Hero module %s for its pregens: %s", fullid, tostring(msg))
+                    pending = pending - 1
+                    Finish()
+                end,
+            }
+        end
+    end
+    Finish()
+end
+
+--The snapshot token for a pregen id, official or from a Hero module (nil
+--until its cache is loaded).
+function EncounterOfTheWeek.GetPregenToken(id)
+    if m_pregenTokens ~= nil and m_pregenTokens[id] ~= nil then
+        return m_pregenTokens[id]
+    end
+    return m_heroPregenTokens[id]
 end
 
 --== portrait warm-up ==================================================
@@ -1223,6 +1431,9 @@ local function EligiblePortraitImageIds()
         AddToken(tok)
     end
     for _,tok in pairs(m_pregenTokens or {}) do
+        AddToken(tok)
+    end
+    for _,tok in pairs(m_heroPregenTokens) do
         AddToken(tok)
     end
 
@@ -1605,6 +1816,16 @@ end
 --True while the screen is up (not closed, and not hidden for a game load).
 function EncounterOfTheWeek.IsScreenOpen()
     return m_screen ~= nil and m_screen.valid and not m_screen:HasClass("hidden")
+end
+
+--The town screen, for panels that mount over the whole town (the EotW hero
+--sheet), or nil while it is not up.
+---@return Panel|nil
+function EncounterOfTheWeek.TownScreen()
+    if EncounterOfTheWeek.IsScreenOpen() then
+        return m_screen
+    end
+    return nil
 end
 
 --Extra rows for the titlescreen's Codex menu (CodexTitleBar appends them).
@@ -2375,7 +2596,8 @@ CreateScreen = function(args)
             if #heroes >= space then
                 break
             end
-            if hero.status ~= "fallen" and not busy[hero.heroid] then
+            --a dying hero must rest at the inn before setting out again.
+            if hero.status ~= "fallen" and not busy[hero.heroid] and not EotwRoster.IsDying(hero.heroid) then
                 heroes[#heroes+1] = (RosterHeroSpec(hero))
             end
         end
@@ -3313,6 +3535,15 @@ CreateScreen = function(args)
             extras = extras,
             --another player's roster hero: CreateDetachedCharacter registered its art.
             artRegistered = not mine and heroEntry.kind == "roster",
+            --a lineup card opens its Hero in the EotW hero sheet (a teammate's
+            --read-only); nothing while a teammate's Hero is still on its way
+            click = function()
+                if tok == nil then
+                    return
+                end
+                audio.FireSoundEvent("Mouse.Click")
+                EotwHeroSheet.Show{ token = tok, charid = tok.charid, context = "town" }
+            end,
         }
     end
 
@@ -4393,9 +4624,16 @@ CreateScreen = function(args)
             active[hero.heroid] = true
         end
         local heroes = {}
+        local dyingNames = {}
         for _,hero in ipairs(EotwRoster.GetHeroes() or {}) do
             if not claimed[hero.heroid] and away[hero.heroid] == nil then
-                heroes[#heroes+1] = hero
+                --a dying hero must rest at the Blue Fish Inn first (the city
+                --refuses the claim too).
+                if EotwRoster.IsDying(hero.heroid) then
+                    dyingNames[#dyingNames+1] = (hero.summary or {}).name or "A hero"
+                else
+                    heroes[#heroes+1] = hero
+                end
             end
         end
         --active heroes first: they are the ones adventuring in town.
@@ -4418,6 +4656,10 @@ CreateScreen = function(args)
             rows[#rows+1] = EmptyNote("No heroes are free to join. Visit the Hero's Guild to create or recruit one.")
         else
             rows[#rows+1] = CardGrid(myCards)
+        end
+        if #dyingNames > 0 then
+            rows[#rows+1] = EmptyNote(string.format("%s %s dying and must rest at the Blue Fish Inn before setting out again.",
+                table.concat(dyingNames, ", "), cond(#dyingNames == 1, "is", "are")))
         end
 
         dlg = gui.Panel{
@@ -5353,11 +5595,11 @@ CreateScreen = function(args)
     ---- results left while we were away ------------------------------------
 
     --A game this player left WITHOUT abandoning went on with their heroes as
-    --free agents; when it was won, its host left the heroes' results with
-    --the city (offer-outcomes). Back in town the player chooses: claim them
-    --(the usual pending-outcome queue brings the Victories home) or count
-    --the game as abandoned and drop them. One game at a time; asked once a
-    --connection.
+    --free agents; when it was won or lost, its host left the heroes' results
+    --with the city (offer-outcomes). Back in town the player chooses: accept
+    --them (the usual pending-outcome queue brings the Victories home and
+    --buries the heroes who fell) or count the game as abandoned and drop
+    --them. One game at a time; asked once a connection.
     local m_offersAsked = false
     local m_offersOpen = false
 
@@ -5369,13 +5611,21 @@ CreateScreen = function(args)
         end
 
         local encounter = nil
+        local defeat = false
+        local anyFell = false
         local lines = {}
         for _, hero in ipairs(game.heroes or {}) do
             local outcome = type(hero.outcome) == "table" and hero.outcome or {}
             encounter = encounter or outcome.encounter
+            if outcome.result == "defeat" then
+                defeat = true
+            end
             local parts = {}
             local victories = tonumber(outcome.victories) or 0
-            if victories > 0 then
+            if outcome.died == true then
+                anyFell = true
+                parts[#parts + 1] = "fell in battle"
+            elseif victories > 0 then
                 parts[#parts + 1] = string.format("%d %s", victories, cond(victories == 1, "Victory", "Victories"))
             elseif outcome.completed then
                 parts[#parts + 1] = "no Victory (already completed)"
@@ -5387,10 +5637,21 @@ CreateScreen = function(args)
             if #found > 0 then
                 parts[#parts + 1] = "found " .. table.concat(found, ", ")
             end
+            local wounds = type(outcome.wounds) == "table" and outcome.wounds or {}
+            if (tonumber(wounds.damage) or 0) > 0 or (tonumber(wounds.recoveriesUsed) or 0) > 0 then
+                parts[#parts + 1] = "came back wounded"
+            end
             local name = (hero.name ~= nil and hero.name ~= "") and hero.name or "Your hero"
             lines[#lines + 1] = string.format("<b>%s</b>%s", name, cond(#parts > 0, ": " .. table.concat(parts, "; "), ""))
         end
         local title = encounter ~= nil and EncounterOfTheWeek.EncounterTitle(encounter) or "your Encounter of the Week"
+
+        local hint = "Claim the victory for your heroes, or count the game as abandoned and leave it be."
+        if defeat then
+            hint = "Accept the defeat, and your fallen heroes are laid to rest in the Graveyard; or count the game as abandoned and leave it be."
+        elseif anyFell then
+            hint = "Claim the victory for your heroes, and your fallen heroes are laid to rest in the Graveyard; or count the game as abandoned and leave it be."
+        end
 
         local dlg = nil
         local busy = false
@@ -5435,7 +5696,7 @@ CreateScreen = function(args)
             escape = function() end,
             children = {
                 gui.Label{
-                    text = string.format("Your party finished <b>%s</b> after you left, with your heroes fighting on as free agents, and won.", title),
+                    text = string.format("Your party finished <b>%s</b> after you left, with your heroes fighting on as free agents, and %s.", title, cond(defeat, "was defeated", "won")),
                     fontSize = 20,
                     color = Styles.textColor,
                     width = "100%",
@@ -5453,7 +5714,7 @@ CreateScreen = function(args)
                     vmargin = 6,
                 },
                 gui.Label{
-                    text = "Claim the victory for your heroes, or count the game as abandoned and leave it be.",
+                    text = hint,
                     fontSize = 16,
                     color = Styles.textColor,
                     opacity = 0.7,
@@ -5465,7 +5726,7 @@ CreateScreen = function(args)
             },
             buttons = {
                 gui.Button{
-                    text = "Claim the Victory",
+                    text = cond(defeat, "Accept the Defeat", "Claim the Victory"),
                     fontSize = 20,
                     width = 240,
                     height = 44,
@@ -5547,7 +5808,17 @@ CreateScreen = function(args)
     --games list must stay live (RefreshGames is what notices a launched
     --game and takes us into it); the Guild's is built on each visit.
     local m_locationId = nil
+    --true from the moment the Blue Fish Inn's reveal shows its node until the
+    --reveal is recorded (see PlayInnReveal).
+    local m_innRevealing = false
+    --true for the whole reveal, dialog included; the guild holds its own
+    --beckon meanwhile so the only thing pulsing is the inn.
+    local m_innRevealActive = false
+    --the map's location nodes, by location id.
+    local m_nodePanels = {}
     local m_guildScene = nil
+    local m_innScene = nil
+    local m_marketScene = nil
     local gateScene = nil
     local dangerScene = nil
     local locationHost = nil
@@ -5580,6 +5851,15 @@ CreateScreen = function(args)
         OpenDangerRooms = function()
             OpenLocation("danger")
         end,
+        OpenInn = function()
+            OpenLocation("inn")
+        end,
+        OpenMarket = function()
+            OpenLocation("market")
+        end,
+        InnShown = function()
+            return m_innRevealing or EotwRoster.InnRevealed()
+        end,
         OpenGraveyard = function()
             EotwRoster.ShowGraveyard(resultPanel)
         end,
@@ -5606,6 +5886,9 @@ CreateScreen = function(args)
             data = { lockedReason = nil, nextBeckon = 0 },
             thinkTime = 0.5,
             think = function(element)
+                if loc.hidden ~= nil then
+                    element:SetClass("collapsed", loc.hidden(townContext) == true)
+                end
                 local reason = nil
                 if loc.locked ~= nil then
                     reason = loc.locked(townContext)
@@ -5615,7 +5898,7 @@ CreateScreen = function(args)
 
                 --while the hero strip says no hero is active, the guild
                 --icon pulses to point the player at it.
-                if loc.id == "guild" and EotwRoster.GetHeroes() ~= nil then
+                if loc.id == "guild" and EotwRoster.GetHeroes() ~= nil and not m_innRevealActive then
                     local anyActive = false
                     for _,hero in ipairs(EotwRoster.ActiveHeroes()) do
                         if dmhub.GetCharacterById(hero.heroid) ~= nil then
@@ -5625,7 +5908,7 @@ CreateScreen = function(args)
                     local now = dmhub.Time()
                     if not anyActive and now >= element.data.nextBeckon then
                         element.data.nextBeckon = now + 1.5
-                        local halo = element:Get("eotwTownHalo")
+                        local halo = element:Get("eotwTownHalo-" .. loc.id)
                         if halo ~= nil then
                             halo:PulseClass("beckon")
                         end
@@ -5633,6 +5916,7 @@ CreateScreen = function(args)
                 end
             end,
             create = function(element)
+                m_nodePanels[loc.id] = element
                 element:FireEvent("think")
             end,
             hover = function(element)
@@ -5660,7 +5944,7 @@ CreateScreen = function(args)
                 --(only the guild's does). First child, so the glyph draws
                 --over it.
                 gui.Panel{
-                    id = "eotwTownHalo",
+                    id = "eotwTownHalo-" .. loc.id,
                     classes = { "eotwTownNodeHalo" },
                     floating = true,
                     interactable = false,
@@ -5769,6 +6053,475 @@ CreateScreen = function(args)
         },
     }
 
+    ---- the Blue Fish Inn's reveal ----
+
+    --A new player's town has no inn (EotwRoster.InnUnlocked). The first time
+    --the town finds it unlocked -- heroes just came home from the Town Gate --
+    --the map pans to the tavern, a returning hero says, in the montage's
+    --dialog box, that it is time to rest, and the inn's node drops onto the
+    --map from large. Played once per account on this machine.
+    local INN_PAN_SECONDS = 0.9
+    local INN_TYPE_CPS = 45
+    --the node starts this many times its size, fades in over the first part
+    --of the drop and lands with a small bounce and a jolt of the map.
+    local INN_DROP_SCALE = 5
+    local INN_DROP_SECONDS = 0.85
+    local INN_DROP_FADE = 0.35
+    local INN_SETTLE_SECONDS = 0.4
+    local INN_SETTLE_BOUNCE = 0.14
+    local INN_SHAKE_PX = 6
+    --the speaker's figure on the dialog box (the montage stage's sizes).
+    local INN_PORTRAIT_WIDTH = 230
+    local INN_PORTRAIT_HEIGHT = 300
+    local INN_PORTRAIT_FADE = 0.15
+    local INN_LINE = "That was a tough challenge! We should head to the Blue Fish Inn to rest before continuing on more adventures."
+
+    local m_innRevealQueuedAt = nil
+
+    --Who announces the inn: of the heroes who came home this session, the
+    --one who lost the most Stamina. With none (an account that adventured
+    --before the inn was hidden), the most wounded hero at home, active first.
+    local PickInnSpeaker = function()
+        local best = nil
+        for _,h in ipairs(EotwRoster.Homecomings()) do
+            if EotwRoster.FindHero(h.heroid) ~= nil and dmhub.GetCharacterById(h.heroid) ~= nil then
+                if best == nil or h.damage > best.damage then
+                    best = h
+                end
+            end
+        end
+        if best ~= nil then
+            return best.heroid
+        end
+        local bestid, bestScore = nil, nil
+        for _,hero in ipairs(EotwRoster.GetHeroes() or {}) do
+            local tok = dmhub.GetCharacterById(hero.heroid)
+            if tok ~= nil then
+                local damage = 0
+                pcall(function() damage = tonumber(tok.properties.damage_taken) or 0 end)
+                local score = damage + cond(hero.active == true, 100000, 0)
+                if bestScore == nil or score > bestScore then
+                    bestid, bestScore = hero.heroid, score
+                end
+            end
+        end
+        return bestid
+    end
+
+    --Set opacity on a panel and everything inside it (opacity is not inherited).
+    local function SetTreeOpacity(element, opacity)
+        element.selfStyle.opacity = opacity
+        for _,child in ipairs(element.children or {}) do
+            SetTreeOpacity(child, opacity)
+        end
+    end
+
+    --The hero's off-token portrait cropped to the figure's shape, its bottom
+    --band trimmed so the foot stays crisp under the edge fade (the montage
+    --stage's SetPortraitFrom).
+    local function InnSpeakerPortrait(tok)
+        local aspect = INN_PORTRAIT_WIDTH / INN_PORTRAIT_HEIGHT
+        return gui.Panel{
+            width = INN_PORTRAIT_WIDTH,
+            height = INN_PORTRAIT_HEIGHT,
+            hmargin = 40,
+            halign = "left",
+            bgimage = "panels/square.png",
+            bgcolor = "#00000000",
+            --set on the panel itself: edgeFade from a class rule is not applied.
+            edgeFade = INN_PORTRAIT_FADE,
+            interactable = false,
+            create = function(element)
+                local portrait = nil
+                pcall(function() portrait = tok.offTokenPortrait end)
+                if portrait == nil or portrait == "" then
+                    return
+                end
+                element.bgimage = portrait
+                element.selfStyle.bgcolor = "white"
+                local rect = nil
+                pcall(function() rect = tok:GetPortraitRectForAspect(aspect * (1 - INN_PORTRAIT_FADE), portrait) end)
+                if rect ~= nil then
+                    local y1 = math.max(INN_PORTRAIT_FADE, rect.y1 + (rect.y2 - rect.y1) * INN_PORTRAIT_FADE)
+                    rect = { x1 = rect.x1, y1 = y1, x2 = rect.x2, y2 = rect.y2 }
+                end
+                element.selfStyle.imageRect = rect
+            end,
+        }
+    end
+
+    local PlayInnReveal = function(heroid)
+        local tok = dmhub.GetCharacterById(heroid)
+        local node = m_nodePanels["inn"]
+        if tok == nil or node == nil or not node.valid or resultPanel == nil or not resultPanel.valid then
+            return
+        end
+        local inn = CityLocation("inn")
+        m_innRevealActive = true
+        --the hero strip would sit under the dialog box: hide it meanwhile.
+        --"hidden", not "collapsed" (that one belongs to ApplyLocationMode).
+        local strip = resultPanel:Get("eotwTownHeroStrip")
+        if strip ~= nil then
+            strip:SetClass("hidden", true)
+        end
+
+        --pan so the inn sits in the upper part of the screen, clear of the
+        --dialog box.
+        local fromX, fromY = m_panX, m_panY
+        local toX = math.max(0, math.min(mapW - panelWidth, inn.x * mapW - panelWidth / 2))
+        local toY = math.max(0, math.min(mapH - panelHeight, inn.y * mapH - panelHeight * 0.32))
+
+        --"pan" -> "type" -> "drop" -> "settle" -> "wait" (for a click) -> "closing"
+        local phase = "pan"
+        local phaseStart = dmhub.Time()
+        --- @type Panel
+        local overlay
+        --- @type Panel
+        local textLabel
+        --- @type Panel
+        local prompt
+        --- @type Panel
+        local stage
+
+        local function Enter(newPhase)
+            phase = newPhase
+            phaseStart = dmhub.Time()
+        end
+
+        local function StartDrop()
+            textLabel.text = INN_LINE
+            m_innRevealing = true
+            node:SetClass("collapsed", false)
+            node.selfStyle.scale = INN_DROP_SCALE
+            SetTreeOpacity(node, 0)
+            audio.FireSoundEvent("DiceImp.Whoosh_MetalBlade")
+            Enter("drop")
+        end
+
+        local function Close()
+            if phase == "closing" then
+                return
+            end
+            Enter("closing")
+            if strip ~= nil and strip.valid then
+                strip:SetClass("hidden", false)
+            end
+            EotwRoster.MarkInnRevealed()
+            m_innRevealing = false
+            audio.FireSoundEvent("Mouse.Click")
+            stage:SetClassTree("innSpeechOff", true)
+            overlay:SetClass("innSpeechOff", true)
+            dmhub.Schedule(0.4, function()
+                if mod.unloaded then
+                    return
+                end
+                if overlay ~= nil and overlay.valid then
+                    overlay:DestroySelf()
+                end
+                if m_modalDialog == overlay then
+                    m_modalDialog = nil
+                end
+            end)
+            --a few beckoning pulses point the player at their new destination.
+            for i = 0, 2 do
+                dmhub.Schedule(0.5 + i * 1.5, function()
+                    if mod.unloaded or node == nil or not node.valid then
+                        return
+                    end
+                    local halo = node:Get("eotwTownHalo-inn")
+                    if halo ~= nil then
+                        halo:PulseClass("beckon")
+                    end
+                end)
+            end
+            --the guild may beckon again once the inn's last pulse has faded.
+            dmhub.Schedule(5, function()
+                m_innRevealActive = false
+            end)
+        end
+
+        --a click (or Escape) hurries the line along, and once the inn has
+        --landed, closes the dialog.
+        local function Advance()
+            if phase == "pan" or phase == "type" then
+                ApplyPan()
+                StartDrop()
+            elseif phase == "wait" then
+                Close()
+            end
+        end
+
+        textLabel = gui.Label{
+            classes = { "innSpeechText" },
+            text = "",
+            interactable = false,
+        }
+        prompt = gui.Panel{
+            classes = { "innSpeechPrompt", "collapsed" },
+            floating = true,
+            width = 18,
+            height = 18,
+            halign = "right",
+            valign = "bottom",
+            bgimage = "phosphor/caret-down-fill.png",
+            interactable = false,
+            thinkTime = 0.6,
+            think = function(element)
+                element:SetClass("dimmed", not element:HasClass("dimmed"))
+            end,
+        }
+
+        stage = gui.Panel{
+            classes = { "innSpeechStage" },
+            floating = true,
+            width = 1000,
+            height = "auto",
+            halign = "center",
+            valign = "bottom",
+            bmargin = 30,
+            flow = "vertical",
+            interactable = false,
+            InnSpeakerPortrait(tok),
+            gui.Panel{
+                classes = { "innSpeechBox" },
+                width = "100%",
+                height = 150,
+                bgimage = "panels/square.png",
+                pad = 18,
+                borderBox = true,
+                flow = "vertical",
+                interactable = false,
+                gui.Label{
+                    classes = { "innSpeechSpeaker" },
+                    text = tok.name or "",
+                    interactable = false,
+                },
+                textLabel,
+                prompt,
+            },
+        }
+
+        overlay = gui.Panel{
+            classes = { "innSpeechOverlay" },
+            floating = true,
+            width = "100%",
+            height = "100%",
+            --a clear background still catches clicks, so the map and its
+            --nodes cannot be used until the dialog is done.
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+            styles = {
+                --born with "innSpeechOff" (on the whole stage subtree), so the
+                --figure and box fade and rise in; Close puts it back.
+                {
+                    selectors = { "innSpeechOff" },
+                    opacity = 0,
+                    transitionTime = 0.35,
+                },
+                {
+                    selectors = { "innSpeechStage", "innSpeechOff" },
+                    y = 30,
+                    transitionTime = 0.35,
+                    easing = "easeOutCubic",
+                },
+                --the montage stage's dialog box (EncounterMontageStage.lua).
+                {
+                    selectors = { "innSpeechBox" },
+                    --opaque, unlike the montage's: the town map is busy behind it.
+                    bgcolor = "#06080cff",
+                    border = 2,
+                    borderColor = "#ffffff60",
+                    cornerRadius = 8,
+                },
+                {
+                    selectors = { "innSpeechSpeaker" },
+                    fontSize = 16,
+                    bold = true,
+                    color = "#ffd66b",
+                    width = "100%",
+                    height = "auto",
+                    textAlignment = "left",
+                    bmargin = 4,
+                },
+                {
+                    selectors = { "innSpeechText" },
+                    fontSize = 19,
+                    color = "#ffffff",
+                    width = "100%",
+                    height = "auto",
+                    textAlignment = "left",
+                },
+                {
+                    selectors = { "innSpeechPrompt" },
+                    bgcolor = "#ffd66b",
+                },
+                {
+                    selectors = { "innSpeechPrompt", "dimmed" },
+                    opacity = 0.25,
+                },
+            },
+            captureEscape = true,
+            escapePriority = EscapePriority.EXIT_MODAL_DIALOG,
+            escape = function(element)
+                Advance()
+            end,
+            press = function(element)
+                Advance()
+            end,
+
+            stage,
+
+            thinkTime = 0.02,
+            think = function(element)
+                local t = dmhub.Time() - phaseStart
+                if phase == "pan" then
+                    local p = math.min(1, t / INN_PAN_SECONDS)
+                    --ease in and out.
+                    local e = cond(p < 0.5, 4 * p * p * p, 1 - ((-2 * p + 2) ^ 3) / 2)
+                    m_panX = fromX + (toX - fromX) * e
+                    m_panY = fromY + (toY - fromY) * e
+                    ApplyPan()
+                    if p >= 1 then
+                        Enter("type")
+                    end
+                elseif phase == "type" then
+                    local n = math.floor(t * INN_TYPE_CPS)
+                    if n >= #INN_LINE then
+                        StartDrop()
+                    else
+                        textLabel.text = string.sub(INN_LINE, 1, n)
+                    end
+                elseif phase == "drop" then
+                    local p = math.min(1, t / INN_DROP_SECONDS)
+                    --hangs large, then accelerates down onto the map.
+                    node.selfStyle.scale = 1 + (INN_DROP_SCALE - 1) * (1 - p * p)
+                    SetTreeOpacity(node, math.min(1, p / INN_DROP_FADE))
+                    if p >= 1 then
+                        node.selfStyle.scale = 1
+                        local halo = node:Get("eotwTownHalo-inn")
+                        if halo ~= nil then
+                            halo:PulseClass("beckon")
+                        end
+                        audio.FireSoundEvent("Foot.Generic_Stone")
+                        Enter("settle")
+                    end
+                elseif phase == "settle" then
+                    local q = math.min(1, t / INN_SETTLE_SECONDS)
+                    node.selfStyle.scale = 1 + INN_SETTLE_BOUNCE * math.sin(math.pi * q)
+                    --the map jolts as it lands, dying away.
+                    local shake = INN_SHAKE_PX * (1 - q)
+                    for _,layer in ipairs({ mapPanel, nodeLayer }) do
+                        if layer ~= nil and layer.valid then
+                            layer.selfStyle.x = -m_panX + math.random(-100, 100) / 100 * shake
+                            layer.selfStyle.y = -m_panY + math.random(-100, 100) / 100 * shake
+                        end
+                    end
+                    if q >= 1 then
+                        node.selfStyle.scale = 1
+                        ApplyPan()
+                        prompt:SetClass("collapsed", false)
+                        Enter("wait")
+                    end
+                end
+            end,
+        }
+
+        --the overlay counts as the town's modal, so no other dialog stacks on it.
+        m_modalDialog = overlay
+        resultPanel:AddChild(overlay)
+        stage:SetClassTreeImmediate("innSpeechOff", true)
+        dmhub.Schedule(0.03, function()
+            if mod.unloaded or stage == nil or not stage.valid then
+                return
+            end
+            stage:SetClassTree("innSpeechOff", false)
+        end)
+    end
+
+    --Start the reveal once the inn is unlocked and the town is quiet: on the
+    --map, nothing else up, every returning hero's outcome carried home, and
+    --that state held for a moment so the last homecoming can land.
+    local MaybePlayInnReveal = function()
+        --what the reveal is waiting on, kept in EncounterOfTheWeek.innRevealWaitingOn
+        --for debugging over MCP (nil once it has played or is playing).
+        local waiting = nil
+        if resultPanel == nil or not resultPanel.valid or resultPanel:HasClass("hidden") or resultPanel:HasClass("eotwOpening") then
+            waiting = "screen"
+        elseif EotwRoster.InnRevealed() or m_innRevealing then
+            waiting = nil
+        elseif EotwRoster.InnUnlocked() ~= true then
+            waiting = "unlock"
+        elseif m_locationId ~= nil then
+            waiting = "location"
+        elseif m_debriefOpen or m_offersOpen or (m_modalDialog ~= nil and m_modalDialog.valid) then
+            waiting = "dialog"
+        elseif EotwRoster.OutcomesInFlight() then
+            waiting = "outcomes"
+        end
+        EncounterOfTheWeek.innRevealWaitingOn = waiting
+        local ready = waiting == nil and not m_innRevealing and not EotwRoster.InnRevealed()
+        if not ready then
+            m_innRevealQueuedAt = nil
+            return
+        end
+        local now = dmhub.Time()
+        if m_innRevealQueuedAt == nil then
+            m_innRevealQueuedAt = now
+            return
+        end
+        if now - m_innRevealQueuedAt < 1.5 then
+            return
+        end
+        m_innRevealQueuedAt = nil
+        local heroid = PickInnSpeaker()
+        if heroid == nil then
+            EncounterOfTheWeek.innRevealWaitingOn = "speaker"
+            return
+        end
+        printf("EotW town: the Blue Fish Inn reveal starts (speaker %s)", heroid)
+        PlayInnReveal(heroid)
+    end
+
+    --Was the Arcane Market found when the roster was last listed? nil until
+    --then. A hidden node is collapsed, and a collapsed panel stops thinking,
+    --so it cannot show itself again: this watcher does it.
+    local m_marketFound = nil
+
+    --Put the Arcane Market on the map once the player finds it (the Find
+    --the Arcane Market project completes). Found while the town is open, it
+    --beckons a few times; already found when the town opened, it just shows.
+    local RevealFoundLocations = function()
+        local node = m_nodePanels["market"]
+        if node == nil or not node.valid then
+            return
+        end
+        local found = EotwRoster.MarketUnlocked()
+        if found and node:HasClass("collapsed") then
+            node:SetClass("collapsed", false)
+        end
+        if EotwRoster.GetHeroes() == nil then
+            return
+        end
+        if found and m_marketFound == false then
+            --usually found at the inn: beckon once the player is back on the map.
+            if m_locationId ~= nil then
+                return
+            end
+            for i = 0, 2 do
+                dmhub.Schedule(0.5 + i * 1.5, function()
+                    if mod.unloaded or node == nil or not node.valid then
+                        return
+                    end
+                    local halo = node:Get("eotwTownHalo-market")
+                    if halo ~= nil then
+                        halo:PulseClass("beckon")
+                    end
+                end)
+            end
+        end
+        m_marketFound = found
+    end
+
     ---- locations: full-screen scenes over the map ----
 
     --The card holding a location's controls sits on the right, clear of the
@@ -5857,10 +6610,10 @@ CreateScreen = function(args)
 
     --The top-left of a scene: the way back to the map, then the place's
     --name over a cream rule and a line about it.
-    local SceneHeader = function(scene)
+    local SceneHeader = function(scene, side)
         return gui.Panel{
             floating = true,
-            halign = "left",
+            halign = side or "left",
             valign = "top",
             hmargin = 56,
             vmargin = 40,
@@ -5919,15 +6672,26 @@ CreateScreen = function(args)
     end
 
     --A location's full-screen scene: its art (credited to its creator by
-    --CreatorCredit.Backdrop), a shade down the left for the header to read
-    --on, the header, and a card on the right holding content. The scene is
-    --opaque, so the map behind it takes no clicks.
-    local LocationScene = function(loc, cardWidth, content)
+    --CreatorCredit.Backdrop; scene.video loops over the still), a shade down
+    --the header's side for it to read on, the header, and a card holding
+    --content -- on the right, or on the left when scene.cardSide = "left"
+    --(the header then moves right). `side` (optional) goes in the free space
+    --under the header, at the bottom of the header's side (the Guild's
+    --project under way). The scene is opaque, so the map behind it takes no
+    --clicks.
+    local LocationScene = function(loc, cardWidth, content, side)
         local scene = loc.scene
+        local cardLeft = scene.cardSide == "left"
+        local headerSide = cond(cardLeft, "right", "left")
+        local fadeFrom, fadeTo = 0, 1
+        if cardLeft then
+            fadeFrom, fadeTo = 1, 0
+        end
         return CreatorCredit.Backdrop{
             width = panelWidth,
             height = panelHeight,
             image = scene.art,
+            video = scene.video,
             aspect = scene.aspect,
             focusX = scene.focusX,
             --the Town Gate's art is dark, so its credit shows the logo white.
@@ -5935,7 +6699,7 @@ CreateScreen = function(args)
             children = {
                 gui.Panel{
                     floating = true,
-                    halign = "left",
+                    halign = headerSide,
                     valign = "top",
                     width = 1000,
                     height = panelHeight,
@@ -5943,8 +6707,8 @@ CreateScreen = function(args)
                     bgimage = "panels/square.png",
                     bgcolor = "black",
                     gradient = gui.Gradient{
-                        point_a = { x = 0, y = 0.5 },
-                        point_b = { x = 1, y = 0.5 },
+                        point_a = { x = fadeFrom, y = 0.5 },
+                        point_b = { x = fadeTo, y = 0.5 },
                         stops = {
                             { position = 0, color = core.Color{ r = 1, g = 1, b = 1, a = 0.78 } },
                             { position = 0.4, color = core.Color{ r = 1, g = 1, b = 1, a = 0.45 } },
@@ -5958,11 +6722,21 @@ CreateScreen = function(args)
                     width = "100%",
                     height = "100%",
                     flow = "none",
-                    SceneHeader(scene),
+                    SceneHeader(scene, headerSide),
+                    gui.Panel{
+                        floating = true,
+                        halign = headerSide,
+                        valign = "bottom",
+                        hmargin = 56,
+                        bmargin = 90,
+                        width = "auto",
+                        height = "auto",
+                        children = { side },
+                    },
                     gui.Panel{
                         classes = { "eotwSceneCard" },
                         floating = true,
-                        halign = "right",
+                        halign = cond(cardLeft, "left", "right"),
                         valign = "top",
                         hmargin = SCENE_CARD_MARGIN,
                         tmargin = SCENE_CARD_TOP,
@@ -5984,6 +6758,7 @@ CreateScreen = function(args)
     local m_stripSignature = nil
     local m_stripRefreshAt = 0
     local heroStrip = gui.Panel{
+        id = "eotwTownHeroStrip",
         floating = true,
         halign = "center",
         valign = "bottom",
@@ -6023,12 +6798,20 @@ CreateScreen = function(args)
                                 --recoveries, but no skills or heroic resource.
                                 showSkills = false,
                                 showResources = false,
+                                --the hammer chip: Downtime Activities to spend.
+                                showDowntime = true,
                                 subtitle = function(tok)
                                     local className, ancestry, level = EotwRoster.HeroDetails(tok)
-                                    return EotwRoster.FormatDetails(level, ancestry, className)
+                                    local text = EotwRoster.FormatDetails(level, ancestry, className)
+                                    if EotwRoster.TokenIsDying(tok) then
+                                        text = "<color=#ff8f7a>Dying: needs a respite</color>"
+                                    end
+                                    return text
                                 end,
+                                --the town's cards open the EotW hero sheet
                                 click = function()
-                                    EotwRoster.EditHero(heroid)
+                                    audio.FireSoundEvent("Mouse.Click")
+                                    EotwHeroSheet.Show{ charid = heroid, context = "town" }
                                 end,
                                 --back to the guild: inactive, not deleted.
                                 dismiss = {
@@ -6238,6 +7021,14 @@ CreateScreen = function(args)
             m_guildScene:DestroySelf()
         end
         m_guildScene = nil
+        if m_innScene ~= nil and m_innScene.valid then
+            m_innScene:DestroySelf()
+        end
+        m_innScene = nil
+        if m_marketScene ~= nil and m_marketScene.valid then
+            m_marketScene:DestroySelf()
+        end
+        m_marketScene = nil
         m_locationId = nil
         ApplyLocationMode()
     end
@@ -6274,8 +7065,22 @@ CreateScreen = function(args)
                 end
             end)
         elseif id == "guild" then
-            m_guildScene = LocationScene(CityLocation("guild"), 860, EotwRoster.GuildPanel(resultPanel))
+            m_guildScene = LocationScene(CityLocation("guild"), 860, EotwRoster.GuildPanel(resultPanel),
+                --the guild's project under way, if any, in the space on the left.
+                EotwDowntime.ProjectSidePanel(resultPanel, "expand-guild", 620))
             locationHost:AddChild(m_guildScene)
+        elseif id == "inn" then
+            m_innScene = LocationScene(CityLocation("inn"), 820, EotwDowntime.InnPanel(resultPanel, function(where)
+                OpenLocation(where)
+            end),
+                --the hunt for the Arcane Market, while it is under way.
+                EotwDowntime.ProjectSidePanel(resultPanel, "find-arcane-market", 620))
+            locationHost:AddChild(m_innScene)
+            EotwRoster.Refresh()
+        elseif id == "market" then
+            m_marketScene = LocationScene(CityLocation("market"), 820, EotwMarket.MarketPanel(resultPanel))
+            locationHost:AddChild(m_marketScene)
+            EotwRoster.Refresh()
         end
         ApplyLocationMode()
     end
@@ -6704,6 +7509,19 @@ CreateScreen = function(args)
         },
 
         chatPanel,
+
+        --watches for the moment to play the Blue Fish Inn's reveal.
+        gui.Panel{
+            floating = true,
+            width = 1,
+            height = 1,
+            interactable = false,
+            thinkTime = 0.5,
+            think = function(element)
+                MaybePlayInnReveal()
+                RevealFoundLocations()
+            end,
+        },
     }
 
     --Watch the lobby document + connection state. Handlers are dropped by
@@ -6757,6 +7575,12 @@ CreateScreen = function(args)
                 EotwRoster.Refresh()
                 MaybeShowDebrief()
                 MaybeShowOfferedOutcomes()
+                --a respite or project roll the last connection did not finish.
+                dmhub.Schedule(2, function()
+                    if not mod.unloaded then
+                        EotwDowntime.ResumePending()
+                    end
+                end)
             end
         end)
     end
