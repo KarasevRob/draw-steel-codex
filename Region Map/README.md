@@ -336,10 +336,15 @@ Pan and zoom frame time, measured 2026-10-13 in the app (focused, 60 Hz, PC test
 
 Mid-zoom, `Tools.Stretch` used to scale the layer (`selfStyle.scale`, a style pass over every
 piece); it now moves each placed piece through `panel.x` / `panel.y` from where it was placed,
-keeping its size until the zoom settles. What remains is the re-place when the zoom settles:
-pieces are handed out from a shared pool in drawing order, so after a zoom most of them change
-segment and get new width, angle and colour styles (one style write on each of ~1500 pieces
-costs a 50 ms and a 100 ms frame).
+keeping its size until the zoom settles. The re-place when the zoom settles was the rest:
+pieces were handed out from one shared pool in drawing order, so after a zoom most of them
+changed segment and got new width, angle and colour styles (one style write on each of ~1500
+pieces costs a 50 ms and a 100 ms frame). Casings and marks now come from `Tools.RunPool`, one
+run per segment of each path (dots and dashes apart), so a segment gets back pieces that
+already have its angle, colour and size, and sizes and angles are rounded to 1/100 so float
+noise does not count as a change. Measured with the app unfocused (capped at 30 fps, so only
+frames over 33 ms show): the same four wheel notches went from 5 frames over 33 ms (50-83 ms)
+to 1 (50 ms); a long drag pan, which also re-places, had none.
 
 The Lua side was always cheap (under 1 ms a frame). The cost was the engine's style pass: every
 `selfStyle` write re-matches that panel against the map's 544 style rules, and a write on a layer
