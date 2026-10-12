@@ -22,21 +22,30 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
 
 ## 1. Behavior
 
-### Window
+### Fullscreen and popout
 
-- One registered panel, `Overland Map` (game menu and icon rail). Default window 1000x800,
-  minimum 720x480. In icon-rail mode the rail hosts the window; with the rail off, the mod
-  hosts its own floating window.
-- **Expand** (toolbar) fills the play area between the icon rails; the toggle or Esc
-  restores the previous size and place.
+- One registered panel, `Overland Map` (game menu and icon rail), registered as an action:
+  the rail button and the menu row open the map fullscreen over the game screen, or close
+  it. Each client opens and closes it on its own; Show to players opens it on every client,
+  and each player closes it when they like. It sits at the bottom of the window layer: it
+  covers the game board, while the icon rails, the chat bubble and any window opened over it
+  stay on top. In rail mode the map's chrome sits between the rails and Font Size zooms the
+  whole map, as it does rail windows. The action bar hides while the map is open.
+- **Pop out** (toolbar) moves the map into its own OS window (1000x720, minimum 720x480);
+  **Return to fullscreen** in that window's toolbar brings it back. The popout's own
+  "return to the app" button only closes it: the host cannot reopen an action panel. While
+  popped out, the rail button raises that window.
+- **Close** (toolbar) or Esc at the Atlas closes the fullscreen map; open windows take Esc
+  first.
 - Layout: breadcrumb top-left, toolbar top-right, camera controls bottom-left (they fade
   after 2 s without pointer movement), Party status bottom-right, side panel over the
   map's right edge (full width below 720 px).
 - Toolbar, in order: Search, Add, Path (Director, point crawl maps only), Lock, Ruler, Show to
-  players (Director), View as player (Director), Session log, Expand, Settings (Director).
+  players (Director), View as player (Director), Session log, Settings (Director), then Pop
+  out and Close (fullscreen) or Return to fullscreen (popout).
   Icons with tooltips.
 - **Esc** closes one layer at a time: a tool or text field, then edit mode, then a popover
-  or the side panel, then goes up one map.
+  or the side panel, then goes up one map, and at the Atlas closes the fullscreen map.
 - While a side panel (Location, path, Party or log) is open, the map can pan left by the
   panel's width, so a pin under the panel can still be reached at Fit (V2.1).
 
@@ -219,7 +228,7 @@ Load order (the CodeMod file list must match):
 | 22 | `RegionMapLogPanel.lua` | Session log panel |
 | 23 | `RegionMapPresent.lua` | Show to players send and receive |
 | 24 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, Esc layers, layout, refresh |
-| 25 | `RegionMap.lua` | Capability check, registration, host window adapter, Expand |
+| 25 | `RegionMap.lua` | Capability check, registration, fullscreen host, popout |
 
 The V1 files (`Main.lua`, `RegionMapViews.lua`, `RegionMapMigration.lua`,
 `RegionMapLibrary.lua`, `RegionMapLocationCard.lua`) were removed from the CodeMod and the
@@ -358,8 +367,9 @@ Still open (TECH_TASK_V2.md section 6.3, needs one Director and two player clien
 player create, edit, move and delete of their own Locations; Hidden Locations absent
 everywhere for players (pin, search, breadcrumb, route, log, status); shared on/off and an
 open edit form surviving Show to players; Party drag, snap and undo with the player switch
-off and on; log entries and merging on a player; an undo refused after a remote edit; Expand
-in rail mode at Font Size 80 and 140, and Font Size with the rail off.
+off and on; log entries and merging on a player; an undo refused after a remote edit; the
+fullscreen map in rail mode at Font Size 80 and 140, and Font Size with the rail off; pop out
+and return; mouse wheel over the fullscreen map must not also zoom the game map.
 
 ## 7. Development
 

@@ -55,9 +55,10 @@ lookup table only.
 | tb.viewAs.off | View as player | Tooltip, Director only |
 | tb.viewAs.on | Stop viewing as player | Tooltip |
 | tb.log | Session log | Tooltip |
-| tb.expand.off | Expand | Tooltip |
-| tb.expand.on | Restore window size | Tooltip |
 | tb.settings | Overland Map settings | Tooltip, Director only |
+| tb.popOut | Pop out into its own window | Tooltip, fullscreen map only |
+| tb.popIn | Return to fullscreen | Tooltip, popped-out map only |
+| tb.close | Close the map | Tooltip, fullscreen map only |
 
 ## 4. Breadcrumb and Atlas
 

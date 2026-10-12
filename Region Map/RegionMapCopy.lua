@@ -19,9 +19,10 @@ RegionMapCopy.strings = {
     ["tb.viewAs.off"] = "View as player",
     ["tb.viewAs.on"] = "Stop viewing as player",
     ["tb.log"] = "Session log",
-    ["tb.expand.off"] = "Expand",
-    ["tb.expand.on"] = "Restore window size",
     ["tb.settings"] = "Overland Map settings",
+    ["tb.popOut"] = "Pop out into its own window",
+    ["tb.popIn"] = "Return to fullscreen",
+    ["tb.close"] = "Close the map",
 
     -- 4. Breadcrumb and Atlas
     ["crumb.root"] = "Atlas",
