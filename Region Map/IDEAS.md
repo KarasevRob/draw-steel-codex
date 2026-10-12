@@ -91,6 +91,25 @@ designed, approved or scheduled. The open ideas are ranked at the end.
       leg at a time), a plan the Party follows leg by leg (the Director can stop for an
       encounter), or travelling the whole route at once. This decides the data model.
 
+13. **Edit a path's route after it is made.** *Added 2026-10-13.* Change the line a path
+    takes once it exists. Much of this is already built in V2.1: with pins unlocked, the
+    selected path's bends can be dragged, added (the "+" handles) and removed (right-click),
+    and "..." > Redraw line draws the line again between the same two pins. What does not
+    exist is changing which pins a path joins: both ends are fixed at creation, so moving an
+    end today means deleting the path and making a new one, losing its name, type, times,
+    description and note. The first design question is whether the idea means that, or a
+    better way to reshape the line than the current handles.
+
+14. **Curved paths.** *Added 2026-10-13.* A path can bend smoothly instead of in straight
+    segments, to follow rivers, coasts and winding roads in the art. The V2.1 brief chose
+    straight segments with bends on purpose (D1: "follows the art without curve costs"), so
+    this reopens that decision. Drawing: lines are runs of short panels, so a curve becomes
+    many short segments, and the piece count and the re-place cost after a zoom grow with it
+    (see the pan and zoom measurements in [README.md](README.md)); the engine's
+    `panel.shapes` API has `GetCurvePoints` and `AddPath` and may draw a curve more cheaply,
+    but it is barely used and its cost is unmeasured. Data: existing bends could become
+    curve control points, so old paths keep their shape if curves are a per-path option.
+
 ## Open ideas, ranked
 
 Easiest first, by design effort, build effort and risk. V2 already has pieces several of
@@ -104,6 +123,8 @@ its distance and travel time), the Party's route in the session log, and the bre
 | 3 | 10. Map image border: Torn edge and Frame | Small | Small | None (the `border` field exists) | Waits for the user's art. The tiles, the setting and the check for the art are built. |
 | ~~4~~ | ~~9. Import Locations from JSON~~ | | | | *Delivered in V2.1.* |
 | Later | 12. Route planning | Medium | Small to medium | None for a preview; some if a planned route is kept | Saved for later by the user. The search is cheap at the tested sizes (250 pins, about 300 paths a map; the per-map cap was removed 2026-10-10, so larger maps are possible). The open questions are design ones: what "travel the route" does to the log and to encounters along the way, and what players may see. |
+| - | 13. Edit a path's route (change its end pins) | Small | Small to medium | None: `aId` / `bId` exist, but a Party stopped on the path must move with it | Bend editing and Redraw line already exist, so the scope needs agreeing first. A moved end can create a second path between the same two pins, which must then bow apart, and the log's past legs on the path must stay readable. |
+| - | 14. Curved paths | Medium | Medium | Small if per path (a curve flag; bends become control points) | Reverses V2.1 decision D1. Many more line pieces per path, so it depends on making the path re-place cheaper (or on `panel.shapes`); hit testing and labels must follow the curve. |
 | TBA | 3. Hex overlay with distances | Medium | Medium | Small, added fields: hex size, orientation, offset per map | Deferred by the user. Drawing hundreds of hexes on a canvas that zooms and pans, at V2's frame times. May need a tiled grid image instead of a panel per hex. The path layer's pooled pieces (V2.1) cost ~0.14 ms each to create, so a panel per hex is costly. |
 | ~~6~~ | ~~7.2. Point crawl mode~~ | | | | *Delivered in V2.1.* |
 | TBA | 3.1. Party travel paths, hex mode | Medium | Medium | Some: a planned route | Deferred by the user. The point crawl half is delivered. Hex steps are part of 7.1. |
