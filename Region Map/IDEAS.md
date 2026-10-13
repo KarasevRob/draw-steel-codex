@@ -140,6 +140,24 @@ designed, approved or scheduled. The open ideas are ranked at the end.
 
 ## Open ideas, ranked
 
+**Complexity ranking (2026-10-13).** The open ideas outside TBA, each costed in its full
+version within the mod; details, sizes and sources in
+[docs/IDEAS_RESEARCH.md](docs/IDEAS_RESEARCH.md). Grades S/M/L/XL = 1-4; score = Build x 2 +
+Design + Risk, lower is simpler. Art the user makes is a dependency, not scored.
+
+| Rank | Idea | Build | Design | Risk | Score | Depends on |
+|---|---|---|---|---|---|---|
+| 1 | 10. Torn edge and Frame | S | S | M | 5 | The user's art |
+| 2 | 13. Change a path's ends | M | M | S | 7 | - |
+| 3= | 16. Compass | M | M | M | 8 | Rose art (optional) |
+| 3= | 17. Scale bar | M | M | M | 8 | - |
+| 5 | 14. Curved paths | M | L | L | 10 | Reopening V2.1 D1 |
+| 6 | 12. Route planning (*Later*) | L | L | M | 11 | Agreeing the draft frame |
+| 7 | 15. Map labels | XL | L | M | 13 | A frame that reopens V2 D4a |
+
+The table below is the earlier ranking, kept for its history and risk notes; its Design and
+Build columns now follow the research.
+
 Easiest first, by design effort, build effort and risk. V2 already has pieces several of
 these can reuse: map scale and travel pace, the ruler (a line drawn between two points, with
 its distance and travel time), the Party's route in the session log, and the breadcrumb.
@@ -148,14 +166,14 @@ its distance and travel time), the Party's route in the session log, and the bre
 |---|---|---|---|---|---|
 | ~~1~~ | ~~8. Parent's description~~ | | | | *Delivered in V2.x.* |
 | ~~2~~ | ~~11. Image size guidance~~ | | | | *Delivered in V2.1.* |
-| 3 | 10. Map image border: Torn edge and Frame | Small | Small | None (the `border` field exists) | Waits for the user's art. The tiles, the setting and the check for the art are built. |
+| 3 | 10. Map image border: Torn edge and Frame | Small | Small | None (the `border` field exists) | Waits for the user's art. The tiles, the setting and the check for the art are built; the drawing is not written yet (about 110-170 lines). |
 | ~~4~~ | ~~9. Import Locations from JSON~~ | | | | *Delivered in V2.1.* |
-| Later | 12. Route planning | Medium | Small to medium | None for a preview; some if a planned route is kept | Saved for later by the user. The search is cheap at the tested sizes (250 pins, about 300 paths a map; the per-map cap was removed 2026-10-10, so larger maps are possible). The open questions are design ones: what "travel the route" does to the log and to encounters along the way, and what players may see. |
-| - | 13. Edit a path's route (change its end pins) | Small | Small to medium | None: `aId` / `bId` exist, but a Party stopped on the path must move with it | Bend editing and Redraw line already exist, so the scope needs agreeing first. A moved end can create a second path between the same two pins, which must then bow apart, and the log's past legs on the path must stay readable. |
-| - | 14. Curved paths | Medium | Medium | Small if per path (a curve flag; bends become control points) | Reverses V2.1 decision D1. Many more line pieces per path, so it depends on making the path re-place cheaper (or on `panel.shapes`); hit testing and labels must follow the curve. |
-| - | 17. Scale bar | Small | Small | None (reads the map's `scale`); at most an on/off per map | Picking round lengths that stay a sensible width from 1x to 20x zoom. Nothing to show on an uncalibrated map, so the Director needs a hint to set the scale. |
-| - | 16. Compass | Small | Small | Small, an optional per-map field (on/off; maybe position and north angle) | A decorated rose waits for art, as Torn edge and Frame do; the Phosphor icon covers a plain one. Placed on the map, it can cover pins. |
-| - | 15. Map labels | Medium | Medium | Yes: a new table of label rows (map, text, u/v, size, angle, visibility); V1's `RegionMapLabelRecords` stays unused (decision 8.3) | Bringing back the label/Location overlap V2 removed. Readability on busy art (V2's halo helps), collisions with pins and path labels, very large text at 20x zoom, and bent text needing a panel per letter. |
+| Later | 12. Route planning | Large | Large | None for a preview; some if a planned route is kept | Saved for later by the user. The search is cheap at the tested sizes (250 pins, about 300 paths a map; the per-map cap was removed 2026-10-10, so larger maps are possible). The open questions are design ones: what "travel the route" does to the log and to encounters along the way, and what players may see. |
+| - | 13. Edit a path's route (change its end pins) | Medium | Medium | None: `aId` / `bId` exist, but a Party stopped on the path must move with it | Bend editing and Redraw line already exist, so the scope needs agreeing first. A moved end can create a second path between the same two pins, which must then bow apart, and the log's past legs on the path must stay readable. |
+| - | 14. Curved paths | Large | Medium | Small if per path (a curve flag; bends become control points) | Reverses V2.1 decision D1. Many more line pieces per path, so it depends on making the path re-place cheaper (or on `panel.shapes`); hit testing and labels must follow the curve. |
+| - | 17. Scale bar | Medium | Medium | None (reads the map's `scale`); at most an on/off per map | Picking round lengths that stay a sensible width from 1x to 20x zoom. Nothing to show on an uncalibrated map, so the Director needs a hint to set the scale. |
+| - | 16. Compass | Medium | Medium | Small, an optional per-map field (on/off; maybe position and north angle) | A decorated rose waits for art, as Torn edge and Frame do; the Phosphor icon covers a plain one. Placed on the map, it can cover pins. |
+| - | 15. Map labels | Large | Very large | Yes: a new table of label rows (map, text, u/v, size, angle, visibility); V1's `RegionMapLabelRecords` stays unused (decision 8.3) | Bringing back the label/Location overlap V2 removed. Readability on busy art (V2's halo helps), collisions with pins and path labels, very large text at 20x zoom, and bent text needing a panel per letter. |
 | TBA | 3. Hex overlay with distances | Medium | Medium | Small, added fields: hex size, orientation, offset per map | Deferred by the user. Drawing hundreds of hexes on a canvas that zooms and pans, at V2's frame times. May need a tiled grid image instead of a panel per hex. The path layer's pooled pieces (V2.1) cost ~0.14 ms each to create, so a panel per hex is costly. |
 | ~~6~~ | ~~7.2. Point crawl mode~~ | | | | *Delivered in V2.1.* |
 | TBA | 3.1. Party travel paths, hex mode | Medium | Medium | Some: a planned route | Deferred by the user. The point crawl half is delivered. Hex steps are part of 7.1. |
@@ -181,3 +199,9 @@ from the draft frame under idea 12.
 within the mod. None is framed yet. 17 and 16 are small and need no art for a plain version,
 so they could ship together as one V2.x addition. 15 needs a frame first, since it reopens
 what V2 settled in idea 2.
+
+2026-10-13: implementation research on the open ideas outside TBA
+([docs/IDEAS_RESEARCH.md](docs/IDEAS_RESEARCH.md)) ranks them by complexity: 10, 13, then
+16 and 17 together, 14, 12 and 15. 16 and 17 share one corner component if built together.
+The research raised three of the earlier estimates: Torn edge and Frame still need their
+drawing code; route planning and labels are each about 900 and 1650 lines.
