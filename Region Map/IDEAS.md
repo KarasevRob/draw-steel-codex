@@ -138,36 +138,45 @@ designed, approved or scheduled. The open ideas are ranked at the end.
     also shows travel time when the map has a pace; whether players see it. Within the mod:
     a handful of panels, drawn on the same opposite-tone casing as paths.
 
-18. **Import by pasting JSON.** *Added 2026-10-13.* Expands idea 9: besides choosing a file,
-    "Import locations..." can open a text field to paste the JSON into, in whichever is
-    cheaper, a card or side panel mode inside the map window or a separate window. A "Fill
-    with example" button fills the field with sample data whose comments explain the format
-    ([docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md)). Pasted text then goes through the same
-    preview card and single Undo as a file.
-    - Cheapest place: a card or panel mode inside the map window. The preview card and
-      `RegionMapSession.TextArea` (a multiline, scrolling editor) already exist; a separate
-      window would add a dialog and its lifecycle for no gain.
-    - Parsing: the file path uses `dmhub.ParseJsonFile`; pasted text needs `dmhub.FromJson`,
-      which returns `{success, result}` and is used elsewhere in the codex
-      (`DMHub Core UI/ThemeEngine.lua:740`), but its stub calls it "engine-internal, not part
-      of the modding API".
-    - **Comments are not valid JSON** (RFC 8259 has none). Whether `FromJson` accepts them is
-      unverified. The safe options are stripping `//` comment lines in Lua before parsing
-      (careful with `//` inside strings, such as URLs), or explaining the format through
-      `"_comment"` keys that the import skips. A comment-carrying example also cannot be
-      saved as a plain .json file and imported unless the file path strips comments too.
-    - Open questions: comment style (`//` lines or `"_comment"` keys); whether "Fill with
-      example" replaces text already typed (ask first, or only fill an empty field); a size
-      cap for pasted text (the editor needs a `characterLimit`); whether players who may add
-      Locations get it, as with the file import (Director only today).
+18. ~~**Import by pasting JSON.**~~ *Delivered 2026-10-14.* "Import locations" in the toolbar opens one
+    Director-only card with a JSON editor, Choose file, Fill with example and format help.
+    Help is beside the editor when wide, expanded below when narrow. The plain two-Location
+    example starts hidden; explanations are outside the JSON. Pasted text uses the existing
+    preview and single Undo. The editor accepts 100,000 Unicode characters; files stay
+    uncapped. Back keeps the draft; replacement and discard ask first. Drafts are not saved;
+    native OS close, app exit and Lua reload cannot prompt. See
+    [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md) and [tests/README.md](tests/README.md).
+
+19. **Image attachments for Locations and paths.** *Added 2026-10-14.* Attach scene or
+    reference artwork to a Location or a point crawl path, such as a settlement view,
+    landmark illustration or road scene, so it is at hand while preparing or running play.
+    - **Agreed behavior (clarified 2026-10-14):** the Director or a player clicks the
+      attached image to view it on their own client, and can close and reopen it
+      independently. The user explicitly excluded the present ability; this supersedes
+      the earlier optional "Show to players" scope.
+    - **Existing pieces:** the side panel already uses the journal image library picker
+      (`RegionMapSidePanel.lua:663`). A Location's `imageId` means its own map, and `icon`
+      means its pin image; artwork needs a separate reference. Path records currently have
+      no image field (`RegionMapRecords.lua`). The existing local image viewer can open
+      artwork in the originating window through `ViewJournalEntry` with an `owner`.
+    - **Open decisions:** one attachment or several; where its preview and open action
+      appear; who can attach or replace it; how artwork access follows Location/path
+      visibility and image-library permissions. Independent viewing by players is settled.
+    - **Research (2026-10-14):** the user requested investigation as the next feature.
+      [Artwork attachment research](docs/ARTWORK_RESEARCH.md) records the existing APIs,
+      revised local-viewing scope, permission constraints, decision map and validation
+      needs. The old presentation estimate is superseded. The behavior above is agreed;
+      the full design is not locked.
 
 ## Open ideas, ranked
 
 **Complexity ranking (2026-10-13).** The open ideas outside TBA, each costed in its full
 version within the mod; details, sizes and sources in
 [docs/IDEAS_RESEARCH.md](docs/IDEAS_RESEARCH.md). Grades S/M/L/XL = 1-4; score = Build x 2 +
-Design + Risk, lower is simpler. Art the user makes is a dependency, not scored. Idea 18 was added after the research and
-has a provisional score from a lighter check of the code.
+Design + Risk, lower is simpler. Art the user makes is a dependency, not scored. Idea 18 was
+delivered on 2026-10-14; its provisional score is kept for history. Idea 19 has separate
+[research](docs/ARTWORK_RESEARCH.md); its scope-dependent estimate does not change this
+earlier ranking.
 
 | Rank | Idea | Build | Design | Risk | Score | Depends on |
 |---|---|---|---|---|---|---|
@@ -178,7 +187,7 @@ has a provisional score from a lighter check of the code.
 | 5 | 14. Curved paths | M | L | L | 10 | Reopening V2.1 D1 |
 | 6 | 12. Route planning (*Later*) | L | L | M | 11 | Agreeing the draft frame |
 | 7 | 15. Map labels | XL | L | M | 13 | A frame that reopens V2 D4a |
-| (3=) | 18. Import by pasting JSON | M | M | M | 8, provisional | - |
+| Delivered | ~~18. Import by pasting JSON~~ | M | M | M | 8, provisional | - |
 
 The table below is the earlier ranking, kept for its history and risk notes; its Design and
 Build columns now follow the research.

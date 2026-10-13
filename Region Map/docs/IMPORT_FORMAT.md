@@ -1,8 +1,35 @@
 # Overland Map: JSON import format
 
-The Director can fill a map with Locations from a JSON file (V2.1 idea 9, brief IM1-IM7).
-Open the map, then choose **Import locations...** from a right-click on the map, or from
-the map's own "..." menu in the side panel.
+The Director can fill a map with Locations by pasting JSON or choosing a JSON file
+(ideas 9 and 18; the original import contract is brief IM1-IM7).
+Open the map, then choose **Import locations** (the file with an up arrow) beside Add in
+the top toolbar, or use **Import locations** in an Atlas card's "..." menu.
+
+## Import card
+
+- Paste JSON into the editor, then choose **Preview**, or use **Choose file...** to go
+  straight to a file preview. **Into {map}** identifies the destination.
+- **JSON contract** shows the import schema beside the editor, with types, required fields,
+  enums, defaults, limits and coordinate dependencies. **Copy contract** copies the full
+  schema, including offscreen text, and briefly reads **Copied**. It never changes the draft.
+  The code area scrolls; in narrow windows it sits below the editor. Import action buttons
+  remain outside the scrolling body.
+- **Fill with example** inserts two hidden Locations: one with every supported field,
+  and one with only a name. It asks before replacing nonempty text. The example contains
+  ordinary JSON, with no comments.
+- Pasted JSON is limited to **100,000 Unicode characters**, including whitespace. The
+  counter uses characters, not UTF-8 bytes. Oversized text cannot reach preview; use a
+  file for larger input. File import has no added size limit.
+- **Back** returns to the editor without losing pasted text. Invalid JSON remains
+  editable. Canceling the file picker or choosing an invalid file also keeps the draft.
+  A valid file asks before discarding a nonempty draft and opening its preview; Back
+  then returns to an empty editor.
+- **Cancel** and **Escape** ask before discarding nonempty pasted text. The mod's own
+  close, fullscreen toggle and popout controls use that same check. Drafts are temporary:
+  native OS-window close, app exit and Lua reload discard them without a prompt.
+- If the destination or Director permission becomes unavailable, nothing new is
+  imported and the draft remains available to copy. If the map's name, image or duplicate
+  warnings change after preview, Import refreshes the preview and asks for another click.
 
 The import:
 - adds the Locations as pins on the open map, one level deep;
@@ -14,7 +41,7 @@ The import:
 
 ## File shape
 
-The file holds a list of entries, either as the whole file:
+The JSON holds a list of entries, either as the whole input:
 
 ```json
 [
@@ -35,7 +62,7 @@ Only `name` is required. Unknown fields are ignored.
 
 | Field | Type | Allowed values | When left out |
 |---|---|---|---|
-| `name` | text | One line, 1 to 80 characters | The entry is skipped |
+| `name` | text | One trimmed line, 1 to 256 Unicode characters | The entry is skipped |
 | `description` | text | Up to 4000 characters; players see it once the Location is revealed | Empty |
 | `note` | text | Up to 8000 characters; the Director note, players never see it | Empty |
 | `icon` | text | `city`, `town`, `castle`, `tower`, `temple`, `tavern`, `camp`, `port`, `bridge`, `forest`, `cave`, `dungeon`, `danger`, `treasure`, `quest`, `poi` | The default pin |
@@ -45,6 +72,13 @@ Only `name` is required. Unknown fields are ignored.
 | `u`, `v` | number | Both from 0 to 1: the share of the map's width (from the left) and height (from the top) | Set out in rows near the center of the map |
 
 `u` and `v` go together: give both or neither.
+
+The copyable contract uses JSON Schema 2020-12, compatible with the
+[OpenAPI 3.1 Schema Object](https://spec.openapis.org/oas/v3.1.1.html#schema-object).
+`RegionMapCopy.strings["import.contract"]` is the single source for display and clipboard.
+It describes canonical payloads; the importer trims names and text, normalizes text line
+endings, and skips invalid entries during preview. The `x-import` annotations document
+these import semantics. This is a payload schema, with no HTTP endpoint implied.
 
 ## What the preview checks
 
@@ -56,6 +90,11 @@ Only `name` is required. Unknown fields are ignored.
   map are not performance-tested.
 - **Errors:** a file that isn't valid JSON, has no entries, or has no entry that can be
   imported shows a card with the reason, and nothing is imported.
+
+Pasted input uses the same field checks, duplicate warnings, grid placement and single
+Undo as files. Do not add `//` or `/* ... */` comments; keep explanations outside the JSON.
+The engine parser is shared with existing Codex JSON consumers, not a new strict JSON
+validator. A leading UTF-8 BOM is tolerated in pasted text.
 
 ## Example
 

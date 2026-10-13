@@ -65,6 +65,14 @@ function RegionMapAtlas.Create(ctx)
     end
 
     local function Card(id)
+        local function ShowActions(element)
+            if not ctx.IsAlive() or not Model.IsDirector() then return end
+            ctx.ShowMenu(element, id)
+        end
+        local actions = gui.Panel {
+            classes = { "regionMapCardActions" }, floating = true, swallowPress = true,
+            Session.IconButton("region-map-atlas-more-" .. id, C.iconMore, T("panel.more"), ShowActions),
+        }
         local pointcrawl = gui.Label {
             classes = { "regionMapChip", "regionMapThumbChip", "collapsed" }, text = T("chip.pointcrawl"), interactable = false,
         }
@@ -74,10 +82,11 @@ function RegionMapAtlas.Create(ctx)
         local party = gui.Label { classes = { "regionMapChip", "collapsed" }, text = T("atlas.card.party"), interactable = false }
         local notShared = gui.Label { classes = { "regionMapChip", "collapsed" }, text = T("atlas.card.notShared"), interactable = false }
         return gui.Panel {
+            id = "region-map-atlas-card-" .. id,
             classes = { "regionMapCard" },
             data = {
                 id = id, thumb = thumb, name = name, count = count, party = party, notShared = notShared,
-                pointcrawl = pointcrawl, imageId = nil,
+                pointcrawl = pointcrawl, imageId = nil, actions = actions,
             },
             hover = function(element)
                 local location = Model.GetLocation(element.data.id)
@@ -86,9 +95,11 @@ function RegionMapAtlas.Create(ctx)
             click = function(element)
                 if not mod.unloaded then ctx.OpenMap(element.data.id, "restore") end
             end,
+            rightClick = ShowActions,
             thumb,
             name,
             gui.Panel { classes = { "regionMapCardMeta" }, count, party, notShared },
+            actions,
         }
     end
 
@@ -115,6 +126,7 @@ function RegionMapAtlas.Create(ctx)
             card.data.party:SetClass("collapsed", party == nil or not Model.IsInSubtree(map.id, party.mapId))
             card.data.notShared:SetClass("collapsed", not director or map.mapShared)
             card.data.pointcrawl:SetClass("collapsed", not Model.IsPointCrawl(map))
+            card.data.actions:SetClass("collapsed", not director)
             card:SetClass("notShared", director and not map.mapShared)
             children[#children + 1] = card
         end

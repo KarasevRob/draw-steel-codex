@@ -736,8 +736,5 @@ function RegionMapCanvasTools.MapMenu(ctx, u, v, snapId)
             end,
         }
     end
-    if Model.IsDirector() then
-        entries[#entries + 1] = { text = RegionMapCopy.T("menu.import"), click = function() ctx.ImportLocations() end }
-    end
     return entries
 end
