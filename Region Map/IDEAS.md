@@ -138,12 +138,36 @@ designed, approved or scheduled. The open ideas are ranked at the end.
     also shows travel time when the map has a pace; whether players see it. Within the mod:
     a handful of panels, drawn on the same opposite-tone casing as paths.
 
+18. **Import by pasting JSON.** *Added 2026-10-13.* Expands idea 9: besides choosing a file,
+    "Import locations..." can open a text field to paste the JSON into, in whichever is
+    cheaper, a card or side panel mode inside the map window or a separate window. A "Fill
+    with example" button fills the field with sample data whose comments explain the format
+    ([docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md)). Pasted text then goes through the same
+    preview card and single Undo as a file.
+    - Cheapest place: a card or panel mode inside the map window. The preview card and
+      `RegionMapSession.TextArea` (a multiline, scrolling editor) already exist; a separate
+      window would add a dialog and its lifecycle for no gain.
+    - Parsing: the file path uses `dmhub.ParseJsonFile`; pasted text needs `dmhub.FromJson`,
+      which returns `{success, result}` and is used elsewhere in the codex
+      (`DMHub Core UI/ThemeEngine.lua:740`), but its stub calls it "engine-internal, not part
+      of the modding API".
+    - **Comments are not valid JSON** (RFC 8259 has none). Whether `FromJson` accepts them is
+      unverified. The safe options are stripping `//` comment lines in Lua before parsing
+      (careful with `//` inside strings, such as URLs), or explaining the format through
+      `"_comment"` keys that the import skips. A comment-carrying example also cannot be
+      saved as a plain .json file and imported unless the file path strips comments too.
+    - Open questions: comment style (`//` lines or `"_comment"` keys); whether "Fill with
+      example" replaces text already typed (ask first, or only fill an empty field); a size
+      cap for pasted text (the editor needs a `characterLimit`); whether players who may add
+      Locations get it, as with the file import (Director only today).
+
 ## Open ideas, ranked
 
 **Complexity ranking (2026-10-13).** The open ideas outside TBA, each costed in its full
 version within the mod; details, sizes and sources in
 [docs/IDEAS_RESEARCH.md](docs/IDEAS_RESEARCH.md). Grades S/M/L/XL = 1-4; score = Build x 2 +
-Design + Risk, lower is simpler. Art the user makes is a dependency, not scored.
+Design + Risk, lower is simpler. Art the user makes is a dependency, not scored. Idea 18 was added after the research and
+has a provisional score from a lighter check of the code.
 
 | Rank | Idea | Build | Design | Risk | Score | Depends on |
 |---|---|---|---|---|---|---|
@@ -154,6 +178,7 @@ Design + Risk, lower is simpler. Art the user makes is a dependency, not scored.
 | 5 | 14. Curved paths | M | L | L | 10 | Reopening V2.1 D1 |
 | 6 | 12. Route planning (*Later*) | L | L | M | 11 | Agreeing the draft frame |
 | 7 | 15. Map labels | XL | L | M | 13 | A frame that reopens V2 D4a |
+| (3=) | 18. Import by pasting JSON | M | M | M | 8, provisional | - |
 
 The table below is the earlier ranking, kept for its history and risk notes; its Design and
 Build columns now follow the research.
@@ -205,3 +230,9 @@ what V2 settled in idea 2.
 16 and 17 together, 14, 12 and 15. 16 and 17 share one corner component if built together.
 The research raised three of the earlier estimates: Torn edge and Frame still need their
 drawing code; route planning and labels are each about 900 and 1650 lines.
+
+2026-10-13: the user added import by pasting JSON (18), an extension of 9. A lighter check
+than the research gives it a provisional score of 8, level with 16 and 17: about 250-350
+lines for a paste mode in the map window, the example text and a comment stripper. Its main
+risk is that JSON has no comments, so the example's comments must be stripped or carried as
+`"_comment"` keys.
