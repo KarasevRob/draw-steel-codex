@@ -103,6 +103,15 @@ local function ConfirmDelete(ctx, location)
     }
 end
 
+--- Ask before deleting a Location or Atlas map, using its current permissions and contents.
+--- @param ctx RegionMapContext
+--- @param id string
+function RegionMapSidePanel.RequestDelete(ctx, id)
+    if not ctx.IsAlive() then return end
+    local location = Model.GetLocation(id)
+    if location ~= nil and Model.CanDelete(location) then ConfirmDelete(ctx, location) end
+end
+
 local function ConfirmRemoveMap(ctx, location)
     local count = Model.VisibleDescendantCount(location.id)
     local body
@@ -141,6 +150,7 @@ local function SetMapShared(ctx, location, shared)
 end
 
 --- The "..." menu of a Location, filtered by role and state (manifest section 8).
+--- Top-level maps share the complete action list with their Atlas cards.
 --- Players see Move, Move to map... and Delete on their own Locations only.
 --- @param ctx RegionMapContext
 --- @param id string
@@ -152,7 +162,37 @@ function RegionMapSidePanel.MenuEntries(ctx, id)
     local director = Model.IsDirector()
     local canEdit = Model.CanEdit(location)
     local isPin = location.parentId ~= ""
-    local function Add(copyId, action) entries[#entries + 1] = { text = T(copyId), click = action } end
+    local mapActions = director and not isPin and Model.CanOpenMap(location)
+    local function Add(copyId, action, group, disabled)
+        entries[#entries + 1] = {
+            id = "region-map-menu-" .. copyId,
+            text = T(copyId), group = mapActions and (group or "map") or nil, disabled = disabled,
+            click = function()
+                if not ctx.IsAlive() or disabled or (director and not Model.IsDirector()) then return end
+                local current = Model.GetLocation(id)
+                if current ~= nil then action(current) end
+            end,
+        }
+    end
+    -- Canvas actions must open the card's map before using current-map services.
+    local function OnMap(action)
+        return function(current)
+            ctx.OpenMap(current.id, "restore")
+            if ctx.data.mapId ~= current.id then return end
+            ctx.SetPopover(nil)
+            action(current)
+        end
+    end
+    if mapActions then
+        Add("panel.openMap", function(current) ctx.OpenMap(current.id, "restore") end, "open")
+        if canEdit then
+            Add("panel.edit", function(current) ctx.Select(current.id, "edit") end, "open")
+        end
+        local canAdd = Model.CanAdd(id)
+        Add("tb.import", OnMap(function(current)
+            if Model.CanAdd(current.id) then ctx.ImportLocations() end
+        end), "contents", not canAdd)
+    end
     if canEdit and isPin then
         -- Move places the pin on the open map, so it is offered only for that map's pins,
         -- not for a Location read from the breadcrumb.
@@ -184,23 +224,37 @@ function RegionMapSidePanel.MenuEntries(ctx, id)
                 ctx.Select(location.id, "pickImage")
             end)
             if isPin then Add("menu.removeMap", function() ConfirmRemoveMap(ctx, location) end) end
-            -- Import fills the map on screen, so only the open map's menu offers it (IM7).
-            if location.id == ctx.data.mapId then Add("menu.import", function() ctx.ImportLocations() end) end
+        end
+        if mapActions then
+            Add("menu.mapSettings", OnMap(function() ctx.SetPopover("settings") end))
         end
         local details = Model.Details(location.id)
         if details ~= nil and Journal.Available() then
+            if mapActions and details.journal.id ~= nil then
+                Add("panel.journal", function(current)
+                    local latest = Model.Details(current.id)
+                    if latest ~= nil and latest.journal.id ~= nil then Journal.Open(latest.journal.id) end
+                end, "journal")
+            end
             if details.journalDocId == "" then
-                Add("menu.linkJournal", function() ctx.Select(location.id, "pickJournal") end)
+                Add("menu.linkJournal", function() ctx.Select(location.id, "pickJournal") end, "journal")
             else
-                Add("menu.changeJournal", function() ctx.Select(location.id, "pickJournal") end)
+                Add("menu.changeJournal", function() ctx.Select(location.id, "pickJournal") end, "journal")
                 Add("menu.unlinkJournal", function()
                     ctx.Report(Model.SaveDetails(location.id, { journalDocId = "" }))
-                end)
+                end, "journal")
             end
         end
     end
+    if mapActions then
+        local shared = location.mapShared
+        Add(shared and "menu.unshareMap" or "menu.shareMap", function(current)
+            SetMapShared(ctx, current, not shared)
+        end, "sharing")
+        Add("tb.show", OnMap(function() ctx.ShowToPlayers() end), "sharing")
+    end
     if Model.CanDelete(location) then
-        Add("menu.delete", function() ConfirmDelete(ctx, location) end)
+        Add("menu.delete", function() RegionMapSidePanel.RequestDelete(ctx, id) end, "delete")
     end
     return entries
 end

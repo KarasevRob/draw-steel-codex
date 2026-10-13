@@ -27,7 +27,7 @@ RegionMapConstants.stateDocumentId = "regionMapState"
 RegionMapConstants.preferencesSettingId = "regionmap:preferences"
 
 -- Limits
-RegionMapConstants.textLimit = 80                    -- Location names, in characters
+RegionMapConstants.textLimit = 256                   -- Names, in Unicode characters
 RegionMapConstants.descriptionLimit = 4000
 RegionMapConstants.crumbPreviewLimit = 300           -- description characters a breadcrumb tooltip shows
 RegionMapConstants.descriptionByteLimit = 16384
@@ -68,6 +68,12 @@ RegionMapConstants.importSpacing = 0.11
 RegionMapConstants.importRowShare = 0.45            -- row gap / column gap, on screen
 RegionMapConstants.importBatch = 10
 RegionMapConstants.importWait = 20
+RegionMapConstants.importTextLimit = 100000
+-- Leave encoding headroom: a native-limit truncation must still fail the character check.
+RegionMapConstants.importEditorLimit = 4 * (RegionMapConstants.importTextLimit + 1)
+RegionMapConstants.importCardWidth = 900
+RegionMapConstants.importCardHeight = 640
+RegionMapConstants.importNarrowWidth = 760
 
 -- The soft fade band: this share of the image's shorter side on screen, at most fadeMaxWidth px.
 RegionMapConstants.fadeShare = 0.06
@@ -253,6 +259,7 @@ RegionMapConstants.railTopMin = 64
 -- Icons (Phosphor masks, tinted by style rules). Verified live 2026-10-06.
 RegionMapConstants.iconParty = "phosphor/users-three.png"
 RegionMapConstants.iconAdd = "phosphor/plus-bold.png"
+RegionMapConstants.iconImport = "phosphor/file-arrow-up.png"
 RegionMapConstants.iconLocked = "phosphor/lock-simple.png"
 RegionMapConstants.iconUnlocked = "phosphor/lock-simple-open.png"
 RegionMapConstants.iconShow = "phosphor/presentation.png"

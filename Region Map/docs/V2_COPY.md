@@ -48,6 +48,7 @@ lookup table only.
 | window.title | Overland Map | Rail button and window title (the panel's registered name, `RegionMapConstants.panelName`) and the title of the load.missing chat message. Was "Region Map" until 2026-10-08 |
 | tb.search | Search locations | Tooltip |
 | tb.add | Add location | Tooltip |
+| tb.import | Import locations | Tooltip; Director, open maps only; beside Add |
 | tb.lock.on | Pins locked - click to unlock | Tooltip, default state |
 | tb.lock.off | Pins unlocked - click to lock | Tooltip |
 | tb.ruler | Ruler | Tooltip |
@@ -130,7 +131,7 @@ lookup table only.
 | panel.moveParty | Move Party here | Button |
 | panel.openMap | Open map | Button; players see it only once the map is shared (R4) |
 | panel.edit | Edit | Button |
-| panel.more | More actions | "..." tooltip |
+| panel.more | More actions | "..." tooltip; Location side panel and Director's Atlas map cards |
 | panel.notes | Director notes | Collapsible header, Director only |
 | panel.notes.sub | Players don't see these | Under the header |
 
@@ -145,6 +146,9 @@ lookup table only.
 | menu.addMap | Add map... | Location without a map |
 | menu.replaceImage | Replace map image... | Location with a map |
 | menu.removeMap | Remove map | Location with a map (R12) |
+| menu.mapSettings | Map settings... | Atlas map: opens that map and its Settings, including scale, pace and border |
+| menu.shareMap | Share map with players | Atlas map, not shared; same write and Undo as the side panel's share button |
+| menu.unshareMap | Stop sharing map | Atlas map, shared |
 | menu.linkJournal | Link journal entry... | No link yet |
 | menu.changeJournal | Change journal entry... | Linked |
 | menu.unlinkJournal | Unlink journal entry | Linked |
@@ -153,6 +157,12 @@ lookup table only.
 | picker.moveToMap.hint | It goes to the middle of that map. Unlock pins to place it exactly. | |
 
 Players see Move, Move to map..., and Delete on their own locations only.
+
+Top-level maps use the same complete menu in the Atlas and the Location side panel
+(2026-10-14). It also reuses Open map, Edit, Import locations, Read in journal (when
+available) and Show this map to players. Import, Settings and Show to players open the
+selected card's map first. Related entries are separated; Delete is last. Add location,
+Path tool, Ruler and View as player stay in the map toolbar, outside the Atlas menu.
 
 ## 9. Side panel, edit mode
 
@@ -378,13 +388,12 @@ New glossary rows:
 
 | ID | String | When / notes |
 |---|---|---|
-| menu.import | Import locations... | Director; in the map right-click menu and the open map's "..." menu (IM7) |
 | import.picker | Choose a JSON file of locations | File dialog prompt |
-| import.title | Import locations | Preview and error card title |
+| import.title | Import locations | Editor, preview and error card title |
 | import.summary | Import {count} locations into {map}? | `.one`: "Import 1 location into {map}?" |
 | import.skipped | {count} entries will be skipped: | `.one`: "1 entry will be skipped:" |
 | import.skip.noName | Entry {n}: it has no name. | |
-| import.skip.name | Entry {n}: its name is over 80 characters or has a line break. | |
+| import.skip.name | Entry {n}: its name is over {limit} characters or has a line break. | `limit` is the shared name limit, now 256 |
 | import.skip.position | Entry {n}: u and v must both be between 0 and 1, or both left out. | |
 | import.skip.field | Entry {n}: {field} is not a valid value. | pinStyle, importance, visibility, icon |
 | import.skip.tooLong | Entry {n}: {field} is too long. | description over 4000, note over 8000 |
@@ -397,6 +406,47 @@ New glossary rows:
 | import.error.allSkipped | None of the entries in this file can be imported: | Error card, then the reasons |
 | dlg.close | Close | Error and refusal cards |
 | toast.imported | {count} locations imported into {map} | Undo: yes. `.one`: "1 location imported into {map}" |
+
+### Paste editor (idea 18, agreed 2026-10-14)
+
+| ID | String | When / notes |
+|---|---|---|
+| import.into | Into {map} | Captured destination |
+| import.paste | Paste JSON | Visible editor label |
+| import.file | Choose file... | Native file picker, then preview |
+| import.fill | Fill with example | Asks before replacing a nonempty draft |
+| import.preview | Preview | Validate pasted JSON; no writes |
+| import.back | Back | Return to the editor |
+| import.count | {count} / 100,000 characters | Unicode code points |
+| import.draftHint | Drafts are not saved. Use Choose file... for larger imports. | Under editor |
+| import.discard | Discard pasted JSON? | Cancel, Esc and mod-owned host closing |
+| import.discard.ok | Discard | Confirmation action; Cancel keeps editing |
+| import.replace | Replace pasted JSON with the example? | Example replacement |
+| import.replace.ok | Replace | Confirmation action |
+| import.useFile | Use this file and discard pasted JSON? | A valid file replaces the draft only on confirmation |
+| import.useFile.ok | Use file | Confirmation action |
+| import.text.json | This text isn't valid JSON. Nothing was imported. | Draft remains editable |
+| import.text.empty | This JSON has no locations in it. | Pasted empty input/list |
+| import.text.allSkipped | None of the entries in this JSON can be imported: | Then existing skip reasons |
+| import.text.tooLong | This text exceeds 100,000 characters. Shorten it or choose a JSON file. | Reject before parsing |
+| import.unavailable | This map is no longer available for import. | Preserve draft |
+| import.permission | Only the Director can import locations. | Rechecked before preview and commit |
+| import.help | JSON contract | Scrollable code beside editor, below it when narrow |
+| import.copyContract | Copy contract | Copies the entire displayed schema without changing the draft |
+| import.copied | Copied | Button feedback for two seconds |
+| import.contract | JSON Schema 2020-12: LocationImport | Literal JSON in `RegionMapCopy.lua`; display and clipboard share the same text |
+
+`import.contract` replaces the prose `import.help.*` strings (2026-10-14). It defines the
+two root shapes, Location fields, enums, defaults, coordinate dependencies, text
+normalization and append/skip semantics. `name.maxLength` is 256. Descriptions are terse
+developer notes; the `x-import` block records import behavior and paste/file limits.
+
+`import.example` is plain JSON with two entries under `locations`. Kell's Ferry has
+`icon: port`, `pinStyle: iconName`, `importance: major`, `visibility: hidden`, `u: 0.42`,
+`v: 0.61`, description "A rope ferry over the Brinewater, run by the Kell family for six
+generations." and note "The ferryman owes the Thieves' Guild 40 gp." The second entry
+contains only `name: Old Watchtower`. Both therefore import Hidden. Explanations live in
+the help, never in JSON comments. The existing four-entry file example remains available.
 
 ## 21. Paths
 
