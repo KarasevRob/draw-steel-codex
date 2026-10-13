@@ -716,7 +716,29 @@ local g_rulePatterns = {
                 abilityAttr.promptOverride = abilityAttr.promptOverride .. " (" .. table.concat(adjustments, ", ") .. ")"
             end
 
-            if executeOnRemote and casterToken.activeControllerId then
+            if match.straightup then
+                --"straight up N" has exactly one destination, so there is nothing to choose:
+                --resolve it here, even when the push was handed to another creature's
+                --controller. It still runs the standard forced-movement ability, so the
+                --forced-move events, collisions and falling all apply as for any push.
+                local abilityClone = DeepCopy(MCDMUtils.GetStandardAbility(abilityName))
+                MCDMUtils.DeepReplace(abilityClone, "<<range>>", string.format("%d", range))
+                for k,v in pairs(abilityAttr) do
+                    --with no prompt text the invoke casts at targetArgs instead of asking.
+                    if k ~= "promptOverride" then
+                        abilityClone[k] = v
+                    end
+                end
+                abilityClone.forcedMovementStraightUp = true
+
+                options.targetArgs = {
+                    {
+                        loc = targetToken.loc:WithAltitude(targetToken.loc.altitude + range),
+                    }
+                }
+                InvokeAbility(ability, abilityClone, targetToken, casterToken, options)
+                options.targetArgs = nil
+            elseif executeOnRemote and casterToken.activeControllerId then
                 ability:CommitToPaying(casterToken, options)
                 InvokeAbilityRemote(abilityName, targetToken, casterToken, abilityAttr, options)
             else
@@ -726,14 +748,6 @@ local g_rulePatterns = {
                     abilityClone[k] = v
                 end
 
-                if match.straightup then
-                    options.targetArgs = {
-                        {
-                            loc = targetToken.loc:WithAltitude(targetToken.loc.altitude + range),
-                        }
-                    }
-                end
-                
                 InvokeAbility(ability, abilityClone, targetToken, casterToken, options)
                 options.targetArgs = nil
             end

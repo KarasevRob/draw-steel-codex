@@ -31,6 +31,8 @@ end
 --- @field grantedToTokenId nil|string Charid of the creature a granted clone belongs to (its caster).
 --- @field aimCasterAtTarget boolean An object caster turns to face its target while this is aimed, and keeps that facing (a Field Ballista's Release Bolt).
 --- @field _tmp_boundCaster nil|creature The creature a temporary clone was generated for.
+--- @field forcedMovementStraightUp boolean A forced-movement clone that moves its creature straight up ("vertical push straight up N").
+--- @field stolenStamp nil|string Fresh guid on each ability copied by Steal Ability, so the action bar flags every steal as new.
 --- @field lineDistance number|string Length for line-area targeting: a number or a GoblinScript formula.
 --- @field rangeDisadvantage string|number|table GoblinScript: if truthy, ranged attacks have disadvantage.
 --- @field selfTarget boolean If true, the ability always targets the caster.
@@ -374,6 +376,10 @@ ActivatedAbility.wallStacking = false
 
 --when true, forced movement continues through creatures instead of stopping on collision.
 ActivatedAbility.forcedMovementThroughCreatures = false
+
+--when true, a vertical forced move goes straight up with no sideways part ("vertical push
+--straight up N"). Set on the invoked forced-movement clone, never in data.
+ActivatedAbility.forcedMovementStraightUp = false
 
 --for line type targeting.
 ActivatedAbility.canChooseLowerRange = false
@@ -2886,28 +2892,37 @@ function CastActivatedAbilityChatMessage.Render(self, message)
         }
     end
 
-    local targetTokenPanels = {}
-    for _,tok in ipairs(self:GetTargetTokens()) do
-        targetTokenPanels[#targetTokenPanels+1] = gui.CreateTokenImage(tok, {
-            width = 28,
-            height = 28,
-            valign = "center",
-            halign = "left",
+    --Builds the little target portraits. A function so that targets added mid-cast (e.g. by
+    --Chain Reaction) can be shown when the message refreshes.
+    local function BuildTargetTokenPanels(message)
+        local targetTokenPanels = {}
+        for _,tok in ipairs(message:GetTargetTokens()) do
+            targetTokenPanels[#targetTokenPanels+1] = gui.CreateTokenImage(tok, {
+                width = 28,
+                height = 28,
+                valign = "center",
+                halign = "left",
 
-            interactable = true,
-            hover = function(element)
-                local text = string.format("<b>%s</b>", tok.name)
-                local messages = self:try_get("tokenMessages", {})
-                local messageLog = messages[tok.charid] or {}
-                if messageLog ~= nil then
-                    for _,msg in ipairs(messageLog) do
-                        text = text .. "\n" .. msg
+                interactable = true,
+                hover = function(element)
+                    local text = string.format("<b>%s</b>", tok.name)
+                    local messages = self:try_get("tokenMessages", {})
+                    local messageLog = messages[tok.charid] or {}
+                    if messageLog ~= nil then
+                        for _,msg in ipairs(messageLog) do
+                            text = text .. "\n" .. msg
+                        end
                     end
+                    gui.Tooltip(text)(element)
                 end
-                gui.Tooltip(text)(element)
-            end
-        })
+            })
+        end
+        return targetTokenPanels
     end
+
+    local targetTokenPanels = BuildTargetTokenPanels(self)
+    --how many target ids the portraits were built from; refreshMessage rebuilds when it grows.
+    local m_targetIdCount = #self.targetids
 
     local m_statusCount = 0
     local statusLabel = gui.Label{
@@ -3021,6 +3036,11 @@ function CastActivatedAbilityChatMessage.Render(self, message)
         refreshMessage = function(element, message)
             self = message.properties
             m_status = message.properties.status
+            --Targets can be added while the ability is casting; redraw the portraits.
+            if targetsPanel ~= nil and targetsPanel.valid and #self.targetids ~= m_targetIdCount then
+                m_targetIdCount = #self.targetids
+                targetsPanel.children = BuildTargetTokenPanels(self)
+            end
             --statusLabel may have been recycled/destroyed out from under this closure
             --during teardown (its panel reads as nil once recycled), while the parent
             --resultPanel that fires refreshMessage is still alive. Setting .thinkTime on
@@ -3301,6 +3321,75 @@ function ActivatedAbility:IsDirectlyCastable()
 end
 
 ActivatedAbility.coroutineStorage = {}
+
+--Cast coroutines this file started for a cast (coroutine -> true). Only these are ever
+--force-closed: a cast run inline (a trigger fired inside some other coroutine) shares
+--that coroutine, and closing it would kill its host.
+local g_castOwnedCoroutines = setmetatable({}, {__mode = "k"})
+
+--Roll requests each cast coroutine sent to other clients (coroutine -> actionid list),
+--withdrawn if the cast is cancelled so nobody is left with a prompt for it.
+local g_castActionRequests = setmetatable({}, {__mode = "k"})
+
+--How long a cancelled cast gets to unwind on its own before it is force-closed.
+local FORCE_CLOSE_CANCELLED_CAST_SECONDS = 8
+
+--- Records a roll request the running cast sent (dmhub.SendActionRequest), so it is
+--- withdrawn from whoever was asked to roll if the cast is cancelled (a checkpoint
+--- restore). Safe to call outside a cast, where it does nothing.
+--- @param actionid string|nil
+function ActivatedAbility.TrackCastActionRequest(actionid)
+    local co = coroutine.running()
+    if co == nil or actionid == nil or ActivatedAbility.coroutineStorage[co] == nil then
+        return
+    end
+    local list = g_castActionRequests[co]
+    if list == nil then
+        list = {}
+        g_castActionRequests[co] = list
+    end
+    list[#list+1] = actionid
+end
+
+--Withdraws the roll requests of every cast still resolving. The rolling client closes
+--its prompt when the request disappears, and the cast's own wait for the results ends
+--with no result (AwaitRequestedActionCoroutine and friends treat a missing request as
+--cancelled).
+local function WithdrawCastActionRequests()
+    for co,ids in pairs(g_castActionRequests) do
+        if coroutine.status(co) ~= "dead" then
+            for _,actionid in ipairs(ids) do
+                if dmhub.GetPlayerActionRequest(actionid) ~= nil then
+                    print("CASTCANCEL:: withdrawing roll request", actionid)
+                    dmhub.CancelActionRequest(actionid)
+                end
+            end
+        end
+        g_castActionRequests[co] = nil
+    end
+end
+
+--- Closes the coroutine of every cancelled (options.abort) cast still parked in a wait,
+--- for casts that never noticed the cancel -- e.g. one waiting on a prompt nothing will
+--- answer. Closing runs its <close> variables, and the coroutine scheduler then runs
+--- its atexit (FinishCast) as for any cast that ends. Only coroutines started for a
+--- cast are closed. Returns how many were closed.
+--- @return integer
+function ActivatedAbility.ForceCloseCancelledCasts()
+    local closed = 0
+    for co,_ in pairs(g_castOwnedCoroutines) do
+        local info = ActivatedAbility.coroutineStorage[co]
+        if info ~= nil and info.options ~= nil and info.options.abort and coroutine.status(co) == "suspended" then
+            local ok, err = coroutine.close(co)
+            printf("CASTCANCEL:: force-closed cancelled cast %s (caster=%s)%s",
+                tostring(info.ability ~= nil and info.ability.name or "?"),
+                tostring(info.casterToken ~= nil and info.casterToken.valid and info.casterToken.name or "?"),
+                ok and "" or (": " .. tostring(err)))
+            closed = closed + 1
+        end
+    end
+    return closed
+end
 
 function ActivatedAbility.GetActiveCastSnapshot()
     local result = {}
@@ -3655,9 +3744,18 @@ function ActivatedAbility.CastCoroutine(self, casterToken, targets, options)
 
 
     local co = coroutine.running()
+
+    --A cast started in a coroutine of its own (not inline in a trigger's or another
+    --cast's) may be force-closed if it is cancelled and never unwinds.
+    if co ~= nil and ActivatedAbility.coroutineStorage[co] == nil and not options.alreadyInCoroutine then
+        g_castOwnedCoroutines[co] = true
+    end
+
     coroutine.atexit(function()
         if co ~= nil then
             ActivatedAbility.coroutineStorage[co] = nil
+            g_castOwnedCoroutines[co] = nil
+            g_castActionRequests[co] = nil
         end
         options.atexit = true
 	    self:FinishCast(casterToken, options)
@@ -3854,6 +3952,20 @@ function ActivatedAbility:ShowChatMessageOnCast()
     return self.countsAsCast and self.categorization ~= "Hidden"
 end
 
+--Token id an action log card should credit as the actor: normally the caster, but a
+--trigger that sits on a victim because someone else applied it (Thorn Cage damage,
+--Pillar of Holy Fire) carries that applier in symbols.logsourceid.
+function ActivatedAbility.GetLogActorId(casterToken, options)
+	local symbols = options ~= nil and options.symbols or nil
+	if type(symbols) == "table" then
+		local sourceid = rawget(symbols, "logsourceid")
+		if sourceid ~= nil and dmhub.GetCharacterById(sourceid) ~= nil then
+			return sourceid
+		end
+	end
+	return casterToken.charid
+end
+
 function ActivatedAbility.GetTokenIds(targets)
 	local tokenids = {}
 	for i,target in ipairs(targets) do
@@ -3919,6 +4031,7 @@ function ActivatedAbility:RequireSavingThrowsCo(behavior, casterToken, tokenids,
 		silent = self.silent,
 		tokens = tokenInfo,
 	})
+	ActivatedAbility.TrackCastActionRequest(actionid)
 
 	local dcresult = {}
 
@@ -5434,6 +5547,7 @@ function ActivatedAbilityApplyOngoingEffectBehavior:Cast(ability, casterToken, t
 						silent = false,
 						tokens = tokenInfo,
 					})
+					ActivatedAbility.TrackCastActionRequest(actionid)
 
 					local dcresult = {}
 
@@ -5845,6 +5959,7 @@ function ActivatedAbilityContestedAttackBehavior:Cast(ability, casterToken, targ
 		silent = self.silent,
 		tokens = tokenInfo,
 	})
+	ActivatedAbility.TrackCastActionRequest(actionid)
 
 	local dcresult = {}
 
@@ -6881,14 +6996,30 @@ end)
 --every live cast coroutine so CastCoroutine breaks at the next behavior
 --boundary and unwinds through FinishCast (which marks the chat message
 --"aborted"). Also clears any unsubmitted dice preview.
+--A cast waiting on another client (a roll it asked someone else for) would not reach
+--that boundary until they answered, so its roll requests are withdrawn, which ends the
+--wait on both sides. A cast still parked somewhere after FORCE_CLOSE_CANCELLED_CAST_SECONDS
+--is force-closed. Every client does this for its own casts.
 dmhub.RegisterEventHandler("restoreFromBackup", function()
+    local cancelled = 0
     for co, info in pairs(ActivatedAbility.coroutineStorage) do
         if coroutine.status(co) ~= "dead" and info.options ~= nil then
             info.options.abort = true
             info.options.stopProcessing = true
+            cancelled = cancelled + 1
         end
     end
+    WithdrawCastActionRequests()
     dmhub.CancelCurrentRoll()
+
+    if cancelled > 0 then
+        dmhub.Schedule(FORCE_CLOSE_CANCELLED_CAST_SECONDS, function()
+            if mod.unloaded then
+                return
+            end
+            ActivatedAbility.ForceCloseCancelledCasts()
+        end)
+    end
 end)
 
 --- The "Applied by ..." line recorded on an ongoing effect an ability applies. An

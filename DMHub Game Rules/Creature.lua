@@ -525,8 +525,8 @@ function creature:MovementMultiplier()
 	return self:CalculateAttribute("movementMultiplier", 1)
 end
 
---- The creature's base movement speed with the given movement type.
---- @param movementType string
+--- The creature's base movement speed with the given movement type (nil means walking).
+--- @param movementType string|nil
 --- @return number
 function creature:GetBaseSpeed(movementType)
 	if movementType == 'speed' or movementType == 'walk' or movementType == nil then
@@ -12453,6 +12453,7 @@ function creature:CheckToMaintainConcentrationCo(saveInfo)
 		tokens = tokenInfo,
 		silent = true, --this makes it so the dialog isn't shown to the requester, since it's an automated action.
 	})
+	ActivatedAbility.TrackCastActionRequest(actionid)
 	
 	local result = AwaitRequestedActionCoroutine(actionid)
 	if result.result and result.action ~= nil then

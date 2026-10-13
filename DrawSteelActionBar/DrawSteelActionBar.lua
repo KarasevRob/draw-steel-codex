@@ -1782,6 +1782,11 @@ local g_ackedNovelCharid = nil
 local function NovelAbilityKey(ability)
     local ok, key = pcall(function()
         local guid = ability:try_get("guid") or ability.name
+        --Each steal is a fresh arrival, even if the same ability was stolen before.
+        local stolenStamp = ability:try_get("stolenStamp")
+        if stolenStamp ~= nil then
+            guid = guid .. ":stolen:" .. stolenStamp
+        end
         if ability:try_get("isMeleeVariation") then
             return guid .. ":melee"
         elseif ability:try_get("isRangedVariation") then
@@ -4106,6 +4111,15 @@ local m_activeImprovements = {}
 --One table, not three locals: the merged file sits at Lua's 200
 --top-level-locals ceiling (same consolidation as g_overviewRisk).
 local g_filterSightlines = { rays = {}, owner = nil, MAX = 12 }
+
+--Red links the Chain Reaction hover preview draws (see highlightTargetToken). A table field,
+--not a local: this file's main chunk is at the 200-local ceiling.
+g_filterSightlines.ClearChainHover = function()
+    for _, ray in ipairs(g_filterSightlines.chainHover or {}) do
+        pcall(function() ray:Destroy() end)
+    end
+    g_filterSightlines.chainHover = nil
+end
 
 local function ClearFilterSightlineRays()
     for _,ray in ipairs(g_filterSightlines.rays) do
@@ -9184,6 +9198,8 @@ local function ClearLineOfSightMark()
     --Before the early return: the diagram can outlive the arrow (a path that nils the
     --mark by hand leaves nothing for this to destroy, but the tooltip is still up).
     CrossSection.ClearAttack()
+    --Same for a chain preview: a cast can end with the cursor still on its target.
+    g_filterSightlines.ClearChainHover()
     if m_markLineOfSight == nil then
         return
     end
@@ -12278,9 +12294,33 @@ CreateAbilityController = function()
             if m_markLineOfSightToken == targetToken and m_markLineOfSightSourceToken ~= nil then
                 CrossSection.ShowAttack(m_markLineOfSightSourceToken, targetToken)
             end
+            --Chain abilities (Shadow's Chain Reaction): preview every creature the chain would
+            --reach with red links, so the player can pick the best first target.
+            if g_currentAbility ~= nil and ActivatedAbilityChainReachBehavior ~= nil then
+                for _, behavior in ipairs(g_currentAbility.behaviors or {}) do
+                    if behavior.typeName == "ActivatedAbilityChainReachBehavior" then
+                        local _, links = ActivatedAbilityChainReachBehavior.ComputeChain(g_token, targetToken,
+                            tonumber(behavior:try_get("chainRange", 3)) or 3, nil, g_currentAbility)
+                        g_filterSightlines.ClearChainHover()
+                        g_filterSightlines.chainHover = {}
+                        for _, link in ipairs(links) do
+                            --a link to a creature this player cannot see would give its position away.
+                            local ray = nil
+                            if dmhub.isDM or (link.from.canSee and link.to.canSee) then
+                                ray = dmhub.HighlightLine{ color = "red", a = link.from.pos, b = link.to.pos }
+                            end
+                            if ray ~= nil then
+                                g_filterSightlines.chainHover[#g_filterSightlines.chainHover+1] = ray
+                            end
+                        end
+                        break
+                    end
+                end
+            end
         end,
 
         unhighlightTargetToken = function(element, targetToken)
+            g_filterSightlines.ClearChainHover()
             if targetToken == nil or targetToken == m_markLineOfSightToken then
                 CrossSection.ClearAttack()
             end
