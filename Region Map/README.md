@@ -40,7 +40,7 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
 - Layout: breadcrumb top-left, toolbar top-right, camera controls bottom-left (they fade
   after 2 s without pointer movement), Party status bottom-right, side panel over the
   map's right edge (full width below 720 px).
-- Toolbar, in order: Search, Add, Path (Director, point crawl maps only), Lock, Ruler, Show to
+- Toolbar, in order: Search, Add, Import (Director, open maps only), Path (Director, point crawl maps only), Lock, Ruler, Show to
   players (Director), View as player (Director), Session log, Settings (Director), then Pop
   out and Close (fullscreen) or Return to fullscreen (popout).
   Icons with tooltips.
@@ -54,6 +54,13 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
 - **Location** is the only object. A Location may have a pin on its parent's map, its own
   map image, or both. Top-level Locations are the **Atlas** (a gallery of cards, with a
   New map card for the Director).
+- **Map actions from the Atlas** (Director): each card's "..." menu offers Open map, Edit
+  (name, description and notes), Import locations, Replace map image, Map settings (scale,
+  pace and border), journal actions, sharing, Show this map to players and Delete.
+  Right-clicking a card opens the same menu, also used in the top-level map's side panel.
+  Import, Settings and Show to players open that card's map first. Delete confirms the
+  contained Locations and paths; one Undo restores the map and its contents. Long menus
+  scroll in short windows.
 - The breadcrumb shows Atlas > ... > current map; every part is clickable. "Open map" in
   the side panel zooms into the pin and crossfades to its map.
 - **Reading a parent from the breadcrumb.** Hover a Location crumb to see the start of its
@@ -80,7 +87,7 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
 - **Players never delete Director content**: a player deletes only their own Locations, and
   only while they have no map. Only the Director adds maps, so a map and everything on it is
   Director content; a player's Location that has one loses its Delete entry.
-- Limits: names 1-80 characters on one line; description 4000; Director note 8000; nesting
+- Limits: names 1-256 characters on one line; description 4000; Director note 8000; nesting
   16 levels. A map holds any number of Locations (the 250 cap was removed 2026-10-10;
   performance is measured only up to 250 pins a map, section 5). A game holds any number
   of path types (the 24 cap was removed 2026-10-11; the whole list is stored in
@@ -99,8 +106,13 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
 
 ### Import (V2.1)
 
-- Director: "Import locations..." in the map right-click menu and the open map's "..." menu
-  reads a JSON file ([docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md)) into the open map.
+- Director: the **Import locations** button beside Add in the top toolbar
+  opens a card for pasted JSON or a JSON file ([docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md))
+  into the open map. The editor has a concise JSON Schema contract with **Copy contract**
+  and a hidden two-Location example.
+- Paste accepts up to 100,000 Unicode characters; files keep their uncapped import path.
+  Back preserves pasted text. Replacing or discarding a nonempty draft asks first; drafts
+  are not saved across closing the card, app exit or Lua reload. Native OS close cannot prompt.
 - A preview lists the count, skipped entries with the reason for each, and names already on
   the map. Entries without u/v go on a grid near the center. One Undo removes the whole import.
 

@@ -84,6 +84,13 @@ local function CloseFullscreen()
     if host ~= nil and host.valid then host:DestroySelf() end
 end
 
+local function RequestCloseFullscreen()
+    local host = fullscreen
+    if host ~= nil and host.valid then
+        host.data.content:FireEvent("requestClose", CloseFullscreen)
+    end
+end
+
 local OpenFullscreen
 
 local function PopOut()
@@ -139,12 +146,13 @@ OpenFullscreen = function()
     local layer = nil
     pcall(function() layer = GameHud.instance.documentsPanel end)
     if layer == nil or not layer.valid then return end
+    local content = RegionMapPanel.Create { close = CloseFullscreen, popOut = PopOut }
     local zoom = gui.Panel {
         width = "100%",
         height = "100%",
         halign = "left",
         valign = "top",
-        RegionMapPanel.Create { close = CloseFullscreen, popOut = PopOut },
+        content,
     }
     local frame = gui.Panel {
         floating = true,
@@ -165,7 +173,7 @@ OpenFullscreen = function()
         -- The board below must not take presses meant for the map.
         swallowPress = true,
         thinkTime = 0.25,
-        data = { fit = nil, frame = frame, zoom = zoom },
+        data = { fit = nil, frame = frame, zoom = zoom, content = content },
         multimonitor = { "fontsize", "iconrail" },
         monitor = function(element) FitFullscreen(element) end,
         create = function(element)
@@ -207,7 +215,7 @@ end
 
 local function ToggleFullscreen()
     if IsFullscreen() then
-        CloseFullscreen()
+        RequestCloseFullscreen()
     else
         ShowFullscreen()
     end

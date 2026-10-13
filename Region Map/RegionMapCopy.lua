@@ -12,6 +12,7 @@ RegionMapCopy.strings = {
     ["window.title"] = "Overland Map",
     ["tb.search"] = "Search locations",
     ["tb.add"] = "Add location",
+    ["tb.import"] = "Import locations",
     ["tb.lock.on"] = "Pins locked - click to unlock",
     ["tb.lock.off"] = "Pins unlocked - click to lock",
     ["tb.ruler"] = "Ruler",
@@ -94,6 +95,9 @@ RegionMapCopy.strings = {
     ["menu.addMap"] = "Add map...",
     ["menu.replaceImage"] = "Replace map image...",
     ["menu.removeMap"] = "Remove map",
+    ["menu.mapSettings"] = "Map settings...",
+    ["menu.shareMap"] = "Share map with players",
+    ["menu.unshareMap"] = "Stop sharing map",
     ["menu.linkJournal"] = "Link journal entry...",
     ["menu.changeJournal"] = "Change journal entry...",
     ["menu.unlinkJournal"] = "Unlink journal entry",
@@ -209,7 +213,6 @@ RegionMapCopy.strings = {
     ["set.game"] = "Whole game",
 
     -- Import (V2.1 manifest section 20)
-    ["menu.import"] = "Import locations...",
     ["import.picker"] = "Choose a JSON file of locations",
     ["import.title"] = "Import locations",
     ["import.summary"] = "Import {count} locations into {map}?",
@@ -217,7 +220,7 @@ RegionMapCopy.strings = {
     ["import.skipped"] = "{count} entries will be skipped:",
     ["import.skipped.one"] = "1 entry will be skipped:",
     ["import.skip.noName"] = "Entry {n}: it has no name.",
-    ["import.skip.name"] = "Entry {n}: its name is over 80 characters or has a line break.",
+    ["import.skip.name"] = "Entry {n}: its name is over {limit} characters or has a line break.",
     ["import.skip.position"] = "Entry {n}: u and v must both be between 0 and 1, or both left out.",
     ["import.skip.field"] = "Entry {n}: {field} is not a valid value.",
     ["import.skip.tooLong"] = "Entry {n}: {field} is too long.",
@@ -229,6 +232,118 @@ RegionMapCopy.strings = {
     ["import.error.json"] = "This file isn't valid JSON, so nothing was imported.",
     ["import.error.empty"] = "This file has no locations in it.",
     ["import.error.allSkipped"] = "None of the entries in this file can be imported:",
+    ["import.into"] = "Into {map}",
+    ["import.paste"] = "Paste JSON",
+    ["import.file"] = "Choose file...",
+    ["import.fill"] = "Fill with example",
+    ["import.preview"] = "Preview",
+    ["import.back"] = "Back",
+    ["import.count"] = "{count} / 100,000 characters",
+    ["import.draftHint"] = "Drafts are not saved. Use Choose file... for larger imports.",
+    ["import.discard"] = "Discard pasted JSON?",
+    ["import.discard.ok"] = "Discard",
+    ["import.replace"] = "Replace pasted JSON with the example?",
+    ["import.replace.ok"] = "Replace",
+    ["import.useFile"] = "Use this file and discard pasted JSON?",
+    ["import.useFile.ok"] = "Use file",
+    ["import.text.json"] = "This text isn't valid JSON. Nothing was imported.",
+    ["import.text.empty"] = "This JSON has no locations in it.",
+    ["import.text.allSkipped"] = "None of the entries in this JSON can be imported:",
+    ["import.text.tooLong"] = "This text exceeds 100,000 characters. Shorten it or choose a JSON file.",
+    ["import.unavailable"] = "This map is no longer available for import.",
+    ["import.permission"] = "Only the Director can import locations.",
+    ["import.help"] = "JSON contract",
+    ["import.copyContract"] = "Copy contract",
+    ["import.copied"] = "Copied",
+    ["import.contract"] = [[{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LocationImport",
+  "oneOf": [
+    { "$ref": "#/$defs/LocationList" },
+    {
+      "type": "object",
+      "required": ["locations"],
+      "properties": { "locations": { "$ref": "#/$defs/LocationList" } },
+      "additionalProperties": true
+    }
+  ],
+  "$defs": {
+    "LocationList": {
+      "type": "array", "minItems": 1,
+      "items": { "$ref": "#/$defs/Location" }
+    },
+    "Location": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true,
+      "dependentRequired": { "u": ["v"], "v": ["u"] },
+      "properties": {
+        "name": {
+          "type": "string", "minLength": 1, "maxLength": 256,
+          "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$",
+          "description": "Trimmed; single line."
+        },
+        "description": {
+          "$ref": "#/$defs/Text", "maxLength": 4000, "default": "",
+          "description": "Visible when Location is revealed."
+        },
+        "note": {
+          "$ref": "#/$defs/Text", "maxLength": 8000, "default": "",
+          "description": "Director only."
+        },
+        "icon": {
+          "type": "string",
+          "enum": ["city", "town", "castle", "tower", "temple", "tavern",
+                   "camp", "port", "bridge", "forest", "cave", "dungeon",
+                   "danger", "treasure", "quest", "poi"],
+          "description": "Omitted: default pin."
+        },
+        "pinStyle": {
+          "type": "string", "enum": ["iconName", "plate", "iconOnly"],
+          "default": "iconName"
+        },
+        "importance": {
+          "type": "string", "enum": ["major", "normal", "minor"], "default": "normal"
+        },
+        "visibility": {
+          "type": "string", "enum": ["hidden", "revealed"], "default": "hidden"
+        },
+        "u": { "type": "number", "minimum": 0, "maximum": 1, "description": "Left = 0; right = 1." },
+        "v": { "type": "number", "minimum": 0, "maximum": 1, "description": "Top = 0; bottom = 1." }
+      }
+    },
+    "Text": {
+      "type": "string",
+      "not": { "pattern": "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]" },
+      "description": "Trimmed; CRLF/CR -> LF. Limits count Unicode characters after normalization."
+    }
+  },
+  "x-import": {
+    "scope": "Director; selected map; flat Locations only",
+    "write": "append; duplicate names warn; one Undo",
+    "unknownFields": "ignored",
+    "invalidEntries": "skipped; fail if none valid",
+    "omittedCoordinates": "centered grid",
+    "pasteMaxCharacters": 100000,
+    "fileMaxCharacters": null
+  }
+}]],
+    ["import.example"] = [[{
+  "locations": [
+    {
+      "name": "Kell's Ferry",
+      "description": "A rope ferry over the Brinewater, run by the Kell family for six generations.",
+      "note": "The ferryman owes the Thieves' Guild 40 gp.",
+      "icon": "port",
+      "pinStyle": "iconName",
+      "importance": "major",
+      "visibility": "hidden",
+      "u": 0.42,
+      "v": 0.61
+    },
+    { "name": "Old Watchtower" }
+  ]
+}]],
     ["dlg.close"] = "Close",
     ["toast.imported"] = "{count} locations imported into {map}",
     ["toast.imported.one"] = "1 location imported into {map}",

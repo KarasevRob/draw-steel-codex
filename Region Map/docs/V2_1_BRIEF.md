@@ -109,6 +109,10 @@ deferred), fog, planned multi-leg routes (3.1).
 | 2026-10-08 | N2 | A partway stop is logged as a placement: "Stopped on the King's Road, 1 day from Ashford" | User review (G4: placed, not travel) |
 | 2026-10-08 | N3 | Deleting a path type that paths use turns those paths into "No type" with a plain line; the confirm says how many paths use it; undo restores | Proposed with the mockups, no objection |
 | 2026-10-08 | IM7 | "Import locations..." sits in the Director's map right-click menu and in the open map's "..." menu in the side panel (settles open item IM1) | User, at the start of P3 |
+| 2026-10-14 | IM7 (revised) | Import locations is a Director-only button beside Add in the top toolbar, available on an open map; it replaces both menu entries | User |
+| 2026-10-14 | AT1 | Atlas cards expose map management through "..." and right-click: Open, Edit, Import, image, settings, journal, sharing, presentation and Delete with confirmation and Undo. Reuse the top-level Location's menu and existing handlers; import, settings and presentation open the selected map first. Add location, Path tool, Ruler and View as player remain only in the map toolbar. Keep the Import toolbar button. | User: actions available from the Atlas; explicitly exclude the four canvas/view controls |
+| 2026-10-14 | IM8 | Replace prose import help with a terse OpenAPI-compatible JSON Schema and Copy contract, with Copied feedback. Display and clipboard use the same text; copying preserves the draft. | User: developer-oriented, copyable contract |
+| 2026-10-14 | IM9 | Raise the shared name limit from 80 to 256 Unicode characters in validation and name editors, including imported Location names. Reflect it in the contract and validation messages. | User: increase name max characters to 256 |
 | 2026-10-08 | K9 | Torn edge and Frame are deferred until the user provides the art; they ship as dimmed tiles meanwhile | User, after P2 |
 
 ### 2.1 Critique round (M6, 2026-10-08)

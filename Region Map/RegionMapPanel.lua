@@ -71,6 +71,7 @@ function RegionMapPanel.Create(options)
     local breadcrumb
     local searchButton
     local addButton
+    local importButton
     local pathButton
     local lockButton
     local rulerButton
@@ -314,8 +315,11 @@ function RegionMapPanel.Create(options)
     -- Leaving the map runs a host hook that destroys this panel; edits are saved first.
     local function RunHostHook(hook)
         if hook == nil or not ctx.IsAlive() then return end
-        ctx.FlushEdits()
-        hook()
+        importLayer.data.requestClose(function()
+            if not ctx.IsAlive() then return end
+            ctx.FlushEdits()
+            hook()
+        end)
     end
 
     function ctx.ShowMenu(element, id)
@@ -332,7 +336,11 @@ function RegionMapPanel.Create(options)
         element.popupsInheritStyles = false
         -- The opener's hover tooltip would otherwise stay drawn under the menu.
         element.tooltip = nil
-        element.popup = gui.ContextMenu { entries = entries }
+        local menu = gui.ContextMenu { entries = entries }
+        if menu == nil then return end
+        menu.vscroll = true
+        menu.selfStyle.maxHeight = math.max(120, root.renderedHeight - 32)
+        element.popup = menu
     end
 
     local function CloseConfirm()
@@ -451,6 +459,9 @@ function RegionMapPanel.Create(options)
         addButton:SetClass("collapsed", not hasMap or (not canAdd and reason == "permission"))
         addButton:SetClass("disabled", not canAdd)
         addButton:SetClass("on", data.tool == "add")
+        importButton:SetClass("collapsed", not hasMap or not director)
+        importButton:SetClass("disabled", not canAdd)
+        importButton:SetClass("on", not importLayer:HasClass("collapsed"))
         -- The Path tool: Director, point crawl maps only; it needs two pins to join (Q7).
         local crawl = hasMap and director and Model.IsPointCrawl(map)
         local enoughPins = crawl and #Model.Children(map.id) >= 2
@@ -658,6 +669,7 @@ function RegionMapPanel.Create(options)
             partyPanel:FireEvent("bind")
             logPanel:FireEvent("bind")
             popovers:FireEvent("bind")
+            importLayer:FireEvent("bind")
             RefreshBreadcrumb(map)
             RefreshToolbar(map)
             RefreshStatus(map)
@@ -693,6 +705,9 @@ function RegionMapPanel.Create(options)
     end)
     addButton = Session.IconButton("region-map-add", C.iconAdd, T("tb.add"), function()
         ctx.SetTool("add")
+    end)
+    importButton = Session.IconButton("region-map-import-button", C.iconImport, T("tb.import"), function()
+        ctx.ImportLocations()
     end)
     pathButton = Session.IconButton("region-map-path", C.iconPath, T("tb.path"), function()
         -- From Redraw line this switches to the Path tool; pressed again, it turns the tool off.
@@ -733,10 +748,8 @@ function RegionMapPanel.Create(options)
     end)
     local toolbar = gui.Panel {
         id = "region-map-toolbar", classes = { "regionMapToolbar" }, floating = true,
-        -- Brief order (D12a): Search, Add, Lock, Ruler, Show, View as player, Log, Settings;
-        -- the Path tool sits beside Add, the other way of making things on the map. The host's
-        -- buttons (pop out or return to fullscreen, then close) end the row.
-        searchButton, addButton, pathButton, lockButton, rulerButton, showButton, viewAsButton, logButton,
+        -- Creation actions stay together; host controls end the row.
+        searchButton, addButton, importButton, pathButton, lockButton, rulerButton, showButton, viewAsButton, logButton,
         settingsButton, popOutButton, popInButton, closeButton,
     }
 
@@ -867,6 +880,7 @@ function RegionMapPanel.Create(options)
             present.Receive()
             RegionMapLog.EnforceCap()
         end,
+        requestClose = function(_, continue) RunHostHook(continue) end,
         destroy = function(element)
             ctx.FlushEdits()
             Model.SetViewAsPlayer(false)

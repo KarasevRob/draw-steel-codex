@@ -84,7 +84,7 @@ local Model = RegionMapModel
 --- @field Push fun(entry: nil|RegionMapUndoEntry, copyId: string, args: nil|table)
 --- @field CheckImageSize fun(mapId: string, imageId: string) warns with a toast when a newly picked map image is outside the size range (J3)
 --- @field ImageHint fun(): string the size guidance line shown by image pickers (J2)
---- @field ImportLocations fun() Director: pick a JSON file to import into the open map (IM7)
+--- @field ImportLocations fun() Director: open the JSON import card for the current map
 --- @field ShowToPlayers fun()
 --- @field Confirm fun(args: RegionMapConfirmArgs) compact in-window confirm dialog
 --- @field ShowParty fun() open the Party section (point crawl maps, G1)
@@ -395,7 +395,7 @@ end
 --- editor as well, so the caller adds its text, placeholder and handlers.
 --- @param limit integer characters
 --- @param args table
---- @return Panel
+--- @return TextEditor
 function RegionMapSession.TextArea(limit, args)
     local editor = {
         classes = { "input", "bordered", "sizeS", "regionMapTextArea" }, borderBox = true,
