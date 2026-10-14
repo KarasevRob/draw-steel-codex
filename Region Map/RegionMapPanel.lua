@@ -37,16 +37,20 @@ end
 
 --- Build the Region Map content panel.
 --- Host hooks from RegionMap.lua; each adds its toolbar button when present.
---- The fullscreen host passes close and popOut, the native popout passes popIn.
+--- The in-app host can change view without replacing this content.
 --- @class RegionMapHostOptions
---- @field close nil|fun() close the fullscreen map (also Esc at the Atlas)
+--- @field close nil|fun() close the in-app map (also Esc at the Atlas)
 --- @field popOut nil|fun() move the map into its own OS window
---- @field popIn nil|fun() bring a popped-out map back to fullscreen
+--- @field popIn nil|fun() bring a popped-out map back into the app
+--- @field toggleView nil|fun() switch the existing in-app host's size
+--- @field mode nil|"fullscreen"|"window"|"native"
+--- @field active nil|boolean whether this in-app window should take Escape
 
 --- @param options nil|RegionMapHostOptions
 --- @return Panel
 function RegionMapPanel.Create(options)
     options = options or {}
+    options.mode = options.mode or (options.close ~= nil and "fullscreen" or "native")
     --- @type RegionMapShellData
     local data = {
         mapId = nil, selectedId = nil, selectedPathId = nil, panelMode = "none", pickKind = nil, newMapMode = nil,
@@ -63,6 +67,7 @@ function RegionMapPanel.Create(options)
     local atlas
     local sidePanel
     local pathPanel
+    local labelPanel
     local partyPanel
     local stopCard
     local logPanel
@@ -81,6 +86,7 @@ function RegionMapPanel.Create(options)
     local settingsButton
     local popOutButton
     local popInButton
+    local viewButton
     local closeButton
     local statusChip
     local banners
@@ -118,6 +124,7 @@ function RegionMapPanel.Create(options)
     function ctx.FlushEdits()
         if sidePanel ~= nil and sidePanel.valid then sidePanel:FireEvent("flush") end
         if pathPanel ~= nil and pathPanel.valid then pathPanel:FireEvent("flush") end
+        if labelPanel ~= nil and labelPanel.valid then labelPanel:FireEvent("flush") end
     end
 
     -- A failed write says so in a toast; refusals the UI already prevents stay silent.
@@ -157,7 +164,14 @@ function RegionMapPanel.Create(options)
 
     -- Navigation ---------------------------------------------------------------------------------
 
+    local function LeaveLabel()
+        if data.selectedLabelId ~= nil then RegionMapLabels.Leave(data.selectedLabelId) end
+        data.selectedLabelId = nil
+        if data.panelMode == "labelEdit" then data.panelMode = "none" end
+    end
+
     local function ApplyOpen(map, how)
+        LeaveLabel()
         data.mapId = map.id
         data.locked = true
         data.tool, data.toolTargetId, data.pathDraft = "none", nil, nil
@@ -194,6 +208,7 @@ function RegionMapPanel.Create(options)
 
     function ctx.GoAtlas()
         ctx.FlushEdits()
+        LeaveLabel()
         shell.transition = nil
         data.mapId = nil
         data.tool, data.toolTargetId, data.pathDraft = "none", nil, nil
@@ -220,6 +235,7 @@ function RegionMapPanel.Create(options)
     end
 
     function ctx.Select(id, mode)
+        LeaveLabel()
         local leaving = data.selectedId ~= id or (data.panelMode == "edit" and mode ~= "edit")
         if leaving then ctx.FlushEdits() end
         data.selectedPathId = nil
@@ -238,6 +254,7 @@ function RegionMapPanel.Create(options)
     -- A path shows in its own panel, in the side panel's place (V21-10), read or edit (V21-13).
     function ctx.SelectPath(id, mode)
         ctx.FlushEdits()
+        LeaveLabel()
         if id == nil or RegionMapPaths.Get(id) == nil then
             data.selectedPathId = nil
             if data.panelMode == "path" or data.panelMode == "pathEdit" then data.panelMode = "none" end
@@ -248,7 +265,40 @@ function RegionMapPanel.Create(options)
         RefreshAll()
     end
 
-    local tools = { add = true, move = true, ruler = true, scale = true, path = true, redraw = true }
+    function ctx.SelectLabel(id, edit)
+        ctx.FlushEdits()
+        if id == nil then
+            LeaveLabel()
+        else
+            local row = RegionMapLabels.Snapshot(id)
+            if row == nil or row.mapId ~= data.mapId then return end
+            if data.selectedLabelId ~= id then LeaveLabel() end
+            data.selectedId, data.selectedPathId, data.selectedLabelId = nil, nil, id
+            data.panelMode = edit and RegionMapLabels.CanEdit(row) and "labelEdit" or "none"
+        end
+        RefreshAll()
+    end
+
+    function ctx.CreateLabel(u, v)
+        local map = ctx.CurrentMap()
+        if map == nil then return end
+        ctx.FlushEdits()
+        local id = RegionMapLabels.NewDraft(map.id, u, v, Session.LastLabelFormat())
+        if id == nil then return end
+        ctx.SetTool("none")
+        ctx.SelectLabel(id, true)
+    end
+
+    function ctx.FocusLabel(id, edit)
+        local row = RegionMapLabels.Get(id)
+        if row == nil then return end
+        if data.mapId ~= row.mapId then ctx.OpenMap(row.mapId, "restore") end
+        if data.mapId ~= row.mapId then return end
+        ctx.SelectLabel(id, edit)
+        canvas:FireEvent("centerOnLabel", id)
+    end
+
+    local tools = { add = true, move = true, ruler = true, scale = true, path = true, redraw = true, labelAdd = true, labelMove = true }
 
     function ctx.SetTool(tool, targetId)
         if not tools[tool] then tool = "none" end
@@ -262,7 +312,7 @@ function RegionMapPanel.Create(options)
         -- A line being drawn belongs to the tool that drew it.
         if tool ~= data.tool or targetId ~= data.toolTargetId then data.pathDraft = nil end
         data.tool = tool
-        data.toolTargetId = (tool == "move" or tool == "redraw") and targetId or nil
+        data.toolTargetId = (tool == "move" or tool == "redraw" or tool == "labelMove") and targetId or nil
         RefreshAll()
         gui.SetFocus(canvas)
     end
@@ -279,6 +329,7 @@ function RegionMapPanel.Create(options)
     function ctx.ShowParty()
         if not RegionMapPartyPanel.Available(ctx) then return end
         ctx.FlushEdits()
+        LeaveLabel()
         data.selectedId, data.selectedPathId, data.panelMode = nil, nil, "party"
         RefreshAll()
     end
@@ -288,6 +339,7 @@ function RegionMapPanel.Create(options)
     end
 
     function ctx.ToggleLog()
+        LeaveLabel()
         if data.panelMode == "log" then
             data.panelMode = "none"
         else
@@ -336,7 +388,7 @@ function RegionMapPanel.Create(options)
         element.popupsInheritStyles = false
         -- The opener's hover tooltip would otherwise stay drawn under the menu.
         element.tooltip = nil
-        local menu = gui.ContextMenu { entries = entries }
+        local menu = Session.ContextMenu(element, { entries = entries })
         if menu == nil then return end
         menu.vscroll = true
         menu.selfStyle.maxHeight = math.max(120, root.renderedHeight - 32)
@@ -453,12 +505,14 @@ function RegionMapPanel.Create(options)
     local function RefreshToolbar(map)
         local director = Model.IsDirector()
         local hasMap = map ~= nil
-        local canAdd, reason = false, nil
-        if hasMap then canAdd, reason = Model.CanAdd(map.id) end
+        local canAdd = false
+        if hasMap then canAdd = Model.CanAdd(map.id) end
+        local canLabel = hasMap and RegionMapLabels.CanAdd(map.id)
         -- Players lose the button when the Director turns adding off (D9d).
-        addButton:SetClass("collapsed", not hasMap or (not canAdd and reason == "permission"))
-        addButton:SetClass("disabled", not canAdd)
-        addButton:SetClass("on", data.tool == "add")
+        addButton:SetClass("collapsed", not hasMap or (not canAdd and not canLabel))
+        addButton:SetClass("disabled", not canAdd and not canLabel)
+        addButton:SetClass("on", data.tool == "add" or data.tool == "labelAdd")
+        Session.SetIconButton(addButton, T(canLabel and (canAdd and "label.addMenu" or "label.add") or "tb.add"))
         importButton:SetClass("collapsed", not hasMap or not director)
         importButton:SetClass("disabled", not canAdd)
         importButton:SetClass("on", not importLayer:HasClass("collapsed"))
@@ -519,6 +573,8 @@ function RegionMapPanel.Create(options)
             rightPanel = logPanel
         elseif data.panelMode == "party" then
             rightPanel = partyPanel
+        elseif data.panelMode == "labelEdit" then
+            rightPanel = labelPanel
         elseif data.panelMode == "path" or data.panelMode == "pathEdit" or data.panelMode == "pickPathEnd" then
             rightPanel = pathPanel
         end
@@ -535,6 +591,12 @@ function RegionMapPanel.Create(options)
         if Model.ViewingAsPlayer() then lines[#lines + 1] = T("banner.viewAs") end
         if map ~= nil and not data.locked then lines[#lines + 1] = T("chip.unlocked") end
         if data.tool == "add" then lines[#lines + 1] = T("hint.add") end
+        if data.tool == "labelAdd" then lines[#lines + 1] = T("label.placeHint") end
+        if data.tool == "labelMove" then lines[#lines + 1] = T("label.moveHint") end
+        if map ~= nil and not Session.ShowLabels() then
+            lines[#lines + 1] = T("label.hiddenLocal")
+            if data.selectedLabelId ~= nil then lines[#lines + 1] = T("label.forced") end
+        end
         if data.tool == "move" then
             local target = Model.GetLocation(data.toolTargetId)
             if target ~= nil then lines[#lines + 1] = T("hint.move", { name = Model.DisplayName(target) }) end
@@ -577,6 +639,7 @@ function RegionMapPanel.Create(options)
         if confirmLayer ~= nil and not confirmLayer:HasClass("collapsed") then return "confirm" end
         if stopCard ~= nil and not stopCard:HasClass("collapsed") then return "stop" end
         if importLayer ~= nil and not importLayer:HasClass("collapsed") then return "import" end
+        if canvas ~= nil and canvas.data.hasLabelGesture() then return "gesture" end
         if data.popover ~= nil then return "popover" end
         if data.tool ~= "none" then return "tool" end
         if data.panelMode == "log" and logPanel ~= nil and logPanel.data.editing then return "edit" end
@@ -590,7 +653,8 @@ function RegionMapPanel.Create(options)
 
     -- Esc goes to the map's own layers first; with none open, only the host can take it (close).
     local function SyncEscape()
-        root.captureEscape = EscapeLayer() ~= nil or options.close ~= nil
+        root.captureEscape = (options.mode ~= "window" or options.active ~= false)
+            and (EscapeLayer() ~= nil or options.close ~= nil)
     end
 
     -- Refresh ------------------------------------------------------------------------------------
@@ -620,6 +684,19 @@ function RegionMapPanel.Create(options)
             if data.selectedId ~= nil and Model.GetLocation(data.selectedId) == nil then
                 data.selectedId, data.panelMode = nil, "none"
             end
+            if data.selectedLabelId ~= nil then
+                local row = RegionMapLabels.Snapshot(data.selectedLabelId)
+                if row == nil or map == nil or row.mapId ~= map.id then
+                    RegionMapLabels.CancelPending(data.selectedLabelId)
+                    data.selectedLabelId = nil
+                    if data.panelMode == "labelEdit" then data.panelMode = "none" end
+                    canvas:FireEvent("cancelGesture")
+                elseif data.panelMode == "labelEdit" and not RegionMapLabels.CanEdit(row) then
+                    RegionMapLabels.CancelPending(row.id)
+                    data.panelMode = "none"
+                    canvas:FireEvent("cancelGesture")
+                end
+            end
             -- A path that was deleted, hidden from this viewer, or left behind on another map.
             if data.panelMode == "path" or data.panelMode == "pathEdit" then
                 local path = RegionMapPaths.Get(data.selectedPathId)
@@ -640,6 +717,8 @@ function RegionMapPanel.Create(options)
             if data.panelMode == "party" and not RegionMapPartyPanel.Available(ctx) then data.panelMode = "none" end
             if data.tool == "move" and Model.GetLocation(data.toolTargetId) == nil then data.tool = "none" end
             if data.tool == "add" and (map == nil or not Model.CanAdd(map.id)) then data.tool = "none" end
+            if data.tool == "labelAdd" and (map == nil or not RegionMapLabels.CanAdd(map.id)) then data.tool = "none" end
+            if data.tool == "labelMove" and not RegionMapLabels.CanEdit(RegionMapLabels.Snapshot(data.toolTargetId)) then data.tool = "none" end
             if (data.tool == "ruler" or data.tool == "scale") and map == nil then data.tool = "none" end
             if data.tool == "scale" and not Model.IsDirector() then data.tool = "none" end
             -- Path tools need the Director on a point crawl map; Redraw line also its path.
@@ -668,13 +747,16 @@ function RegionMapPanel.Create(options)
             if map == nil then atlas:FireEvent("bind") else canvas:FireEvent("bind") end
             sidePanel:FireEvent("bind")
             pathPanel:FireEvent("bind")
+            labelPanel:FireEvent("bind")
             local artworkReader = nil
             if data.panelMode == "read" then artworkReader = root:Get("region-map-artwork-location-read")
             elseif data.panelMode == "path" then artworkReader = root:Get("region-map-artwork-path-read") end
             if artworkReader ~= nil and artworkReader:HasClass("collapsed") then artworkReader = nil end
-            if canvas.data.artworkReader ~= artworkReader then
+            local labelTool = data.tool == "labelAdd" or data.tool == "labelMove"
+            if canvas.data.artworkReader ~= artworkReader or canvas.data.labelTool ~= labelTool then
                 canvas.data.artworkReader = artworkReader
-                canvas.inputEvents = artworkReader ~= nil and { "enter" } or {}
+                canvas.data.labelTool = labelTool
+                canvas.inputEvents = (artworkReader ~= nil or labelTool) and { "enter" } or {}
             end
             partyPanel:FireEvent("bind")
             logPanel:FireEvent("bind")
@@ -701,12 +783,17 @@ function RegionMapPanel.Create(options)
     canvas = RegionMapCanvas.Create(ctx)
     -- Input events follow focus; selecting a pin or path leaves focus on the canvas.
     canvas.events.enter = function(element)
+        if element.hasFocus and (data.tool == "labelAdd" or data.tool == "labelMove") then
+            RegionMapCanvasTools.PlaceAt(ctx, Model.Clamp(data.camera.centerX, 0, 1), Model.Clamp(data.camera.centerY, 0, 1))
+            return
+        end
         local reader = element.data.artworkReader
         if ctx.IsAlive() and reader ~= nil and reader.valid then reader:FireEvent("enter") end
     end
     atlas = RegionMapAtlas.Create(ctx)
     sidePanel = RegionMapSidePanel.Create(ctx)
     pathPanel = RegionMapPathPanel.Create(ctx)
+    labelPanel = RegionMapLabelPanel.Create(ctx)
     partyPanel = RegionMapPartyPanel.Create(ctx)
     logPanel = RegionMapLogPanel.Create(ctx)
     popovers = RegionMapPopovers.Create(ctx)
@@ -715,11 +802,19 @@ function RegionMapPanel.Create(options)
 
     breadcrumb = gui.Panel { id = "region-map-breadcrumb", classes = { "regionMapBreadcrumb" }, floating = true }
 
-    searchButton = Session.IconButton("region-map-search", C.iconSearch, T("tb.search"), function()
+    searchButton = Session.IconButton("region-map-search", C.iconSearch, T("label.search"), function()
         ctx.SetPopover("search")
     end)
-    addButton = Session.IconButton("region-map-add", C.iconAdd, T("tb.add"), function()
-        ctx.SetTool("add")
+    addButton = Session.IconButton("region-map-add", C.iconAdd, T("tb.add"), function(element)
+        local map = ctx.CurrentMap()
+        if map == nil then return end
+        local location, label = Model.CanAdd(map.id), RegionMapLabels.CanAdd(map.id)
+        if location and label then
+            element.popup = Session.ContextMenu(element, { entries = {
+                { text = T("tb.add"), click = function() element.popup = nil; ctx.SetTool("add") end },
+                { text = T("label.add"), click = function() element.popup = nil; ctx.SetTool("labelAdd") end },
+            } })
+        elseif label then ctx.SetTool("labelAdd") elseif location then ctx.SetTool("add") end
     end)
     importButton = Session.IconButton("region-map-import-button", C.iconImport, T("tb.import"), function()
         ctx.ImportLocations()
@@ -736,16 +831,20 @@ function RegionMapPanel.Create(options)
     end)
     popOutButton = Session.IconButton("region-map-pop-out", C.iconPopOut, T("tb.popOut"), function()
         RunHostHook(options.popOut)
-    end)
+    end, { "regionMapHostControl" })
     popOutButton:SetClass("collapsed", options.popOut == nil)
     popInButton = Session.IconButton("region-map-pop-in", C.iconPopIn, T("tb.popIn"), function()
         RunHostHook(options.popIn)
-    end)
+    end, { "regionMapHostControl" })
     popInButton:SetClass("collapsed", options.popIn == nil)
     closeButton = Session.IconButton("region-map-close", C.iconClose, T("tb.close"), function()
         RunHostHook(options.close)
-    end)
-    closeButton:SetClass("collapsed", options.close == nil)
+    end, { "regionMapHostControl" })
+    closeButton:SetClass("collapsed", options.close == nil or options.mode == "window")
+    viewButton = Session.IconButton("region-map-view", C.iconWindow, T("tb.window"), function()
+        if ctx.IsAlive() and options.toggleView ~= nil then options.toggleView() end
+    end, { "regionMapHostControl" })
+    viewButton:SetClass("collapsed", options.toggleView == nil)
     settingsButton = Session.IconButton("region-map-settings", C.iconSettings, T("tb.settings"), function()
         ctx.SetPopover("settings")
     end)
@@ -765,7 +864,12 @@ function RegionMapPanel.Create(options)
         id = "region-map-toolbar", classes = { "regionMapToolbar" }, floating = true,
         -- Creation actions stay together; host controls end the row.
         searchButton, addButton, importButton, pathButton, lockButton, rulerButton, showButton, viewAsButton, logButton,
-        settingsButton, popOutButton, popInButton, closeButton,
+        rendered = function(_, width)
+            if type(width) == "number" and width > 0 then
+                breadcrumb.selfStyle.maxWidth = string.format("100%%-%d", math.ceil(width + C.chromeInset * 3))
+            end
+        end,
+        settingsButton, viewButton, popOutButton, popInButton, closeButton,
     }
 
     statusChip = gui.Label {
@@ -877,11 +981,14 @@ function RegionMapPanel.Create(options)
         styles = ThemeEngine.MergeStyles(Styles.Build()),
         popupsInheritStyles = true,
         thinkTime = C.rootThink,
-        escapePriority = options.close ~= nil and FULLSCREEN_PRIORITY or WINDOW_PRIORITY,
-        monitorAssets = MonitoredTables(C.locationTableName, C.detailsTableName, C.notesTableName, C.logTableName,
+        escapePriority = options.mode == "fullscreen" and FULLSCREEN_PRIORITY or WINDOW_PRIORITY,
+        monitorAssets = MonitoredTables(C.locationTableName, C.labelTableName, C.detailsTableName, C.notesTableName, C.logTableName,
             C.pathTableName),
         monitorGame = { Model.StatePath(), GameHud.PresentDialogPath() },
         data = {},
+        press = function(element)
+            if element:GetMouseButton(0) then Session.CloseContextMenu() end
+        end,
         create = function(element)
             Styles.Subscribe(element)
             -- Players open on their last map (D13c); otherwise the first map, else the Atlas.
@@ -896,6 +1003,24 @@ function RegionMapPanel.Create(options)
             RegionMapLog.EnforceCap()
         end,
         requestClose = function(_, continue) RunHostHook(continue) end,
+        regionMapHostMode = function(element, mode)
+            canvas:FireEvent("cancelGesture")
+            options.mode = mode
+            element.escapePriority = mode == "fullscreen" and FULLSCREEN_PRIORITY or WINDOW_PRIORITY
+            closeButton:SetClass("collapsed", options.close == nil or mode == "window")
+            Session.SetIconButton(viewButton, T(mode == "window" and "tb.fullscreen" or "tb.window"),
+                mode == "window" and C.iconFullscreen or C.iconWindow)
+            QueueRefresh(0.01)
+            SyncEscape()
+        end,
+        regionMapHostActive = function(_, active)
+            options.active = active
+            SyncEscape()
+        end,
+        regionMapHostFocus = function(element, from, direction)
+            if options.mode == "native" then Session.FocusHostControl(element, from, direction) end
+        end,
+        rendered = function() QueueRefresh(0.01) end,
         destroy = function(element)
             ctx.FlushEdits()
             Model.SetViewAsPlayer(false)
@@ -930,7 +1055,9 @@ function RegionMapPanel.Create(options)
         -- and at the Atlas close the fullscreen map (a window closes itself there instead).
         escape = function()
             local layer = EscapeLayer()
-            if layer == "confirm" then
+            if layer == "gesture" then
+                canvas:FireEvent("cancelGesture")
+            elseif layer == "confirm" then
                 CloseConfirm()
             elseif layer == "stop" then
                 stopCard.data.close()
@@ -946,6 +1073,8 @@ function RegionMapPanel.Create(options)
                 logPanel:FireEvent("closeEditor")
             elseif layer == "edit" and data.panelMode == "pathEdit" then
                 ctx.SelectPath(data.selectedPathId, "path")
+            elseif layer == "edit" and data.panelMode == "labelEdit" then
+                ctx.SelectLabel(nil)
             elseif layer == "edit" then
                 ctx.Select(data.selectedId, "read")
             elseif layer == "panel" and data.panelMode == "log" then
@@ -964,7 +1093,7 @@ function RegionMapPanel.Create(options)
             end
         end,
 
-        canvas, atlas, breadcrumb, toolbar, banners, statusChip, sidePanel, pathPanel, partyPanel, logPanel, popovers,
+        canvas, atlas, breadcrumb, toolbar, banners, statusChip, sidePanel, pathPanel, labelPanel, partyPanel, logPanel, popovers,
         toast, importLayer, stopCard, confirmLayer,
     }
     ctx.root = root

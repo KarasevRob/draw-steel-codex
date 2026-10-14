@@ -71,6 +71,7 @@ end
 local function ConfirmDelete(ctx, location)
     local count = Model.VisibleDescendantCount(location.id)
     local paths = PathCount(SubtreeIds(location, true))
+    local labels = #RegionMapLabels.OnMaps(SubtreeIds(location, true))
     local function Delete()
         WhenNotBusy(ctx, function() return Model.DeleteLocation(location.id) end, function(ok, reason, entry, deleted)
             if not ctx.Report(ok, reason) then return end
@@ -91,6 +92,7 @@ local function ConfirmDelete(ctx, location)
     local lines = {}
     if count > 0 then lines[#lines + 1] = T("dlg.delete.body", { count = count }) end
     if paths > 0 then lines[#lines + 1] = T("dlg.delete.paths", { count = paths }) end
+    if labels > 0 then lines[#lines + 1] = T("label.deleteCount", { count = labels }) end
     local parent = Model.GetLocation(location.parentId)
     if parent ~= nil and PartyInside(location.id) then
         lines[#lines + 1] = T("dlg.delete.party", { map = DisplayName(parent) })
@@ -118,6 +120,8 @@ local function ConfirmRemoveMap(ctx, location)
     if count > 0 then body = T("dlg.removeMap.body", { count = count }) else body = T("dlg.removeMap.body.empty") end
     local paths = PathCount(SubtreeIds(location, false))
     if paths > 0 then body = body .. "\n" .. T("dlg.delete.paths", { count = paths }) end
+    local labels = #RegionMapLabels.OnMaps(SubtreeIds(location, true))
+    if labels > 0 then body = body .. "\n" .. T("label.deleteCount", { count = labels }) end
     ctx.Confirm {
         title = T("dlg.removeMap.title", { name = DisplayName(location) }),
         message = body,
@@ -718,6 +722,11 @@ function RegionMapSidePanel.Create(ctx)
 
     local pickTitle = gui.Label { classes = { "regionMapSideTitle" }, text = "" }
     local pickHint = Label({ "regionMapHint" })
+    local pickHiddenNotice = gui.Label {
+        id = "region-map-add-map-hidden-notice",
+        classes = { "regionMapModeDesc", "bold", "collapsed" }, tmargin = 4, bmargin = 6,
+        text = T("map.new.hidden"), interactable = false,
+    }
     local pickImage = gui.IconEditor {
         width = "100%", height = 150, library = "journal", categoriesHidden = true,
         -- A "none image" hides the editor's "(none)" label; it still reads back as "".
@@ -775,6 +784,7 @@ function RegionMapSidePanel.Create(ctx)
             end),
         },
         pickHint,
+        pickHiddenNotice,
         pickModeLabel,
         pickModeChoice,
         pickModeName,
@@ -801,6 +811,7 @@ function RegionMapSidePanel.Create(ctx)
     local function BindPick(location)
         local mode = data.panelMode
         local adding = data.pickKind == "add" and (mode == "pickMode" or mode == "pickImage")
+        pickHiddenNotice:SetClass("collapsed", not adding)
         pickImageSlot:SetClass("collapsed", mode ~= "pickImage")
         pickSizeHint:SetClass("collapsed", mode ~= "pickImage")
         pickList:SetClass("collapsed", mode == "pickImage" or mode == "pickMode")

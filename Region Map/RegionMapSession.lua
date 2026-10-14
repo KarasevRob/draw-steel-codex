@@ -22,11 +22,12 @@ local Model = RegionMapModel
 --- @field mapId nil|string the open map; nil shows the Atlas
 --- @field selectedId nil|string the Location in the side panel
 --- @field selectedPathId nil|string the path in the path panel (panelMode "path")
---- @field panelMode "none"|"read"|"edit"|"pickMode"|"pickImage"|"pickMap"|"pickJournal"|"log"|"path"|"pathEdit"|"pickPathEnd"|"party" "log" is the session log panel; "path", "pathEdit" and "pickPathEnd" (Connect to...) show in the path panel; "party" is the Party section (V21-17)
+--- @field selectedLabelId nil|string selected map lettering, including a local creation draft
+--- @field panelMode "none"|"read"|"edit"|"pickMode"|"pickImage"|"pickMap"|"pickJournal"|"log"|"path"|"pathEdit"|"pickPathEnd"|"party"|"labelEdit"
 --- @field pickKind nil|"add"|"replace" what pickImage does with the image
 --- @field newMapMode nil|"free"|"pointcrawl" the kind picked for Add map (A1), until its image is chosen
 --- @field locked boolean pins cannot be dragged (R6); per viewer, true on every map open
---- @field tool "none"|"add"|"move"|"ruler"|"scale"|"path"|"redraw" "add", "ruler" and "path" stay on until Esc (R10, R7, V21-11)
+--- @field tool "none"|"add"|"move"|"ruler"|"scale"|"path"|"redraw"|"labelAdd"|"labelMove"
 --- @field toolTargetId nil|string the Location "move" places, or the path "redraw" redraws
 --- @field pathDraft nil|RegionMapPathDraft the line the Path tool or Redraw line is drawing
 --- @field camera RegionMapCamera
@@ -76,6 +77,9 @@ local Model = RegionMapModel
 --- @field GoUp fun()
 --- @field Select fun(id: nil|string, mode: nil|string)
 --- @field SelectPath fun(id: nil|string, mode: nil|"path"|"pathEdit") show a path in the path panel; nil closes it
+--- @field SelectLabel fun(id: nil|string, edit?: boolean)
+--- @field CreateLabel fun(u: number, v: number)
+--- @field FocusLabel fun(id: string, edit?: boolean)
 --- @field SetTool fun(tool: string, targetId: nil|string)
 --- @field RefreshAll fun()
 --- @field FlushEdits fun()
@@ -92,6 +96,26 @@ local Model = RegionMapModel
 --- @field FocusLocation fun(id: string) open the map a Location is on, center it and select it (Search)
 --- @field SetPopover fun(popover: nil|"search"|"settings") open or close a toolbar popover
 --- @field ToggleLog fun() open or close the session log panel
+
+local contextMenuOwner = nil --- @type Panel|nil
+local contextMenu = nil --- @type Panel|nil
+
+--- Canvas presses keep native popups open, so dismiss the mod's menu explicitly.
+function RegionMapSession.CloseContextMenu()
+    local owner, menu = contextMenuOwner, contextMenu
+    contextMenuOwner, contextMenu = nil, nil
+    if owner ~= nil and owner.valid and owner.popup == menu then owner.popup = nil end
+end
+
+--- @param owner Panel
+--- @param args table
+--- @return Panel|nil
+function RegionMapSession.ContextMenu(owner, args)
+    RegionMapSession.CloseContextMenu()
+    local menu = gui.ContextMenu(args)
+    if menu ~= nil then contextMenuOwner, contextMenu = owner, menu end
+    return menu
+end
 
 -- Preferences (per viewer and game) ------------------------------------------------------------
 
@@ -112,6 +136,51 @@ end
 
 local function WritePreferences(prefs)
     dmhub.SetSettingValue(C.preferencesSettingId, prefs)
+end
+
+--- @return "fullscreen"|"window"
+function RegionMapSession.InAppView()
+    return Preferences().inAppView == "window" and "window" or "fullscreen"
+end
+
+--- @param mode "fullscreen"|"window"
+function RegionMapSession.SetInAppView(mode)
+    if mode ~= "fullscreen" and mode ~= "window" then return end
+    local prefs = ReadPreferences()
+    if prefs.inAppView == mode then return end
+    prefs.inAppView = mode
+    WritePreferences(prefs)
+end
+
+--- Geometry is in unscaled UI units; the host converts it through WindowUIScale.
+--- @class RegionMapWindowGeometry
+--- @field x number
+--- @field y number
+--- @field width number
+--- @field height number
+
+local function ValidWindowGeometry(value)
+    return type(value) == "table" and Model.IsFinite(value.x) and Model.IsFinite(value.y)
+        and Model.IsFinite(value.width) and Model.IsFinite(value.height)
+        and value.width > 0 and value.height > 0
+end
+
+--- @return nil|RegionMapWindowGeometry
+function RegionMapSession.ReadWindowGeometry()
+    local value = Preferences().windowGeometry
+    if not ValidWindowGeometry(value) then return nil end
+    return { x = value.x, y = value.y, width = value.width, height = value.height }
+end
+
+--- @param value RegionMapWindowGeometry
+function RegionMapSession.SaveWindowGeometry(value)
+    if not ValidWindowGeometry(value) then return end
+    local prefs = ReadPreferences()
+    local old = prefs.windowGeometry
+    if ValidWindowGeometry(old) and old.x == value.x and old.y == value.y
+        and old.width == value.width and old.height == value.height then return end
+    prefs.windowGeometry = { x = value.x, y = value.y, width = value.width, height = value.height }
+    WritePreferences(prefs)
 end
 
 -- Cameras are keyed by map and image revision, so a replaced image starts fitted.
@@ -191,6 +260,7 @@ end
 
 -- "Show names" forces every pin name visible (R9).
 RegionMapSession.ShowNames, RegionMapSession.SetShowNames = OnOffPreference("showNames", false)
+RegionMapSession.ShowLabels, RegionMapSession.SetShowLabels = OnOffPreference("showLabels", true)
 -- "Reduce motion" turns off the map transitions and the control fade (R9).
 RegionMapSession.ReduceMotion, RegionMapSession.SetReduceMotion = OnOffPreference("reduceMotion", false)
 -- "Show route" draws the Party's past route from the session log (D14d).
@@ -202,6 +272,18 @@ function RegionMapSession.LastPinStyle()
     local style = Preferences().lastPinStyle
     if type(style) ~= "table" then return {} end
     return DeepCopy(style)
+end
+
+function RegionMapSession.LastLabelFormat()
+    return RegionMapLabels.Format(Preferences().lastLabelFormat)
+end
+
+function RegionMapSession.RememberLabelFormat(row)
+    local value = RegionMapLabels.Format(row)
+    local prefs = ReadPreferences()
+    if dmhub.DeepEqual(prefs.lastLabelFormat, value) then return end
+    prefs.lastLabelFormat = value
+    WritePreferences(prefs)
 end
 
 --- Remember a Location's look as the style for the next new pin.
@@ -275,8 +357,12 @@ end
 --- @return Panel
 function RegionMapSession.IconButton(id, icon, tooltip, action, classes)
     local allClasses = { "regionMapIconButton" }
-    for _, class in ipairs(classes or {}) do allClasses[#allClasses + 1] = class end
-    return gui.Panel {
+    local keyboard = false
+    for _, class in ipairs(classes or {}) do
+        allClasses[#allClasses + 1] = class
+        if class == "regionMapHostControl" then keyboard = true end
+    end
+    local args = {
         id = id,
         classes = allClasses,
         bgimage = "panels/square.png",
@@ -289,8 +375,39 @@ function RegionMapSession.IconButton(id, icon, tooltip, action, classes)
         click = function(element)
             if not mod.unloaded and not element:HasClass("disabled") then action(element) end
         end,
-        gui.Panel { classes = { "regionMapIconGlyph" }, bgimage = icon, interactable = false },
     }
+    if not keyboard then
+        args[1] = gui.Panel { classes = { "regionMapIconGlyph" }, bgimage = icon, interactable = false }
+        return gui.Panel(args)
+    end
+    -- The engine already handles Tab and clicks focused panels on Enter/Space release.
+    args.canFocus = true
+    args.swallowPress = true
+    args.icon = icon
+    local button = gui.Button(args)
+    button.children[1].interactable = false
+    return button
+end
+
+--- Tab between the visible host controls; called only from the canvas or a host button.
+--- @param root Panel
+--- @param from nil|Panel
+--- @param direction number
+function RegionMapSession.FocusHostControl(root, from, direction)
+    local controls = {}
+    local index = direction > 0 and 0 or 1
+    for _, button in ipairs(root:GetChildrenWithClassRecursive("regionMapHostControl")) do
+        if button.enabled and not button:HasClass("disabled") then
+            controls[#controls + 1] = button
+            if button == from then index = #controls end
+        end
+    end
+    local canvas = root:Get("region-map-canvas")
+    if canvas ~= nil and canvas.enabled then
+        controls[#controls + 1] = canvas
+        if canvas == from then index = #controls end
+    end
+    if #controls > 0 then gui.SetFocus(controls[(index - 1 + direction) % #controls + 1]) end
 end
 
 --- @param button Panel an IconButton

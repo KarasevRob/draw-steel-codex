@@ -46,6 +46,11 @@ tool mode. Every V1 capability is either kept, relocated, or listed as removed (
   and follows it) or free on a map ("travelling") (D4d). It has a custom name (D11b).
 - **Visibility**: a pin is Hidden (Director only) or Revealed (D9a). A Location's own map
   has a separate "Map shared" state (D9b).
+- **Atlas sharing feedback (R18)**: Directors see a read-only Hidden/Revealed badge
+  on each map thumbnail, based on `mapShared`, independently of pin visibility.
+  Both steps of New map and Add map show "New maps are hidden from players until
+  you share them." inline. Replace map image keeps its sharing state and omits
+  this notice. The creation card grows to fit the wrapped notice.
 - Content: short plain-text description, optional journal link for deep lore, separate
   Director notes (D6c).
 - Per-map **scale** for the ruler (D14c). **Session log** entries (D14d).
@@ -256,6 +261,7 @@ description, journal link; Director notes stay Director-only.
 | 2026-10-05 | R15 | Session log keeps the newest 500 entries per game; the Director's client deletes older ones on open | Bounded storage over a long campaign |
 | 2026-10-05 | R16 | If players cannot write data tables, their Locations and log entries go in a shared document; Director content stays in tables | Fallback for the first build check (TECH_TASK_V2 V2-00) |
 | 2026-10-06 | R17 | V1 may break and is replaced wholly by V2; V1 data is dropped (no migration). Supersedes C (migration part) and D4e; `migrate.done` is dropped from the copy | User decision; the only V1 content was test data |
+| 2026-10-14 | R18 | Atlas cards explicitly show Hidden/Revealed to the Director, from map sharing. New map and Add map show the approved hidden-by-default notice inline on both steps | User requested both states and selected an inline notice over an extra confirmation; sharing rules remain unchanged |
 
 ## 10b. Critique round (2026-10-05) - decided
 

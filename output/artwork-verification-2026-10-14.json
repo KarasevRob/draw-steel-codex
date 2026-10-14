@@ -1,0 +1,111 @@
+{
+  "date": "2026-10-14",
+  "isolatedChecksPassed": 27,
+  "luaSyntaxAndAsciiFilesPassed": 28,
+  "copyStringsMatched": 12,
+  "typeChecks": {
+    "regionMapDiagnostics": 0,
+    "fullWorkspaceRegionMapDiagnostics": 0,
+    "fullWorkspaceOtherDiagnostics": 11049,
+    "historicalBaselineAvailable": false
+  },
+  "live": {
+    "fontRestored": true,
+    "fixtureCleanupConfirmed": true,
+    "registration": true,
+    "partyUnchanged": true,
+    "matrix": [
+      {
+        "font": 80,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "default",
+        "size": "720x480"
+      },
+      {
+        "font": 100,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "default",
+        "size": "720x480"
+      },
+      {
+        "font": 140,
+        "frameW": 486.88720703125,
+        "frameH": 160,
+        "scheme": "default",
+        "size": "720x480"
+      },
+      {
+        "font": 80,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "warm-gold",
+        "size": "720x480"
+      },
+      {
+        "font": 100,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "warm-gold",
+        "size": "720x480"
+      },
+      {
+        "font": 140,
+        "frameW": 486.88720703125,
+        "frameH": 160,
+        "scheme": "warm-gold",
+        "size": "720x480"
+      },
+      {
+        "font": 80,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "default",
+        "size": "1000x800"
+      },
+      {
+        "font": 100,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "default",
+        "size": "1000x800"
+      },
+      {
+        "font": 140,
+        "frameW": 686.0595703125,
+        "frameH": 160,
+        "scheme": "default",
+        "size": "1000x800"
+      },
+      {
+        "font": 80,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "warm-gold",
+        "size": "1000x800"
+      },
+      {
+        "font": 100,
+        "frameW": 292,
+        "frameH": 160,
+        "scheme": "warm-gold",
+        "size": "1000x800"
+      },
+      {
+        "font": 140,
+        "frameW": 686.0595703125,
+        "frameH": 160,
+        "scheme": "warm-gold",
+        "size": "1000x800"
+      }
+    ],
+    "schemeRestored": true
+  },
+  "remaining": [
+    "Separate player client and restricted player asset access",
+    "Real delayed uploads and deliberately slow network recovery",
+    "Native OS keyboard delivery and final native viewer screenshot"
+  ],
+  "nativePreviewScreenshot": "C:/Users/ElderHex/AppData/Local/Temp/codex-shot-2026-10-14_03-45-18.png"
+}

@@ -76,16 +76,21 @@ function RegionMapAtlas.Create(ctx)
         local pointcrawl = gui.Label {
             classes = { "regionMapChip", "regionMapThumbChip", "collapsed" }, text = T("chip.pointcrawl"), interactable = false,
         }
-        local thumb = gui.Panel { classes = { "regionMapCardThumb" }, interactable = false, pointcrawl }
+        local sharing = gui.Label {
+            id = "region-map-atlas-sharing-" .. id,
+            classes = { "regionMapChip", "regionMapThumbChip", "collapsed" },
+            floating = true, valign = "bottom", tmargin = 0, bmargin = 4,
+            text = "", interactable = false,
+        }
+        local thumb = gui.Panel { classes = { "regionMapCardThumb" }, interactable = false, pointcrawl, sharing }
         local name = gui.Label { classes = { "regionMapCardName" }, text = "", interactable = false }
         local count = gui.Label { classes = { "regionMapCardText" }, text = "", interactable = false }
         local party = gui.Label { classes = { "regionMapChip", "collapsed" }, text = T("atlas.card.party"), interactable = false }
-        local notShared = gui.Label { classes = { "regionMapChip", "collapsed" }, text = T("atlas.card.notShared"), interactable = false }
         return gui.Panel {
             id = "region-map-atlas-card-" .. id,
             classes = { "regionMapCard" },
             data = {
-                id = id, thumb = thumb, name = name, count = count, party = party, notShared = notShared,
+                id = id, thumb = thumb, name = name, count = count, party = party, sharing = sharing,
                 pointcrawl = pointcrawl, imageId = nil, actions = actions,
             },
             hover = function(element)
@@ -98,7 +103,7 @@ function RegionMapAtlas.Create(ctx)
             rightClick = ShowActions,
             thumb,
             name,
-            gui.Panel { classes = { "regionMapCardMeta" }, count, party, notShared },
+            gui.Panel { classes = { "regionMapCardMeta" }, count, party },
             actions,
         }
     end
@@ -124,7 +129,8 @@ function RegionMapAtlas.Create(ctx)
             local visible = Model.VisibleDescendantCount(map.id)
             SetText(card.data.count, T("atlas.card.count", { count = visible }))
             card.data.party:SetClass("collapsed", party == nil or not Model.IsInSubtree(map.id, party.mapId))
-            card.data.notShared:SetClass("collapsed", not director or map.mapShared)
+            SetText(card.data.sharing, T(map.mapShared and "atlas.card.revealed" or "atlas.card.hidden"))
+            card.data.sharing:SetClass("collapsed", not director)
             card.data.pointcrawl:SetClass("collapsed", not Model.IsPointCrawl(map))
             card.data.actions:SetClass("collapsed", not director)
             card:SetClass("notShared", director and not map.mapShared)
@@ -200,7 +206,13 @@ function RegionMapAtlas.Create(ctx)
     }
     newCard = gui.Panel {
         classes = { "regionMapCard" },
+        height = "auto", minHeight = C.atlasCardHeight,
         data = { step = "mode", mode = nil },
+        gui.Label {
+            id = "region-map-atlas-hidden-notice",
+            classes = { "regionMapModeDesc", "bold" }, tmargin = 4, bmargin = 6,
+            text = T("map.new.hidden"), interactable = false,
+        },
         newModeStep,
         newImageStep,
     }
