@@ -300,7 +300,7 @@ Path tool, Ruler and View as player stay in the map toolbar, outside the Atlas m
 | log.editNote | Edit note | Entry action, Director |
 | log.deleteEntry | Delete entry | Entry action, Director |
 | log.undoLast | Undo last change | R9 |
-| log.showRoute | Show route | Toggle for the drawn past route |
+| log.showRoute | Show route | Toggle for the drawn past route; off by default; above the entries |
 | log.empty | No travel yet. Entries appear when the Party moves. | |
 
 ## 16. Limits, load and migration
@@ -431,15 +431,26 @@ New glossary rows:
 | import.text.tooLong | This text exceeds 100,000 characters. Shorten it or choose a JSON file. | Reject before parsing |
 | import.unavailable | This map is no longer available for import. | Preserve draft |
 | import.permission | Only the Director can import locations. | Rechecked before preview and commit |
-| import.help | JSON contract | Scrollable code beside editor, below it when narrow |
-| import.copyContract | Copy contract | Copies the entire displayed schema without changing the draft |
+| import.help | JSON contract | Swagger-style field reference beside editor, below it when narrow |
+| import.copyContract | Copy contract | Copies all fields and rules as plain text without changing the draft |
 | import.copied | Copied | Button feedback for two seconds |
-| import.contract | JSON Schema 2020-12: LocationImport | Literal JSON in `RegionMapCopy.lua`; display and clipboard share the same text |
+| import.help.shape | Location[] \| { locations: Location[] } | Two accepted payload shapes |
+| import.help.required | * required; all other fields optional. | `name` carries the asterisk |
+| import.help.name | 1..{limit} chars; trimmed; single line. | Shared name limit: 256 |
+| import.help.description | maxLength: {limit}; default: "". / Visible when revealed. | Description limit; slash is a line break |
+| import.help.note | maxLength: {limit}; default: "". / Director only. | Director note limit |
+| import.help.icon | enum: {icons} / Omitted: default pin. | Curated icon keys from Constants |
+| import.help.pinStyle | enum: iconName \| plate \| iconOnly / default: iconName | |
+| import.help.importance | enum: major \| normal \| minor / default: normal | |
+| import.help.visibility | enum: hidden \| revealed / default: hidden | |
+| import.help.u | 0..1; left -> right; requires v. | |
+| import.help.v | 0..1; top -> bottom; requires u. | |
+| import.help.behavior | Scope: Director; selected map; flat Locations. / Write: append; duplicate names warn; one Undo. / Unknown fields: ignored. Invalid entries: skipped. / Missing u/v: centered grid. / Text: trim; CRLF/CR -> LF; no other controls except TAB. / Limits: Unicode chars; paste {limit}; files uncapped. | Terse operational rules below fields |
 
-`import.contract` replaces the prose `import.help.*` strings (2026-10-14). It defines the
-two root shapes, Location fields, enums, defaults, coordinate dependencies, text
-normalization and append/skip semantics. `name.maxLength` is 256. Descriptions are terse
-developer notes; the `x-import` block records import behavior and paste/file limits.
+The helper uses Swagger as its visual reference (2026-10-14): monospaced field names,
+type labels, a required marker and separated field rows. Standard field names and
+`string`/`number` type keywords are shown verbatim. The clipboard assembles the same
+fields and terse descriptions as plain text. It contains no OpenAPI document.
 
 `import.example` is plain JSON with two entries under `locations`. Kell's Ferry has
 `icon: port`, `pinStyle: iconName`, `importance: major`, `visibility: hidden`, `u: 0.42`,
@@ -593,3 +604,25 @@ Name, Description and Visibility reuse `edit.name`, `edit.desc`, `edit.desc.plac
 8. *Made while building P6; signed off by the user 2026-10-10.* Leaving from partway, the toast
    is the log line (`log.leg.on`, `log.leg.back`) instead of `toast.traveled`, whose
    "from {from}" would name an end the Party did not set out from on that leg.
+
+## 26. Location and path image attachments
+
+Approved in the implementation plan on 2026-10-14. Shared by both detail panels.
+
+| ID | String | When / notes |
+|---|---|---|
+| artwork.section | Image | Director edit section, before Description |
+| artwork.open | Open image | Local viewer; same action as clicking the preview |
+| artwork.choose | Choose image... | No attachment |
+| artwork.replace | Replace image... | Existing or malformed attachment |
+| artwork.remove | Remove image | Clears the reference, with Undo |
+| artwork.loading | Loading image... | Within the reserved preview frame |
+| artwork.unavailable | Image unavailable. | Missing/unreadable/video asset or load timeout |
+| artwork.retry | Retry | Fresh load or guarded failed write |
+| artwork.still | Choose a still image. | Video candidate rejected; old attachment retained |
+| artwork.updated | Image updated | Confirmed attach/replace, with one Undo entry |
+| artwork.removed | Image removed | Confirmed removal, with one Undo entry |
+| artwork.changed | Image changed. Choose again. | A newer attachment wins over a delayed chooser/write |
+
+Save status and save-failure feedback reuse `edit.saving`, `edit.notSaved`,
+`toast.saveFailed`, and the existing Retry/Undo controls.

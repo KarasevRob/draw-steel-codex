@@ -625,6 +625,8 @@ function RegionMapPanel.Create(options)
                 local path = RegionMapPaths.Get(data.selectedPathId)
                 if path == nil or map == nil or path.mapId ~= map.id then
                     data.selectedPathId, data.panelMode = nil, "none"
+                elseif data.panelMode == "pathEdit" and not Model.IsDirector() then
+                    data.panelMode = "path"
                 end
             end
             -- Connect to... joins pins of the open map only, and only the Director's.
@@ -666,6 +668,14 @@ function RegionMapPanel.Create(options)
             if map == nil then atlas:FireEvent("bind") else canvas:FireEvent("bind") end
             sidePanel:FireEvent("bind")
             pathPanel:FireEvent("bind")
+            local artworkReader = nil
+            if data.panelMode == "read" then artworkReader = root:Get("region-map-artwork-location-read")
+            elseif data.panelMode == "path" then artworkReader = root:Get("region-map-artwork-path-read") end
+            if artworkReader ~= nil and artworkReader:HasClass("collapsed") then artworkReader = nil end
+            if canvas.data.artworkReader ~= artworkReader then
+                canvas.data.artworkReader = artworkReader
+                canvas.inputEvents = artworkReader ~= nil and { "enter" } or {}
+            end
             partyPanel:FireEvent("bind")
             logPanel:FireEvent("bind")
             popovers:FireEvent("bind")
@@ -689,6 +699,11 @@ function RegionMapPanel.Create(options)
 
     present = RegionMapPresent.Create(ctx)
     canvas = RegionMapCanvas.Create(ctx)
+    -- Input events follow focus; selecting a pin or path leaves focus on the canvas.
+    canvas.events.enter = function(element)
+        local reader = element.data.artworkReader
+        if ctx.IsAlive() and reader ~= nil and reader.valid then reader:FireEvent("enter") end
+    end
     atlas = RegionMapAtlas.Create(ctx)
     sidePanel = RegionMapSidePanel.Create(ctx)
     pathPanel = RegionMapPathPanel.Create(ctx)

@@ -147,26 +147,16 @@ designed, approved or scheduled. The open ideas are ranked at the end.
     native OS close, app exit and Lua reload cannot prompt. See
     [docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md) and [tests/README.md](tests/README.md).
 
-19. **Image attachments for Locations and paths.** *Added 2026-10-14.* Attach scene or
-    reference artwork to a Location or a point crawl path, such as a settlement view,
-    landmark illustration or road scene, so it is at hand while preparing or running play.
-    - **Agreed behavior (clarified 2026-10-14):** the Director or a player clicks the
-      attached image to view it on their own client, and can close and reopen it
-      independently. The user explicitly excluded the present ability; this supersedes
-      the earlier optional "Show to players" scope.
-    - **Existing pieces:** the side panel already uses the journal image library picker
-      (`RegionMapSidePanel.lua:663`). A Location's `imageId` means its own map, and `icon`
-      means its pin image; artwork needs a separate reference. Path records currently have
-      no image field (`RegionMapRecords.lua`). The existing local image viewer can open
-      artwork in the originating window through `ViewJournalEntry` with an `owner`.
-    - **Open decisions:** one attachment or several; where its preview and open action
-      appear; who can attach or replace it; how artwork access follows Location/path
-      visibility and image-library permissions. Independent viewing by players is settled.
-    - **Research (2026-10-14):** the user requested investigation as the next feature.
-      [Artwork attachment research](docs/ARTWORK_RESEARCH.md) records the existing APIs,
-      revised local-viewing scope, permission constraints, decision map and validation
-      needs. The old presentation estimate is superseded. The behavior above is agreed;
-      the full design is not locked.
+19. **Image attachments for Locations and paths.** *Implemented and deployed 2026-10-14.* One
+    optional still image per object, managed only by the Director. Both roles open it
+    locally from a fitted 160-pixel preview before the description. Visibility follows
+    the object and path endpoints; the library asset is retained on removal. Includes
+    Undo, guarded picker/upload callbacks, loading timeout, late recovery and Retry.
+    No gallery, captions, external URL field, JSON import or presentation.
+    [Artwork attachment research](docs/ARTWORK_RESEARCH.md) records the accepted plan;
+    [artwork checks](tests/ARTWORK.md) record 27 isolated checks, live picker/Undo/visibility
+    and keyboard checks, and native layout measurements. Separate player-client and
+    deliberately slow network/asset checks remain unverified.
 
 ## Open ideas, ranked
 

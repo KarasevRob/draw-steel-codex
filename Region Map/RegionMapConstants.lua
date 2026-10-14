@@ -52,6 +52,8 @@ RegionMapConstants.scaleUnits = { "mi", "km" }
 RegionMapConstants.imageMinWidth = 1500             -- narrower blurs as soon as it is zoomed in
 RegionMapConstants.imageRecommendedWidth = 4000     -- shown in the hint and the warnings
 RegionMapConstants.imageMaxWidth = 12000            -- wider loads slowly for players
+RegionMapConstants.artworkHeight = 160
+RegionMapConstants.artworkTimeout = 10
 
 -- Map borders (V2.1 K1), in the order of the Settings tiles. A new map takes the
 -- border the Director picked last, Soft fade before any pick (K5, K8).

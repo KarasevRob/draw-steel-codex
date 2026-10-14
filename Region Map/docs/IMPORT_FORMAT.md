@@ -9,10 +9,11 @@ the top toolbar, or use **Import locations** in an Atlas card's "..." menu.
 
 - Paste JSON into the editor, then choose **Preview**, or use **Choose file...** to go
   straight to a file preview. **Into {map}** identifies the destination.
-- **JSON contract** shows the import schema beside the editor, with types, required fields,
-  enums, defaults, limits and coordinate dependencies. **Copy contract** copies the full
-  schema, including offscreen text, and briefly reads **Copied**. It never changes the draft.
-  The code area scrolls; in narrow windows it sits below the editor. Import action buttons
+- **JSON contract** shows a Swagger-style field reference beside the editor: field names,
+  types, a required marker, enums, defaults, limits and coordinate dependencies.
+  **Copy contract** copies the full reference as plain text, including offscreen fields,
+  and briefly reads **Copied**. It never changes the draft. The reference scrolls; in
+  narrow windows it sits below the editor. Import action buttons
   remain outside the scrolling body.
 - **Fill with example** inserts two hidden Locations: one with every supported field,
   and one with only a name. It asks before replacing nonempty text. The example contains
@@ -73,12 +74,9 @@ Only `name` is required. Unknown fields are ignored.
 
 `u` and `v` go together: give both or neither.
 
-The copyable contract uses JSON Schema 2020-12, compatible with the
-[OpenAPI 3.1 Schema Object](https://spec.openapis.org/oas/v3.1.1.html#schema-object).
-`RegionMapCopy.strings["import.contract"]` is the single source for display and clipboard.
-It describes canonical payloads; the importer trims names and text, normalizes text line
-endings, and skips invalid entries during preview. The `x-import` annotations document
-these import semantics. This is a payload schema, with no HTTP endpoint implied.
+The field reference and clipboard text use the same field definitions and copy. Limits
+come from the importer's constants. Swagger is the visual reference; the helper presents
+readable fields and rules, without an OpenAPI or JSON Schema document.
 
 ## What the preview checks
 

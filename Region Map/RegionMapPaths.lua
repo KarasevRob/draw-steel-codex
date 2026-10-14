@@ -461,7 +461,7 @@ end
 
 -- Upload one path row built from current (nil to create) plus changes; the undo step or nil.
 local function WritePath(current, changes, description, callbacks)
-    local record = current and DeepCopy(current) or RegionMapPathRecord.new { revision = 0 }
+    local record = current and DeepCopy(current) or RegionMapPathRecord.new { revision = 0, artworkImageId = "" }
     for key, value in pairs(changes) do record[key] = value end
     local revision = R.NextRevision(record)
     if revision == nil then return nil end
@@ -514,6 +514,8 @@ local function NormalizeFields(fields)
         elseif key == "note" then
             value = R.NormalizeMultiline(value, C.noteLimit, C.noteByteLimit)
             if value == nil then return nil end
+        elseif key == "artworkImageId" then
+            if not R.ValidArtwork(value) then return nil end
         elseif key == "visibility" then
             if not R.visibilities[value] then return nil end
         elseif key == "bends" then
@@ -536,6 +538,7 @@ end
 --- @field back nil|"same"|"different"|"none"
 --- @field backTime nil|number
 --- @field description nil|string
+--- @field artworkImageId nil|string
 --- @field note nil|string
 --- @field visibility nil|"hidden"|"revealed"
 --- @field bends nil|RegionMapBend[]
@@ -576,16 +579,21 @@ end
 --- @param id string
 --- @param changes RegionMapPathFields
 --- @param description nil|string
+--- @param retryArtwork nil|RegionMapWrite the failed artwork upload being explicitly retried
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
-function RegionMapPaths.UpdatePath(id, changes, description)
+function RegionMapPaths.UpdatePath(id, changes, description, retryArtwork)
     local current = RegionMapPaths.Get(id)
     if current == nil then return false, "invalid", nil end
     if mod.unloaded or not Model.IsDirector() then return false, "permission", nil end
     if R.PendingWrite(C.pathTableName, id) then return false, "busy", nil end
     local normalized = NormalizeFields(changes)
     if normalized == nil then return false, "invalid", nil end
+    if normalized.artworkImageId == R.ArtworkValue(current) and not R.CanRetryArtwork(C.pathTableName, current, retryArtwork) then
+        normalized.artworkImageId = nil
+    end
+    if next(normalized) == nil then return true, nil, nil end
     description = description or "Edit region map path"
     local step = WritePath(current, normalized, description)
     if step == nil then return false, "unavailable", nil end

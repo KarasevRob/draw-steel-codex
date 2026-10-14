@@ -2,8 +2,8 @@ local mod = dmhub.GetModLoading()
 
 --- The session log panel at the right edge of the window (V2-15), in the
 --- side panel's place: entries grouped under date headings, newest first;
---- the Director can annotate and delete entries. The footer has Add note,
---- Undo last change and the Show route switch.
+--- the Director can annotate and delete entries. Add note, Undo last change
+--- and the Show route switch sit below the title, above the entries.
 ---
 --- Events on the returned panel:
 ---   bind()   redraw when ctx.data.panelMode is "log"
@@ -319,11 +319,11 @@ function RegionMapLogPanel.Create(ctx)
                         ctx.ToggleLog()
                     end),
                 },
-                empty,
-                list,
-                gui.Panel { classes = { "regionMapRule" }, interactable = false },
                 gui.Panel { classes = { "regionMapButtonRow" }, addNoteButton, undoButton },
                 routeSlot,
+                gui.Panel { classes = { "regionMapRule" }, interactable = false },
+                empty,
+                list,
             },
         },
     }
