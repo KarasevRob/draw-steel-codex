@@ -31,7 +31,7 @@ lookup table only.
 | The group of heroes | Party (in controls); `{party}` in the marker, status, toasts and log | group, heroes, tokens |
 | Director-only state | Hidden | Director only, secret, private |
 | Players can see it | Revealed | Shared, public, visible |
-| Players can open a location's map | Map shared / Not shared | published, public |
+| Players can open a location's map | Map shared / Not shared; Atlas badges: Revealed / Hidden | published, public |
 | Pushing the map to every screen | Show to players | present, share, broadcast |
 | The Director's local preview | View as player | player view, preview |
 | Party not at a location | traveling | travelling, free, moving |
@@ -57,9 +57,13 @@ lookup table only.
 | tb.viewAs.on | Stop viewing as player | Tooltip |
 | tb.log | Session log | Tooltip |
 | tb.settings | Overland Map settings | Tooltip, Director only |
-| tb.popOut | Pop out into its own window | Tooltip, fullscreen map only |
-| tb.popIn | Return to fullscreen | Tooltip, popped-out map only |
-| tb.close | Close the map | Tooltip, fullscreen map only |
+| tb.window | Switch to window view inside the app | Tooltip, fullscreen view; separate from Pop out |
+| tb.fullscreen | Switch to fullscreen | Tooltip, in-app window view |
+| tb.popOut | Pop out into its own window | Tooltip, both in-app views |
+| tb.popIn | Return to app | Tooltip, popped-out map only; restores remembered in-app view |
+| tb.close | Close the map | Fullscreen toolbar or in-app title-bar tooltip |
+| window.options | Window options | In-app title-bar menu tooltip |
+| window.reset | Reset window size and position | Window menu; centered default size |
 
 ## 4. Breadcrumb and Atlas
 
@@ -72,12 +76,14 @@ lookup table only.
 | crumb.hint.current | Click to read about this map. | {hint} on the crumb of the open map |
 | atlas.card.open | Open {map} | Card tooltip |
 | atlas.card.party | Party here | Chip on the card whose map holds the Party |
-| atlas.card.notShared | Not shared | Chip, Director only. A shared map has no chip |
+| atlas.card.hidden | Hidden | Director-only Atlas badge when the map is not shared with players |
+| atlas.card.revealed | Revealed | Director-only Atlas badge when the map is shared with players |
 | atlas.card.count | {count} locations | Card footer |
 | ~~atlas.new~~ | ~~New map~~ | Dropped 2026-10-10: the card shows a plus icon and the `atlas.new.picker` tooltip (cleanup audit) |
 | ~~atlas.new.hint~~ | ~~Choose an image to start a top-level map~~ | Dropped 2026-10-10 with `atlas.new` (cleanup audit) |
 | atlas.new.picker | Choose a map image | Image picker title |
 | atlas.new.defaultName | New map | Name of a new map until renamed (opens with the name selected) |
+| map.new.hidden | New maps are hidden from players until you share them. | Always-visible inline notice on both steps of Atlas New map and Location Add map; absent for Replace map image. User approved 2026-10-14 |
 | atlas.empty.director.title | No maps yet | Director, empty Atlas |
 | atlas.empty.director.body | Create your first map from any image. | With a "New map" button |
 | atlas.empty.player.title | No maps yet | Player, nothing shared |
@@ -322,8 +328,8 @@ signs these off too.
 3. " - " replaces the mockup's middle dot (ASCII-only source).
 4. The status chip names the map when the Party is elsewhere, and clicking it goes there.
 5. Remove map deletes the locations pinned on that map, after a confirm, like Delete (D7d).
-6. Atlas cards show only "Not shared"; a shared map has no chip. The mockup's "Shared"
-   chip and its "Shared with the table" panel line are dropped.
+6. Superseded 2026-10-14: Atlas cards now show the Director either "Hidden" or "Revealed"
+   from the map's sharing state. The former "Not shared"-only treatment is removed.
 7. Director-made locations show no author line; only player-made ones do (R11). The
    mockup's "Added by the Director" is dropped.
 8. A one-time migration notice to the Director.
@@ -626,3 +632,64 @@ Approved in the implementation plan on 2026-10-14. Shared by both detail panels.
 
 Save status and save-failure feedback reuse `edit.saving`, `edit.notSaved`,
 `toast.saveFailed`, and the existing Retry/Undo controls.
+
+## Map labels (decided 2026-10-14)
+
+The behavior and defaults are in [LABELS_BRIEF.md](LABELS_BRIEF.md). This copy is
+implemented in the development checkout; the complete labels cloud update is not yet
+published. See [verification and delivery status](../tests/LABELS.md).
+
+The player-management switch defaults off; Show labels defaults on and affects only the
+viewer. View as player has no management controls. Auto contrast means a snug automatic
+black/white backing, while Plate uses the selected background color/opacity.
+
+Save feedback reuses `edit.saving`, `edit.saved`, `edit.notSaved`, `toast.saveFailed`,
+`toast.retry`, and the existing Undo control. Visibility and Done reuse the existing copy.
+`label.forced` accompanies `label.hiddenLocal` when selection temporarily shows one label.
+Plural deletion counts use `label.deleteCount`, with `.one` selected for a count of one.
+
+| ID | Text |
+|---|---|
+| label.title | Label |
+| label.location | Location |
+| label.new | New label |
+| label.add | Add label |
+| label.addHere | Add label here |
+| label.edit | Edit label |
+| label.move | Move label |
+| label.delete | Delete label |
+| label.players | Players can manage their own labels |
+| label.text | Text |
+| label.font | Font |
+| label.bold | Bold |
+| label.italics | Italic |
+| label.alignment | Alignment |
+| label.left | Left |
+| label.center | Center |
+| label.right | Right |
+| label.size | Size (% of map width) |
+| label.angle | Rotation (degrees) |
+| label.spacing | Letter spacing (%) |
+| label.color | Text color |
+| label.background | Background |
+| label.auto | Auto contrast |
+| label.plate | Plate |
+| label.none | None |
+| label.backgroundColor | Background color |
+| label.show | Show labels |
+| label.search | Search locations and labels |
+| label.searchNone | No locations or labels match "{query}". |
+| label.searchHint | Arrows select. Enter opens. Ctrl+Enter edits a label. |
+| label.added | Label added |
+| label.updated | Label updated |
+| label.moved | Label moved |
+| label.resized | Label resized |
+| label.rotated | Label rotated |
+| label.deleted | Label deleted |
+| label.deleteCount | Also deletes {count} labels. |
+| label.deleteCount.one | Also deletes 1 label. |
+| label.placeHint | Click or press Enter to place a label. Esc cancels. |
+| label.moveHint | Click or press Enter to move the label. Esc cancels. |
+| label.hiddenLocal | Labels are hidden for you. |
+| label.forced | The selected label is shown temporarily. |
+| label.addMenu | Add |

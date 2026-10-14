@@ -310,7 +310,7 @@ function RegionMapPathPanel.Create(ctx)
         -- Same as the Location "..." menu: the theme background needs the menu's own styles.
         element.popupsInheritStyles = false
         element.tooltip = nil
-        element.popup = gui.ContextMenu { entries = entries }
+        element.popup = Session.ContextMenu(element, { entries = entries })
     end)
     local buttons = gui.Panel { classes = { "regionMapButtonRow" }, editButton, moreButton }
 

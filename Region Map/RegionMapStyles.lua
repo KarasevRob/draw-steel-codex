@@ -73,6 +73,34 @@ local function ShellStyles()
             bgcolor = "@bgAlt",
         },
         {
+            selectors = { "regionMapWindowBorder" },
+            width = "100%",
+            height = "100%",
+            bgimage = true,
+            bgcolor = "clear",
+            borderColor = "@borderSolid",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapWindowTitle" },
+            bgimage = true,
+            bgcolor = "@bg",
+            width = "100%",
+            height = C.panelTitleHeight,
+            flow = "horizontal",
+            halign = "left",
+            valign = "top",
+        },
+        {
+            selectors = { "regionMapResizeGrip" },
+            width = 16,
+            height = 16,
+            halign = "right",
+            valign = "bottom",
+            color = "@fgMuted",
+            fontSize = 14,
+        },
+        {
             selectors = { "regionMapCanvas" },
             width = "100%",
             height = "100%",
@@ -98,8 +126,8 @@ local function ShellStyles()
         Chrome("regionMapBreadcrumb", {
             width = "auto",
             height = C.breadcrumbHeight,
-            -- Reserve the full Director toolbar, including Import and the fullscreen controls.
-            maxWidth = "100%-460",
+            -- The toolbar's rendered width supplies the final clearance.
+            maxWidth = "35%",
             flow = "horizontal",
             halign = "left",
             valign = "top",
@@ -167,6 +195,16 @@ local function ShellStyles()
             bgcolor = "@bgAlt",
             borderColor = "@accent",
             borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapHostControl", "focus" },
+            borderWidth = 2,
+            borderColor = "@accent",
+        },
+        {
+            selectors = { "buttonIcon", "parent:regionMapHostControl" },
+            width = 18,
+            height = 18,
         },
         {
             selectors = { "regionMapIconButton", "disabled" },
@@ -1493,7 +1531,6 @@ end
 local function PathStyles()
     return {
         -- The kind choice (A1), on the Atlas New map card and in the side panel.
-        -- Both New map steps fit the standard card height, so that card keeps it.
         {
             selectors = { "regionMapModeChoice" },
             width = "100%",
@@ -1823,9 +1860,89 @@ end
 
 --- The complete rule list for MergeStyles.
 --- @return table[]
+local function LabelStyles()
+    return {
+        {
+            selectors = { "regionMapLettering" },
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+        },
+        {
+            selectors = { "regionMapLettering", "hiddenForPlayers" },
+            opacity = 0.5,
+        },
+        {
+            selectors = { "regionMapLabelOutline" },
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+            borderWidth = 1,
+            borderColor = "@accent",
+            halign = "center",
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapLabelHandle" },
+            bgimage = "panels/square.png",
+            bgcolor = "@bg",
+            borderWidth = 2,
+            borderColor = "@accent",
+            cornerRadius = 4,
+            halign = "center",
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapLabelEye" },
+            bgimage = "panels/square.png",
+            bgcolor = "@bg",
+            width = 20,
+            height = 20,
+            cornerRadius = 4,
+            halign = "center",
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapLabelField" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            bmargin = 8,
+        },
+        {
+            selectors = { "regionMapLabelInput" },
+            width = "100%",
+            height = "auto",
+            minHeight = 28,
+        },
+        {
+            selectors = { "regionMapLabelInput", "invalid" },
+            borderColor = "@danger",
+        },
+        {
+            selectors = { "regionMapLabelColor" },
+            width = "100%",
+            height = "auto",
+            minHeight = 32,
+            flow = "horizontal",
+        },
+        {
+            selectors = { "regionMapLabelKind" },
+            color = "@fgMuted",
+            fontSize = 12,
+            height = "auto",
+            width = "100%",
+        },
+        {
+            selectors = { "regionMapResult", "keyboardSelected" },
+            bgcolor = "@bgAlt",
+            borderColor = "@accent",
+            borderWidth = 1,
+        },
+    }
+end
+
 function RegionMapStyles.Build()
     local result = {}
-    for _, group in ipairs({ ShellStyles(), PinStyles(), SidePanelStyles(), AtlasStyles(), ToolStyles(), PathStyles() }) do
+    for _, group in ipairs({ ShellStyles(), PinStyles(), SidePanelStyles(), AtlasStyles(), ToolStyles(), PathStyles(), LabelStyles() }) do
         for _, rule in ipairs(group) do result[#result + 1] = rule end
     end
     return result

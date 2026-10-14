@@ -118,7 +118,7 @@ function RegionMapLogPanel.Create(ctx)
         end
         element.popupsInheritStyles = false
         element.tooltip = nil
-        element.popup = gui.ContextMenu { entries = entries }
+        element.popup = Session.ContextMenu(element, { entries = entries })
     end
 
     local function NoteEditor(entry)

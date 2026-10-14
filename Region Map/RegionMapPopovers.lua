@@ -31,13 +31,14 @@ end
 local function BuildSearch(ctx)
     local results = gui.Panel { classes = { "regionMapPopoverList" } }
     local none = Label({ "regionMapHint", "collapsed" })
-    local top = nil --- @type nil|RegionMapLocationRecord the result Enter opens
+    local found, selected, lastQuery = {}, 1, nil
+    local searchKey = nil
 
     -- The ancestors of a result (the levels the viewer can see), with crumb icons between.
-    local function PathRow(location)
+    local function PathRow(location, includeSelf)
         local parts = {} --- @type Panel[]
         local path = Model.Ancestors(location.id)
-        for i = 1, #path - 1 do
+        for i = 1, #path - (includeSelf and 0 or 1) do
             if Model.CanOpenMap(path[i]) then
                 if #parts > 0 then
                     parts[#parts + 1] = gui.Panel { classes = { "regionMapCrumbSep", "small" }, bgimage = C.iconCrumb, interactable = false }
@@ -48,54 +49,93 @@ local function BuildSearch(ctx)
         return gui.Panel { classes = { "regionMapResultPathRow" }, interactable = false, children = parts }
     end
 
-    local function Open(location)
+    local function Open(result, edit)
+        if result == nil then return end
         ctx.SetPopover(nil)
-        ctx.FocusLocation(location.id)
+        if result.kind == "label" then ctx.FocusLabel(result.id, edit) else ctx.FocusLocation(result.id) end
     end
 
     local input
+    local function MarkSelection()
+        for i, row in ipairs(results.children) do row:SetClass("keyboardSelected", i == selected) end
+    end
     local function Run(query)
-        local found = Model.Search(query, C.searchResultLimit)
-        top = found[1]
+        local key = table.concat({ query, tostring(Model.Revision()), tostring(Model.IsDirector()),
+            tostring(Model.ViewingAsPlayer()), tostring(RegionMapLabels.PlayersCanManage()) }, "|")
+        -- Defocusing an unchanged input must not destroy the result being clicked.
+        if key == searchKey then return end
+        searchKey = key
+        if lastQuery ~= query then selected = 1; lastQuery = query end
+        found = RegionMapLabels.Search(query, C.searchResultLimit)
+        selected = math.max(1, math.min(selected, #found))
         local rows = {} --- @type Panel[]
-        for _, location in ipairs(found) do
+        for _, result in ipairs(found) do
+            local children = {
+                Label({ "regionMapLabelKind" }, T(result.kind == "label" and "label.title" or "label.location")),
+                Label({ "regionMapRowName" }, Copy.Literal(result.name)),
+            }
+            local location = result.kind == "label" and Model.GetLocation(result.row.mapId) or result.row
+            if location ~= nil then children[#children + 1] = PathRow(location, result.kind == "label") end
+            if result.kind == "label" and RegionMapLabels.CanEdit(result.row) then
+                children[#children + 1] = Button(T("label.edit"), function() Open(result, true) end)
+            end
             rows[#rows + 1] = gui.Panel {
                 classes = { "regionMapResult" },
-                click = function() Open(location) end,
-                Label({ "regionMapRowName" }, Copy.Literal(Model.DisplayName(location))),
-                PathRow(location),
+                click = function() Open(result, false) end,
+                children = children,
             }
         end
         results.children = rows
+        MarkSelection()
         local trimmed = Model.TrimSingleLine(query)
         none:SetClass("collapsed", #found > 0 or trimmed == "")
-        SetText(none, T("search.none", { query = trimmed }))
+        SetText(none, T("label.searchNone", { query = trimmed }))
     end
 
     input = gui.SearchInput {
         classes = { "regionMapPopoverInput" },
-        placeholderText = T("search.placeholder"), editlag = 0.15,
+        placeholderText = T("label.search"), editlag = 0.15,
         edit = function(element) Run(element.text) end,
         change = function(element) Run(element.text) end,
-        -- Enter opens the top result (R9).
         submit = function(element)
+            if ctx.data.popover ~= "search" or not element.hasFocus then return end
             Run(element.text)
-            if top ~= nil then Open(top) end
+            local edit = dmhub.KeyPressed("LeftControl") or dmhub.KeyPressed("RightControl")
+            Open(found[selected], edit)
+        end,
+        thinkTime = 0, data = { keys = {} },
+        focus = function(element)
+            element.data.keys = { UpArrow = dmhub.KeyPressed("UpArrow"), DownArrow = dmhub.KeyPressed("DownArrow") }
+            element.thinkTime = C.canvasThinkActive
+        end,
+        defocus = function(element) element.thinkTime = 0; element.data.keys = {} end,
+        think = function(element)
+            if ctx.data.popover ~= "search" or not element.hasFocus then element.data.keys = {}; return end
+            for _, key in ipairs({ "UpArrow", "DownArrow" }) do
+                local down = dmhub.KeyPressed(key)
+                if down and not element.data.keys[key] and #found > 0 then
+                    selected = (selected - 1 + (key == "UpArrow" and -1 or 1)) % #found + 1
+                    MarkSelection()
+                end
+                element.data.keys[key] = down
+            end
         end,
     }
 
     local body = gui.Panel {
         classes = { "regionMapPopoverBody", "collapsed" },
         input,
-        Label({ "regionMapHint" }, T("search.hint")),
+        Label({ "regionMapHint" }, T("label.searchHint")),
         none,
         results,
     }
     body.data.open = function()
+        searchKey = nil
         if input.text ~= "" then input.text = "" end
         Run("")
         Session.FocusSoon(input, function() return ctx.data.popover == "search" end)
     end
+    body.data.refresh = function() Run(input.text) end
     return body
 end
 
@@ -169,6 +209,9 @@ local function BuildSettings(ctx)
     local playersAdd = Check(T("set.playersAdd"), function(value)
         Model.SetPlayersCanAddLocations(value)
         ctx.RefreshAll()
+    end)
+    local playersLabels = Check(T("label.players"), function(value)
+        if not binding then RegionMapLabels.SetPlayersCanManage(value); ctx.RefreshAll() end
     end)
 
     -- This map
@@ -459,6 +502,7 @@ local function BuildSettings(ctx)
         width = "100%", height = "auto", flow = "vertical",
         Section(T("set.game")),
         playersAdd,
+        playersLabels,
         Label({ "regionMapFormLabel" }, T("set.timeUnit")),
         unitSegments,
         Label({ "regionMapHint" }, T("set.timeUnit.hint")),
@@ -509,6 +553,7 @@ local function BuildSettings(ctx)
         partyImage.selfStyle.bgcolor = imageId == "" and "#ffffff14" or "white"
         playersMove.value = Model.PlayersCanMoveParty()
         playersAdd.value = Model.PlayersCanAddLocations()
+        playersLabels.value = RegionMapLabels.PlayersCanManage()
         reduceMotion.value = Session.ReduceMotion()
 
         local map = ctx.CurrentMap()
@@ -610,7 +655,7 @@ function RegionMapPopovers.Create(ctx)
             local opened = which ~= nil and element.data.shown ~= which
             element.data.shown = which
             if which == "search" then
-                if opened then search.data.open() end
+                if opened then search.data.open() else search.data.refresh() end
             elseif which == "settings" and settings ~= nil then
                 settings.data.bind()
                 if opened then settings.data.open() end

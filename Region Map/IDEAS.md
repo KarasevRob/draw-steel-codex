@@ -110,15 +110,14 @@ designed, approved or scheduled. The open ideas are ranked at the end.
     but it is barely used and its cost is unmeasured. Data: existing bends could become
     curve control points, so old paths keep their shape if curves are a per-path option.
 
-15. **Map labels.** *Added 2026-10-13.* Free text written on the map itself, such as the
-    name of a sea, a forest, a mountain range or a kingdom, that is not a Location: no pin,
-    no side panel, no map of its own, and the Party is never "at" it. V2 merged V1's labels
-    into Locations (idea 2) because maps, labels and Locations overlapped as concepts (the V2
-    brief's frame), so the frame for this idea has to say what a label is for that a
-    Location is not. Open questions: text size, angle and spacing; Hidden/Revealed like
-    pins; hiding by zoom like pin tiers; whether search lists them. Within the mod: straight
-    text at an angle is in reach (the ruler and path lines already rotate panels); text that
-    bends along a river or a coast would need a panel per letter.
+15. **Map labels.** *Implemented locally 2026-10-14; publication paused.* Independent
+    multiline map lettering with a formatting editor, selection/drag/resize/rotation,
+    visibility, mixed search, and Undo.
+    Player ownership controls default off; View as player is read-only. Labels scale with
+    the map and do not automatically hide. Auto contrast uses a snug backing, not a glyph
+    halo. Curves, import, grouping, duplication, bulk actions and manual stacking are
+    deferred. The decided scope is [docs/LABELS_BRIEF.md](docs/LABELS_BRIEF.md); verification
+    and delivery status are in [tests/LABELS.md](tests/LABELS.md).
 
 16. **Compass.** *Added 2026-10-13.* A compass rose or north arrow on a map, so everyone
     reads directions the same way. Set per map by the Director, since a region map and a
@@ -167,6 +166,9 @@ Design + Risk, lower is simpler. Art the user makes is a dependency, not scored.
 delivered on 2026-10-14; its provisional score is kept for history. Idea 19 has separate
 [research](docs/ARTWORK_RESEARCH.md); its scope-dependent estimate does not change this
 earlier ranking.
+Idea 15 is now designed and implemented locally; its original score is retained below
+for comparison. Publication and test-fixture cleanup are paused, as recorded in
+[tests/LABELS.md](tests/LABELS.md).
 
 | Rank | Idea | Build | Design | Risk | Score | Depends on |
 |---|---|---|---|---|---|---|
@@ -176,7 +178,7 @@ earlier ranking.
 | 3= | 17. Scale bar | M | M | M | 8 | - |
 | 5 | 14. Curved paths | M | L | L | 10 | Reopening V2.1 D1 |
 | 6 | 12. Route planning (*Later*) | L | L | M | 11 | Agreeing the draft frame |
-| 7 | 15. Map labels | XL | L | M | 13 | A frame that reopens V2 D4a |
+| Implemented locally | 15. Map labels | XL | L | M | 13, historical | Publication paused; design decided |
 | Delivered | ~~18. Import by pasting JSON~~ | M | M | M | 8, provisional | - |
 
 The table below is the earlier ranking, kept for its history and risk notes; its Design and
@@ -235,3 +237,10 @@ than the research gives it a provisional score of 8, level with 16 and 17: about
 lines for a paste mode in the map window, the example text and a comment stripper. Its main
 risk is that JSON has no comments, so the example's comments must be stripped or carried as
 `"_comment"` keys.
+
+2026-10-14: idea 15 was decided and implemented as independent multiline lettering,
+with player management off by default, a read-only View as player, transform controls,
+autosave/Undo and mixed search. Straight text with explicit backgrounds shipped to the
+development checkout; curves and JSON import remain deferred. The user paused before
+publication and fixture cleanup, then requested documentation only. See
+[tests/LABELS.md](tests/LABELS.md) for completed checks and remaining work.

@@ -473,11 +473,14 @@ panel mid-typing; the panel never covers the selected pin (map pans just enough,
 New `RegionMapAtlas.lua`, replacing `RegionMapLibrary.lua`:
 
 - Grid of top-level Locations the viewer can open (`Model.TopLevel`), thumbnail (streamed
-  image), name, chips `atlas.card.party` and, for the Director, `atlas.card.notShared`
-  (dimmed card), count `atlas.card.count` (visible children).
+  image), name, chip `atlas.card.party`, count `atlas.card.count` (visible children).
+  R18 (2026-10-14): Director-only `atlas.card.hidden` / `atlas.card.revealed` badge on
+  the thumbnail follows map sharing; unshared cards remain dimmed.
 - "New map" card (Director): image picker (`gui.IconEditor`, as V1 Library), creates a
   top-level Location named `atlas.new.defaultName`, not shared (R1), opens it with the name
   selected in the side panel.
+- R18: both creation steps show `map.new.hidden` inline, as does Add map on a Location.
+  The New map card grows to fit the notice; replacing an image omits it.
 - Empty states per manifest (`atlas.empty.*`).
 - Reached from the breadcrumb root; the window opens here only when the viewer has no
   last map and no map is visible.
