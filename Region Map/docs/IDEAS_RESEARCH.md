@@ -6,6 +6,10 @@ user deferred to TBA. Every idea is costed in its **full version**, within the m
 engine change, no edits outside `Region Map/`). Line numbers are from the branch at commit
 `2ec6b20` and will drift.
 
+2026-10-14 update: idea 15 now has an approved [labels brief](LABELS_BRIEF.md) and a local
+implementation. Its original estimates below are historical; measured results and the
+paused publication/cleanup status are in [label verification](../tests/LABELS.md).
+
 ## How the score works
 
 Each idea gets three grades, S = 1, M = 2, L = 3, XL = 4:
@@ -258,6 +262,25 @@ destination by list or by clicking the map.
 V2.1's deferred multi-leg routes; the draft frame is not agreed), Risk M.
 
 ## 15. Map labels - score 13
+
+Superseded for implementation by [LABELS_BRIEF.md](LABELS_BRIEF.md), decided 2026-10-14.
+The user chose multiline text, all app fonts/colors, map-relative size without zoom hiding,
+optional player authorship (off by default), autosave, shared search, and a separate local
+Show labels switch. View as player is read-only. Auto contrast uses a snug black/white
+backing; Plate has independent color/opacity. JSON import and curves are deferred.
+The following remains historical research.
+
+The implementation adds `RegionMapLabels`, `RegionMapLabelLayer` and `RegionMapLabelPanel`.
+The schema-1 `RegionMapMapLabels` table is separate from V1's unused label table. Per-label
+save queues preserve immutable upload batches and validate permission again before Retry
+or Undo; map cascades validate the maps restored by the same Undo operation.
+
+Live probes confirmed natural text measurements at scale 1/2/20 and rotation 45 degrees.
+Inverse-rotation hit tests passed; 20x zoom retained all fixture labels. A 250-pin,
+150-path fixture with 50/200 labels recorded about 2.05/2.88 ms for synchronous Lua zoom
+layout, with zero label-style writes during pan. Those timings predate the final backing
+adjustment and exclude deferred engine/GPU work. They do not establish frame rates.
+See [the verification record](../tests/LABELS.md) for the exact scope and remaining limits.
 
 **Full version.** Straight one-line text on one map at any angle (no text bent along a
 curve), sized in map units so it grows with zoom, with a size choice, letter spacing and

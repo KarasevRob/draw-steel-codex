@@ -20,46 +20,96 @@ plan; the images `docs/01`-`04` are V1 schematics, kept for history. Ideas not y
 are in [IDEAS.md](IDEAS.md). The cleanup audit of the Lua (duplication, dead code, bugs found
 along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.md).
 
+Map labels are implemented in the development checkout. Their complete cloud update is
+not published; runtime work and fixture cleanup are paused. The current verification and
+delivery record is [tests/LABELS.md](tests/LABELS.md).
+
 ## 1. Behavior
 
-### Fullscreen and popout
+### Fullscreen, in-app window, and popout
 
-- One registered panel, `Overland Map` (game menu and icon rail), registered as an action:
-  the rail button and the menu row open the map fullscreen over the game screen, or close
-  it. Each client opens and closes it on its own; Show to players opens it on every client,
-  and each player closes it when they like. It sits at the bottom of the window layer: it
-  covers the game board, while the icon rails, the chat bubble and any window opened over it
-  stay on top. In rail mode the map's chrome sits between the rails and Font Size zooms the
-  whole map, as it does rail windows. The action bar hides while the map is open.
+- One registered panel, `Overland Map` (game menu and icon rail), opens in the viewer's
+  last in-app view; the initial view is fullscreen. Fullscreen covers the board behind
+  other windows and the rails, hiding the action bar until the viewer leaves fullscreen.
+- **Window view** switches to a movable window inside Codex; **Fullscreen** switches
+  back. This keeps the same map, camera, selection, editors, and unfinished path alive.
+  The window starts centered at 900x600, minimum 720x480, and remembers its size and
+  position per viewer/game. Drag the title or resize the edges/corners. Window options
+  offers **Reset window size and position**. A viewport too small for the minimum uses
+  fullscreen temporarily, preserving the preferred mode and window geometry.
+- The board and action bar remain usable around the smaller window. Activating its
+  rail/menu entry raises it if covered; activating it again while foremost closes it.
+  The view toggle and Pop out remain separate toolbar controls. Tab from the focused
+  map uses the engine's focus navigation; Enter/Space activates a focused control.
+- Each client chooses its own view. Show to players keeps an already-open client's
+  current host, or opens the remembered view when closed. The design and validation
+  contract are in [docs/PANEL_VIEW_BRIEF.md](docs/PANEL_VIEW_BRIEF.md).
 - **Pop out** (toolbar) moves the map into its own OS window (1000x720, minimum 720x480);
-  **Return to fullscreen** in that window's toolbar brings it back. The popout's own
+  **Return to app** in that window's toolbar restores the remembered in-app view. The popout's own
   "return to the app" button only closes it: the host cannot reopen an action panel. While
   popped out, the rail button raises that window.
-- **Close** (toolbar) or Esc at the Atlas closes the fullscreen map; open windows take Esc
-  first.
+- Native popout wheel zoom is currently blocked by engine event routing. Use the
+  +/- camera buttons, or the in-app window view. Reproduction and the proposed engine
+  change are in [the wheel handoff](docs/POPOUT_WHEEL_ENGINE_HANDOFF.md).
+- **Close** (fullscreen toolbar or window title bar) and Esc at the Atlas close the
+  in-app map through the existing edit/import guard. Foreground windows take Esc first.
 - Layout: breadcrumb top-left, toolbar top-right, camera controls bottom-left (they fade
   after 2 s without pointer movement), Party status bottom-right, side panel over the
   map's right edge (full width below 720 px).
 - Toolbar, in order: Search, Add, Import (Director, open maps only), Path (Director, point crawl maps only), Lock, Ruler, Show to
-  players (Director), View as player (Director), Session log, Settings (Director), then Pop
-  out and Close (fullscreen) or Return to fullscreen (popout).
+  players (Director), View as player (Director), Session log, Settings (Director), then
+  Window/Fullscreen, Pop out, and Close (fullscreen only), or Return to app (native popout).
   Icons with tooltips.
 - **Esc** closes one layer at a time: a tool or text field, then edit mode, then a popover
-  or the side panel, then goes up one map, and at the Atlas closes the fullscreen map.
-- While a side panel (Location, path, Party or log) is open, the map can pan left by the
+  or the side panel, then goes up one map, and at the Atlas closes the in-app map.
+- While a side panel (Location, path, label, Party or log) is open, the map can pan left by the
   panel's width, so a pin under the panel can still be reached at Fit (V2.1).
+
+### Map labels
+
+- Add independent lettering with **+ > Add label** or **Add label here**. Labels have no
+  Location pin, description, child map, or Party destination.
+- The Director manages every label. **Players can manage their own labels** defaults
+  off in Settings; turning it off freezes existing player labels. View as player is
+  always read-only. Director labels start Hidden; player labels start Revealed.
+- Only the Director changes visibility. Players can see/search a label only while it is
+  Revealed and its map is accessible; ownership does not bypass those checks.
+- The editor supports explicit line breaks, available fonts, bold/italic, alignment,
+  color, size, rotation, spacing, and Auto contrast / Plate / None backgrounds. Auto
+  contrast is a snug black/white backing. Size is a percentage of map width (0.1-25%).
+  Text grows with map zoom, without overlap hiding or Font Size changing its proportions.
+- Text permits 256 Unicode characters and 1,024 bytes, with explicit newlines and no
+  automatic wrapping. Successful formatting is remembered per viewer/game, excluding
+  text, rotation and visibility. Missing fonts fall back without rewriting the stored font.
+- With the map unlocked, select a label before dragging it. Selected labels have resize
+  and rotation handles; numeric fields and **Move label** offer alternatives. Locked
+  text passes ordinary gestures through; search/context actions still open its editor.
+- **Show labels** defaults on and is a local preference, separate from Show names. Search
+  temporarily shows its selected permitted label even when Show labels is off. Mixed
+  search results distinguish Locations from labels and include their map breadcrumbs.
+- Valid text saves after 1.5 seconds, field exit, or editor closure. Each confirmed batch,
+  transform, creation, and deletion has one Undo. Blank unsent drafts are discarded.
+  Failed saves retain Retry; pending work rechecks permissions and cannot retarget another
+  label. Map deletion/removal includes its labels in the same Undo.
+
+The agreed design is [docs/LABELS_BRIEF.md](docs/LABELS_BRIEF.md); measured results and
+remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
 
 ### Locations and maps
 
-- **Location** is the only object. A Location may have a pin on its parent's map, its own
+- A **Location** may have a pin on its parent's map, its own
   map image, or both. Top-level Locations are the **Atlas** (a gallery of cards, with a
   New map card for the Director).
+- Each Atlas thumbnail shows the Director **Hidden** or **Revealed**, based on whether
+  that map is shared with players. New map and Add map display **New maps are hidden
+  from players until you share them.** on both creation steps. Replacing an existing
+  map image preserves its sharing state and does not show the creation notice.
 - **Map actions from the Atlas** (Director): each card's "..." menu offers Open map, Edit
   (name, description and notes), Import locations, Replace map image, Map settings (scale,
   pace and border), journal actions, sharing, Show this map to players and Delete.
   Right-clicking a card opens the same menu, also used in the top-level map's side panel.
   Import, Settings and Show to players open that card's map first. Delete confirms the
-  contained Locations and paths; one Undo restores the map and its contents. Long menus
+  contained Locations, paths and labels; one Undo restores the map and its contents. Long menus
   scroll in short windows.
 - The breadcrumb shows Atlas > ... > current map; every part is clickable. "Open map" in
   the side panel zooms into the pin and crossfades to its map.
@@ -76,7 +126,7 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
   here, Open map, Edit, "..." (Move, Move to map, Show/Hide, Add map, Replace image, Remove
   map, Link journal, Delete) and the Director note (Director only). Edit turns the panel into
   a form that autosaves after 1.5 s without typing or on leaving a field.
-- **Create**: toolbar Add then click the map (sticky until Esc), or right-click > Add
+- **Create**: toolbar Add > Add location then click the map (sticky until Esc), or right-click > Add
   location here. The new Location is Hidden, opens in edit mode with the name focused and
   copies the last pin style used.
 - **Move a pin**: unlock with Lock and drag, or "..." > Move then click. Pins are locked by
@@ -203,7 +253,7 @@ complete feature is deployed to the development app.
   "Move Party here" in the side panel, and for the Director right-click > Place Party here
   (anywhere on any map).
 - Settings (Director): Party name, Party image (or the default banner), "Players can move
-  the Party", "Players can add locations".
+  the Party", "Players can add locations", "Players can manage their own labels".
 - The status chip (bottom right, "Party at Old Quarry") goes to the Party: it opens the
   Party's map when it is on another one, then eases the camera onto the Party, zoomed in to
   at least 2x and centered in the part of the map an open side panel leaves visible. On a
@@ -216,8 +266,8 @@ complete feature is deployed to the development app.
   share an unshared map first and asks before replacing another feature's presentation.
   Every recipient jumps to the map and gets a toast; open edits keep saving.
 - **View as player** (Director): a local toggle that shows the map as players see it.
-- **Search**: every Location the viewer can see across all maps, with its path; a result
-  opens its map, centers and selects the pin; Enter takes the top result.
+- **Search**: visible Locations and labels across accessible maps, with kind and map
+  breadcrumbs. Arrow keys select, Enter opens, and Ctrl+Enter edits a permitted label.
 - **Ruler**: click-click or drag. On a calibrated map it shows distance and, with a pace,
   travel days; otherwise a share of the map width. The Director sets the scale (two points
   plus a distance, miles or km) and pace per map in Settings.
@@ -240,7 +290,7 @@ complete feature is deployed to the development app.
 
 ## 2. Architecture
 
-Load order (the CodeMod file list must match):
+Load order (29 runtime files; the CodeMod file list must match):
 
 | # | File | Responsibility |
 |---|---|---|
@@ -250,26 +300,29 @@ Load order (the CodeMod file list must match):
 | 4 | `RegionMapRecords.lua` | Record types, safe reads, validation, uploads |
 | 5 | `RegionMapModel.lua` | Location tree, permissions, visibility, writes, Party, settings, search, map kind and border, cascades |
 | 6 | `RegionMapUndo.lua` | Undo entries and the toast queue |
-| 7 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops and their one wording (`LegCopy`) |
-| 8 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording and time fields, path names, the other end |
-| 9 | `RegionMapTravel.lua` | *V2.1.* Travel options, travel, stop partway, the Party's spot on a path |
-| 10 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
-| 11 | `RegionMapSession.lua` | Context type, local view state and preferences, the small controls every panel builds (label, button, segments, text area, icon button, focus) |
-| 12 | `RegionMapCanvasTools.lua` | Layout math, segment clipping, the panel pool, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
-| 13 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
-| 14 | `RegionMapPathTool.lua` | *V2.1.* Path tool steps, Connect, Redraw line, bend edits |
-| 15 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
-| 15a | `RegionMapArtwork.lua` | Selected-object preview, Director picker, loading, guarded local viewer and writes |
-| 16 | `RegionMapSidePanel.lua` | Location panel read and edit modes, "..." menu |
-| 17 | `RegionMapPathPanel.lua` | *V2.1.* Path read and edit, Connect to... picker, a Location's Paths section |
-| 18 | `RegionMapPartyPanel.lua` | *V2.1.* Party section, Travel to menu, hidden-path question, stop card |
-| 19 | `RegionMapAtlas.lua` | Atlas gallery and New map |
-| 20 | `RegionMapPopovers.lua` | Breadcrumb, Search and Settings popovers |
-| 21 | `RegionMapImport.lua` | *V2.1.* JSON import: read, check, preview, create |
-| 22 | `RegionMapLogPanel.lua` | Session log panel |
-| 23 | `RegionMapPresent.lua` | Show to players send and receive |
-| 24 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, Esc layers, layout, refresh |
-| 25 | `RegionMap.lua` | Capability check, registration, fullscreen host, popout |
+| 7 | `RegionMapLabels.lua` | Label records, permissions, mixed search, immutable save queues and Undo |
+| 8 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops and their one wording (`LegCopy`) |
+| 9 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording and time fields, path names, the other end |
+| 10 | `RegionMapTravel.lua` | *V2.1.* Travel options, travel, stop partway, the Party's spot on a path |
+| 11 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
+| 12 | `RegionMapSession.lua` | Context type, local view state and preferences, the small controls every panel builds (label, button, segments, text area, icon button, focus) |
+| 13 | `RegionMapCanvasTools.lua` | Layout math, segment clipping, the panel pool, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
+| 14 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
+| 15 | `RegionMapLabelLayer.lua` | Map lettering, contrast backings, transformed hits and selection handles |
+| 16 | `RegionMapPathTool.lua` | *V2.1.* Path tool steps, Connect, Redraw line, bend edits |
+| 17 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
+| 18 | `RegionMapArtwork.lua` | Selected-object preview, Director picker, loading, guarded local viewer and writes |
+| 19 | `RegionMapSidePanel.lua` | Location panel read and edit modes, "..." menu |
+| 20 | `RegionMapPathPanel.lua` | *V2.1.* Path read and edit, Connect to... picker, a Location's Paths section |
+| 21 | `RegionMapLabelPanel.lua` | Label formatting editor, guarded color picker and save feedback |
+| 22 | `RegionMapPartyPanel.lua` | *V2.1.* Party section, Travel to menu, hidden-path question, stop card |
+| 23 | `RegionMapAtlas.lua` | Atlas gallery and New map |
+| 24 | `RegionMapPopovers.lua` | Breadcrumb, Search and Settings popovers |
+| 25 | `RegionMapImport.lua` | *V2.1.* JSON import: read, check, preview, create |
+| 26 | `RegionMapLogPanel.lua` | Session log panel |
+| 27 | `RegionMapPresent.lua` | Show to players send and receive |
+| 28 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, Esc layers, layout, refresh |
+| 29 | `RegionMap.lua` | Capability check, registration, fullscreen host, popout |
 
 The V1 files (`Main.lua`, `RegionMapViews.lua`, `RegionMapMigration.lua`,
 `RegionMapLibrary.lua`, `RegionMapLocationCard.lua`) were removed from the CodeMod and the
@@ -294,12 +347,16 @@ each use is guarded.
 | `RegionMapLocationDetails` | Description and journal link, keyed by Location id (V1 row format) |
 | `RegionMapLocationDirectorNotes` | Director note, keyed by Location id (V1 row format) |
 | `RegionMapPaths` | *V2.1.* One row per path: map, ends `aId`/`bId`, bends (u/v), name, type id, time and back/backTime (watches), description, note, visibility, audit fields, revision, soft delete |
+| `RegionMapMapLabels` | Schema-1 independent lettering: map, text, u/v, font, size, angle, spacing, alignment, bold/italic, colors/background, visibility, owner, audit/revision and soft delete |
 | `RegionMapLogEntries` | Session log entries: kind, map, Location, route points, merged count, time, author, note. V2.1 adds the kinds `leg` and `stopped` with path id and name, from/to, time, spent, rest ("on"/"back") and secret |
 | `regionMapState` document | Party (map, Location, u/v, revision; V2.1 adds `pathId`, `pathFrom`, `spent`), Party name and image, Players can move the Party, Players can add locations; V2.1 adds `timeUnit`, `pathTypes` (absent means the starter set), `lastBorder` and `stateMeta` (a revision per key, for undo); checkpoint-backed |
 | `regionmap:preferences` setting | Per user and game: last map, cameras (keyed by image revision), Show names, Reduce motion; V2.1 adds the last path type and time (`lastPathStyle`) |
 
 - Every write rechecks role, ownership, map access and the Party switch. These are checks
   between trusted clients, not server enforcement.
+- Labels add `playersCanManageLabels` to `regionMapState` (absent means false), and
+  `showLabels` (absent means true) plus `lastLabelFormat` to viewer preferences. Their
+  new table is independent of the unused V1 label table; no migration is required.
 - Writes send only the changed fields onto the freshest local row; the side panel shows
   Saving... / Saved for confirmed table writes.
 - V1 tables (`RegionMapRecords`, `RegionMapLabelRecords`, `RegionMapTombstones`) are no
@@ -412,6 +469,11 @@ around it, and placed again only after a zoom, a resize, a change or a pan of ha
 
 ## 6. Acceptance status
 
+Labels have their own [verification record](tests/LABELS.md): 18 isolated checks, 27
+artwork regression checks, live Director/View as player observations, layout and Lua
+performance measurements. It lists the unverified player/physical-input cases and the
+paused cleanup/publication steps. The older acceptance notes below describe earlier work.
+
 Verified live on the Director client: every M2-M4 surface (see the build notes in
 TECH_TASK_V2.md section 7b), the styles and accessibility pass (720x480, 1000x800,
 Expanded; Font Size 80/100/140; Default and Warm Gold with no `THEME_ENGINE` log lines;
@@ -450,8 +512,10 @@ and return; mouse wheel over the fullscreen map must not also zoom the game map.
   from `RegionMapCopy.lua`.
 - Change only files in `Region Map/`. Register new files with
   `mcp__dmhub__register_lua_file` in the order above; never edit `main.lua`.
-- Check syntax with `..\dependencies\lua\bin\luac.exe -p` and types with the upstream
-  `tools/lua-typing/check.ps1` (every file in this mod checks clean).
+- Check syntax with `..\dependencies\lua\bin\luac.exe -p`. The required type checker is
+  `../tools/lua-typing/check.ps1`, with `tools/lua-typing/baseline.json` in this repository.
+  Both were absent during the labels work. The available `../dependencies/check-mod.ps1`
+  reported zero problems for Region Map; that is not a baseline-aware whole-codex pass.
 - Deploy with explicit paths so nothing outside the runtime files is copied:
   `.\deploy.ps1 "Region Map/RegionMapConstants.lua" ...`, then reload Lua. The app reads
   dev mods from a dev-mod folder named after the CodeMod, so these files go to

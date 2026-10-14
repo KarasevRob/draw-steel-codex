@@ -228,6 +228,10 @@ function RegionMapCanvasTools.PlaceAt(ctx, u, v)
     if map == nil then return end
     if ctx.data.tool == "add" then
         RegionMapCanvasTools.AddAt(ctx, u, v)
+    elseif ctx.data.tool == "labelAdd" then
+        ctx.CreateLabel(u, v)
+    elseif ctx.data.tool == "labelMove" then
+        if RegionMapLabels.Commit(ctx.data.toolTargetId, { u = u, v = v }, "moved") then ctx.SetTool("none") end
     elseif ctx.data.tool == "move" then
         RegionMapCanvasTools.MoveTo(ctx, u, v)
     elseif ctx.data.tool == "ruler" then
@@ -722,6 +726,9 @@ function RegionMapCanvasTools.MapMenu(ctx, u, v, snapId)
             text = RegionMapCopy.T("ctx.map.add"),
             click = function() RegionMapCanvasTools.AddAt(ctx, u, v) end,
         }
+    end
+    if RegionMapLabels.CanAdd(map.id) then
+        entries[#entries + 1] = { text = RegionMapCopy.T("label.addHere"), click = function() ctx.CreateLabel(u, v) end }
     end
     if Model.IsDirector() and Model.CanMovePartyOn(map.id) then
         -- On a point crawl map a placement next to a pin is "at" it, so it can travel on from there (Q16).

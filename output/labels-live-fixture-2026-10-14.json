@@ -1,0 +1,37 @@
+{
+  "ids": {
+    "1": "961e07a9-85d0-4dbb-9e4f-26f5dc355a6b",
+    "2": "f765302d-7f01-47fb-a16f-f77ccc22cda4",
+    "3": "8d2e4d7c-13d8-4134-b6ec-a3ec75c1f2c6",
+    "4": "f80825b3-537e-4fd6-bbc4-35dcc50e518c"
+  },
+  "mapId": "bd2a3594-9362-4132-b4ca-0186eaa91850",
+  "beforeMap": "8f5ad0d2-5ef0-4d33-a59d-0925184a3346",
+  "font": 100,
+  "prefs": {
+    "windowGeometry": {
+      "height": 754.574890136719,
+      "x": 285.074920654297,
+      "y": 135.900115966797,
+      "width": 1139.62487792969
+    },
+    "cameras": {
+      "8f5ad0d2-5ef0-4d33-a59d-0925184a3346:1": {
+        "centerY": 0.5,
+        "zoom": 1,
+        "centerX": 0.5
+      }
+    },
+    "inAppView": "fullscreen",
+    "showNames": false,
+    "selectedMapId": "8f5ad0d2-5ef0-4d33-a59d-0925184a3346"
+  },
+  "game": "ab736f85-7b96-4216-bee8-6ea3d2d8cc59",
+  "roleChecks": {
+    "editorHidden": true,
+    "visible": 3,
+    "writeRejected": true,
+    "hidden": 0
+  },
+  "scheme": "mcdm"
+}

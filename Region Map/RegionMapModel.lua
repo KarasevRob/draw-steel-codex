@@ -1073,13 +1073,21 @@ function RegionMapModel.DeleteLocation(id)
     for _, location in ipairs(all) do removed[location.id] = true end
     -- A path always joins two pins, so every path touching a deleted pin goes too (B5).
     local paths = RegionMapPaths.Touching(removed)
-    if AnyPending(all) or RegionMapPaths.AnyPending(paths) then return false, "busy", nil, 0 end
+    local labels = rawget(_G, "RegionMapLabels")
+    local lettering = labels and labels.OnMaps(removed) or {}
+    if AnyPending(all) or RegionMapPaths.AnyPending(paths) or (labels and labels.AnyPending(lettering)) then
+        return false, "busy", nil, 0
+    end
     local description = "Delete region map location"
     local target = RescueTarget(current, removed)
     local pathTarget = target == nil and PartyOffPaths(paths, removed) or nil
     local steps = HideAll(all, description)
     if #steps == 0 then return false, "unavailable", nil, 0 end
     for _, step in ipairs(RegionMapPaths.HideSteps(paths, description)) do steps[#steps + 1] = step end
+    if labels then
+        for _, row in ipairs(lettering) do labels.CancelPending(row.id) end
+        for _, step in ipairs(labels.HideSteps(lettering, description)) do steps[#steps + 1] = step end
+    end
     -- The Party moves only once the rows are on their way, so a failed delete leaves it be.
     if target ~= nil then
         local partyStep = SetParty(target or nil, description)
@@ -1106,7 +1114,12 @@ function RegionMapModel.RemoveMap(id)
     local removed = {}
     for _, location in ipairs(descendants) do removed[location.id] = true end
     local paths = RegionMapPaths.Touching(removed)
-    if R.PendingWrite(C.locationTableName, id) or AnyPending(descendants) or RegionMapPaths.AnyPending(paths) then
+    local labels = rawget(_G, "RegionMapLabels")
+    local labelMaps = DeepCopy(removed)
+    labelMaps[id] = true
+    local lettering = labels and labels.OnMaps(labelMaps) or {}
+    if R.PendingWrite(C.locationTableName, id) or AnyPending(descendants) or RegionMapPaths.AnyPending(paths)
+        or (labels and labels.AnyPending(lettering)) then
         return false, "busy", nil, 0
     end
     local description = "Remove map from location"
@@ -1122,6 +1135,10 @@ function RegionMapModel.RemoveMap(id)
     if NextRevision(current) == nil then return false, "unavailable", nil, 0 end
     local steps = HideAll(descendants, description)
     for _, step in ipairs(RegionMapPaths.HideSteps(paths, description)) do steps[#steps + 1] = step end
+    if labels then
+        for _, row in ipairs(lettering) do labels.CancelPending(row.id) end
+        for _, step in ipairs(labels.HideSteps(lettering, description)) do steps[#steps + 1] = step end
+    end
     -- The mode goes with the image, so Add map can pick it again (A4).
     local own = WriteLocation(current, { imageId = "", mapShared = false, scale = false, pace = false, mode = false }, description)
     if own == nil then return false, "unavailable", nil, 0 end
@@ -1171,6 +1188,10 @@ function RegionMapModel.CanRevert(entry)
     for _, step in ipairs(entry.steps) do
         local revision, mutationId = StepCurrent(step)
         if revision ~= step.afterRevision or mutationId ~= step.afterMutationId then return false end
+        if step.tableName == C.labelTableName then
+            local labels = rawget(_G, "RegionMapLabels")
+            if labels == nil or not labels.CanRevertStep(step, entry) then return false end
+        end
         if not IsDirector() and step.before ~= nil
             and (step.tableName == C.locationTableName or step.tableName == C.pathTableName) then
             local current = (dmhub.GetTable(step.tableName) or {})[step.id]

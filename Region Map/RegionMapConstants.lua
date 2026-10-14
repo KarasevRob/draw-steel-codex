@@ -16,6 +16,13 @@ RegionMapConstants.panelIcon = "phosphor/map-trifold.png"
 -- The details and notes tables date from V1 and keep their row format.
 RegionMapConstants.schemaVersion = 1                -- the state document's schema
 RegionMapConstants.locationTableName = "RegionMapLocations"
+RegionMapConstants.labelTableName = "RegionMapMapLabels"
+RegionMapConstants.labelTextLimit = 256
+RegionMapConstants.labelByteLimit = 1024
+RegionMapConstants.labelMinSize = 0.001
+RegionMapConstants.labelMaxSize = 0.25
+RegionMapConstants.labelDefaultSize = 0.03
+RegionMapConstants.labelHandleSize = 24
 RegionMapConstants.logTableName = "RegionMapLogEntries"
 RegionMapConstants.detailsTableName = "RegionMapLocationDetails"
 RegionMapConstants.notesTableName = "RegionMapLocationDirectorNotes"
@@ -241,8 +248,7 @@ RegionMapConstants.partyMoveEdge = 0.15              -- share of the walk spent 
 RegionMapConstants.partyMoveFresh = 5                -- only legs logged this recently play; older ones (late join, reopen) do not
 RegionMapConstants.controlsFadeSeconds = 2           -- camera controls fade after this long without pointer movement
 
--- Native popout window (the map is otherwise fullscreen). The popout opens at
--- windowWidth x popoutHeight; the bounds limit resizing it.
+-- Native and in-app windows share resize bounds but keep separate placement.
 RegionMapConstants.windowWidth = 1000
 RegionMapConstants.windowHeight = 800
 RegionMapConstants.windowMinWidth = 720
@@ -250,6 +256,10 @@ RegionMapConstants.windowMinHeight = 480
 RegionMapConstants.windowMaxWidth = 4096
 RegionMapConstants.windowMaxHeight = 2160
 RegionMapConstants.popoutHeight = 720
+RegionMapConstants.panelWidth = 900
+RegionMapConstants.panelHeight = 600
+RegionMapConstants.panelTitleHeight = 36
+RegionMapConstants.panelMargin = 12
 -- The icon rails' measures (DocumentSystem.lua ICON_RAIL_*, IconRailTop), in layer
 -- units before Font Size zoom: the fullscreen map sits between the rails.
 RegionMapConstants.railButton = 40
@@ -282,5 +292,7 @@ RegionMapConstants.iconRuler = "phosphor/ruler.png"
 RegionMapConstants.iconLog = "phosphor/scroll.png"
 RegionMapConstants.iconPopOut = "drawsteel/Icons_Nav_MaxWindow.png"  -- the host's own pop out and pop in icons
 RegionMapConstants.iconPopIn = "drawsteel/Icons_Nav_MinWindow.png"
+RegionMapConstants.iconWindow = "phosphor/corners-in.png"
+RegionMapConstants.iconFullscreen = "phosphor/corners-out.png"
 RegionMapConstants.iconSettings = "phosphor/gear-six.png"
 RegionMapConstants.iconPath = "phosphor/path.png"
