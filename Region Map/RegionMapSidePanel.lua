@@ -358,6 +358,7 @@ function RegionMapSidePanel.Create(ctx)
     local metaRow = gui.Panel { classes = { "regionMapSideRow" }, metaLabel, eyeButton, mapButton }
     -- Every viewer sees a map's kind (A2).
     local modeChip = gui.Label { classes = { "regionMapChip", "regionMapSideChip" }, text = T("chip.pointcrawl"), interactable = false }
+    local readArtwork = RegionMapArtwork.Create(ctx, "location", false)
     local description = Label({ "regionMapBody" })
     local journalLink = gui.Label {
         classes = { "regionMapLink" }, text = T("panel.journal"),
@@ -424,6 +425,7 @@ function RegionMapSidePanel.Create(ctx)
         gui.Panel { classes = { "regionMapSideHeader" }, readIcon, readTitle, closeButton },
         modeChip,
         metaRow,
+        readArtwork,
         description,
         journalLink,
         author,
@@ -631,6 +633,7 @@ function RegionMapSidePanel.Create(ctx)
         if data.selectedId ~= nil then ctx.Select(data.selectedId, "read") end
     end)
 
+    local editArtwork = RegionMapArtwork.Create(ctx, "location", true)
     editView = gui.Panel {
         classes = { "regionMapSideBody", "collapsed" },
         visibilityLabel,
@@ -638,6 +641,7 @@ function RegionMapSidePanel.Create(ctx)
         Label({ "regionMapFormLabel" }, T("edit.name")),
         nameInput,
         pinFields,
+        editArtwork,
         Label({ "regionMapFormLabel" }, T("edit.desc")),
         descriptionInput,
         journalRow,
@@ -864,6 +868,8 @@ function RegionMapSidePanel.Create(ctx)
         -- Connect to... picks in the path panel, which takes this panel's place meanwhile.
         local open = location ~= nil and mode ~= "none" and mode ~= "pickPathEnd"
         panel:SetClass("collapsed", not open)
+        readArtwork:FireEvent("bind", location ~= nil and open and mode == "read" and location.id or nil)
+        editArtwork:FireEvent("bind", location ~= nil and open and mode == "edit" and location.id or nil)
         if not open or location == nil then return end
         local rootWidth = ctx.root.renderedWidth or 0
         local width = C.sidePanelWidth * Session.UIScale()

@@ -71,6 +71,7 @@ RegionMapLocationDirectorNoteRecord.tableName = C.notesTableName
 --- @field icon string curated icon key, library image id, or ""
 --- @field visibility "hidden"|"revealed" pin visibility to players
 --- @field imageId string "" when the Location has no map
+--- @field artworkImageId nil|string optional library image, independent of the map and pin
 --- @field imageRevision integer bumps on every new image; camera keys include it
 --- @field mapShared boolean players may open this Location's map
 --- @field scale nil|RegionMapScale
@@ -151,6 +152,7 @@ RegionMapLogEntryRecord.secret = false
 --- @field back "same"|"different"|"none" the b-to-a direction
 --- @field backTime number watches from b to a when back is "different"
 --- @field description string players read it once the path is visible (H5)
+--- @field artworkImageId nil|string optional library image
 --- @field note string Director-only danger or requirement
 --- @field visibility "hidden"|"revealed" new paths start revealed (W3)
 --- @field revision integer
@@ -221,6 +223,39 @@ function RegionMapRecords.Field(object, key, default)
     return value
 end
 local Field = RegionMapRecords.Field
+
+--- Read the attachment without making a malformed optional field invalidate its owner.
+--- @param row any
+--- @return any "" for absent attachments; retain malformed values for conflict checks
+function RegionMapRecords.ArtworkValue(row)
+    return Field(row, "artworkImageId", "")
+end
+
+--- @param value any
+--- @return boolean
+function RegionMapRecords.IsArtworkId(value)
+    return type(value) == "string" and value ~= "" and #value <= C.journalIdLimit
+        and value:find("[^%w_%-]") == nil
+end
+
+--- Asset availability is checked here, never in Location/path structural validation.
+--- @param value any
+--- @return nil|ImageAssetLua asset
+--- @return nil|"invalid"|"video" reason
+function RegionMapRecords.ArtworkAsset(value)
+    if not RegionMapRecords.IsArtworkId(value) then return nil, "invalid" end
+    local asset = assets.imagesTable[value]
+    if asset == nil then return nil, "invalid" end
+    if Field(asset, "isVideo", false) == true then return nil, "video" end
+    return asset, nil
+end
+
+--- New writes accept library assets only; raw image IDs and videos are refused.
+--- @param value any
+--- @return boolean
+function RegionMapRecords.ValidArtwork(value)
+    return value == "" or RegionMapRecords.ArtworkAsset(value) ~= nil
+end
 
 --- A record's revision, or 0 when it is missing or out of range.
 --- @param record any
@@ -459,6 +494,16 @@ function RegionMapRecords.PendingWrite(tableName, id)
     return operation ~= nil and operation.status == "pending" and operation or nil
 end
 local LastWrite = RegionMapRecords.LastWrite
+
+--- Retry only this client's failed optimistic write; normal same-image selections stay no-ops.
+--- @param tableName string
+--- @param row table
+--- @param operation nil|RegionMapWrite
+--- @return boolean
+function RegionMapRecords.CanRetryArtwork(tableName, row, operation)
+    return operation ~= nil and operation == LastWrite(tableName, row.id) and operation.status == "failed"
+        and Field(row, "mutationId", nil) == operation.mutationId
+end
 
 --- @return table<string, RegionMapLocationDetailRecord>
 function RegionMapRecords.DetailsTable()

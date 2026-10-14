@@ -475,7 +475,7 @@ local CanAdd = RegionMapModel.CanAdd
 --- @param callbacks nil|RegionMapWriteCallbacks told when the server confirms or refuses
 --- @return nil|RegionMapUndoStep
 local function WriteLocation(current, changes, description, callbacks)
-    local record = current and DeepCopy(current) or RegionMapLocationRecord.new { revision = 0 }
+    local record = current and DeepCopy(current) or RegionMapLocationRecord.new { revision = 0, artworkImageId = "" }
     for key, value in pairs(changes) do
         -- false clears an optional field (scale, pace, mode); nil cannot sit in a table.
         if value == false and (key == "scale" or key == "pace" or key == "mode") then record[key] = nil else record[key] = value end
@@ -518,6 +518,8 @@ local function NormalizeChanges(current, changes)
             if not R.importances[value] then return nil end
         elseif key == "icon" then
             if type(value) ~= "string" or #value > C.journalIdLimit then return nil end
+        elseif key == "artworkImageId" then
+            if not IsDirector() or not R.ValidArtwork(value) then return nil end
         elseif key == "visibility" then
             if not IsDirector() or not R.visibilities[value] or current.parentId == "" then return nil end
         elseif key == "mapShared" then
@@ -549,18 +551,24 @@ end
 --- Only the named fields change, so two people editing different fields of one
 --- Location do not undo each other.
 --- @param id string
---- @param changes {name: nil|string, u: nil|number, v: nil|number, pinStyle: nil|string, importance: nil|string, icon: nil|string, visibility: nil|string, mapShared: nil|boolean, scale: nil|false|RegionMapScale, pace: nil|false|number, border: nil|string}
+--- @param changes {name: nil|string, u: nil|number, v: nil|number, pinStyle: nil|string, importance: nil|string, icon: nil|string, artworkImageId: nil|string, visibility: nil|string, mapShared: nil|boolean, scale: nil|false|RegionMapScale, pace: nil|false|number, border: nil|string}
 --- @param description nil|string
+--- @param retryArtwork nil|RegionMapWrite the failed artwork upload being explicitly retried
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
-function RegionMapModel.UpdateLocation(id, changes, description)
+function RegionMapModel.UpdateLocation(id, changes, description, retryArtwork)
     local current = Raw(id)
     if mod.unloaded or current == nil then return false, "invalid", nil end
     if not CanEdit(current) then return false, "permission", nil end
+    if changes.artworkImageId ~= nil and not IsDirector() then return false, "permission", nil end
     if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
     local normalized = NormalizeChanges(current, changes)
     if normalized == nil then return false, "invalid", nil end
+    if normalized.artworkImageId == R.ArtworkValue(current) and not R.CanRetryArtwork(C.locationTableName, current, retryArtwork) then
+        normalized.artworkImageId = nil
+    end
+    if next(normalized) == nil then return true, nil, nil end
     description = description or "Edit region map location"
     local step = WriteLocation(current, normalized, description)
     if step == nil then return false, "unavailable", nil end
@@ -1163,6 +1171,11 @@ function RegionMapModel.CanRevert(entry)
     for _, step in ipairs(entry.steps) do
         local revision, mutationId = StepCurrent(step)
         if revision ~= step.afterRevision or mutationId ~= step.afterMutationId then return false end
+        if not IsDirector() and step.before ~= nil
+            and (step.tableName == C.locationTableName or step.tableName == C.pathTableName) then
+            local current = (dmhub.GetTable(step.tableName) or {})[step.id]
+            if not dmhub.DeepEqual(R.ArtworkValue(current), R.ArtworkValue(step.before)) then return false end
+        end
     end
     return true
 end
