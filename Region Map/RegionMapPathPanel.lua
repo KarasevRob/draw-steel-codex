@@ -290,6 +290,7 @@ function RegionMapPathPanel.Create(ctx)
 
     local ends = Label({ "regionMapBody" })
     local time = Label({ "regionMapBody", "regionMapPathTime" })
+    local readArtwork = RegionMapArtwork.Create(ctx, "path", false)
     local description = Label({ "regionMapBody" })
 
     local editButton = Button(T("panel.edit"), function()
@@ -324,7 +325,7 @@ function RegionMapPathPanel.Create(ctx)
 
     readView = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
-        typeChip, metaRow, ends, time, description, buttons, noteSection,
+        typeChip, metaRow, ends, time, readArtwork, description, buttons, noteSection,
     }
 
     local function BindRead(path)
@@ -482,6 +483,7 @@ function RegionMapPathPanel.Create(ctx)
         if data.selectedPathId ~= nil then ctx.SelectPath(data.selectedPathId, "path") end
     end)
 
+    local editArtwork = RegionMapArtwork.Create(ctx, "path", true)
     editView = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
         Label({ "regionMapFormLabel" }, T("edit.visibility")),
@@ -497,6 +499,7 @@ function RegionMapPathPanel.Create(ctx)
         Label({ "regionMapFormLabel" }, T("edit.path.back")),
         backSegments,
         backTimeFields,
+        editArtwork,
         Label({ "regionMapFormLabel" }, T("edit.desc")),
         descriptionInput,
         Label({ "regionMapFormLabel" }, T("path.note")),
@@ -677,6 +680,8 @@ function RegionMapPathPanel.Create(ctx)
         if mode ~= "pathEdit" then
             badTime.time, badTime.backTime = nil, nil
         end
+        readArtwork:FireEvent("bind", path ~= nil and mode == "path" and path.id or nil)
+        editArtwork:FireEvent("bind", path ~= nil and mode == "pathEdit" and path.id or nil)
         if path == nil and picking == nil then return end
         local rootWidth = ctx.root.renderedWidth or 0
         local width = C.sidePanelWidth * Session.UIScale()

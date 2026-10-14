@@ -8,6 +8,19 @@ RegionMapCopy = RegisterGameType("RegionMapCopy")
 -- Keys ending in ".one" are the singular form of the key without it. T() picks
 -- one automatically when args.count == 1, so callers always pass the plural ID.
 RegionMapCopy.strings = {
+    -- Location/path artwork (docs/V2_COPY.md).
+    ["artwork.section"] = "Image",
+    ["artwork.open"] = "Open image",
+    ["artwork.choose"] = "Choose image...",
+    ["artwork.replace"] = "Replace image...",
+    ["artwork.remove"] = "Remove image",
+    ["artwork.loading"] = "Loading image...",
+    ["artwork.unavailable"] = "Image unavailable.",
+    ["artwork.retry"] = "Retry",
+    ["artwork.still"] = "Choose a still image.",
+    ["artwork.updated"] = "Image updated",
+    ["artwork.removed"] = "Image removed",
+    ["artwork.changed"] = "Image changed. Choose again.",
     -- 3. Window and toolbar
     ["window.title"] = "Overland Map",
     ["tb.search"] = "Search locations",
@@ -255,79 +268,18 @@ RegionMapCopy.strings = {
     ["import.help"] = "JSON contract",
     ["import.copyContract"] = "Copy contract",
     ["import.copied"] = "Copied",
-    ["import.contract"] = [[{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LocationImport",
-  "oneOf": [
-    { "$ref": "#/$defs/LocationList" },
-    {
-      "type": "object",
-      "required": ["locations"],
-      "properties": { "locations": { "$ref": "#/$defs/LocationList" } },
-      "additionalProperties": true
-    }
-  ],
-  "$defs": {
-    "LocationList": {
-      "type": "array", "minItems": 1,
-      "items": { "$ref": "#/$defs/Location" }
-    },
-    "Location": {
-      "type": "object",
-      "required": ["name"],
-      "additionalProperties": true,
-      "dependentRequired": { "u": ["v"], "v": ["u"] },
-      "properties": {
-        "name": {
-          "type": "string", "minLength": 1, "maxLength": 256,
-          "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$",
-          "description": "Trimmed; single line."
-        },
-        "description": {
-          "$ref": "#/$defs/Text", "maxLength": 4000, "default": "",
-          "description": "Visible when Location is revealed."
-        },
-        "note": {
-          "$ref": "#/$defs/Text", "maxLength": 8000, "default": "",
-          "description": "Director only."
-        },
-        "icon": {
-          "type": "string",
-          "enum": ["city", "town", "castle", "tower", "temple", "tavern",
-                   "camp", "port", "bridge", "forest", "cave", "dungeon",
-                   "danger", "treasure", "quest", "poi"],
-          "description": "Omitted: default pin."
-        },
-        "pinStyle": {
-          "type": "string", "enum": ["iconName", "plate", "iconOnly"],
-          "default": "iconName"
-        },
-        "importance": {
-          "type": "string", "enum": ["major", "normal", "minor"], "default": "normal"
-        },
-        "visibility": {
-          "type": "string", "enum": ["hidden", "revealed"], "default": "hidden"
-        },
-        "u": { "type": "number", "minimum": 0, "maximum": 1, "description": "Left = 0; right = 1." },
-        "v": { "type": "number", "minimum": 0, "maximum": 1, "description": "Top = 0; bottom = 1." }
-      }
-    },
-    "Text": {
-      "type": "string",
-      "not": { "pattern": "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]" },
-      "description": "Trimmed; CRLF/CR -> LF. Limits count Unicode characters after normalization."
-    }
-  },
-  "x-import": {
-    "scope": "Director; selected map; flat Locations only",
-    "write": "append; duplicate names warn; one Undo",
-    "unknownFields": "ignored",
-    "invalidEntries": "skipped; fail if none valid",
-    "omittedCoordinates": "centered grid",
-    "pasteMaxCharacters": 100000,
-    "fileMaxCharacters": null
-  }
-}]],
+    ["import.help.shape"] = "Location[] | { locations: Location[] }",
+    ["import.help.required"] = "* required; all other fields optional.",
+    ["import.help.name"] = "1..{limit} chars; trimmed; single line.",
+    ["import.help.description"] = "maxLength: {limit}; default: \"\".\nVisible when revealed.",
+    ["import.help.note"] = "maxLength: {limit}; default: \"\".\nDirector only.",
+    ["import.help.icon"] = "enum: {icons}\nOmitted: default pin.",
+    ["import.help.pinStyle"] = "enum: iconName | plate | iconOnly\ndefault: iconName",
+    ["import.help.importance"] = "enum: major | normal | minor\ndefault: normal",
+    ["import.help.visibility"] = "enum: hidden | revealed\ndefault: hidden",
+    ["import.help.u"] = "0..1; left -> right; requires v.",
+    ["import.help.v"] = "0..1; top -> bottom; requires u.",
+    ["import.help.behavior"] = "Scope: Director; selected map; flat Locations.\nWrite: append; duplicate names warn; one Undo.\nUnknown fields: ignored. Invalid entries: skipped.\nMissing u/v: centered grid.\nText: trim; CRLF/CR -> LF; no other controls except TAB.\nLimits: Unicode chars; paste {limit}; files uncapped.",
     ["import.example"] = [[{
   "locations": [
     {

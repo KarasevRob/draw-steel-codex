@@ -356,6 +356,7 @@ function RegionMapImport.Create(ctx)
     local editor
     local editBody
     local editScroll
+    local contractScroll
     local previewScroll
     local lines
     local target
@@ -423,6 +424,8 @@ function RegionMapImport.Create(ctx)
     local function ShowEditor(errorId)
         SetMode("edit")
         State().error = errorId
+        contractScroll.vscrollPosition = 1
+        contractScroll:ScheduleEvent("contractTop", C.afterLayoutDelay)
         RefreshControls()
         Session.FocusSoon(editor, function() return Alive() and State().mode == "edit" end)
         ctx.RefreshAll()
@@ -617,16 +620,67 @@ function RegionMapImport.Create(ctx)
     counter = Line("", { "regionMapImportLine", "regionMapImportCounter" })
     errorLabel = Line("", { "regionMapImportLine", "regionMapImportError", "collapsed" })
     errorLabel.id = "region-map-import-error"
-    local contract = T("import.contract", nil, true)
+    local fields = {
+        { name = "name", kind = "string", limit = C.textLimit, required = true },
+        { name = "description", kind = "string", limit = C.descriptionLimit },
+        { name = "note", kind = "string", limit = C.noteLimit },
+        { name = "icon", kind = "string" },
+        { name = "pinStyle", kind = "string" },
+        { name = "importance", kind = "string" },
+        { name = "visibility", kind = "string" },
+        { name = "u", kind = "number" },
+        { name = "v", kind = "number" },
+    }
+    local contractLines = { T("import.help.shape"), T("import.help.required"), "" }
+    --- @type Panel[]
+    local fieldRows = {
+        Line(T("import.help.shape"), { "monospace", "regionMapImportDetail" }),
+        Line(T("import.help.required"), { "regionMapImportDetail" }),
+    }
+    for _, field in ipairs(fields) do
+        local name = field.name .. (field.required and " *" or "")
+        local detail = T("import.help." .. field.name, {
+            limit = field.limit, icons = table.concat(C.pinIconOrder, ", "),
+        }, true)
+        contractLines[#contractLines + 1] = name .. " (" .. field.kind .. ")\n  " .. detail:gsub("\n", "\n  ")
+        fieldRows[#fieldRows + 1] = gui.Panel {
+            classes = { "regionMapImportField" },
+            gui.Panel {
+                width = "100%", height = "auto", flow = "horizontal", wrap = true,
+                gui.Label {
+                    classes = { "monospace", "noBold", "regionMapImportFieldName" }, text = name, interactable = false,
+                },
+                gui.Label {
+                    classes = { "monospace", "regionMapImportType" }, text = field.kind, interactable = false,
+                },
+            },
+            Line(detail, { "regionMapImportDetail" }),
+            gui.Panel { classes = { "regionMapRule" }, interactable = false },
+        }
+    end
+    local behavior = T("import.help.behavior", { limit = C.importTextLimit }, true)
+    contractLines[#contractLines + 1] = "\n" .. behavior
+    fieldRows[#fieldRows + 1] = Line(behavior, { "regionMapImportDetail" })
+    local contract = table.concat(contractLines, "\n")
+    contractScroll = gui.Panel {
+        id = "region-map-import-contract-scroll", classes = { "bordered", "bg", "regionMapImportContract" },
+        bgimage = true, vscroll = true,
+        contractTop = function(element)
+            if Alive() and State().mode == "edit" then element.vscrollPosition = 1 end
+        end,
+        gui.Panel {
+            id = "region-map-import-contract", classes = { "regionMapImportFields" },
+            data = { text = contract }, children = fieldRows,
+        },
+    }
     local help = {
         gui.Panel {
-            classes = { "regionMapImportActions" },
+            classes = { "regionMapImportHeader" },
             gui.Label {
-                classes = { "regionMapImportLine", "heading" }, text = T("import.help"),
-                width = "auto", tmargin = 0, rmargin = 8, valign = "center", interactable = false,
+                classes = { "regionMapImportHeading" }, text = T("import.help"), interactable = false,
             },
             gui.Button {
-                id = "region-map-import-copy-contract", classes = { "regionMapButton", "sizeS" },
+                id = "region-map-import-copy-contract", classes = { "regionMapButton", "sizeS", "regionMapImportCopy" },
                 text = T("import.copyContract"), data = { version = 0 },
                 click = function(element)
                     if not Alive() then return end
@@ -640,14 +694,7 @@ function RegionMapImport.Create(ctx)
                 end,
             },
         },
-        gui.Panel {
-            id = "region-map-import-contract-scroll", classes = { "bordered", "bg", "regionMapImportContract" },
-            bgimage = true, borderBox = true, vscroll = true, hscroll = true,
-            gui.Label {
-                id = "region-map-import-contract", classes = { "monospace", "regionMapImportContractText" },
-                text = contract, interactable = false,
-            },
-        },
+        contractScroll,
     }
     editBody = gui.Panel {
         classes = { "regionMapImportEditBody" },
@@ -655,7 +702,11 @@ function RegionMapImport.Create(ctx)
             classes = { "regionMapImportColumns" },
             gui.Panel {
                 classes = { "regionMapImportEditColumn" },
-                Line(T("import.paste"), { "regionMapImportLine", "heading" }), editor, counter,
+                gui.Panel {
+                    classes = { "regionMapImportHeader" },
+                    Line(T("import.paste"), { "regionMapImportHeading" }),
+                },
+                editor, counter,
                 Line(T("import.draftHint"), { "regionMapImportLine", "note" }),
             },
             gui.Panel { classes = { "regionMapImportHelpColumn" }, children = help },

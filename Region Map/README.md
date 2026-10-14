@@ -93,6 +93,33 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
   of path types (the 24 cap was removed 2026-10-11; the whole list is stored in
   `regionMapState` and rewritten on every type edit).
 
+### Location and path images
+
+- Each Location or path can have one still image from the Journal image library. Only
+  the Director chooses, replaces or removes it, including on player-owned Locations.
+- The preview sits before the description, after title/status and path travel details.
+  Its 160-pixel frame fits the whole image. Click it or **Open image** to use the existing
+  viewer in the same window; Enter also opens it in the active read section when no
+  input, search, picker or modal has focus. Click/Escape dismisses the viewer.
+  Enlarged images fit the originating window while retaining the viewer's 1024-pixel cap.
+- Viewing is local. Opening or closing changes neither the map nor the Party and does
+  not affect another viewer. An open image remains a snapshot if its source changes.
+- Visibility follows the object. Players cannot see path images while either endpoint
+  is hidden. Players editing their own Location see a read-only preview.
+- Loading waits for the image event and valid dimensions. After 10 seconds it offers
+  **Image unavailable.** and **Retry**; a late successful load still recovers. Missing,
+  unreadable and video assets cannot open. Asset changes can recover the selected preview.
+- Changes use normal save feedback and one Undo entry. A chooser captures its object and
+  attachment value; navigation, closing and reload cancel it, and a newer attachment
+  wins over a delayed upload. Removing a reference leaves the library asset intact.
+- Optional `artworkImageId` fields keep the current schemas. Missing/malformed fields
+  never invalidate the owning row. Map replacement/removal and object deletion Undo keep
+  artwork. JSON import does not accept attachments.
+
+Implementation and verification status: [artwork research](docs/ARTWORK_RESEARCH.md),
+[checks](tests/ARTWORK.md). The helper is registered before both detail panels and the
+complete feature is deployed to the development app.
+
 ### Map images (V2.1)
 
 - **Size guidance.** The image pickers and the Atlas New map tooltip say "Best at 4000 px
@@ -108,7 +135,7 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
 
 - Director: the **Import locations** button beside Add in the top toolbar
   opens a card for pasted JSON or a JSON file ([docs/IMPORT_FORMAT.md](docs/IMPORT_FORMAT.md))
-  into the open map. The editor has a concise JSON Schema contract with **Copy contract**
+  into the open map. The editor has a Swagger-style field reference with **Copy contract**
   and a hidden two-Location example.
 - Paste accepts up to 100,000 Unicode characters; files keep their uncapped import path.
   Back preserves pasted text. Replacing or discarding a nonempty draft asks first; drafts
@@ -196,7 +223,8 @@ along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.m
   plus a distance, miles or km) and pace per map in Settings.
 - **Session log**: automatic Party entries (arrived, traveling, placed; consecutive free
   drops merge), a Director note per entry, and the past route drawn as dots on the map
-  (Show route switch). Clicking an entry opens its map. The newest 500 entries are kept per game.
+  (Show route switch, off by default). Add note, Undo last change and Show route sit below
+  the title, above the entries. Clicking an entry opens its map. The newest 500 entries are kept per game.
   On point crawl maps each leg is one entry ("Traveled from Kell's Ferry to Stonehold by
   King's Road - 2 days"; "Traveled on to" and "Turned back to" from partway) whose route
   follows the path, and a stop is "Stopped on Road, 3 watches from Kell's Ferry". A stop
@@ -231,6 +259,7 @@ Load order (the CodeMod file list must match):
 | 13 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
 | 14 | `RegionMapPathTool.lua` | *V2.1.* Path tool steps, Connect, Redraw line, bend edits |
 | 15 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
+| 15a | `RegionMapArtwork.lua` | Selected-object preview, Director picker, loading, guarded local viewer and writes |
 | 16 | `RegionMapSidePanel.lua` | Location panel read and edit modes, "..." menu |
 | 17 | `RegionMapPathPanel.lua` | *V2.1.* Path read and edit, Connect to... picker, a Location's Paths section |
 | 18 | `RegionMapPartyPanel.lua` | *V2.1.* Party section, Travel to menu, hidden-path question, stop card |

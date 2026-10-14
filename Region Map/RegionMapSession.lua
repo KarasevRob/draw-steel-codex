@@ -194,7 +194,7 @@ RegionMapSession.ShowNames, RegionMapSession.SetShowNames = OnOffPreference("sho
 -- "Reduce motion" turns off the map transitions and the control fade (R9).
 RegionMapSession.ReduceMotion, RegionMapSession.SetReduceMotion = OnOffPreference("reduceMotion", false)
 -- "Show route" draws the Party's past route from the session log (D14d).
-RegionMapSession.ShowRoute, RegionMapSession.SetShowRoute = OnOffPreference("showRoute", true)
+RegionMapSession.ShowRoute, RegionMapSession.SetShowRoute = OnOffPreference("showRoute", false)
 
 --- The icon, importance, style and visibility the next new pin copies (R10).
 --- @return RegionMapPinStyle
