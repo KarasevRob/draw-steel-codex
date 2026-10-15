@@ -710,3 +710,53 @@ and Retry reuse their existing strings above. Hover keeps `pin.hover` / `pin.hov
 | pinText.default | Default |
 | pinText.plateColor | Plate color |
 | pinText.reset | Reset pin text |
+
+## Text outlines and image backgrounds (design agreed 2026-10-16)
+
+The existing label and map-wide pin text editors share these controls. Image configuration
+is Director-only. Outline controls follow existing label ownership. Existing background
+choices, save statuses and Retry retain their existing strings.
+
+| ID | Text |
+|---|---|
+| appearance.outline | Outline |
+| appearance.default | Default |
+| appearance.none | None |
+| appearance.custom | Custom |
+| appearance.outlineOff | Default: no outline. |
+| appearance.outlineHalo | Default: halo on icon names; no outline on name plates. |
+| appearance.outlineColor | Outline colour |
+| appearance.outlineWidth | Thickness |
+| appearance.thicknessHint | Relative scale, not pixels. Appearance varies by font. |
+| appearance.image | Image |
+| appearance.choose | Choose image... |
+| appearance.replace | Replace image... |
+| appearance.remove | Remove image |
+| appearance.backgroundFit | Image fit |
+| appearance.fit | Fit |
+| appearance.fill | Fill |
+| appearance.stretch | Stretch |
+| appearance.fitHint | Fit keeps the whole image. Fill crops edges. Stretch changes proportions. |
+| appearance.backgroundSizing | Sizing |
+| appearance.auto | Automatic |
+| appearance.manual | Manual |
+| appearance.padding | Padding (% of text size, per side) |
+| appearance.backgroundPadX | Horizontal |
+| appearance.backgroundPadY | Vertical |
+| appearance.dimensionsMap | Dimensions (% of map width) |
+| appearance.dimensionsPin | Dimensions (pt; all importance levels) |
+| appearance.backgroundWidth | Width |
+| appearance.backgroundHeight | Height |
+| appearance.offsetMap | Background offset (% of map width) |
+| appearance.offsetPin | Background offset (pt) |
+| appearance.backgroundX | X (right) |
+| appearance.backgroundY | Y (down) |
+| appearance.backgroundOpacity | Image opacity (%) |
+| appearance.more | More image settings |
+| appearance.managed | Image background managed by Director |
+| appearance.loading | Loading image... |
+| appearance.unavailable | Image unavailable |
+| appearance.invalidImage | Choose an accessible still image. |
+| appearance.video | Video backgrounds are not supported. Choose a still image. |
+| appearance.previewEmpty | No locations on this map to preview. |
+| appearance.previewHidden | No pin names visible. Turn on Show names or zoom in to preview. |

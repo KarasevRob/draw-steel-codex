@@ -407,7 +407,7 @@ function RegionMapCanvas.Create(ctx)
         local part = pin.data[key]
         if part ~= nil then return part end
         if key == "plate" then
-            part = gui.Label { classes = { "regionMapPinName", "plate" }, interactable = false, text = "" }
+            part = RegionMapPinText.CreateName(true, false, pin)
         else
             local isMap = key == "mapBadge"
             part = gui.Panel {
@@ -436,9 +436,7 @@ function RegionMapCanvas.Create(ctx)
     local function CreatePin(id)
         local glyph = gui.Panel { classes = { "regionMapPinGlyph" }, interactable = false }
         local disc = gui.Panel { classes = { "regionMapPinDisc" }, interactable = false, glyph }
-        local name = gui.Label {
-            classes = { "regionMapPinName" }, floating = true, interactable = false, text = "",
-        }
+        local name = RegionMapPinText.CreateName(false, true, nil)
         -- Centered so x/y place the pin's middle on its point (see PlaceCentered).
         return gui.Panel {
             classes = { "regionMapPin" },
@@ -448,11 +446,13 @@ function RegionMapCanvas.Create(ctx)
                 id = id, disc = disc, glyph = glyph, name = name, plate = nil,
                 mapBadge = nil, hiddenBadge = nil, u = 0, v = 0, signature = nil, showName = nil,
             },
-            hover = function(element)
+            hover = function(element, tooltipOwner)
                 if state.drag ~= nil then return end
                 local text = RegionMapPinText.HoverText(element.data.id)
-                if text then gui.Tooltip(text)(element) end
+                if text then gui.Tooltip(text)(tooltipOwner or element) end
             end,
+            dehover = function(element) element.tooltip = nil end,
+            destroy = function(element) element.tooltip = nil end,
             press = function(element)
                 if element:GetMouseButton(0) ~= true then return end
                 Session.CloseContextMenu()
@@ -515,18 +515,6 @@ function RegionMapCanvas.Create(ctx)
         }, ":")
         if pin.data.signature == signature then return false end
         pin.data.signature = signature
-        -- Native outlined text keeps its old material after a font swap or outline removal.
-        local fontChanged = pin.data.font ~= nil and pin.data.font ~= format.font
-        local outlined = format.background == "default"
-        local outlineChanged = pin.data.outlined ~= nil and pin.data.outlined ~= outlined
-        if fontChanged or outlineChanged then
-            pin.data.name = gui.Label { classes = { "regionMapPinName" }, floating = true, interactable = false, text = "" }
-            if fontChanged and pin.data.plate then
-                pin.data.plate = gui.Label { classes = { "regionMapPinName", "plate" }, interactable = false, text = "" }
-            end
-            SetPinChildren(pin)
-        end
-        pin.data.font, pin.data.outlined = format.font, outlined
         local disc, hit = PinSize(location)
         local plateStyle = location.pinStyle == "plate"
         pin.data.u, pin.data.v = location.u, location.v
@@ -861,7 +849,7 @@ function RegionMapCanvas.Create(ctx)
         -- halign selects which edge sits at the Location point; the point itself never moves.
         local anchor = pin.data.anchor
         local origin = anchor == "left" and 0 or anchor == "right" and layout.viewWidth or layout.viewWidth / 2
-        Tools.PlaceAt(pin, x - origin, y - layout.viewHeight / 2)
+        Tools.PositionPanel(pin, x - origin, y - layout.viewHeight / 2)
     end
 
     Layout = function()
@@ -1391,7 +1379,12 @@ function RegionMapCanvas.Create(ctx)
         -- from reaching the window, which would otherwise drag the whole window.
         swallowPress = true,
         canFocus = true, thinkTime = C.canvasThinkIdle,
-        data = { labelLayer = labelLayer, hasLabelGesture = function() return state.drag ~= nil and state.drag.labelStart ~= nil end },
+        data = { labelLayer = labelLayer, hasLabelGesture = function() return state.drag ~= nil and state.drag.labelStart ~= nil end,
+            visibleNames = function()
+                local count = 0
+                for _, pin in pairs(pins) do if pin.data.pinStyle == "plate" or pin.data.showName then count = count + 1 end end
+                return count
+            end },
         hover = function(element)
             state.hovered = true
             UpdateThinkRate(element)

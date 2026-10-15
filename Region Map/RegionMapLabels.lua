@@ -1,7 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- Independent map lettering; visibility never participates in structural validation.
---- @class RegionMapMapLabelRecord: GameType, RegionMapAudit
+--- @class RegionMapMapLabelRecord: GameType, RegionMapAudit, RegionMapTextAppearanceFormat
 --- @field new fun(o?: table): RegionMapMapLabelRecord
 --- @field id string
 --- @field mapId string
@@ -36,6 +36,7 @@ local defaults = { font = "berling", bold = false, italics = false, alignment = 
     size = C.labelDefaultSize, spacing = 0, color = "#ffffffff", background = "auto", backgroundColor = "#000000bf" }
 local formats = { font = true, bold = true, italics = true, alignment = true, size = true,
     spacing = true, color = true, background = true, backgroundColor = true }
+for key, value in pairs(RegionMapTextAppearance.defaults) do defaults[key], formats[key] = value, true end
 
 --- @return table<string, RegionMapMapLabelRecord>
 function RegionMapLabels.Table()
@@ -48,13 +49,14 @@ local function ColorValue(value)
 end
 
 local function ValidFormat(key, value)
+    if RegionMapTextAppearance.defaults[key] ~= nil then return RegionMapTextAppearance.Valid(key, value) end
     if key == "font" then return type(value) == "string" and #value > 0 and #value <= 128 end
     if key == "bold" or key == "italics" then return type(value) == "boolean" end
     if key == "alignment" then return value == "left" or value == "center" or value == "right" end
     if key == "size" then return R.IsFinite(value) and value >= C.labelMinSize and value <= C.labelMaxSize end
     if key == "spacing" then return R.IsFinite(value) and value >= 0 and value <= 1 end
     if key == "color" or key == "backgroundColor" then return ColorValue(value) end
-    if key == "background" then return value == "auto" or value == "plate" or value == "none" end
+    if key == "background" then return value == "auto" or value == "plate" or value == "none" or value == "image" end
     return false
 end
 
@@ -197,8 +199,9 @@ function RegionMapLabels.Search(query, limit)
     return results
 end
 
-local function Changes(fields, director, allowBlank)
+local function Changes(fields, director, allowBlank, current)
     if type(fields) ~= "table" then return nil end
+    if not RegionMapTextAppearance.CanChange(current, fields, director) then return nil end
     local result = {}
     for key, value in pairs(fields) do
         if formats[key] then
@@ -270,7 +273,7 @@ end
 function RegionMapLabels.Update(id, fields, callbacks, retry)
     local current = Labels.Get(id)
     if not Labels.CanEdit(current) then return false, "permission" end
-    local changes = Changes(fields, Model.IsDirector())
+    local changes = Changes(fields, Model.IsDirector(), false, current)
     if changes == nil then return false, "invalid" end
     local record, changed = DeepCopy(current), false
     for key, value in pairs(changes) do
@@ -337,7 +340,8 @@ function RegionMapLabels.CanRevertStep(step, entry)
     if not Labels.CanEdit(current) then return false end
     local before = step.before
     return before == nil or (Labels.Valid(before, true) and before.ownerId == current.ownerId
-        and before.mapId == current.mapId and before.visibility == current.visibility)
+        and before.mapId == current.mapId and before.visibility == current.visibility
+        and RegionMapTextAppearance.SameImages(before, current))
 end
 
 -- Immutable save batches outlive the editor. Closing flushes, while losing permission cancels unsent work.
@@ -351,6 +355,7 @@ end
 
 function RegionMapLabels.NewDraft(mapId, u, v, format, notify)
     if not Labels.CanAdd(mapId) then return nil end
+    if not Model.IsDirector() then format = RegionMapTextAppearance.PlayerFormat(format) end
     local record = RegionMapMapLabelRecord.new(Labels.Format(format))
     record.id, record.mapId, record.schemaVersion, record.revision = dmhub.GenerateGuid(), mapId, 1, 0
     record.u, record.v, record.text, record.angle = R.Clamp(u, 0, 1), R.Clamp(v, 0, 1), "", 0
@@ -369,6 +374,13 @@ function RegionMapLabels.Snapshot(id)
     local q = queues[id]
     local row = (q and q.draft) or Labels.Get(id)
     if row == nil or (q and q.draft and not Labels.CanEdit(row)) then return nil end
+    if q and not Model.IsDirector() then
+        local allowed = RegionMapTextAppearance.CanChange(row, q.pending, false)
+        for i, batch in ipairs(q.items) do
+            if not (q.running and i == 1) and not RegionMapTextAppearance.CanChange(row, batch.changes, false) then allowed = false end
+        end
+        if not allowed then Labels.CancelPending(id) end
+    end
     local result = DeepCopy(row)
     for key, value in pairs(Labels.Format(row)) do result[key] = value end
     if q == nil then return result end
@@ -439,6 +451,7 @@ Drain = function(id)
     local ok, reason, operation
     if q.draft ~= nil then
         local fields = Labels.Format(q.draft)
+        if not Model.IsDirector() then fields = RegionMapTextAppearance.PlayerFormat(fields) end
         fields.text, fields.angle = q.draft.text, q.draft.angle
         if Model.IsDirector() then fields.visibility = q.draft.visibility end
         for key, value in pairs(batch.changes) do fields[key] = value end
@@ -468,7 +481,7 @@ function RegionMapLabels.Flush(id)
     q.timer = q.timer + 1
     local snapshot = Labels.Snapshot(id)
     if snapshot == nil or not Labels.CanEdit(snapshot) then Labels.CancelPending(id); return end
-    if Changes(q.pending, Model.IsDirector()) == nil or Labels.NormalizeText(snapshot.text) == "" then
+    if Changes(q.pending, Model.IsDirector(), false, Labels.Get(id)) == nil or Labels.NormalizeText(snapshot.text) == "" then
         q.status = "invalid"; Notify(q); return
     end
     q.items[#q.items + 1] = { changes = DeepCopy(q.pending), kind = "edit", copyId = "label.updated" }
@@ -479,7 +492,7 @@ end
 function RegionMapLabels.Stage(id, changes)
     local row = Labels.Snapshot(id)
     if not Labels.CanEdit(row) then return false end
-    changes = Changes(changes, Model.IsDirector(), true)
+    changes = Changes(changes, Model.IsDirector(), true, row)
     if changes == nil then return false end
     local q = Queue(id)
     for key, value in pairs(changes) do q.pending[key] = value end
@@ -493,8 +506,9 @@ function RegionMapLabels.Stage(id, changes)
 end
 
 function RegionMapLabels.Commit(id, changes, kind)
-    if not Labels.CanEdit(Labels.Snapshot(id)) then return false end
-    changes = Changes(changes, Model.IsDirector())
+    local row = Labels.Snapshot(id)
+    if not Labels.CanEdit(row) then return false end
+    changes = Changes(changes, Model.IsDirector(), false, row)
     if changes == nil then return false end
     Labels.Flush(id)
     local q = Queue(id)

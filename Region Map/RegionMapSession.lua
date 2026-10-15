@@ -275,7 +275,9 @@ function RegionMapSession.LastPinStyle()
 end
 
 function RegionMapSession.LastLabelFormat()
-    return RegionMapLabels.Format(Preferences().lastLabelFormat)
+    local value = RegionMapLabels.Format(Preferences().lastLabelFormat)
+    if not RegionMapModel.IsDirector() then value = RegionMapTextAppearance.PlayerFormat(value) end
+    return value
 end
 
 function RegionMapSession.RememberLabelFormat(row)

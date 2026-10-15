@@ -6,6 +6,7 @@ local mod = dmhub.GetModLoading()
 RegionMapLabelLayer = RegisterGameType("RegionMapLabelLayer")
 local Labels, Tools, Session = RegionMapLabels, RegionMapCanvasTools, RegionMapSession
 local C, Copy = RegionMapConstants, RegionMapCopy
+local Appearance = RegionMapTextAppearance
 local baseFont = 64
 
 --- @param color string
@@ -45,7 +46,7 @@ function RegionMapLabelLayer.Create(ctx)
     local function Measure(entry)
         if mod.unloaded or not entry.panel.valid then return end
         local w, h = entry.panel.renderedWidth, entry.panel.renderedHeight
-        if w > 0 and h > 0 then
+        if w > 0 and h > 0 and (not entry.measured or w ~= entry.width or h ~= entry.height) then
             entry.width, entry.height, entry.measured = w, h, true
             dirty = true
             if not measureRefreshPending then
@@ -60,12 +61,24 @@ function RegionMapLabelLayer.Create(ctx)
 
     local function NewEntry(id)
         local entry = { id = id, measured = false, width = 0, height = 0 }
+        entry.image = Appearance.CreateImage(function()
+            if entry.panel and entry.panel.valid then
+                dirty = true
+                signature = nil
+                entry.look = nil
+                dmhub.Schedule(C.afterLayoutDelay, function()
+                    if not mod.unloaded and entry.panel.valid then ctx.RefreshAll() end
+                end)
+            end
+        end)
         entry.text = gui.Label { width = "auto", height = "auto", textWrap = false, text = "", interactable = false,
             data = { written = {} } }
         entry.panel = gui.Panel { floating = true, halign = "center", valign = "center",
             bgimage = "panels/square.png",
             classes = { "regionMapLettering" }, width = "auto", height = "auto", borderBox = true,
-            interactable = false, data = { written = {} }, entry.text }
+            interactable = false, data = { written = {} },
+            rendered = function() Measure(entry) end,
+            entry.image.panel, entry.text }
         layer:AddChild(entry.panel)
         entry.eye = gui.Panel { classes = { "regionMapLabelEye", "collapsed" }, floating = true, interactable = false,
             gui.Panel { classes = { "regionMapIconGlyph" }, bgimage = C.iconEyeSlash, interactable = false } }
@@ -81,11 +94,19 @@ function RegionMapLabelLayer.Create(ctx)
         local font = Labels.DisplayFont(format.font)
         local key = table.concat({ display, font, tostring(format.bold), tostring(format.italics), format.alignment,
             format.color, format.background, format.backgroundColor, tostring(Session.UIScale()) }, "|")
+        for field in pairs(Appearance.defaults) do key = key .. "|" .. field .. "=" .. tostring(format[field]) end
         entry.row = DeepCopy(row)
         for field, value in pairs(format) do entry.row[field] = value end
         entry.size, entry.angle = format.size, row.angle or 0
         if entry.look ~= key then
             entry.look, entry.measured = key, false
+            local material = Appearance.MaterialKey(format, 0, RegionMapLabelLayer.Contrast(format.color))
+            if entry.material and entry.material ~= material then
+                entry.text = gui.Label { width = "auto", height = "auto", textWrap = false, text = "", interactable = false,
+                    data = { written = {} } }
+                entry.panel.children = { entry.image.panel, entry.text }
+            end
+            entry.material = material
             entry.text.text = display
             Style(entry.text, "fontFace", font)
             Style(entry.text, "fontSize", baseFont / Session.UIScale())
@@ -93,7 +114,9 @@ function RegionMapLabelLayer.Create(ctx)
             Style(entry.text, "italics", format.italics)
             Style(entry.text, "textAlignment", format.alignment)
             Style(entry.text, "color", format.color)
-            Style(entry.text, "textOutlineWidth", 0)
+            local outlineWidth, outlineColor = Appearance.Outline(format, 0, RegionMapLabelLayer.Contrast(format.color))
+            Style(entry.text, "textOutlineWidth", outlineWidth)
+            Style(entry.text, "textOutlineColor", outlineColor)
             -- The backing contrasts with the text, never with moving map pixels.
             local backing = RegionMapLabelLayer.Contrast(format.color)
             local fill, hpad, vpad, radius = "clear", 0, 0, 0
@@ -102,6 +125,8 @@ function RegionMapLabelLayer.Create(ctx)
             elseif format.background == "plate" then
                 fill, hpad, vpad, radius = format.backgroundColor, baseFont * 0.2, baseFont * 0.12, baseFont * 0.1
             end
+            entry.image.Bind(format)
+            if format.background == "image" and entry.image.status ~= "ready" then fill = backing end
             Style(entry.panel, "bgcolor", fill)
             Style(entry.panel, "hpad", hpad)
             Style(entry.panel, "vpad", vpad)
@@ -160,7 +185,18 @@ function RegionMapLabelLayer.Create(ctx)
         local row = Row(entry)
         local x, y = Tools.ImageToPanel(layout, row.u, row.v)
         local scale = row.size * layout.width / baseFont
-        return { x = x, y = y, width = entry.width * scale, height = entry.height * scale,
+        local geometry
+        if row.background == "image" then
+            geometry = Appearance.Geometry(row, entry.width, entry.height, baseFont / Session.UIScale(), baseFont / row.size)
+        else
+            geometry = { x1 = -entry.width / 2, x2 = entry.width / 2, y1 = -entry.height / 2, y2 = entry.height / 2 }
+            geometry.text = DeepCopy(geometry)
+        end
+        local cx, cy = (geometry.x1 + geometry.x2) * scale / 2, (geometry.y1 + geometry.y2) * scale / 2
+        local a = math.rad(row.angle)
+        return { x = x + cx * math.cos(a) - cy * math.sin(a), y = y + cx * math.sin(a) + cy * math.cos(a),
+            originX = x, originY = y, geometry = geometry, scale = scale,
+            width = (geometry.x2 - geometry.x1) * scale, height = (geometry.y2 - geometry.y1) * scale,
             angle = row.angle, id = row.id }
     end
 
@@ -191,6 +227,7 @@ function RegionMapLabelLayer.Create(ctx)
             Style(entry.panel, "rotate", -row.angle)
             local box = Box(entry)
             if box then
+                if box.geometry.image then entry.image.Layout(box.geometry.image) end
                 Tools.PlaceCentered(entry.eye, layout, Offset(box, box.width / 2 + 10, -box.height / 2))
             end
         end
@@ -208,7 +245,8 @@ function RegionMapLabelLayer.Create(ctx)
                 local size = C.labelHandleSize * Session.UIScale()
                 resize.selfStyle.width, resize.selfStyle.height = size, size
                 rotate.selfStyle.width, rotate.selfStyle.height = size, size
-                Tools.PlaceCentered(resize, layout, Offset(box, box.width / 2, box.height / 2))
+                local textBox = { x = box.originX, y = box.originY, angle = box.angle }
+                Tools.PlaceCentered(resize, layout, Offset(textBox, entry.width * box.scale / 2, entry.height * box.scale / 2))
                 Tools.PlaceCentered(rotate, layout, Offset(box, 0, -box.height / 2 - size))
             end
         end
@@ -219,9 +257,11 @@ function RegionMapLabelLayer.Create(ctx)
             local entry = entries[order[i]]
             local box = Box(entry)
             if box then
-                local a, dx, dy = math.rad(box.angle), x - box.x, y - box.y
-                local localX, localY = dx * math.cos(a) + dy * math.sin(a), -dx * math.sin(a) + dy * math.cos(a)
-                if math.abs(localX) <= math.max(8, box.width / 2) and math.abs(localY) <= math.max(8, box.height / 2) then
+                local a, dx, dy = math.rad(box.angle), x - box.originX, y - box.originY
+                local localX, localY = (dx * math.cos(a) + dy * math.sin(a)) / box.scale, (-dx * math.sin(a) + dy * math.cos(a)) / box.scale
+                local imageVisible = entry.image.status == "ready" and entry.row.backgroundOpacity > 0
+                if Appearance.Contains(box.geometry.text, localX, localY)
+                    or (box.geometry.image and imageVisible and Appearance.Contains(box.geometry.image, localX, localY)) then
                     return entry.id
                 end
             end
@@ -237,7 +277,7 @@ function RegionMapLabelLayer.Create(ctx)
         local size = C.labelHandleSize * Session.UIScale()
         for _, kind in ipairs({ "resize", "rotate" }) do
             local hx, hy
-            if kind == "resize" then hx, hy = Offset(box, box.width / 2, box.height / 2)
+            if kind == "resize" then hx, hy = Offset({ x = box.originX, y = box.originY, angle = box.angle }, entry.width * box.scale / 2, entry.height * box.scale / 2)
             else hx, hy = Offset(box, 0, -box.height / 2 - size) end
             if math.abs(x - hx) <= size / 2 and math.abs(y - hy) <= size / 2 then return kind, entry.id end
         end
@@ -249,5 +289,12 @@ function RegionMapLabelLayer.Create(ctx)
     end
 
     function api.Bounds(id) return Box(entries[id]) end
+    function api.ImageDimensions(id)
+        local entry = entries[id]
+        local box = Box(entry)
+        if box == nil or layout == nil then return nil end
+        local geometry = box.geometry.image or box.geometry.text
+        return (geometry.x2 - geometry.x1) * box.scale / layout.width, (geometry.y2 - geometry.y1) * box.scale / layout.width
+    end
     return api
 end
