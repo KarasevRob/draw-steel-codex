@@ -1,5 +1,13 @@
 # Map label verification
 
+Follow-up on 2026-10-15: the user released the engine and requested removal of all
+Move label actions. The editor/context buttons and separate placement tool are removed;
+Positions locked/unlocked now names the shared Location/label lock. All 18 isolated
+label checks and 13 window-host checks passed, with 0 mod type-check problems. Live
+drag checks confirmed locked/unlocked/relocked behavior on a disposable label, and the
+temporary map, Location and label were removed. These changes are locally deployed;
+publication remains paused. See [README.md](README.md) for the combined UI verification.
+
 Results collected on 2026-10-14, engine 0.0.857, bridge build 10. The feature is
 implemented and deployed to the local development checkout. **The complete labels
 update has not been published.** The user paused runtime work and then requested

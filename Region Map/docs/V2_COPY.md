@@ -37,7 +37,7 @@ lookup table only.
 | Party not at a location | traveling | travelling, free, moving |
 | Pin size and text weight (D5b) | Importance: Major, Normal, Minor | tier, rank, size |
 | How a pin is drawn (D5a) | Pin style: Icon + name, Name plate, Icon only | label style, display |
-| Pins cannot be dragged | Pins locked / Pins unlocked | edit mode, frozen |
+| Locations and labels cannot be dragged | Positions locked / Positions unlocked | edit mode, frozen |
 | Travel history | Session log | journal, history, travel log |
 | Forcing every name on | Show names | show labels |
 
@@ -49,8 +49,8 @@ lookup table only.
 | tb.search | Search locations | Tooltip |
 | tb.add | Add location | Tooltip |
 | tb.import | Import locations | Tooltip; Director, open maps only; beside Add |
-| tb.lock.on | Pins locked - click to unlock | Tooltip, default state |
-| tb.lock.off | Pins unlocked - click to lock | Tooltip |
+| tb.lock.on | Positions locked - click to unlock locations and labels | Tooltip, default state |
+| tb.lock.off | Positions unlocked - click to lock locations and labels | Tooltip |
 | tb.ruler | Ruler | Tooltip |
 | tb.show | Show this map to players | Tooltip, Director only |
 | tb.viewAs.off | View as player | Tooltip, Director only |
@@ -107,7 +107,7 @@ lookup table only.
 | status.none | {party} is not on a map | |
 | status.none.hint | Right-click a map to place the Party. | Tooltip, Director only |
 | banner.viewAs | Viewing as player - hidden locations are not shown | Director, View as player on (R9) |
-| chip.unlocked | Pins unlocked - drag to move | While unlocked (R6) |
+| chip.unlocked | Positions unlocked - drag locations or selected labels to move | While unlocked (R6), updated 2026-10-15 |
 | hint.add | Click the map to add a location. Esc to stop. | "+" active (R10) |
 | hint.move | Click where {name} should go. Esc cancels. | "Move" from the menu |
 | hint.ruler | Ruler: click a start, then an end. Only you see it. Esc stops. | Ruler active (R7) |
@@ -656,7 +656,6 @@ Plural deletion counts use `label.deleteCount`, with `.one` selected for a count
 | label.add | Add label |
 | label.addHere | Add label here |
 | label.edit | Edit label |
-| label.move | Move label |
 | label.delete | Delete label |
 | label.players | Players can manage their own labels |
 | label.text | Text |
@@ -689,7 +688,25 @@ Plural deletion counts use `label.deleteCount`, with `.one` selected for a count
 | label.deleteCount | Also deletes {count} labels. |
 | label.deleteCount.one | Also deletes 1 label. |
 | label.placeHint | Click or press Enter to place a label. Esc cancels. |
-| label.moveHint | Click or press Enter to move the label. Esc cancels. |
 | label.hiddenLocal | Labels are hidden for you. |
 | label.forced | The selected label is shown temporarily. |
 | label.addMenu | Add |
+
+## Map-wide pin text (signed off 2026-10-15)
+
+Settings > This map. The controls apply only to direct Location pins on this map.
+Font, bold/italic, spacing, colors, backgrounds, anchors, Importance tiers, save status
+and Retry reuse their existing strings above. Hover keeps `pin.hover` / `pin.hover.nameOnly`.
+
+| ID | Text |
+|---|---|
+| pinText.title | Pin text |
+| pinText.scope | All location names on this map. |
+| pinText.size | Size (pt) |
+| pinText.anchor | Name anchor |
+| pinText.appearance | Text appearance |
+| pinText.themeFont | Theme default |
+| pinText.themeColor | Use theme color |
+| pinText.default | Default |
+| pinText.plateColor | Plate color |
+| pinText.reset | Reset pin text |

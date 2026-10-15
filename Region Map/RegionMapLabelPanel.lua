@@ -13,7 +13,6 @@ function RegionMapLabelPanel.MenuEntries(ctx, id)
     if not Labels.CanEdit(row) then return {} end
     return {
         { text = T("label.edit"), click = function() if ctx.IsAlive() then ctx.SelectLabel(id, true) end end },
-        { text = T("label.move"), click = function() if ctx.IsAlive() then ctx.SelectLabel(id, false); ctx.SetTool("labelMove", id) end end },
         { text = T("label.delete"), click = function()
             if ctx.IsAlive() and Labels.RequestDelete(id) then ctx.SelectLabel(nil) end
         end },
@@ -134,12 +133,6 @@ function RegionMapLabelPanel.Create(ctx)
         Field("alignment", alignment), size, angle, spacing, color, Field("background", background), backgroundColor,
         gui.Panel { classes = { "regionMapSideRow" }, status, retry },
         gui.Panel { classes = { "regionMapButtonRow" },
-            Session.Button(T("label.move"), function()
-                if boundId then
-                    local id = boundId
-                    Labels.Flush(id); ctx.SelectLabel(id, false); ctx.SetTool("labelMove", id)
-                end
-            end),
             Session.Button(T("label.delete"), function()
                 if boundId and Labels.RequestDelete(boundId) then ctx.SelectLabel(nil) end
             end),

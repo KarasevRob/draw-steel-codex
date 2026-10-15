@@ -730,8 +730,13 @@ local function PinStyles()
             textOutlineWidth = 0,
         },
         {
+            selectors = { "regionMapPinName", "plate", "customPinBackground" },
+            borderWidth = 0,
+        },
+        {
             selectors = { "regionMapPinName", "plate", "parent:hover" },
             borderColor = "@accent",
+            borderWidth = 1,
         },
         {
             selectors = { "regionMapPinName", "plate", "parent:selected" },
@@ -1188,6 +1193,7 @@ local function AtlasStyles()
             bold = true,
             color = "@fgStrong",
             textWrap = false,
+            textOverflow = "ellipsis",
         },
         Chrome("regionMapCardActions", {
             width = 34,
@@ -1955,6 +1961,7 @@ function RegionMapStyles.Subscribe(element)
         if mod.unloaded or not element.valid then return end
         element.styles = ThemeEngine.MergeStyles(Styles.Build())
         element:UpdateStyle()
+        element:FireEventTree("regionMapThemeChanged")
     end)
 end
 

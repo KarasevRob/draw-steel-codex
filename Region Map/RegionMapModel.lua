@@ -88,6 +88,8 @@ local viewAsPlayer = false
 --- @param on boolean
 function RegionMapModel.SetViewAsPlayer(on)
     viewAsPlayer = on == true and dmhub.isDM
+    local pinText = rawget(_G, "RegionMapPinText")
+    if pinText then pinText.CancelUnauthorized() end
 end
 
 --- @return boolean
@@ -477,8 +479,10 @@ local CanAdd = RegionMapModel.CanAdd
 local function WriteLocation(current, changes, description, callbacks)
     local record = current and DeepCopy(current) or RegionMapLocationRecord.new { revision = 0, artworkImageId = "" }
     for key, value in pairs(changes) do
-        -- false clears an optional field (scale, pace, mode); nil cannot sit in a table.
-        if value == false and (key == "scale" or key == "pace" or key == "mode") then record[key] = nil else record[key] = value end
+        -- false clears optional fields; nil cannot sit in a change table.
+        if value == false and (key == "scale" or key == "pace" or key == "mode" or key == "pinNameFormat") then
+            record[key] = nil
+        else record[key] = value end
     end
     local revision = NextRevision(record)
     if revision == nil then return nil end
@@ -575,6 +579,34 @@ function RegionMapModel.UpdateLocation(id, changes, description, retryArtwork)
     return true, nil, Entry(description, { step })
 end
 local UpdateLocation = RegionMapModel.UpdateLocation
+
+--- Apply a pin-text leaf patch to the latest map row, independently of player-owned pin editing.
+--- @param id string
+--- @param patch table
+--- @param reset boolean
+--- @param callbacks nil|RegionMapWriteCallbacks
+--- @param retry nil|table
+--- @return boolean, nil|RegionMapWriteReason, nil|RegionMapUndoEntry, nil|RegionMapWrite
+function RegionMapModel.SetPinNameFormat(id, patch, reset, callbacks, retry)
+    if not IsDirector() or not CanWrite() then return false, "permission" end
+    local current = Raw(id)
+    if current == nil or current.imageId == "" then return false, "invalid" end
+    if R.PendingWrite(C.locationTableName, id) then return false, "busy" end
+    local format = RegionMapPinText.ApplyPatch(current, patch, reset)
+    if format == nil then return false, "invalid" end
+    local value = next(format) ~= nil and format or false
+    local retrying = retry ~= nil and R.CanRetryArtwork(C.locationTableName, current, retry.operation)
+    if not retrying and dmhub.DeepEqual(Field(current, "pinNameFormat", false), value) then
+        if callbacks and callbacks.success then callbacks.success(nil) end
+        return true
+    end
+    local description = reset and "Reset map pin text" or "Format map pin text"
+    local step = WriteLocation(current, { pinNameFormat = value }, description, callbacks)
+    local operation = R.LastWrite(C.locationTableName, id)
+    if step == nil then return false, "unavailable", nil, operation end
+    if retrying and retry then step.before = retry.before end
+    return true, nil, Entry(description, { step }), operation
+end
 
 --- The style a new pin starts with (R10: copied from the last one placed).
 --- @class RegionMapPinStyle
@@ -1016,7 +1048,11 @@ local function HideAll(locations, description)
     local steps = {}
     for i = #locations, 1, -1 do
         local step = WriteLocation(locations[i], { hidden = true }, description)
-        if step ~= nil then steps[#steps + 1] = step end
+        if step ~= nil then
+            steps[#steps + 1] = step
+            local pinText = rawget(_G, "RegionMapPinText")
+            if pinText then pinText.CancelPending(locations[i].id) end
+        end
     end
     return steps
 end
@@ -1140,8 +1176,11 @@ function RegionMapModel.RemoveMap(id)
         for _, step in ipairs(labels.HideSteps(lettering, description)) do steps[#steps + 1] = step end
     end
     -- The mode goes with the image, so Add map can pick it again (A4).
-    local own = WriteLocation(current, { imageId = "", mapShared = false, scale = false, pace = false, mode = false }, description)
+    local own = WriteLocation(current, { imageId = "", mapShared = false, scale = false, pace = false, mode = false,
+        pinNameFormat = false }, description)
     if own == nil then return false, "unavailable", nil, 0 end
+    local pinText = rawget(_G, "RegionMapPinText")
+    if pinText then pinText.CancelPending(id) end
     steps[#steps + 1] = own
     if partyTarget ~= nil then
         local partyStep = SetParty(partyTarget, description)
@@ -1196,6 +1235,8 @@ function RegionMapModel.CanRevert(entry)
             and (step.tableName == C.locationTableName or step.tableName == C.pathTableName) then
             local current = (dmhub.GetTable(step.tableName) or {})[step.id]
             if not dmhub.DeepEqual(R.ArtworkValue(current), R.ArtworkValue(step.before)) then return false end
+            if step.tableName == C.locationTableName
+                and not dmhub.DeepEqual(Field(current, "pinNameFormat", false), Field(step.before, "pinNameFormat", false)) then return false end
         end
     end
     return true

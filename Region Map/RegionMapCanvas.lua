@@ -285,14 +285,6 @@ function RegionMapCanvas.Create(ctx)
         return threshold == nil or data.camera.zoom >= threshold
     end
 
-    local function HoverText(location)
-        local name = Model.DisplayName(location)
-        local details = Model.Details(location.id)
-        local firstLine = details ~= nil and details.description:match("^[^\n]*") or ""
-        if firstLine == "" then return Copy.T("pin.hover.nameOnly", { name = name }) end
-        return Copy.T("pin.hover", { name = name, description = firstLine })
-    end
-
     -- Ends the drag in progress on release and commits what it moved. Both
     -- think (button up) and the click event can see the release first.
     local function FinishDrag()
@@ -403,6 +395,14 @@ function RegionMapCanvas.Create(ctx)
 
     -- The name plate and the badges are made the first time a pin shows them:
     -- most pins never do, and a dense map builds hundreds of pins at once.
+    local function SetPinChildren(pin)
+        local children = { pin.data.disc, pin.data.name }
+        for _, key in ipairs({ "plate", "mapBadge", "hiddenBadge" }) do
+            if pin.data[key] ~= nil then children[#children + 1] = pin.data[key] end
+        end
+        pin.children = children
+    end
+
     local function PinPart(pin, key)
         local part = pin.data[key]
         if part ~= nil then return part end
@@ -421,11 +421,7 @@ function RegionMapCanvas.Create(ctx)
         end
         pin.data[key] = part
         -- Later children draw on top, so badges stay above the plate whatever order they were made in.
-        local children = { pin.data.disc, pin.data.name }
-        for _, other in ipairs({ "plate", "mapBadge", "hiddenBadge" }) do
-            if pin.data[other] ~= nil then children[#children + 1] = pin.data[other] end
-        end
-        pin.children = children
+        SetPinChildren(pin)
         return part
     end
 
@@ -453,8 +449,9 @@ function RegionMapCanvas.Create(ctx)
                 mapBadge = nil, hiddenBadge = nil, u = 0, v = 0, signature = nil, showName = nil,
             },
             hover = function(element)
-                local location = Model.GetLocation(element.data.id)
-                if location ~= nil and state.drag == nil then gui.Tooltip(HoverText(location))(element) end
+                if state.drag ~= nil then return end
+                local text = RegionMapPinText.HoverText(element.data.id)
+                if text then gui.Tooltip(text)(element) end
             end,
             press = function(element)
                 if element:GetMouseButton(0) ~= true then return end
@@ -471,7 +468,7 @@ function RegionMapCanvas.Create(ctx)
             click = function(element)
                 if ReleasedDragMoved() then return end
                 -- The ruler and the scale tool measure to a pin's point instead of selecting it.
-                if data.tool == "ruler" or data.tool == "scale" or data.tool == "labelAdd" or data.tool == "labelMove" then
+                if data.tool == "ruler" or data.tool == "scale" or data.tool == "labelAdd" then
                     Tools.PlaceAt(ctx, element.data.u, element.data.v)
                     Layout()
                     return
@@ -510,14 +507,26 @@ function RegionMapCanvas.Create(ctx)
     -- Restyling a pin costs engine work even when nothing changed, so a pin is
     -- rebound only when its row (revision), selection, size or badge changed.
     -- Returns true when it did, so the pins are placed again.
-    local function BindPin(pin, location)
+    local function BindPin(pin, location, format, formatKey)
         local canOpen = location.imageId ~= "" and Model.CanOpenMap(location)
         local selected = data.selectedId == location.id
         local signature = table.concat({
-            tostring(location.revision), tostring(selected), tostring(state.scale), tostring(canOpen),
+            tostring(location.revision), tostring(selected), tostring(state.scale), tostring(canOpen), formatKey,
         }, ":")
         if pin.data.signature == signature then return false end
         pin.data.signature = signature
+        -- Native outlined text keeps its old material after a font swap or outline removal.
+        local fontChanged = pin.data.font ~= nil and pin.data.font ~= format.font
+        local outlined = format.background == "default"
+        local outlineChanged = pin.data.outlined ~= nil and pin.data.outlined ~= outlined
+        if fontChanged or outlineChanged then
+            pin.data.name = gui.Label { classes = { "regionMapPinName" }, floating = true, interactable = false, text = "" }
+            if fontChanged and pin.data.plate then
+                pin.data.plate = gui.Label { classes = { "regionMapPinName", "plate" }, interactable = false, text = "" }
+            end
+            SetPinChildren(pin)
+        end
+        pin.data.font, pin.data.outlined = format.font, outlined
         local disc, hit = PinSize(location)
         local plateStyle = location.pinStyle == "plate"
         pin.data.u, pin.data.v = location.u, location.v
@@ -525,13 +534,13 @@ function RegionMapCanvas.Create(ctx)
         pin.data.importance, pin.data.pinStyle = location.importance, location.pinStyle
         pin.data.disc:SetClass("collapsed", plateStyle)
         ShowPart(pin, "plate", plateStyle)
-        local text = Copy.Literal(Model.DisplayName(location))
-        local fontSize = (C.pinNameSize[location.importance] or C.pinNameSize.normal) * state.scale
+        local text = Model.DisplayName(location)
+        pin.data.anchor = plateStyle and format.anchor or "center"
+        pin.selfStyle.halign = pin.data.anchor
         if plateStyle then
             pin.data.name:SetClass("collapsed", true)
             pin.selfStyle.width, pin.selfStyle.height = "auto", "auto"
-            Session.SetText(pin.data.plate, text)
-            pin.data.plate.selfStyle.fontSize = fontSize
+            RegionMapPinText.Apply(pin.data.plate, text, format, location.importance, true, state.scale)
         else
             pin.selfStyle.width, pin.selfStyle.height = hit, hit
             pin.data.disc.selfStyle.width, pin.data.disc.selfStyle.height = disc, disc
@@ -540,8 +549,9 @@ function RegionMapCanvas.Create(ctx)
             local icon, isImage = PinIcon(location)
             if pin.data.glyph.bgimage ~= icon then pin.data.glyph.bgimage = icon end
             pin.data.glyph:SetClass("image", isImage)
-            Session.SetText(pin.data.name, text)
-            pin.data.name.selfStyle.fontSize = fontSize
+            RegionMapPinText.Apply(pin.data.name, text, format, location.importance, false, state.scale)
+            pin.data.name.selfStyle.halign = format.anchor
+            pin.data.name.selfStyle.x = format.anchor == "left" and hit / 2 or format.anchor == "right" and -hit / 2 or 0
             pin.data.name.selfStyle.y = (hit + disc) / 2 + 2
             pin.data.showName = NameVisible(pin.data)
             pin.data.name:SetClass("collapsed", not pin.data.showName)
@@ -570,8 +580,9 @@ function RegionMapCanvas.Create(ctx)
     local function UpdatePins()
         -- Every refresh comes here, and reading 250 rows costs ms even when none changed.
         -- A pin's look depends only on these, so the same inputs mean the same pins.
+        local format, formatKey = RegionMapPinText.Format(Model.GetLocation(state.mapId))
         local inputs = table.concat({ tostring(state.mapId), tostring(Model.Revision()), tostring(data.selectedId),
-            tostring(state.scale), tostring(Model.IsDirector()) }, "|")
+            tostring(state.scale), tostring(Model.IsDirector()), formatKey }, "|")
         if inputs == state.pinInputs then return end
         state.pinInputs = inputs
         local desired = {}
@@ -586,7 +597,7 @@ function RegionMapCanvas.Create(ctx)
                     pin = CreatePin(location.id)
                     pins[location.id] = pin
                 end
-                if BindPin(pin, location) then changed = true end
+                if BindPin(pin, location, format, formatKey) then changed = true end
                 children[#children + 1] = pin
             end
         end
@@ -776,7 +787,7 @@ function RegionMapCanvas.Create(ctx)
             local party = element.data.party
             if party == nil then return end
             -- The ruler and the scale tool measure to the Party instead of selecting its Location.
-            if data.tool == "ruler" or data.tool == "scale" or data.tool == "labelAdd" or data.tool == "labelMove" then
+            if data.tool == "ruler" or data.tool == "scale" or data.tool == "labelAdd" then
                 Tools.PlaceAt(ctx, PartyDrawnPoint(element, party))
                 Layout()
                 return
@@ -845,6 +856,14 @@ function RegionMapCanvas.Create(ctx)
         end
     end
 
+    local function PlacePin(pin, layout, u, v)
+        local x, y = ImageToPanel(layout, u, v)
+        -- halign selects which edge sits at the Location point; the point itself never moves.
+        local anchor = pin.data.anchor
+        local origin = anchor == "left" and 0 or anchor == "right" and layout.viewWidth or layout.viewWidth / 2
+        Tools.PlaceAt(pin, x - origin, y - layout.viewHeight / 2)
+    end
+
     Layout = function()
         if not ctx.IsAlive() or canvas == nil then return end
         local viewWidth, viewHeight = canvas.renderedWidth or 0, canvas.renderedHeight or 0
@@ -892,7 +911,7 @@ function RegionMapCanvas.Create(ctx)
             state.pinRef, state.pinsDirty = layout, false
             for _, pin in pairs(pins) do
                 if pin.valid then
-                    PlaceCentered(pin, ref, ImageToPanel(ref, pin.data.u --[[@as number]], pin.data.v --[[@as number]]))
+                    PlacePin(pin, ref, pin.data.u, pin.data.v)
                     -- Declutter follows zoom; only touch the class when it flips.
                     if pin.data.pinStyle ~= "plate" then
                         local show = NameVisible(pin.data)
@@ -915,7 +934,7 @@ function RegionMapCanvas.Create(ctx)
         local drag = state.drag
         if drag ~= nil and drag.moved and drag.previewU ~= nil and drag.previewV ~= nil then
             if drag.kind == "pin" and drag.id ~= nil and pins[drag.id] ~= nil then
-                PlaceCentered(pins[drag.id], ref, ImageToPanel(ref, drag.previewU, drag.previewV))
+                PlacePin(pins[drag.id], ref, drag.previewU, drag.previewV)
             elseif drag.kind == "party" then
                 PlaceParty(ref, drag)
             end
@@ -1515,6 +1534,7 @@ function RegionMapCanvas.Create(ctx)
         destroy = function() FlushCamera() end,
 
         bind = function() Bind() end,
+        regionMapThemeChanged = function() if ctx.IsAlive() then UpdatePins(); Layout() end end,
         showMap = function(_, how)
             state.scale = Session.UIScale()
             state.showNames = Session.ShowNames()

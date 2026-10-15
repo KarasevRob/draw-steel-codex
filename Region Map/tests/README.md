@@ -1,5 +1,9 @@
 # Overland Map checks
 
+For map-wide pin formatting and hover descriptions, run
+`& '..\dependencies\lua\bin\lua.exe' 'Region Map/tests/PinTextChecks.lua' run`.
+The [pin-text verification record](PIN_TEXT.md) covers its isolated checks and live UI pass.
+
 For the in-app window host, run the isolated offline checks from the repository root:
 
 ```powershell
@@ -112,14 +116,30 @@ the intended source. A bridge reload alone can execute the previous cached versi
 Native file-picker cancellation and physical clipboard paste still need a manual check;
 the file read/preview path and editor buffer limits were exercised through the bridge.
 
-## Atlas sharing feedback: source validation, 2026-10-14
+## Atlas, window and position-lock verification, 2026-10-15
 
-Hidden/Revealed Atlas badges and the approved inline map-creation notice are implemented
-in source. Lua syntax, ASCII and diff checks passed; the available mod type checker
-reported 0 problems in 35 seconds. Deployment and visual checks are deferred while the
-user reserves the engine for the label feature.
+The engine was released for testing. All changed loaded files were compared with source
+after F4; the complete 29-file development mod is current. Lua syntax, ASCII and diff
+checks passed; 13 window-host checks and 18 label checks passed; the available mod type
+checker reported 0 problems in 38 seconds. The standard baseline checker remains absent.
 
-When engine access resumes, verify share/unshare/Undo updates the existing card's badge;
-player view still excludes hidden maps and Director controls; both New map and Add map
-show the notice on both steps; Replace map image omits it. Inspect the creation card and
-thumbnail badges at Font Size 80/100/140, including a point-crawl map with Party here.
+- Hidden badges and the inline creation notice were inspected in the live Atlas.
+  Revealed was checked by binding a copied UI record, then restoring the normal model:
+  no map was shared with players for this test. Player preview excluded all unshared maps.
+- The notice remained on both steps of New map and Add map. Adding a map to a disposable
+  Location kept `mapShared=false`; Replace map image omitted the creation notice.
+- Minimum-size window layouts were inspected at Font Size 80/100/140 with Default,
+  MCDM and Warm Gold. The creation card expanded to fit its notice. This was not an
+  exhaustive theme/font cross-product or a fresh Party-here layout check.
+- The window border renders above its content and disappears in fullscreen. It is
+  noninteractive, leaving the canvas and resize handles available.
+- Canvas, label, pin, Atlas-card and Add-menu popups closed on a left click elsewhere.
+  A real click on Replace map image still ran that menu action and closed the popup.
+- A disposable label stayed fixed while locked, moved from (0.5, 0.45) to approximately
+  (0.54668, 0.47766) after selection and an unlocked drag, and stayed fixed after relocking.
+  No Move label action remained in its editor or context menu.
+
+The disposable map, child Location/map and label were deleted and their absence checked.
+The other developer's Labels verification map was preserved. Original map, window
+geometry, font and scheme were restored; the game was left unfrozen. No publication
+was performed. Keyboard limitations are recorded in [the window brief](../docs/PANEL_VIEW_BRIEF.md).

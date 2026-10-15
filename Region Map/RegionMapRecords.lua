@@ -78,6 +78,7 @@ RegionMapLocationDirectorNoteRecord.tableName = C.notesTableName
 --- @field pace nil|number travel distance per day in the scale's unit
 --- @field border nil|"none"|"fade"|"torn"|"frame" how the map image's edge draws; nil (older maps) is none
 --- @field mode nil|"free"|"pointcrawl" set when the map is made, never changed (A4); nil (older maps) is free
+--- @field pinNameFormat nil|RegionMapPinNameFormat optional style for direct pins on this map
 --- @field ownerId string
 --- @field ownerName string
 --- @field createdByDirector boolean
