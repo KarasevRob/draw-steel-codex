@@ -304,11 +304,11 @@ local placedY = setmetatable({}, { __mode = "k" }) --- @type table<Panel, number
 --- @param panel Panel
 --- @param x number
 --- @param y number
-function RegionMapCanvasTools.PlaceAt(panel, x, y)
+function RegionMapCanvasTools.PositionPanel(panel, x, y)
     panel.x, panel.y = x, y
     placedX[panel], placedY[panel] = x, y
 end
-local PlaceAt = RegionMapCanvasTools.PlaceAt
+local PositionPanel = RegionMapCanvasTools.PositionPanel
 
 --- Puts a center-aligned panel's middle at canvas point (x, y). The engine's
 --- pivot does not move a panel, so offsets are measured from the canvas center.
@@ -317,7 +317,7 @@ local PlaceAt = RegionMapCanvasTools.PlaceAt
 --- @param x number
 --- @param y number
 function RegionMapCanvasTools.PlaceCentered(panel, layout, x, y)
-    PlaceAt(panel, x - layout.viewWidth * 0.5, y - layout.viewHeight * 0.5)
+    PositionPanel(panel, x - layout.viewWidth * 0.5, y - layout.viewHeight * 0.5)
 end
 local PlaceCentered = RegionMapCanvasTools.PlaceCentered
 

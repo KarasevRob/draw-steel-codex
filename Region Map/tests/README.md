@@ -1,5 +1,16 @@
 # Overland Map checks
 
+For canvas placement, run
+`& '..\dependencies\lua\bin\lua.exe' 'Region Map/tests/CanvasToolsChecks.lua' run`.
+The five isolated checks load the complete production module and cover Location/label
+creation, ruler/scale points, ignored clicks, and independent panel positioning.
+
+Verified live on 2026-10-16: Add location and Add label followed by map clicks create
+editable entries. A duplicate `PlaceAt` definition had replaced tool dispatch with
+panel positioning; the positioning helper now has its own name. Breadcrumb names use
+the same native ellipsis setting as Atlas cards. The reported long name was inspected
+in the in-app window, and temporary test entries were removed afterwards.
+
 For map-wide pin formatting and hover descriptions, run
 `& '..\dependencies\lua\bin\lua.exe' 'Region Map/tests/PinTextChecks.lua' run`.
 The [pin-text verification record](PIN_TEXT.md) covers its isolated checks and live UI pass.

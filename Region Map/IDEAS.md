@@ -157,7 +157,22 @@ designed, approved or scheduled. The open ideas are ranked at the end.
     and keyboard checks, and native layout measurements. Separate player-client and
     deliberately slow network/asset checks remain unverified.
 
+20. **Turn off hover text across all maps.** *Added 2026-10-16.* Add an option in Overland
+    Map settings to turn off hover text across every map.
+
+21. **Player edit settings in one section, configured per map.** *Added 2026-10-16.* Group
+    player edit settings in a section of Overland Map settings, with a separate
+    configuration for each map.
+
+22. **Comments in my voice.** *Code-only; added 2026-10-16.* Write code comments in my
+    voice, following the writing style doc.
+
+23. **Complete rename to Overland Map.** *Code-only; added 2026-10-16.* Complete the rename
+    from Region Map to Overland Map throughout the mod's code.
+
 ## Open ideas, ranked
+
+Ideas 20-23 have not been ranked yet.
 
 **Complexity ranking (2026-10-13).** The open ideas outside TBA, each costed in its full
 version within the mod; details, sizes and sources in

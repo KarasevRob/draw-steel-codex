@@ -115,7 +115,11 @@ function RegionMapLabelPanel.Create(ctx)
     end
     local color = ColorField("color")
     local backgroundColor = ColorField("backgroundColor")
-    local background = Session.Segments({ "auto", "plate", "none" }, "label.", function(value) Changed("background", value, false) end)
+    local appearance = RegionMapTextAppearance.CreateEditor(ctx, false, {
+        Active = function(id) return ctx.data.panelMode == "labelEdit" and id == ctx.data.selectedLabelId and Labels.CanEdit(Current()) end,
+        Format = function() return Labels.Format(Current()) end,
+        Commit = function(changes) return Labels.Stage(boundId, changes) end,
+    })
     local visibility = Session.Segments({ "hidden", "revealed" }, "edit.visibility.", function(value)
         Changed("visibility", value, true)
     end)
@@ -130,7 +134,7 @@ function RegionMapLabelPanel.Create(ctx)
         Session.Label({ "regionMapFormLabel" }, T("edit.visibility")), visibility, visibleText,
         Field("text", textInput), Field("font", font),
         gui.Panel { width = "100%", height = "auto", flow = "horizontal", bold, italics },
-        Field("alignment", alignment), size, angle, spacing, color, Field("background", background), backgroundColor,
+        Field("alignment", alignment), size, angle, spacing, color, appearance, backgroundColor,
         gui.Panel { classes = { "regionMapSideRow" }, status, retry },
         gui.Panel { classes = { "regionMapButtonRow" },
             Session.Button(T("label.delete"), function()
@@ -149,6 +153,7 @@ function RegionMapLabelPanel.Create(ctx)
             generation = generation + 1
             for _, picker in pairs(colors) do picker.data.openId = nil; picker.popup = nil end
             boundId = nil
+            appearance.data.suspend()
             binding = false
             return
         end
@@ -177,14 +182,14 @@ function RegionMapLabelPanel.Create(ctx)
         font.idChosen = Labels.DisplayFont(format.font)
         bold.value, italics.value = format.bold, format.italics
         alignment.data.select(format.alignment)
-        background.data.select(format.background)
+        appearance.data.bind(boundId, format)
         visibility.data.select(row.visibility)
         visibility:SetClass("collapsed", not Model.IsDirector())
         visibleText:SetClass("collapsed", Model.IsDirector())
         backgroundColor:SetClass("collapsed", format.background ~= "plate")
         for key, picker in pairs(colors) do picker.value = format[key] end
         local state = Labels.Status(boundId)
-        if next(invalid) ~= nil then state = "invalid" end
+        if next(invalid) ~= nil or appearance.data.invalid() then state = "invalid" end
         local copyId = state == "saved" and "edit.saved" or (state == "saving" or state == "pending") and "edit.saving" or "edit.notSaved"
         Session.SetText(status, T(copyId))
         Session.SetText(title, T(Labels.Get(boundId) == nil and "label.new" or "label.title"))
