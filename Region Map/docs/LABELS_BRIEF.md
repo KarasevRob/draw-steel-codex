@@ -53,8 +53,13 @@ side-panel area as a label editor. Creating/editing does not change the map's lo
 Locked labels pass ordinary clicks and drags through. Explicit Edit label actions in
 context menus/search still work. Unlocked labels require selection before a drag moves
 them; dragging unselected lettering pans. Selected, unlocked labels have resize/rotation
-handles, with numeric fields and Move label as alternatives. Resize is uniform about the
+handles, with numeric size/angle fields as alternatives. Resize is uniform about the
 center. Foreground map objects retain priority; transform handles are drawn above them.
+
+On 2026-10-15 the user removed all Move label actions. Label movement now uses only the
+shared position lock: unlock, select the label, then drag. The former Pins locked control
+now reads Positions locked/unlocked, naming locations and labels in its tooltip. Relocking
+cancels a pending drag. The separate click-to-place move tool and its hint are removed.
 
 Show labels is a separate per-user/game preference, initially on. Search includes typed
 Location/Label results and map breadcrumbs, ranked by prefix then other matches, followed
@@ -108,4 +113,5 @@ Register helpers in dependency order, deploy the complete module, audit the code
 package, and never switch the user's current game to publish/install it.
 The three helpers are already registered and the 29-file module was deployed locally.
 The last verified installable package is version 2, before labels; no labels publication
-or installation is claimed. The user's latest instruction limits further work to docs.
+or installation is claimed. Engine access was released for the subsequent 2026-10-15
+window, menu and position-lock work; publication and fixture cleanup remain separate.

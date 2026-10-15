@@ -2,8 +2,8 @@
 
 Status: LOCKED. User approved the reviewed defaults with "Continue" on 2026-10-14.
 Implemented and deployed to the development app. Window movement, resizing, mode
-changes and minimum-size layouts were verified live. The final keyboard correction
-awaits a live retest; native popout wheel delivery needs an engine change.
+changes and minimum-size layouts were verified live. Keyboard focus isolation still
+needs follow-up; native popout wheel delivery needs an engine change.
 
 ## Goal and constraints
 
@@ -15,8 +15,8 @@ this is a hosting mode, not a separate reduced-feature map.
 - Preserve fullscreen and native popout, permissions, presentation, and map tools.
 - Keep one live map interface per client. Changing its view does not change other
   clients' window preferences or shared map records.
-- The user released the engine for live verification, then reserved it for the
-  concurrent label feature. No further engine calls or deployment during that work.
+- The user reserved the engine for label work, then released it for further live
+  verification on 2026-10-15. All changes remain within this mod.
 
 ## Confirmed decisions
 
@@ -266,17 +266,26 @@ Keyboard correction and remaining verification:
   callbacks caused double movement or activation. Those extra handlers were removed;
   host controls retain the standard focusable button behavior and focus styling.
 - The correction passed all 13 offline checks and was copied to the development
-  files. F4 was requested, but its result identified an active label editor from
-  the other development session. Loaded-text confirmation and the final physical
-  Tab/Enter/Space retest were stopped at the user's request to leave that engine
-  to label work. Do not count this keyboard correction as live-verified yet.
+  files. The 2026-10-14 retest stopped for the other developer's engine session.
+  On 2026-10-15 the loaded source was confirmed and physical Enter/Space each switched
+  view once. An initial keyboard sequence also froze the game; it was immediately
+  restored. Repeated Space tests after explicit focus left freeze unchanged, so the
+  interaction is not considered resolved. Tab did not establish a verified focus
+  transition, and later attempts were stopped by the foreground-window safety check.
+  Temporary binding probes were removed; no speculative keyboard patch was shipped.
 - Live player-client presentation/permission checks and the full Escape/focus/input
   matrix remain acceptance checks. The isolated tests cover host routing and
   preference preservation, not a second client or native input dispatch.
-- No cloud publication or shared map-content edits were performed. Only local
-  development deployment and viewer settings were used. Temporary diagnostic
-  references may remain in the Lua globals until reload; final cleanup is deferred
-  with engine access, rather than interrupting the other session.
+- The first window tests did not write map content. The 2026-10-15 follow-up used one
+  disposable map, child Location and label, all removed afterwards. It preserved the
+  other developer's fixture, restored map/window/font/theme settings, cleared temporary
+  diagnostic references and left the game unfrozen. No cloud publication was performed.
+
+The 2026-10-15 follow-up added a noninteractive themed border above the window content:
+the old parent border was covered by the map and title. Fullscreen collapses this border,
+and the resize helper remains the last child. Left-click dismissal now tracks only
+Overland Map context menus, including canvas, label, pin, Atlas and toolbar menus. Live
+checks and the position-lock update are recorded in [the checks log](../tests/README.md).
 
 Deployment uses the live CodeMod's `gitFolderPath`. A bridge reload can execute
 cached file contents before `RefreshLocalFiles` runs. After copying/touching files,
