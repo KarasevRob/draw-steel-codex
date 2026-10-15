@@ -41,6 +41,13 @@ function Hud.CreateShapesLayer(self)
 			bgimage = "#Shapes",
 			width = "100%",
 			height = "100%",
+			--tabletop view: the live map window shows the shapes cropped to
+			--itself (#ShapesView, Tabletop.lua); full-screen they would spill
+			--onto the table.
+			thinkTime = 0.2,
+			think = function(element)
+				element.selfStyle.opacity = cond(dmhub.tabletopMode, 0, 1)
+			end,
 		}
 	else
 		return nil
@@ -794,6 +801,7 @@ end
 --- @field tokenInfo SheetHud The engine's token/selection interface, passed to dmhub.CreateGameHud.
 --- @field parentPanel Panel Root panel of the hud (dialog.sheet); set by dmhub.CreateGameHud.
 --- @field actionBarPanel Panel Set by the action bar when it is created.
+--- @field bannerLayer? Panel Layer over the floating windows for mode banners; set by GameHud:CreateBannerLayer (nil on the lobby hud).
 --- @field rollDialog Panel Set by dmhub.CreateGameHud (GameHud:CreateRollDialog).
 --- @field inventoryDialog Panel
 --- @field basicInventoryDialog Panel
