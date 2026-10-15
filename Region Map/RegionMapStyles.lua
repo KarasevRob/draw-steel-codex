@@ -145,6 +145,7 @@ local function ShellStyles()
             fontSize = 14,
             color = "@fg",
             textWrap = false,
+            textOverflow = "ellipsis",
         },
         {
             selectors = { "regionMapCrumb", "hover" },
@@ -1871,6 +1872,19 @@ local function LabelStyles()
         {
             selectors = { "regionMapLettering" },
             bgimage = "panels/square.png",
+            bgcolor = "clear",
+        },
+        {
+            selectors = { "regionMapTextImage" },
+            bgcolor = "white",
+        },
+        {
+            selectors = { "regionMapAppearanceTrack" },
+            bgcolor = "@border",
+        },
+        {
+            selectors = { "regionMapImageHit" },
+            bgimage = true,
             bgcolor = "clear",
         },
         {

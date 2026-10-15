@@ -129,10 +129,15 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
 - **Settings > This map > Pin text** formats every direct pin name on that map, including
   player-owned pins. Font, separate Major/Normal/Minor sizes (6-72 pt, one decimal),
   bold/italic and left/center/right anchoring save immediately. Text appearance contains
-  spacing, text color and Default/Auto contrast/Plate/None backgrounds. Reset restores
+  spacing, text color, outlines and Default/Auto contrast/Plate/None/Image backgrounds. Reset restores
   the existing theme appearance; confirmed changes support guarded Undo. Parent and child
   maps have independent settings. See [the design](docs/PIN_TEXT_BRIEF.md) and
   [verification](tests/PIN_TEXT.md).
+- Labels and pin names support custom outline colour/thickness and uploaded still-image
+  backgrounds, with Fit/Fill/Stretch, automatic padding or manual dimensions, offsets and
+  opacity. Directors manage all image settings; player owners retain text/outline edits.
+  Manual backgrounds stay fixed during text resizing. See [the decided design](docs/TEXT_APPEARANCE_BRIEF.md)
+  and [verification](tests/TEXT_APPEARANCE.md).
 - Pin hover shows the full name and the first two description sentences, capped at
   300 Unicode characters with `...` when shortened. Director notes and journal contents
   never enter the preview; existing pin visibility rules still apply.
@@ -306,7 +311,7 @@ complete feature is deployed to the development app.
 
 ## 2. Architecture
 
-Load order (29 runtime files; the CodeMod file list must match):
+Load order (31 runtime files; the CodeMod file list must match):
 
 | # | File | Responsibility |
 |---|---|---|
@@ -316,29 +321,31 @@ Load order (29 runtime files; the CodeMod file list must match):
 | 4 | `RegionMapRecords.lua` | Record types, safe reads, validation, uploads |
 | 5 | `RegionMapModel.lua` | Location tree, permissions, visibility, writes, Party, settings, search, map kind and border, cascades |
 | 6 | `RegionMapUndo.lua` | Undo entries and the toast queue |
-| 7 | `RegionMapLabels.lua` | Label records, permissions, mixed search, immutable save queues and Undo |
-| 8 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops and their one wording (`LegCopy`) |
-| 9 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording and time fields, path names, the other end |
-| 10 | `RegionMapTravel.lua` | *V2.1.* Travel options, travel, stop partway, the Party's spot on a path |
-| 11 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
-| 12 | `RegionMapSession.lua` | Context type, local view state and preferences, the small controls every panel builds (label, button, segments, text area, icon button, focus) |
-| 13 | `RegionMapCanvasTools.lua` | Layout math, segment clipping, the panel pool, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
-| 14 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
-| 15 | `RegionMapLabelLayer.lua` | Map lettering, contrast backings, transformed hits and selection handles |
-| 16 | `RegionMapPathTool.lua` | *V2.1.* Path tool steps, Connect, Redraw line, bend edits |
-| 17 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
-| 18 | `RegionMapArtwork.lua` | Selected-object preview, Director picker, loading, guarded local viewer and writes |
-| 19 | `RegionMapSidePanel.lua` | Location panel read and edit modes, "..." menu |
-| 20 | `RegionMapPathPanel.lua` | *V2.1.* Path read and edit, Connect to... picker, a Location's Paths section |
-| 21 | `RegionMapLabelPanel.lua` | Label formatting editor, guarded color picker and save feedback |
-| 22 | `RegionMapPartyPanel.lua` | *V2.1.* Party section, Travel to menu, hidden-path question, stop card |
-| 23 | `RegionMapAtlas.lua` | Atlas gallery and New map |
-| 24 | `RegionMapPopovers.lua` | Breadcrumb, Search and Settings popovers |
-| 25 | `RegionMapImport.lua` | *V2.1.* JSON import: read, check, preview, create |
-| 26 | `RegionMapLogPanel.lua` | Session log panel |
-| 27 | `RegionMapPresent.lua` | Show to players send and receive |
-| 28 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, Esc layers, layout, refresh |
-| 29 | `RegionMap.lua` | Capability check, registration, fullscreen host, popout |
+| 7 | `RegionMapTextAppearance.lua` | Shared outline/image format, permissions, geometry, loaders and controls |
+| 8 | `RegionMapLabels.lua` | Label records, permissions, mixed search, immutable save queues and Undo |
+| 9 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops and their one wording (`LegCopy`) |
+| 10 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording and time fields, path names, the other end |
+| 11 | `RegionMapTravel.lua` | *V2.1.* Travel options, travel, stop partway, the Party's spot on a path |
+| 12 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
+| 13 | `RegionMapSession.lua` | Context type, local view state and preferences, the small controls every panel builds (label, button, segments, text area, icon button, focus) |
+| 14 | `RegionMapPinText.lua` | Map-wide pin typography, image/name composition, hover previews and save queue |
+| 15 | `RegionMapCanvasTools.lua` | Layout math, segment clipping, the panel pool, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
+| 16 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
+| 17 | `RegionMapLabelLayer.lua` | Map lettering, contrast backings, transformed hits and selection handles |
+| 18 | `RegionMapPathTool.lua` | *V2.1.* Path tool steps, Connect, Redraw line, bend edits |
+| 19 | `RegionMapCanvas.lua` | Image, pins, Party, camera, drags, transitions |
+| 20 | `RegionMapArtwork.lua` | Selected-object preview, Director picker, loading, guarded local viewer and writes |
+| 21 | `RegionMapSidePanel.lua` | Location panel read and edit modes, "..." menu |
+| 22 | `RegionMapPathPanel.lua` | *V2.1.* Path read and edit, Connect to... picker, a Location's Paths section |
+| 23 | `RegionMapLabelPanel.lua` | Label formatting editor, guarded color picker and save feedback |
+| 24 | `RegionMapPartyPanel.lua` | *V2.1.* Party section, Travel to menu, hidden-path question, stop card |
+| 25 | `RegionMapAtlas.lua` | Atlas gallery and New map |
+| 26 | `RegionMapPopovers.lua` | Breadcrumb, Search and Settings popovers |
+| 27 | `RegionMapImport.lua` | *V2.1.* JSON import: read, check, preview, create |
+| 28 | `RegionMapLogPanel.lua` | Session log panel |
+| 29 | `RegionMapPresent.lua` | Show to players send and receive |
+| 30 | `RegionMapPanel.lua` | Shell: toolbar, camera controls, status, banners, toasts, Esc layers, layout, refresh |
+| 31 | `RegionMap.lua` | Capability check, registration, fullscreen host, popout |
 
 The V1 files (`Main.lua`, `RegionMapViews.lua`, `RegionMapMigration.lua`,
 `RegionMapLibrary.lua`, `RegionMapLocationCard.lua`) were removed from the CodeMod and the

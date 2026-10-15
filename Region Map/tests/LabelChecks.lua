@@ -51,7 +51,7 @@ local function Fixture()
         end
         error("timer did not settle")
     end
-    for _, name in ipairs({ "RegionMapConstants", "RegionMapCopy", "RegionMapRecords", "RegionMapModel", "RegionMapUndo", "RegionMapLabels", "RegionMapPaths" }) do
+    for _, name in ipairs({ "RegionMapConstants", "RegionMapCopy", "RegionMapRecords", "RegionMapTextAppearance", "RegionMapModel", "RegionMapUndo", "RegionMapLabels", "RegionMapPaths" }) do
         assert(loadfile(directory .. "/" .. name .. ".lua", "t", env))()
     end
     f.C, f.R, f.M, f.L, f.U = env.RegionMapConstants, env.RegionMapRecords, env.RegionMapModel, env.RegionMapLabels, env.RegionMapUndo
