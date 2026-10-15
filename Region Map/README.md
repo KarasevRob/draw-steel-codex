@@ -33,6 +33,7 @@ delivery record is [tests/LABELS.md](tests/LABELS.md).
   other windows and the rails, hiding the action bar until the viewer leaves fullscreen.
 - **Window view** switches to a movable window inside Codex; **Fullscreen** switches
   back. This keeps the same map, camera, selection, editors, and unfinished path alive.
+  A themed border outlines the smaller window above its map content; fullscreen has none.
   The window starts centered at 900x600, minimum 720x480, and remembers its size and
   position per viewer/game. Drag the title or resize the edges/corners. Window options
   offers **Reset window size and position**. A viewport too small for the minimum uses
@@ -62,6 +63,8 @@ delivery record is [tests/LABELS.md](tests/LABELS.md).
   Icons with tooltips.
 - **Esc** closes one layer at a time: a tool or text field, then edit mode, then a popover
   or the side panel, then goes up one map, and at the Atlas closes the in-app map.
+- Left-clicking elsewhere on the map or Atlas dismisses the mod's context menu. Menu
+  actions still run normally; opening another menu replaces the previous one.
 - While a side panel (Location, path, label, Party or log) is open, the map can pan left by the
   panel's width, so a pin under the panel can still be reached at Fit (V2.1).
 
@@ -81,9 +84,10 @@ delivery record is [tests/LABELS.md](tests/LABELS.md).
 - Text permits 256 Unicode characters and 1,024 bytes, with explicit newlines and no
   automatic wrapping. Successful formatting is remembered per viewer/game, excluding
   text, rotation and visibility. Missing fonts fall back without rewriting the stored font.
-- With the map unlocked, select a label before dragging it. Selected labels have resize
-  and rotation handles; numeric fields and **Move label** offer alternatives. Locked
-  text passes ordinary gestures through; search/context actions still open its editor.
+- **Positions locked/unlocked** controls movement of both location pins and labels.
+  Unlock, select a label, then drag it. Selected labels have resize and rotation handles,
+  with numeric size/angle fields in the editor. There are no separate Move label actions.
+  Locked text passes ordinary gestures through; search/context actions still open its editor.
 - **Show labels** defaults on and is a local preference, separate from Show names. Search
   temporarily shows its selected permitted label even when Show labels is off. Mixed
   search results distinguish Locations from labels and include their map breadcrumbs.
@@ -104,9 +108,11 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   that map is shared with players. New map and Add map display **New maps are hidden
   from players until you share them.** on both creation steps. Replacing an existing
   map image preserves its sharing state and does not show the creation notice.
+- Atlas map names stay on one line and end with an ellipsis when they do not fit the
+  card. Hovering the card shows the complete name; the saved name is unchanged.
 - **Map actions from the Atlas** (Director): each card's "..." menu offers Open map, Edit
   (name, description and notes), Import locations, Replace map image, Map settings (scale,
-  pace and border), journal actions, sharing, Show this map to players and Delete.
+  pace, border and pin text), journal actions, sharing, Show this map to players and Delete.
   Right-clicking a card opens the same menu, also used in the top-level map's side panel.
   Import, Settings and Show to players open that card's map first. Delete confirms the
   contained Locations, paths and labels; one Undo restores the map and its contents. Long menus
@@ -120,6 +126,16 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   three tiers (Major, Normal, Minor). Pins keep a constant screen size and scale with Font
   Size; zoomed out, names hide by tier (Minor first). Icons come from a curated, theme-tinted
   set or any library image. A pin with its own map shows a map badge.
+- **Settings > This map > Pin text** formats every direct pin name on that map, including
+  player-owned pins. Font, separate Major/Normal/Minor sizes (6-72 pt, one decimal),
+  bold/italic and left/center/right anchoring save immediately. Text appearance contains
+  spacing, text color and Default/Auto contrast/Plate/None backgrounds. Reset restores
+  the existing theme appearance; confirmed changes support guarded Undo. Parent and child
+  maps have independent settings. See [the design](docs/PIN_TEXT_BRIEF.md) and
+  [verification](tests/PIN_TEXT.md).
+- Pin hover shows the full name and the first two description sentences, capped at
+  300 Unicode characters with `...` when shortened. Director notes and journal contents
+  never enter the preview; existing pin visibility rules still apply.
 - **Visibility.** A pin is Hidden (Director only, shown dimmed with an eye-slash badge) or
   Revealed. A Location's own map has a separate Map shared switch.
 - **Side panel.** Click a pin to read it: description, journal link, Party here, Move Party

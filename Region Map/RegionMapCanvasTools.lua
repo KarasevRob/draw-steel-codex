@@ -230,8 +230,6 @@ function RegionMapCanvasTools.PlaceAt(ctx, u, v)
         RegionMapCanvasTools.AddAt(ctx, u, v)
     elseif ctx.data.tool == "labelAdd" then
         ctx.CreateLabel(u, v)
-    elseif ctx.data.tool == "labelMove" then
-        if RegionMapLabels.Commit(ctx.data.toolTargetId, { u = u, v = v }, "moved") then ctx.SetTool("none") end
     elseif ctx.data.tool == "move" then
         RegionMapCanvasTools.MoveTo(ctx, u, v)
     elseif ctx.data.tool == "ruler" then

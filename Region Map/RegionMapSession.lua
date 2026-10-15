@@ -26,8 +26,8 @@ local Model = RegionMapModel
 --- @field panelMode "none"|"read"|"edit"|"pickMode"|"pickImage"|"pickMap"|"pickJournal"|"log"|"path"|"pathEdit"|"pickPathEnd"|"party"|"labelEdit"
 --- @field pickKind nil|"add"|"replace" what pickImage does with the image
 --- @field newMapMode nil|"free"|"pointcrawl" the kind picked for Add map (A1), until its image is chosen
---- @field locked boolean pins cannot be dragged (R6); per viewer, true on every map open
---- @field tool "none"|"add"|"move"|"ruler"|"scale"|"path"|"redraw"|"labelAdd"|"labelMove"
+--- @field locked boolean pins and labels cannot be dragged (R6); per viewer, true on every map open
+--- @field tool "none"|"add"|"move"|"ruler"|"scale"|"path"|"redraw"|"labelAdd"
 --- @field toolTargetId nil|string the Location "move" places, or the path "redraw" redraws
 --- @field pathDraft nil|RegionMapPathDraft the line the Path tool or Redraw line is drawing
 --- @field camera RegionMapCamera

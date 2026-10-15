@@ -319,6 +319,7 @@ local function BuildSettings(ctx)
         }
     end
 
+    local pinText = RegionMapPinText.CreateSettings(ctx)
     local mapSection = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
         Section(T("set.map")),
@@ -330,6 +331,7 @@ local function BuildSettings(ctx)
         Label({ "regionMapFormLabel" }, T("set.map.border")),
         gui.Panel { classes = { "regionMapBorderTiles" }, children = borderTiles },
         Label({ "regionMapHint" }, T("set.map.border.hint")),
+        pinText,
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
     }
 
@@ -558,6 +560,7 @@ local function BuildSettings(ctx)
 
         local map = ctx.CurrentMap()
         mapSection:SetClass("collapsed", map == nil)
+        pinText.data.bind(map)
         if map ~= nil then
             local scale = Model.Field(map, "scale", nil) --[[@as nil|RegionMapScale]]
             local draft = data.scaleDraft
@@ -600,6 +603,7 @@ local function BuildSettings(ctx)
             Session.FocusSoon(distance, function() return data.popover == "settings" end)
         end
     end
+    body.data.suspend = function() pinText.data.suspend() end
     return body
 end
 
@@ -651,7 +655,10 @@ function RegionMapPopovers.Create(ctx)
                 scroll.children = { search, settings }
             end
             search:SetClass("collapsed", which ~= "search")
-            if settings ~= nil then settings:SetClass("collapsed", which ~= "settings") end
+            if settings ~= nil then
+                settings:SetClass("collapsed", which ~= "settings")
+                if which ~= "settings" then settings.data.suspend() end
+            end
             local opened = which ~= nil and element.data.shown ~= which
             element.data.shown = which
             if which == "search" then

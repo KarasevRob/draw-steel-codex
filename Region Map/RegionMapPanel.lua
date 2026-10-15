@@ -298,7 +298,7 @@ function RegionMapPanel.Create(options)
         canvas:FireEvent("centerOnLabel", id)
     end
 
-    local tools = { add = true, move = true, ruler = true, scale = true, path = true, redraw = true, labelAdd = true, labelMove = true }
+    local tools = { add = true, move = true, ruler = true, scale = true, path = true, redraw = true, labelAdd = true }
 
     function ctx.SetTool(tool, targetId)
         if not tools[tool] then tool = "none" end
@@ -312,7 +312,7 @@ function RegionMapPanel.Create(options)
         -- A line being drawn belongs to the tool that drew it.
         if tool ~= data.tool or targetId ~= data.toolTargetId then data.pathDraft = nil end
         data.tool = tool
-        data.toolTargetId = (tool == "move" or tool == "redraw" or tool == "labelMove") and targetId or nil
+        data.toolTargetId = (tool == "move" or tool == "redraw") and targetId or nil
         RefreshAll()
         gui.SetFocus(canvas)
     end
@@ -592,7 +592,6 @@ function RegionMapPanel.Create(options)
         if map ~= nil and not data.locked then lines[#lines + 1] = T("chip.unlocked") end
         if data.tool == "add" then lines[#lines + 1] = T("hint.add") end
         if data.tool == "labelAdd" then lines[#lines + 1] = T("label.placeHint") end
-        if data.tool == "labelMove" then lines[#lines + 1] = T("label.moveHint") end
         if map ~= nil and not Session.ShowLabels() then
             lines[#lines + 1] = T("label.hiddenLocal")
             if data.selectedLabelId ~= nil then lines[#lines + 1] = T("label.forced") end
@@ -718,7 +717,6 @@ function RegionMapPanel.Create(options)
             if data.tool == "move" and Model.GetLocation(data.toolTargetId) == nil then data.tool = "none" end
             if data.tool == "add" and (map == nil or not Model.CanAdd(map.id)) then data.tool = "none" end
             if data.tool == "labelAdd" and (map == nil or not RegionMapLabels.CanAdd(map.id)) then data.tool = "none" end
-            if data.tool == "labelMove" and not RegionMapLabels.CanEdit(RegionMapLabels.Snapshot(data.toolTargetId)) then data.tool = "none" end
             if (data.tool == "ruler" or data.tool == "scale") and map == nil then data.tool = "none" end
             if data.tool == "scale" and not Model.IsDirector() then data.tool = "none" end
             -- Path tools need the Director on a point crawl map; Redraw line also its path.
@@ -752,7 +750,7 @@ function RegionMapPanel.Create(options)
             if data.panelMode == "read" then artworkReader = root:Get("region-map-artwork-location-read")
             elseif data.panelMode == "path" then artworkReader = root:Get("region-map-artwork-path-read") end
             if artworkReader ~= nil and artworkReader:HasClass("collapsed") then artworkReader = nil end
-            local labelTool = data.tool == "labelAdd" or data.tool == "labelMove"
+            local labelTool = data.tool == "labelAdd"
             if canvas.data.artworkReader ~= artworkReader or canvas.data.labelTool ~= labelTool then
                 canvas.data.artworkReader = artworkReader
                 canvas.data.labelTool = labelTool
@@ -783,7 +781,7 @@ function RegionMapPanel.Create(options)
     canvas = RegionMapCanvas.Create(ctx)
     -- Input events follow focus; selecting a pin or path leaves focus on the canvas.
     canvas.events.enter = function(element)
-        if element.hasFocus and (data.tool == "labelAdd" or data.tool == "labelMove") then
+        if element.hasFocus and data.tool == "labelAdd" then
             RegionMapCanvasTools.PlaceAt(ctx, Model.Clamp(data.camera.centerX, 0, 1), Model.Clamp(data.camera.centerY, 0, 1))
             return
         end
@@ -849,6 +847,7 @@ function RegionMapPanel.Create(options)
         ctx.SetPopover("settings")
     end)
     lockButton = Session.IconButton("region-map-lock", C.iconLocked, T("tb.lock.on"), function()
+        canvas:FireEvent("cancelGesture")
         data.locked = not data.locked
         RefreshAll()
     end)

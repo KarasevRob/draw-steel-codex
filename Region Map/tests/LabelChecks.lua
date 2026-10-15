@@ -279,5 +279,6 @@ function checks.Run()
     print("LABEL CHECKS: " .. passed .. " passed")
     return passed
 end
+checks.Fixture = Fixture
 if ... == "run" then checks.Run() end
 return checks

@@ -262,6 +262,7 @@ description, journal link; Director notes stay Director-only.
 | 2026-10-05 | R16 | If players cannot write data tables, their Locations and log entries go in a shared document; Director content stays in tables | Fallback for the first build check (TECH_TASK_V2 V2-00) |
 | 2026-10-06 | R17 | V1 may break and is replaced wholly by V2; V1 data is dropped (no migration). Supersedes C (migration part) and D4e; `migrate.done` is dropped from the copy | User decision; the only V1 content was test data |
 | 2026-10-14 | R18 | Atlas cards explicitly show Hidden/Revealed to the Director, from map sharing. New map and Add map show the approved hidden-by-default notice inline on both steps | User requested both states and selected an inline notice over an extra confirmation; sharing rules remain unchanged |
+| 2026-10-15 | R19 | Positions locked/unlocked controls dragging of Locations and labels; remove every Move label action and the separate label-placement move tool | User requested one shared lock control; select an unlocked label before dragging it |
 
 ## 10b. Critique round (2026-10-05) - decided
 
