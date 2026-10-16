@@ -45,7 +45,7 @@ end
 local Session = RegionMapSession
 local T = RegionMapCopy.T
 local POPOUT_KEY = string.lower(C.panelName)
-local inAppHost = nil --- @type Panel|nil
+local inAppHost = nil --- @type RegionMapWindowHost|nil
 local actionBarRestore = nil --- @type boolean|nil
 
 local function HideActionBar()
@@ -67,51 +67,60 @@ local function RailMode()
     return ok and value == true
 end
 
-local function IsOpen()
-    return inAppHost ~= nil and inAppHost.valid
+--- The in-app map window. It is also its panel's data, so the content and the checks
+--- read the same fields. The host talks to the content only through events (see
+--- RegionMapHostOptions in RegionMapPanel.lua): regionMapHostMode, regionMapHostActive and requestClose.
+--- @class RegionMapWindowHost
+--- @field panel Panel
+--- @field frame Panel
+--- @field zoom Panel
+--- @field content Panel
+--- @field title Panel
+--- @field border Panel
+--- @field grip Panel
+--- @field resizer Panel
+--- @field resizeOptions table
+--- @field resizeWidth number
+--- @field resizeHeight number
+--- @field requestedMode "fullscreen"|"window" the viewer's choice
+--- @field mode nil|"fullscreen"|"window" what shows: window falls back to fullscreen when there is no room
+--- @field scale number
+--- @field area nil|table the documents layer's usable rectangle (WorkArea)
+--- @field geometry nil|RegionMapWindowGeometry
+--- @field hovered boolean
+--- @field pressed boolean
+--- @field dragging boolean
+--- @field titleDrag nil|{x: number, y: number, pointerX: number, pointerY: number}
+--- @field pointer nil|{x: number, y: number} the last pointer position read inside the layer
+--- @field openFocus nil|Panel
+--- @field active nil|boolean last value sent with regionMapHostActive
+--- @field nextFit number time of the next idle refit check
+local Host = {}
+Host.__index = Host
+
+--- @return boolean
+function Host:Valid()
+    return self.panel ~= nil and self.panel.valid
 end
 
-local function SavePlacement(host)
-    if host.data.mode ~= "window" then return end
-    local scale = host.data.scale
-    local geometry = {
-        x = host.x / scale, y = host.y / scale,
-        width = host.selfStyle.width / scale, height = host.selfStyle.height / scale,
-    }
-    host.data.geometry = geometry
-    Session.SaveWindowGeometry(geometry)
+--- Current placement in unscaled UI units (what the viewer's preferences store).
+--- @return RegionMapWindowGeometry
+function Host:CurrentGeometry()
+    local scale, panel = self.scale, self.panel
+    return { x = panel.x / scale, y = panel.y / scale,
+        width = panel.selfStyle.width / scale, height = panel.selfStyle.height / scale }
 end
 
-local function CloseInApp()
-    local host = inAppHost
-    inAppHost = nil
-    if host == nil or not host.valid then return end
-    SavePlacement(host)
-    host:DestroySelf()
-end
-
-local function RequestClose()
-    local host = inAppHost
-    if host ~= nil and host.valid then host.data.content:FireEvent("requestClose", CloseInApp) end
-end
-
-local OpenInApp
-
-local function PopOut()
-    CloseInApp()
-    PanelDocument.OpenPopout(C.panelName, { width = C.windowWidth, height = C.windowHeight, scale = 1 })
-end
-
-local function PopIn()
-    PanelDocument.PopoutForgetWindow(POPOUT_KEY)
-    local host = PanelDocument.PopoutHost(POPOUT_KEY)
-    if host ~= nil then host:DestroySelf() end
-    OpenInApp(true)
+function Host:SavePlacement()
+    if self.mode ~= "window" then return end
+    self.geometry = self:CurrentGeometry()
+    Session.SaveWindowGeometry(self.geometry)
 end
 
 -- Host coordinates use the documents layer; its content and title share one UI scale.
-local function WorkArea(host)
-    local layer = host.parent
+--- @return nil|table
+function Host:WorkArea()
+    local layer = self.panel.parent
     if layer == nil then return nil end
     local width, height = layer.renderedWidth, layer.renderedHeight
     if type(width) ~= "number" or type(height) ~= "number" or width <= 0 or height <= 0 then return nil end
@@ -140,126 +149,267 @@ local function WorkArea(host)
     }
 end
 
-local function LayoutContent(host)
-    local d = host.data
-    if d.mode == nil or d.area == nil then return end
-    local window = d.mode == "window"
-    local width, height = host.selfStyle.width, host.selfStyle.height
-    local left = window and 0 or d.area.side
-    local top = window and C.panelTitleHeight * d.scale or d.area.top
-    local bottom = window and 0 or d.area.bottom
+function Host:LayoutContent()
+    if self.mode == nil or self.area == nil then return end
+    local window = self.mode == "window"
+    local width, height = self.panel.selfStyle.width, self.panel.selfStyle.height
+    local left = window and 0 or self.area.side
+    local top = window and C.panelTitleHeight * self.scale or self.area.top
+    local bottom = window and 0 or self.area.bottom
     local w, h = math.max(1, width - left * 2), math.max(1, height - top - bottom)
-    d.frame.selfStyle.lmargin, d.frame.selfStyle.tmargin = left, top
-    d.frame.selfStyle.width, d.frame.selfStyle.height = w, h
-    d.zoom.selfStyle.pivot = { x = 0, y = 1 }
-    d.zoom.selfStyle.uiscale = d.scale
-    d.zoom.selfStyle.width, d.zoom.selfStyle.height = w / d.scale, h / d.scale
-    d.title.selfStyle.pivot = { x = 0, y = 1 }
-    d.title.selfStyle.uiscale = d.scale
-    d.title.selfStyle.width = width / d.scale
+    self.frame.selfStyle.lmargin, self.frame.selfStyle.tmargin = left, top
+    self.frame.selfStyle.width, self.frame.selfStyle.height = w, h
+    self.zoom.selfStyle.pivot = { x = 0, y = 1 }
+    self.zoom.selfStyle.uiscale = self.scale
+    self.zoom.selfStyle.width, self.zoom.selfStyle.height = w / self.scale, h / self.scale
+    self.title.selfStyle.pivot = { x = 0, y = 1 }
+    self.title.selfStyle.uiscale = self.scale
+    self.title.selfStyle.width = width / self.scale
 end
 
-local function SetHostSize(host, width, height)
-    local d = host.data
-    host.selfStyle.width, host.selfStyle.height = width, height
-    if d.mode == "window" then
-        d.resizer:FireEventTree("resize", host, { deltax = width - d.resizeWidth, deltay = height - d.resizeHeight })
-        d.resizeWidth, d.resizeHeight = width, height
+function Host:SetSize(width, height)
+    self.panel.selfStyle.width, self.panel.selfStyle.height = width, height
+    if self.mode == "window" then
+        self.resizer:FireEventTree("resize", self.panel, { deltax = width - self.resizeWidth, deltay = height - self.resizeHeight })
+        self.resizeWidth, self.resizeHeight = width, height
     end
-    LayoutContent(host)
+    self:LayoutContent()
 end
 
-local function PlaceWindow(host, geometry)
-    local d, clamp = host.data, RegionMapModel.Clamp
-    local a, scale = d.area, d.scale
+--- Clamp a placement into the work area; nil geometry centers the default size.
+--- @param geometry nil|RegionMapWindowGeometry
+function Host:Place(geometry)
+    local clamp = RegionMapModel.Clamp
+    local a, scale = self.area, self.scale
     local width = clamp((geometry and geometry.width or C.panelWidth) * scale,
         C.windowMinWidth * scale, math.min(C.windowMaxWidth * scale, a.right - a.left))
     local height = clamp((geometry and geometry.height or C.panelHeight) * scale,
         C.windowMinHeight * scale, math.min(C.windowMaxHeight * scale, a.lower - a.upper))
     local x = geometry and geometry.x * scale or (a.left + a.right - width) / 2
     local y = geometry and geometry.y * scale or (a.upper + a.lower - height) / 2
-    host.x, host.y = clamp(x, a.left, a.right - width), clamp(y, a.upper, a.lower - height)
-    SetHostSize(host, width, height)
+    self.panel.x, self.panel.y = clamp(x, a.left, a.right - width), clamp(y, a.upper, a.lower - height)
+    self:SetSize(width, height)
 end
 
-local function FitHost(host, force)
-    local d, a = host.data, WorkArea(host)
-    if a == nil or d.dragging then return end
-    local key = table.concat({ d.requestedMode, a.scale, a.width, a.height, a.side, a.top, a.lower }, ":")
-    if not force and d.fit == key then return end
-    d.fit, d.area, d.scale = key, a, a.scale
-    local mode = d.requestedMode
-    if mode == "window" and (a.right - a.left < C.windowMinWidth * a.scale
-        or a.lower - a.upper < C.windowMinHeight * a.scale) then mode = "fullscreen" end
-    local changed = d.mode ~= mode
-    d.mode = mode
+--- Whether a window fits in the work area at all.
+--- @param a table
+--- @return boolean
+local function WindowFits(a)
+    return a.right - a.left >= C.windowMinWidth * a.scale and a.lower - a.upper >= C.windowMinHeight * a.scale
+end
+
+--- Recompute the view for the layer's size, scale, rails and action bar; cheap when nothing moved.
+--- @param force nil|boolean
+function Host:Fit(force)
+    local a = self:WorkArea()
+    if a == nil or self.dragging then return end
+    local old = self.area
+    if not force and old ~= nil and self.fitMode == self.requestedMode and old.scale == a.scale and old.width == a.width
+        and old.height == a.height and old.side == a.side and old.top == a.top and old.lower == a.lower then return end
+    self.fitMode, self.area, self.scale = self.requestedMode, a, a.scale
+    local mode = self.requestedMode
+    if mode == "window" and not WindowFits(a) then mode = "fullscreen" end
+    local changed = self.mode ~= mode
+    self.mode = mode
     local window = mode == "window"
-    host:SetClass("regionMapWindowHost", window)
-    d.border:SetClass("collapsed", not window)
-    d.title:SetClass("collapsed", not window)
-    d.grip:SetClass("collapsed", not window)
-    d.resizer:SetClass("collapsed", not window)
-    d.resizeOptions.minWidth, d.resizeOptions.minHeight = C.windowMinWidth * a.scale, C.windowMinHeight * a.scale
-    d.resizeOptions.maxWidth = math.min(C.windowMaxWidth * a.scale, a.right - a.left)
-    d.resizeOptions.maxHeight = math.min(C.windowMaxHeight * a.scale, a.lower - a.upper)
+    local panel = self.panel
+    panel:SetClass("regionMapWindowHost", window)
+    self.border:SetClass("collapsed", not window)
+    self.title:SetClass("collapsed", not window)
+    self.grip:SetClass("collapsed", not window)
+    self.resizer:SetClass("collapsed", not window)
+    self.resizeOptions.minWidth, self.resizeOptions.minHeight = C.windowMinWidth * a.scale, C.windowMinHeight * a.scale
+    self.resizeOptions.maxWidth = math.min(C.windowMaxWidth * a.scale, a.right - a.left)
+    self.resizeOptions.maxHeight = math.min(C.windowMaxHeight * a.scale, a.lower - a.upper)
     if window then
         RestoreActionBar()
-        PlaceWindow(host, d.geometry)
+        self:Place(self.geometry)
     else
         HideActionBar()
-        host.x, host.y = 0, 0
-        SetHostSize(host, a.width, a.height)
+        panel.x, panel.y = 0, 0
+        self:SetSize(a.width, a.height)
     end
     if changed then
-        d.content:FireEvent("regionMapHostMode", mode)
-        if window then host:SetAsLastSibling() else host:SetAsFirstSibling() end
-        host:ScheduleEvent("regionMapCheckFocus", 0.01)
+        self.content:FireEvent("regionMapHostMode", mode)
+        if window then panel:SetAsLastSibling() else panel:SetAsFirstSibling() end
+        panel:ScheduleEvent("regionMapCheckFocus", 0.01)
     end
 end
 
-local function FinishPlacement(host)
-    local d = host.data
-    if d.mode ~= "window" then return end
-    local geometry = {
-        x = host.x / d.scale, y = host.y / d.scale,
-        width = host.selfStyle.width / d.scale, height = host.selfStyle.height / d.scale,
-    }
-    PlaceWindow(host, geometry)
-    SavePlacement(host)
+function Host:FinishPlacement()
+    if self.mode ~= "window" then return end
+    self:Place(self:CurrentGeometry())
+    self:SavePlacement()
 end
 
-local function PointerInLayer(host)
-    local layer = host.parent
+--- The pointer in documents-layer pixels. The engine reports (0,0) while the pointer is
+--- outside the layer, so that reading keeps the last real position instead.
+--- @return nil|number x
+--- @return nil|number y
+function Host:PointerInLayer()
+    local layer = self.panel.parent
     local point = layer ~= nil and layer.mousePoint or nil
-    if point == nil then return nil, nil end
-    return point.x * layer.renderedWidth, (1 - point.y) * layer.renderedHeight
+    if point ~= nil and not (point.x == 0 and point.y == 0) then
+        self.pointer = { x = point.x * layer.renderedWidth, y = (1 - point.y) * layer.renderedHeight }
+    end
+    if self.pointer == nil then return nil, nil end
+    return self.pointer.x, self.pointer.y
 end
 
--- Native drag transfer changes the grab offset between title and host pivots.
--- Track the pointer in the stationary documents layer instead.
-local function PollTitleDrag(host)
-    local d, clamp = host.data, RegionMapModel.Clamp
-    local drag = d.titleDrag
+--- Native drag transfer changes the grab offset between title and host pivots, so a title
+--- drag tracks the pointer in the stationary documents layer instead.
+function Host:BeginTitleDrag()
+    if self.mode ~= "window" or not self.title:GetMouseButton(0) then return end
+    Session.CloseContextMenu()
+    self.pointer = nil
+    local x, y = self:PointerInLayer()
+    if x == nil or y == nil then return end
+    self.titleDrag = { x = self.panel.x, y = self.panel.y, pointerX = x, pointerY = y }
+    self.dragging = true
+    self:Raise()
+    self:UpdateThink()
+end
+
+function Host:PollTitleDrag()
+    local drag, clamp, panel = self.titleDrag, RegionMapModel.Clamp, self.panel
     if drag == nil then return end
-    if not host:GetMouseButton(0) then
-        d.titleDrag, d.dragging = nil, false
-        FinishPlacement(host)
-        if not d.hovered then host.thinkTime = 0.25 end
+    if not panel:GetMouseButton(0) then
+        self.titleDrag, self.dragging = nil, false
+        self:FinishPlacement()
+        self:UpdateThink()
         return
     end
-    local x, y = PointerInLayer(host)
+    local x, y = self:PointerInLayer()
     if x == nil or y == nil then return end
-    host.x = clamp(drag.x + x - drag.pointerX, d.area.left, d.area.right - host.selfStyle.width)
-    host.y = clamp(drag.y + y - drag.pointerY, d.area.upper, d.area.lower - host.selfStyle.height)
+    panel.x = clamp(drag.x + x - drag.pointerX, self.area.left, self.area.right - panel.selfStyle.width)
+    panel.y = clamp(drag.y + y - drag.pointerY, self.area.upper, self.area.lower - panel.selfStyle.height)
 end
 
-local function ToggleView()
-    local host = inAppHost
-    if host == nil or not host.valid then return end
-    SavePlacement(host)
-    host.data.requestedMode = host.data.mode == "window" and "fullscreen" or "window"
-    Session.SetInAppView(host.data.requestedMode)
-    FitHost(host, true)
+--- Fast polling only while it matters: dragging, or a hovered window that a click should raise.
+function Host:UpdateThink()
+    local fast = self.dragging or (self.mode == "window" and self.hovered)
+    self.panel.thinkTime = self.dragging and C.canvasThinkActive or fast and C.hostThinkHover or C.canvasThinkIdle
+end
+
+--- The window is the top one in its layer (fullscreen always counts as foremost).
+--- @return boolean
+function Host:Foremost()
+    local panel = self.panel
+    return self.mode ~= "window" or (panel.parent ~= nil and panel.siblingIndex == #panel.parent.children)
+end
+
+--- Whether this map takes Esc: fullscreen always; a window only while it is foremost and
+--- the viewer is working in it (focus inside or the pointer over it), so Esc for the
+--- action bar, character sheet or a menu elsewhere still reaches them.
+--- @return boolean
+function Host:Engaged()
+    if self.mode ~= "window" then return true end
+    if not self:Foremost() then return false end
+    if self.hovered then return true end
+    local focus = gui.GetFocus()
+    return focus ~= nil and focus:IsDescendantOf(self.panel)
+end
+
+function Host:SyncEngaged()
+    local engaged = self:Engaged()
+    if self.active ~= engaged then
+        self.active = engaged
+        self.content:FireEvent("regionMapHostActive", engaged)
+    end
+end
+
+function Host:Raise()
+    if self.mode == "window" then self.panel:SetAsLastSibling() end
+    self:SyncEngaged()
+end
+
+--- The viewer chose the map (rail button, menu): bring it forward and give it focus,
+--- so Esc and Tab go to it next.
+function Host:Activate()
+    if self.mode == "window" then self.panel:SetAsLastSibling() end
+    local focus = gui.GetFocus()
+    if focus == nil or not focus:IsDescendantOf(self.panel) then Session.FocusHostControl(self.panel, nil, 1) end
+    self:SyncEngaged()
+end
+
+function Host:Think()
+    local panel = self.panel
+    self:PollTitleDrag()
+    if self.mode == "fullscreen" and panel.siblingIndex ~= 1 then panel:SetAsFirstSibling() end
+    if self.mode == "window" and self.hovered then
+        local pressed = panel:GetMouseButton(0) or panel:GetMouseButton(1) or panel:GetMouseButton(2)
+        if pressed and not self.pressed then self:Raise() end
+        self.pressed = pressed
+    else
+        self.pressed = false
+    end
+    -- Layout inputs (scale, rails, action bar) change rarely; check them at the idle rate.
+    local now = dmhub.Time()
+    if now >= self.nextFit then
+        self.nextFit = now + C.canvasThinkIdle
+        self:Fit()
+    end
+    self:SyncEngaged()
+end
+
+function Host:Close()
+    if inAppHost == self then inAppHost = nil end
+    if not self:Valid() then return end
+    self:SavePlacement()
+    self.panel:DestroySelf()
+end
+
+--- Ask the content to finish edits and imports first; it calls Close when that is done.
+function Host:RequestClose()
+    if self:Valid() then
+        self.content:FireEvent("requestClose", function() self:Close() end)
+    end
+end
+
+function Host:ToggleView()
+    if not self:Valid() then return end
+    self:SavePlacement()
+    -- A window that cannot fit stays fullscreen; say so instead of silently remembering the choice.
+    if self.mode == "fullscreen" and self.requestedMode == "window" then
+        RegionMapUndo.Notify("window.tooSmall", { width = C.windowMinWidth, height = C.windowMinHeight })
+        return
+    end
+    self.requestedMode = self.mode == "window" and "fullscreen" or "window"
+    Session.SetInAppView(self.requestedMode)
+    self:Fit(true)
+end
+
+function Host:ResetPlacement()
+    if not self:Valid() or self.mode ~= "window" then return end
+    self.geometry = nil
+    self:Fit(true)
+    self:SavePlacement()
+end
+
+local function IsOpen()
+    return inAppHost ~= nil and inAppHost:Valid()
+end
+
+local function CloseInApp()
+    if inAppHost ~= nil then inAppHost:Close() end
+end
+
+local function RequestClose()
+    if inAppHost ~= nil then inAppHost:RequestClose() end
+end
+
+local OpenInApp
+
+local function PopOut()
+    CloseInApp()
+    PanelDocument.OpenPopout(C.panelName, { width = C.windowWidth, height = C.windowHeight, scale = 1 })
+end
+
+local function PopIn()
+    PanelDocument.PopoutForgetWindow(POPOUT_KEY)
+    local host = PanelDocument.PopoutHost(POPOUT_KEY)
+    if host ~= nil then host:DestroySelf() end
+    OpenInApp(true)
 end
 
 OpenInApp = function(focus)
@@ -267,14 +417,17 @@ OpenInApp = function(focus)
     local layer = nil
     pcall(function() layer = GameHud.instance.documentsPanel end)
     if layer == nil or not layer.valid then return end
-    local host
-    local content = RegionMapPanel.Create { close = CloseInApp, popOut = PopOut, toggleView = ToggleView, mode = "fullscreen" }
+    local host = setmetatable({}, Host) --[[@as RegionMapWindowHost]]
+    local content = RegionMapPanel.Create {
+        close = CloseInApp, popOut = PopOut, mode = "fullscreen",
+        toggleView = function() host:ToggleView() end,
+    }
     local zoom = gui.Panel { width = "100%", height = "100%", halign = "left", valign = "top", content }
     local frame = gui.Panel { floating = true, width = "100%", height = "100%", halign = "left", valign = "top", zoom }
     local resizeOptions = {
         onResized = function(element)
-            element.data.resizeWidth, element.data.resizeHeight = element.selfStyle.width, element.selfStyle.height
-            FinishPlacement(element)
+            host.resizeWidth, host.resizeHeight = element.selfStyle.width, element.selfStyle.height
+            host:FinishPlacement()
         end,
     }
     local placement = { try_get = function(self, key) return rawget(self, key) end }
@@ -284,10 +437,7 @@ OpenInApp = function(focus)
         element.popup = Session.ContextMenu(element, { entries = {
             { text = T("window.reset"), click = function()
                 element.popup = nil
-                if not IsOpen() or host.data.mode ~= "window" then return end
-                host.data.geometry = nil
-                FitHost(host, true)
-                SavePlacement(host)
+                host:ResetPlacement()
             end },
         } })
     end, { "regionMapHostControl" })
@@ -295,16 +445,7 @@ OpenInApp = function(focus)
     local title = gui.Panel {
         id = "region-map-window-title", classes = { "regionMapWindowTitle" }, floating = true,
         swallowPress = true,
-        press = function(element)
-            if host.data.mode ~= "window" or not element:GetMouseButton(0) then return end
-            Session.CloseContextMenu()
-            local x, y = PointerInLayer(host)
-            if x == nil or y == nil then return end
-            host.data.titleDrag = { x = host.x, y = host.y, pointerX = x, pointerY = y }
-            host.data.dragging = true
-            host.thinkTime = C.canvasThinkActive
-            host:SetAsLastSibling()
-        end,
+        press = function() host:BeginTitleDrag() end,
         wheel = function() return true end,
         gui.Label { classes = { "label", "sizeM" }, text = T("window.title"),
             width = "100% available", height = "auto", lmargin = 6, textAlignment = "left", valign = "center", interactable = false },
@@ -316,38 +457,33 @@ OpenInApp = function(focus)
         floating = true, interactable = false,
     }
     local grip = gui.Label { classes = { "regionMapResizeGrip" }, text = "//", floating = true, interactable = false }
-    host = gui.Panel {
+    host.frame, host.zoom, host.content, host.title, host.border, host.grip = frame, zoom, content, title, border, grip
+    host.resizer, host.resizeOptions = resizer, resizeOptions
+    host.resizeWidth, host.resizeHeight = C.panelWidth, C.panelHeight
+    host.requestedMode, host.mode, host.scale = Session.InAppView(), nil, 1
+    host.geometry = Session.ReadWindowGeometry()
+    host.hovered, host.pressed, host.dragging = false, false, false
+    host.openFocus, host.nextFit = gui.GetFocus(), 0
+    host.panel = gui.Panel {
         id = "region-map-fullscreen",
         classes = { "regionMapRoot" },
         styles = ThemeEngine.MergeStyles(RegionMapStyles.Build()),
         halign = "left", valign = "top", x = 0, y = 0, floating = true,
-        swallowPress = true, thinkTime = 0.25,
-        data = {
-            fit = nil, frame = frame, zoom = zoom, content = content, title = title, border = border, grip = grip, resizer = resizer,
-            resizeOptions = resizeOptions, resizeWidth = C.panelWidth, resizeHeight = C.panelHeight,
-            requestedMode = Session.InAppView(), mode = nil, scale = 1,
-            geometry = Session.ReadWindowGeometry(), hovered = false, pressed = false, dragging = false,
-            openFocus = gui.GetFocus(),
-        },
+        swallowPress = true, thinkTime = C.canvasThinkIdle,
+        data = host,
         multimonitor = { "fontsize", "iconrail", "hideactionbar" },
-        monitor = function(element) FitHost(element) end,
+        monitor = function() host:Fit() end,
         create = function(element)
             RegionMapStyles.Subscribe(element)
-            FitHost(element)
+            host:Fit()
         end,
-        rendered = function(element) LayoutContent(element) end,
-        hover = function(element) element.data.hovered = true; element.thinkTime = C.canvasThinkActive end,
-        dehover = function(element)
-            element.data.hovered = false
-            element.thinkTime = element.data.dragging and C.canvasThinkActive or 0.25
-        end,
-        childfocus = function(element)
-            if element.data.mode == "window" then element:SetAsLastSibling() end
-        end,
-        regionMapHostFocus = function(element, from, direction) Session.FocusHostControl(element, from, direction) end,
+        rendered = function() host:LayoutContent() end,
+        hover = function() host.hovered = true; host:UpdateThink(); host:SyncEngaged() end,
+        dehover = function() host.hovered = false; host:UpdateThink(); host:SyncEngaged() end,
+        childfocus = function() host:Raise() end,
         regionMapInitialFocus = function(element)
-            if gui.GetFocus() == element.data.openFocus then Session.FocusHostControl(element, nil, 1) end
-            element.data.openFocus = nil
+            if gui.GetFocus() == host.openFocus then Session.FocusHostControl(element, nil, 1) end
+            host.openFocus = nil
         end,
         regionMapCheckFocus = function(element)
             local focused = gui.GetFocus()
@@ -358,49 +494,39 @@ OpenInApp = function(focus)
         wheel = function() return true end,
         think = function(element)
             if mod.unloaded then element:DestroySelf(); return end
-            local d = element.data
-            PollTitleDrag(element)
-            if d.mode == "fullscreen" and element.siblingIndex ~= 1 then element:SetAsFirstSibling() end
-            local pressed = element:GetMouseButton(0) or element:GetMouseButton(1) or element:GetMouseButton(2)
-            if d.mode == "window" and d.hovered and pressed and not d.pressed then element:SetAsLastSibling() end
-            d.pressed = pressed
-            FitHost(element)
-            local active = d.mode ~= "window" or (element.parent ~= nil and element.siblingIndex == #element.parent.children)
-            if d.active ~= active then
-                d.active = active
-                d.content:FireEvent("regionMapHostActive", active)
-            end
+            host:Think()
         end,
-        destroy = function(element)
+        destroy = function()
             if inAppHost == host then inAppHost = nil end
-            RegionMapStyles.Unsubscribe(element)
+            RegionMapStyles.Unsubscribe(host.panel)
             RestoreActionBar()
         end,
         frame, title, border, grip, resizer,
     }
     inAppHost = host
-    layer:AddChild(host)
-    FitHost(host, true)
-    if focus then host:ScheduleEvent("regionMapInitialFocus", 0.01) end
+    layer:AddChild(host.panel)
+    host:Fit(true)
+    host:SyncEngaged()
+    if focus then host.panel:ScheduleEvent("regionMapInitialFocus", 0.01) end
 end
 
+-- A presented or rail-opened map comes to the front wherever it is.
 local function ShowMapHost(focus)
     local popout = PanelDocument.PopoutHost(POPOUT_KEY)
     if popout ~= nil then
         pcall(function() popout:RaiseNativeWindow() end)
         return
     end
+    if IsOpen() then
+        inAppHost:Raise()
+        return
+    end
     OpenInApp(focus)
 end
 
 local function ToggleInApp()
-    local host = inAppHost
-    if host ~= nil and host.valid then
-        if host.data.mode == "window" and host.parent ~= nil and host.siblingIndex ~= #host.parent.children then
-            host:SetAsLastSibling()
-        else
-            RequestClose()
-        end
+    if IsOpen() then
+        if inAppHost.mode == "window" and not inAppHost:Foremost() then inAppHost:Activate() else RequestClose() end
     else
         ShowMapHost(true)
     end

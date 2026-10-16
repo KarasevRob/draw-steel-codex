@@ -17,6 +17,7 @@ local Model = RegionMapModel
 local R = RegionMapRecords
 local Session = RegionMapSession
 local Copy = RegionMapCopy
+local Undo = RegionMapUndo
 
 local T = Copy.T
 local SetText = Session.SetText
@@ -214,13 +215,23 @@ end
 
 -- Commit -----------------------------------------------------------------------------------------
 
--- Create the plan's Locations on a map, a batch at a time: each batch waits
--- for the server, so the undo entry holds only rows that exist. A failed write
--- stops the import; its toast then carries the Undo for what was written.
+--- Whether an import is still writing; the toolbar's Import button is disabled meanwhile.
+--- @return boolean
+function RegionMapImport.IsRunning()
+    return running
+end
+
+-- Create the plan's Locations on a map, a batch at a time: each batch waits for the
+-- server, so the Undo entry holds only rows that exist. A failed write stops the import
+-- after the current batch; its toast then carries the Undo for what was written.
 --
--- With several creates in flight, the engine can confirm a row before it reaches
--- the local table, so a row is only written to again (its description and note)
--- from this loop once Model.GetLocation can read it, never from a callback.
+-- Undo is partial: it removes every imported Location nobody has changed since, so
+-- touching one pin during a long import does not lose Undo for the rest. Description and
+-- note rows stay stored after Undo but nothing shows them, as with any deleted Location.
+--
+-- With several creates in flight, the engine can confirm a row before it reaches the
+-- local table, so a row is only written to again (its description and note) from this
+-- loop once Model.GetLocation can read it, never from a callback.
 local function Commit(ctx, mapId, plan, aspect, onDone)
     local loose = {} --- @type RegionMapImportEntry[]
     for _, entry in ipairs(plan.entries) do
@@ -230,14 +241,22 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
     for i, entry in ipairs(loose) do entry.u, entry.v = grid[i].u, grid[i].v end
 
     local confirmed = {} --- @type RegionMapUndoStep[]
-    local failed = false
+    local failed, reason = false, "unavailable"
     local pending = 0
 
-    local function Done(ok)
-        pending = pending - 1
-        if not ok then failed = true end
+    -- Each write settles once, whether its upload failed at once or the server answered.
+    local function Tracker()
+        local item = { settled = false, ok = false }
+        pending = pending + 1
+        function item.Settle(ok)
+            if item.settled then return end
+            item.settled, item.ok = true, ok
+            pending = pending - 1
+            if not ok then failed = true end
+        end
+        item.callbacks = { success = function() item.Settle(true) end, failure = function() item.Settle(false) end }
+        return item
     end
-    local callbacks = { success = function() Done(true) end, failure = function() Done(false) end }
 
     -- Yield until ready() is true; false when the wait ran out or the mod reloaded.
     local function WaitFor(ready)
@@ -249,57 +268,62 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
         return true
     end
 
-    dmhub.Coroutine(function()
-        local first = 1
-        while first <= #plan.entries and not failed and not mod.unloaded do
-            if Unavailable(mapId) ~= nil then failed = true; break end
-            local last = math.min(first + C.importBatch - 1, #plan.entries)
-            local created = {} --- @type {id: string, entry: RegionMapImportEntry}[]
+    local function Stop()
+        local why = Unavailable(mapId)
+        if why ~= nil then failed, reason = true, why end
+        return failed or mod.unloaded
+    end
 
-            -- 1. Create the batch's Locations and wait for the server's answers.
+    local function Run()
+        local first = 1
+        while first <= #plan.entries and not Stop() do
+            local last = math.min(first + C.importBatch - 1, #plan.entries)
+
+            -- 1. Create the batch's Locations (one permission check) and wait for the server.
             pending = 0
+            local items, trackers = {}, {}
             for i = first, last do
                 local entry = plan.entries[i]
-                local step = nil --- @type nil|RegionMapUndoStep
-                local id = nil --- @type nil|string
-                pending = pending + 1
-                local ok, _, undo, newId = Model.CreateLocation(mapId, entry.u --[[@as number]], entry.v --[[@as number]],
-                    entry.style, {
-                        success = function()
-                            if step ~= nil and id ~= nil then
-                                confirmed[#confirmed + 1] = step
-                                created[#created + 1] = { id = id, entry = entry }
-                            end
-                            Done(true)
-                        end,
-                        failure = function() Done(false) end,
-                    }, entry.name)
-                id, step = newId, undo and undo.steps[1] or nil
-                if not ok then
-                    Done(false)
-                    break
-                end
+                local tracker = Tracker()
+                trackers[#trackers + 1] = tracker
+                items[#items + 1] = { u = entry.u, v = entry.v, style = entry.style, name = entry.name, callbacks = tracker.callbacks }
+            end
+            local ok, why, results = Model.CreateLocations(mapId, items)
+            if not ok then
+                failed, reason = true, why or "unavailable"
+                break
+            end
+            for i, result in ipairs(results) do
+                if result.step == nil then trackers[i].Settle(false) end
             end
             if not WaitFor(function() return pending <= 0 end) then failed = true end
+            local created = {} --- @type {id: string, entry: RegionMapImportEntry}[]
+            for i, result in ipairs(results) do
+                if trackers[i].ok and result.step ~= nil and result.id ~= nil then
+                    confirmed[#confirmed + 1] = result.step
+                    created[#created + 1] = { id = result.id, entry = plan.entries[first + i - 1] }
+                end
+            end
 
-            -- 2. Once the rows can be read, save their descriptions and notes.
-            if not failed and not WaitFor(function()
+            -- 2. Once the rows can be read, save their descriptions and notes; rows a
+            -- failed batch did create still get theirs, so no imported pin is left half-made.
+            local readable = WaitFor(function()
                 for _, row in ipairs(created) do
                     if Model.GetLocation(row.id) == nil then return false end
                 end
                 return true
-            end) then failed = true end
-            if Unavailable(mapId) ~= nil then failed = true end
-            if not failed then
+            end)
+            if not readable then failed = true end
+            if readable and Unavailable(mapId) == nil then
                 pending = 0
                 for _, row in ipairs(created) do
                     if row.entry.description ~= nil then
-                        pending = pending + 1
-                        if not Model.SaveDetails(row.id, { description = row.entry.description }, callbacks) then Done(false) end
+                        local tracker = Tracker()
+                        if not Model.SaveDetails(row.id, { description = row.entry.description }, tracker.callbacks) then tracker.Settle(false) end
                     end
                     if row.entry.note ~= nil then
-                        pending = pending + 1
-                        if not Model.SaveDirectorNote(row.id, row.entry.note, callbacks) then Done(false) end
+                        local tracker = Tracker()
+                        if not Model.SaveDirectorNote(row.id, row.entry.note, tracker.callbacks) then tracker.Settle(false) end
                     end
                 end
                 if not WaitFor(function() return pending <= 0 end) then failed = true end
@@ -308,14 +332,25 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
             if not mod.unloaded and ctx.IsAlive() then ctx.RefreshAll() end
             first = last + 1
         end
-        if mod.unloaded then return end
-        local map = Model.GetLocation(mapId)
-        local entry = { description = "Import region map locations", steps = confirmed }
-        if failed then
-            if #confirmed > 0 then ctx.Push(entry, "toast.saveFailed")
-            else ctx.Report(false, "unavailable") end
-        else
-            ctx.Push(entry, "toast.imported", { count = #confirmed, map = Model.DisplayName(map) })
+    end
+
+    dmhub.Coroutine(function()
+        -- Whatever happens inside, the import ends: Import works again and what was written keeps its Undo.
+        local ok, message = pcall(Run)
+        if not ok then
+            failed = true
+            print("REGION_MAP: import stopped: " .. tostring(message))
+        end
+        if not mod.unloaded then
+            local map = Model.GetLocation(mapId)
+            local entry = { description = "Import region map locations", steps = confirmed, partial = true }
+            if failed then
+                if #confirmed > 0 then ctx.Push(entry, "toast.importStopped", { count = #confirmed })
+                elseif reason == "permission" then Undo.Notify("import.permission")
+                else ctx.Report(false, "unavailable") end
+            else
+                ctx.Push(entry, "toast.imported", { count = #confirmed, map = Model.DisplayName(map) })
+            end
         end
         onDone()
     end)

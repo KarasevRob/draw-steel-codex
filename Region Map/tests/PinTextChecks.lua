@@ -10,8 +10,7 @@ local function Fixture()
         MergeTokens = function() return { f.env.DeepCopy(f.theme) } end,
         OnThemeChanged = function(_, callback) f.themeChanged = callback end,
     }
-    f.env.RegionMapSession = { SetText = function(p, text) p.text = text end,
-        SetClassIf = function(p, key, value) p.classes[key] = value end }
+    f.env.RegionMapSession = Base.SessionStub(f.env, directory)
     f.env.RegionMapJournal.ResolveForViewer = function() return { status = "empty" } end
     for _, file in ipairs({ "RegionMapPinText", "RegionMapLabelLayer" }) do
         assert(loadfile(directory .. "/" .. file .. ".lua", "t", f.env))()

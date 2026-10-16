@@ -1374,6 +1374,7 @@ function RegionMapCanvas.Create(ctx)
     canvas = gui.Panel {
         id = "region-map-canvas",
         classes = { "regionMapCanvas" },
+        enter = function(element) if not mod.unloaded and ctx.HandleEnter then ctx.HandleEnter(element) end end,
         bgimage = "panels/square.png", clip = true, flow = "none",
         -- Not draggable (drags are polled); swallowPress keeps a press on the map
         -- from reaching the window, which would otherwise drag the whole window.

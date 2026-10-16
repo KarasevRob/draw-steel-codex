@@ -34,7 +34,10 @@ RegionMapConstants.stateDocumentId = "regionMapState"
 RegionMapConstants.preferencesSettingId = "regionmap:preferences"
 
 -- Limits
-RegionMapConstants.textLimit = 256                   -- Names, in Unicode characters
+RegionMapConstants.textLimit = 256                   -- Names, in Unicode characters (new writes and editors)
+-- Stored names are read up to this many characters. Keep it fixed: reading checks it, so a
+-- client with a lower cap would hide rows (and their subtrees) that a newer client wrote.
+RegionMapConstants.textReadLimit = 1024
 RegionMapConstants.descriptionLimit = 4000
 RegionMapConstants.crumbPreviewLimit = 300           -- description characters a breadcrumb tooltip shows
 RegionMapConstants.descriptionByteLimit = 16384
@@ -227,6 +230,7 @@ RegionMapConstants.belowChromeBar = RegionMapConstants.chromeInset * 2 + RegionM
 -- a fixed 0.02 (50 Hz) skipped frames on 60 Hz+ screens, so pans and zooms judder.
 RegionMapConstants.canvasThinkActive = 0.001
 RegionMapConstants.canvasThinkIdle = 0.25
+RegionMapConstants.hostThinkHover = 0.03             -- a hovered in-app window polls for clicks that should raise it
 RegionMapConstants.rootThink = 0.1
 RegionMapConstants.refreshDelay = 0.05               -- coalesces bursts of table/document changes
 RegionMapConstants.cameraSaveDelay = 0.5
@@ -237,6 +241,7 @@ RegionMapConstants.presentTtl = 10
 RegionMapConstants.autosaveDelay = 1.5               -- side panel saves after this long without typing
 RegionMapConstants.busyRetryDelay = 0.3              -- Delete / Remove map wait this long while a save of the row is in flight
 RegionMapConstants.busyRetries = 10                  -- then report Not saved
+RegionMapConstants.undoMergeSeconds = 5             -- saves of one label or map's text this close together share one Undo
 RegionMapConstants.afterLayoutDelay = 0.05           -- a panel just shown has laid out: focus its input, scroll it
 RegionMapConstants.toastSeconds = 10                 -- paused while hovered (R9)
 RegionMapConstants.transitionSeconds = 0.3           -- zoom into a pin, then crossfade to its map

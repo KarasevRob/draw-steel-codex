@@ -43,20 +43,12 @@ function RegionMapLabels.Table()
     return (dmhub.GetTable(C.labelTableName) or {}) --[[@as table<string, RegionMapMapLabelRecord>]]
 end
 
-local function ColorValue(value)
-    return type(value) == "string" and (value:match("^#%x%x%x%x%x%x$") ~= nil
-        or value:match("^#%x%x%x%x%x%x%x%x$") ~= nil)
-end
-
 local function ValidFormat(key, value)
-    if RegionMapTextAppearance.defaults[key] ~= nil then return RegionMapTextAppearance.Valid(key, value) end
-    if key == "font" then return type(value) == "string" and #value > 0 and #value <= 128 end
-    if key == "bold" or key == "italics" then return type(value) == "boolean" end
+    if RegionMapTextAppearance.defaults[key] ~= nil then return RegionMapTextAppearance.Valid(key, value, false) end
+    local typography = RegionMapTextAppearance.ValidTypography(key, value)
+    if typography ~= nil then return typography end
     if key == "alignment" then return value == "left" or value == "center" or value == "right" end
     if key == "size" then return R.IsFinite(value) and value >= C.labelMinSize and value <= C.labelMaxSize end
-    if key == "spacing" then return R.IsFinite(value) and value >= 0 and value <= 1 end
-    if key == "color" or key == "backgroundColor" then return ColorValue(value) end
-    if key == "background" then return value == "auto" or value == "plate" or value == "none" or value == "image" end
     return false
 end
 
@@ -72,16 +64,7 @@ function RegionMapLabels.Format(row)
     return result
 end
 
---- @param font string
---- @return string
-function RegionMapLabels.DisplayFont(font)
-    local fallback = nil
-    for _, available in ipairs(gui.availableFonts or {}) do
-        if available == font then return font end
-        if available == "berling" then fallback = available end
-    end
-    return fallback or (gui.availableFonts or {})[1] or "book"
-end
+RegionMapLabels.DisplayFont = RegionMapTextAppearance.DisplayFont
 
 --- @param value any
 --- @return nil|string
@@ -225,29 +208,10 @@ end
 
 local function Write(current, record, description, callbacks, creating, retry)
     if R.PendingWrite(C.labelTableName, record.id) then return false, "busy" end
-    local before = current and DeepCopy(current) or nil
-    if retry ~= nil and retry.operation == R.LastWrite(C.labelTableName, record.id)
-        and retry.operation.status == "failed" and current ~= nil
-        and R.Field(current, "mutationId", nil) == retry.operation.mutationId then before = retry.before end
-    record.revision = R.NextRevision(current or { revision = 0 })
-    if record.revision == nil then return false, "unavailable" end
-    R.Audit(record, creating)
-    local step = { tableName = C.labelTableName, id = record.id, before = before,
-        afterRevision = record.revision, afterMutationId = record.mutationId }
-    local operation = R.UploadRecord(C.labelTableName, record, description, {
-        success = function(op)
-            Model.InvalidateIndex()
-            if callbacks and callbacks.success then callbacks.success(op) end
-        end,
-        failure = function(op)
-            Model.InvalidateIndex()
-            if callbacks and callbacks.failure then callbacks.failure(op) end
-        end,
-    }, creating)
-    Model.InvalidateIndex()
-    local entry = { description = description, steps = { step } }
-    if operation == nil then return false, "unavailable", entry, R.LastWrite(C.labelTableName, record.id) end
-    return true, nil, entry, operation
+    local step, operation = R.WriteRow(C.labelTableName, current, record, description, callbacks,
+        { creating = creating, retry = retry })
+    if step == nil then return false, "unavailable", nil, operation end
+    return true, nil, { description = description, steps = { step } }, operation
 end
 
 function RegionMapLabels.Create(mapId, u, v, fields, callbacks, reservedId, retry)
@@ -344,199 +308,262 @@ function RegionMapLabels.CanRevertStep(step, entry)
         and RegionMapTextAppearance.SameImages(before, current))
 end
 
--- Immutable save batches outlive the editor. Closing flushes, while losing permission cancels unsent work.
-local queues = {}
-local Drain
+-- Save queue ----------------------------------------------------------------------------------
+-- Save batches outlive the editor: closing it flushes, and losing permission drops only unsent work.
 
-local function Notify(q)
-    q.version = (q.version or 0) + 1
-    if q.notify ~= nil then q.notify() end
+local drafts = {} --- @type table<string, RegionMapMapLabelRecord> labels being added, not created yet
+local discards = {} --- @type table<string, integer> bumps when unsent edits are dropped, so editors rebind
+local savedListener = nil --- @type nil|fun(row: RegionMapMapLabelRecord)
+
+local function DraftOrRow(id)
+    return drafts[id] or Labels.Get(id)
 end
 
-function RegionMapLabels.NewDraft(mapId, u, v, format, notify)
+-- A delete whose optimistic write failed hides the row; its author may still retry that exact write.
+local function FailedDeleteRow(id)
+    local raw = Labels.Table()[id]
+    local write = R.LastWrite(C.labelTableName, id)
+    if raw == nil or write == nil or write.status ~= "failed" or R.Field(raw, "mutationId", nil) ~= write.mutationId then return nil end
+    return raw
+end
+
+local function WithoutImageChanges(changes)
+    local result = {}
+    for key, value in pairs(changes) do
+        if key ~= "background" and not RegionMapTextAppearance.IsImageField(key) then result[key] = value end
+    end
+    return result
+end
+
+local queue
+queue = RegionMapUndo.SaveQueue {
+    canEdit = function(id)
+        return Labels.CanEdit(DraftOrRow(id) or FailedDeleteRow(id))
+    end,
+    busy = function(id) return R.PendingWrite(C.labelTableName, id) ~= nil end,
+    -- A player's queued background change the Director has since overruled is dropped; their text still saves.
+    filter = function(id, changes)
+        if Model.IsDirector() then return changes end
+        local refused = RegionMapTextAppearance.PlayerRefused(DraftOrRow(id), changes)
+        local result = {}
+        for key, value in pairs(changes) do if not refused[key] then result[key] = value end end
+        return result
+    end,
+    -- Blank text never saves; it waits until the label has text again.
+    hold = function(id, changes)
+        local text = changes.text
+        if text == nil then
+            local row = DraftOrRow(id)
+            text = row and row.text or ""
+        end
+        return Labels.NormalizeText(text) == ""
+    end,
+    send = function(id, batch, callbacks)
+        local draft = drafts[id]
+        if draft ~= nil then
+            local director = Model.IsDirector()
+            local fields = Labels.Format(draft)
+            if not director then fields = RegionMapTextAppearance.PlayerFormat(fields) end
+            fields.text, fields.angle = draft.text, draft.angle
+            if director then fields.visibility = draft.visibility end
+            for key, value in pairs(batch.changes) do fields[key] = value end
+            local u, v = fields.u or draft.u, fields.v or draft.v
+            fields.u, fields.v = nil, nil
+            batch.kind = "create"
+            local ok, reason, entry, _, operation = Labels.Create(draft.mapId, u, v, fields, callbacks, id, batch.retry)
+            return ok, reason, entry, operation
+        elseif batch.kind == "delete" then
+            return Labels.Delete(id, callbacks, batch.retry)
+        end
+        return Labels.Update(id, batch.changes, callbacks, batch.retry)
+    end,
+    -- An image deleted, or a font missing here, since the change was queued: keep the rest.
+    repair = function(id, batch)
+        local draft = drafts[id]
+        if draft ~= nil then
+            for key, value in pairs(WithoutImageChanges(batch.changes)) do draft[key] = value end
+            for key, value in pairs(RegionMapTextAppearance.UsableFormat(Labels.Format(draft))) do draft[key] = value end
+            return {}
+        end
+        local stripped = WithoutImageChanges(batch.changes)
+        if next(stripped) == nil or dmhub.DeepEqual(stripped, batch.changes) then return nil end
+        return stripped
+    end,
+    copyId = function(_, batch)
+        if batch.kind == "create" then return "label.added" end
+        if batch.kind == "delete" then return "label.deleted" end
+        if batch.kind == "moved" or batch.kind == "resized" or batch.kind == "rotated" then return "label." .. batch.kind end
+        return "label.updated"
+    end,
+    mergeKinds = { edit = true },
+    saved = function(id, batch)
+        if batch.kind == "create" then drafts[id] = nil end
+        local row = Labels.Get(id)
+        if row ~= nil and savedListener ~= nil then savedListener(row) end
+    end,
+}
+
+--- The editor remembers the last saved format for the next new label.
+--- @param fn nil|fun(row: RegionMapMapLabelRecord)
+function RegionMapLabels.SetSavedListener(fn)
+    savedListener = fn
+end
+
+--- Start a new label that is created on its first save. Its remembered format is made
+--- usable first, so an image deleted or a font missing since cannot make the create fail.
+--- @param mapId string
+--- @param u number
+--- @param v number
+--- @param format nil|table
+--- @return nil|string id
+function RegionMapLabels.NewDraft(mapId, u, v, format)
     if not Labels.CanAdd(mapId) then return nil end
+    format = RegionMapTextAppearance.UsableFormat(Labels.Format(format))
     if not Model.IsDirector() then format = RegionMapTextAppearance.PlayerFormat(format) end
     local record = RegionMapMapLabelRecord.new(Labels.Format(format))
     record.id, record.mapId, record.schemaVersion, record.revision = dmhub.GenerateGuid(), mapId, 1, 0
     record.u, record.v, record.text, record.angle = R.Clamp(u, 0, 1), R.Clamp(v, 0, 1), "", 0
     record.visibility = Model.IsDirector() and "hidden" or "revealed"
     record.ownerId, record.ownerName, record.hidden = dmhub.loginUserid, R.CurrentUserName(), false
-    queues[record.id] = { draft = record, pending = {}, items = {}, timer = 0, status = "draft", notify = notify }
+    drafts[record.id] = record
+    queue.Touch(record.id)
     return record.id
 end
 
-local function Queue(id)
-    queues[id] = queues[id] or { pending = {}, items = {}, timer = 0, status = "saved" }
-    return queues[id]
-end
-
+--- The label as this editor sees it: the saved row (or the unsaved draft) with every
+--- queued and typed change on top. Reading never cancels anything.
+--- @param id nil|string
+--- @return nil|table
 function RegionMapLabels.Snapshot(id)
-    local q = queues[id]
-    local row = (q and q.draft) or Labels.Get(id)
-    if row == nil or (q and q.draft and not Labels.CanEdit(row)) then return nil end
-    if q and not Model.IsDirector() then
-        local allowed = RegionMapTextAppearance.CanChange(row, q.pending, false)
-        for i, batch in ipairs(q.items) do
-            if not (q.running and i == 1) and not RegionMapTextAppearance.CanChange(row, batch.changes, false) then allowed = false end
-        end
-        if not allowed then Labels.CancelPending(id) end
-    end
+    if id == nil then return nil end
+    local row = DraftOrRow(id)
+    if row == nil or (drafts[id] and not Labels.CanEdit(row)) then return nil end
     local result = DeepCopy(row)
     for key, value in pairs(Labels.Format(row)) do result[key] = value end
-    if q == nil then return result end
-    for _, batch in ipairs(q.items) do for key, value in pairs(batch.changes) do result[key] = value end end
-    for key, value in pairs(q.pending) do result[key] = value end
-    result._tmp_labelVersion = q.version or 0
+    local batches, pending = queue.Unconfirmed(id)
+    local director = Model.IsDirector()
+    local function Apply(changes)
+        local refused = director and {} or RegionMapTextAppearance.PlayerRefused(row, changes)
+        for key, value in pairs(changes) do if not refused[key] then result[key] = value end end
+    end
+    for _, batch in ipairs(batches) do if batch.kind ~= "delete" then Apply(batch.changes) end end
+    Apply(pending)
+    result._tmp_labelVersion = queue.Version(id) * 1000 + (discards[id] or 0)
     return result
 end
 
+--- "draft" (new, never saved), or the queue's status.
+--- @param id string
+--- @return string
 function RegionMapLabels.Status(id)
-    local q = queues[id]
-    return q and q.status or "saved"
+    local status = queue.Status(id)
+    if drafts[id] ~= nil and status == "saved" then return "draft" end
+    return status
 end
 
+--- How many times unsent edits of this label were dropped; editors rebind focused fields when it moves.
+--- @param id string
+--- @return integer
+function RegionMapLabels.Discards(id)
+    return discards[id] or 0
+end
+
+--- @param id string
+--- @param callback nil|fun()
 function RegionMapLabels.Observe(id, callback)
-    Queue(id).notify = callback
+    queue.Observe(id, callback)
 end
 
-function RegionMapLabels.CancelPending(id)
-    local q = queues[id]
-    if q == nil then return end
-    q.timer, q.pending = q.timer + 1, {}
-    q.failed = false
-    if q.running then q.items = { q.items[1] } else q.items = {}; q.draft = nil end
-    q.status = "denied"
-    Notify(q)
+--- Drop unsent edits (and an unsent new label). status is what the editor shows when
+--- something was dropped: "denied" after a permission change, "saved" when Undo replaced it.
+--- @param id string
+--- @param status nil|string
+function RegionMapLabels.CancelPending(id, status)
+    local state = queue.Find(id)
+    local running = state ~= nil and state.running
+    if queue.Cancel(id, status) then discards[id] = (discards[id] or 0) + 1 end
+    if drafts[id] ~= nil and not running then drafts[id] = nil; queue.Touch(id) end
 end
 
-local function RememberFormat(row)
-    local session = rawget(_G, "RegionMapSession")
-    if row ~= nil and session and session.RememberLabelFormat then session.RememberLabelFormat(row) end
-end
-
-Drain = function(id)
-    local q = queues[id]
-    if mod.unloaded or q == nil or q.running or q.failed or #q.items == 0 then return end
-    local batch = q.items[1]
-    local base = q.draft or Labels.Get(id)
-    if not Labels.CanEdit(base) and not (batch.kind == "delete" and batch.retry ~= nil) then
-        Labels.CancelPending(id); return
-    end
-    if R.PendingWrite(C.labelTableName, id) then
-        dmhub.Schedule(C.busyRetryDelay, function() if not mod.unloaded then Drain(id) end end)
-        return
-    end
-    q.running, q.status = true, "saving"
-    local function Receipt(success, operation)
-        dmhub.Schedule(0, function()
-            if mod.unloaded or queues[id] ~= q or q.items[1] ~= batch or not q.running then return end
-            q.running = false
-            if success then
-                if q.draft ~= nil then q.draft = nil end
-                table.remove(q.items, 1)
-                q.status = next(q.pending) ~= nil and "pending" or "saved"
-                if batch.entry ~= nil then RegionMapUndo.Push(batch.entry, batch.copyId) end
-                RememberFormat(Labels.Get(id))
-                Notify(q)
-                Drain(id)
-            else
-                q.failed, q.status = true, "failed"
-                batch.retry = { operation = operation, before = batch.entry and batch.entry.steps[1].before }
-                RegionMapUndo.Notify("toast.saveFailed", nil, function() Labels.Retry(id) end)
-                Notify(q)
-            end
-        end)
-    end
-    local callbacks = { success = function(op) Receipt(true, op) end, failure = function(op) Receipt(false, op) end }
-    local ok, reason, operation
-    if q.draft ~= nil then
-        local fields = Labels.Format(q.draft)
-        if not Model.IsDirector() then fields = RegionMapTextAppearance.PlayerFormat(fields) end
-        fields.text, fields.angle = q.draft.text, q.draft.angle
-        if Model.IsDirector() then fields.visibility = q.draft.visibility end
-        for key, value in pairs(batch.changes) do fields[key] = value end
-        local _
-        ok, reason, batch.entry, _, operation = Labels.Create(q.draft.mapId, q.draft.u, q.draft.v, fields, callbacks, id, batch.retry)
-        batch.copyId = "label.added"
-    elseif batch.kind == "delete" then
-        ok, reason, batch.entry, operation = Labels.Delete(id, callbacks, batch.retry)
-    else
-        ok, reason, batch.entry, operation = Labels.Update(id, batch.changes, callbacks, batch.retry)
-    end
-    if not ok and reason == "busy" then
-        q.running = false
-        dmhub.Schedule(C.busyRetryDelay, function() if not mod.unloaded then Drain(id) end end)
-    elseif not ok and (reason == "permission" or reason == "invalid") then
-        q.running = false
-        Labels.CancelPending(id)
-    elseif operation == nil then
-        Receipt(ok, R.LastWrite(C.labelTableName, id))
-    end
-    Notify(q)
-end
-
+--- @param id string
 function RegionMapLabels.Flush(id)
-    local q = queues[id]
-    if q == nil or next(q.pending) == nil then return end
-    q.timer = q.timer + 1
-    local snapshot = Labels.Snapshot(id)
-    if snapshot == nil or not Labels.CanEdit(snapshot) then Labels.CancelPending(id); return end
-    if Changes(q.pending, Model.IsDirector(), false, Labels.Get(id)) == nil or Labels.NormalizeText(snapshot.text) == "" then
-        q.status = "invalid"; Notify(q); return
-    end
-    q.items[#q.items + 1] = { changes = DeepCopy(q.pending), kind = "edit", copyId = "label.updated" }
-    q.pending = {}
-    Drain(id)
+    queue.Flush(id)
 end
 
+--- Typed changes wait for the autosave delay (or Flush). Blank text is allowed while typing.
+--- @param id string
+--- @param changes table
+--- @return boolean accepted
 function RegionMapLabels.Stage(id, changes)
     local row = Labels.Snapshot(id)
     if not Labels.CanEdit(row) then return false end
     changes = Changes(changes, Model.IsDirector(), true, row)
     if changes == nil then return false end
-    local q = Queue(id)
-    for key, value in pairs(changes) do q.pending[key] = value end
-    q.timer, q.status = q.timer + 1, "pending"
-    local timer = q.timer
-    dmhub.Schedule(C.autosaveDelay, function()
-        if not mod.unloaded and queues[id] == q and q.timer == timer then Labels.Flush(id) end
-    end)
-    Notify(q)
+    queue.Stage(id, changes)
     return true
 end
 
+--- A finished gesture (move, resize, rotate) or a delete, saved now after any typing.
+--- @param id string
+--- @param changes table
+--- @param kind nil|string
+--- @return boolean accepted
 function RegionMapLabels.Commit(id, changes, kind)
     local row = Labels.Snapshot(id)
     if not Labels.CanEdit(row) then return false end
     changes = Changes(changes, Model.IsDirector(), false, row)
     if changes == nil then return false end
-    Labels.Flush(id)
-    local q = Queue(id)
-    if q.draft and #q.items == 0 then
-        for key, value in pairs(changes) do q.draft[key] = value end
-        Notify(q); return true
+    queue.Flush(id)
+    local batches = queue.Unconfirmed(id)
+    local draft = drafts[id]
+    if draft ~= nil and #batches == 0 then
+        -- Not created yet: the gesture just changes the draft the create will use.
+        for key, value in pairs(changes) do draft[key] = value end
+        queue.Touch(id)
+        return true
     end
-    q.items[#q.items + 1] = { changes = DeepCopy(changes), kind = kind or "edit",
-        copyId = "label." .. (kind == "delete" and "deleted" or kind or "updated") }
-    Drain(id)
+    queue.Commit(id, changes, kind)
     return true
 end
 
+--- @param id string
+--- @return boolean
 function RegionMapLabels.RequestDelete(id)
-    local q = queues[id]
-    if q and q.draft and not q.running and #q.items == 0 then Labels.CancelPending(id); return true end
+    local state = queue.Find(id)
+    if drafts[id] ~= nil and (state == nil or (not state.running and #state.items == 0)) then
+        Labels.CancelPending(id); return true
+    end
     return Labels.Commit(id, {}, "delete")
 end
 
+--- @param id string
 function RegionMapLabels.Retry(id)
-    local q = queues[id]
-    if q == nil or not q.failed then return end
-    q.failed = false
-    Drain(id)
+    queue.Retry(id)
 end
 
+--- The editor closed: send typed changes; a draft with nothing to create is discarded.
+--- @param id string
 function RegionMapLabels.Leave(id)
-    Labels.Flush(id)
-    local q = queues[id]
-    if q and q.draft and not q.running and #q.items == 0 then Labels.CancelPending(id) end
+    queue.Flush(id)
+    local state = queue.Find(id)
+    if drafts[id] ~= nil and (state == nil or (not state.running and #state.items == 0)) then Labels.CancelPending(id) end
+    queue.Leave(id)
+    if drafts[id] == nil then discards[id] = nil end
 end
+
+Model.RegisterCompanion {
+    tableName = C.labelTableName,
+    rowsOnMaps = Labels.OnMaps,
+    anyPending = Labels.AnyPending,
+    hideSteps = Labels.HideSteps,
+    cancelRow = function(id) Labels.CancelPending(id, "saved") end,
+    canRevertStep = Labels.CanRevertStep,
+    beforeViewChange = function()
+        for id in pairs(queue.All()) do queue.Flush(id) end
+    end,
+    afterViewChange = function()
+        for id in pairs(queue.All()) do
+            if not Labels.CanEdit(DraftOrRow(id)) then Labels.CancelPending(id) end
+        end
+    end,
+}

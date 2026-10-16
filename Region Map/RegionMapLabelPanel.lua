@@ -26,6 +26,18 @@ function RegionMapLabelPanel.Create(ctx)
     local inputs, colors = {}, {}
     local binding, boundId, generation = false, nil, 0
     local invalid = {}
+    local discards = 0
+    local refreshScheduled = false
+    Labels.SetSavedListener(Session.RememberLabelFormat)
+    -- Every keystroke changes the label's queue; refresh the window once per burst, not per key.
+    local function QueueRefresh()
+        if refreshScheduled then return end
+        refreshScheduled = true
+        dmhub.Schedule(C.afterLayoutDelay, function()
+            refreshScheduled = false
+            if not mod.unloaded and ctx.IsAlive() then ctx.RefreshAll() end
+        end)
+    end
     local function Current() return Labels.Snapshot(ctx.data.selectedLabelId) end
     local function Changed(key, value, flush)
         if binding or mod.unloaded or boundId ~= ctx.data.selectedLabelId or not Labels.CanEdit(Current()) then return end
@@ -84,7 +96,7 @@ function RegionMapLabelPanel.Create(ctx)
             borderBox = true, minWidth = 0,
             change = function(e)
                 if binding then return end
-                local valid = e.text:match("^#%x%x%x%x%x%x$") or e.text:match("^#%x%x%x%x%x%x%x%x$")
+                local valid = RegionMapTextAppearance.ValidColor(e.text)
                 invalid[key] = not valid or nil
                 e:SetClass("invalid", not valid)
                 if valid then Changed(key, e.text, true) else ctx.RefreshAll() end
@@ -98,27 +110,23 @@ function RegionMapLabelPanel.Create(ctx)
                 Changed(key, type(value) == "string" and value or value.tostring, false)
             end,
         }
-        local open = picker.events.click
-        picker.events.click = function(e)
-            if open == nil or not Labels.CanEdit(Current()) then return end
+        Session.ScaleColorPopup(ctx, picker, function(e)
+            if not Labels.CanEdit(Current()) then return false end
             e.data.openId, e.data.generation = boundId, generation
-            open(e)
-            if e.popup then
-                e.popup.constrainToScreen = true
-                local availableW, availableH = ctx.root.renderedWidth - 16, ctx.root.renderedHeight - 16
-                e.popup.selfStyle.scale = math.min(1, availableW / 512, availableH / 280)
-            end
-        end
+            return true
+        end)
         colors[key] = picker
         inputs[key] = hex
         return Field(key, gui.Panel { classes = { "regionMapLabelColor" }, hex, picker })
     end
     local color = ColorField("color")
     local backgroundColor = ColorField("backgroundColor")
-    local appearance = RegionMapTextAppearance.CreateEditor(ctx, false, {
+    local appearance = Session.AppearanceEditor(ctx, false, {
         Active = function(id) return ctx.data.panelMode == "labelEdit" and id == ctx.data.selectedLabelId and Labels.CanEdit(Current()) end,
         Format = function() return Labels.Format(Current()) end,
         Commit = function(changes) return Labels.Stage(boundId, changes) end,
+        -- Staged changes show on the map at once and save after the autosave delay.
+        Preview = function(changes) Labels.Stage(boundId, changes) end,
     })
     local visibility = Session.Segments({ "hidden", "revealed" }, "edit.visibility.", function(value)
         Changed("visibility", value, true)
@@ -165,7 +173,10 @@ function RegionMapLabelPanel.Create(ctx)
             for _, picker in pairs(colors) do picker.data.openId = nil; picker.popup = nil end
         end
         boundId = row.id
-        Labels.Observe(boundId, function() if ctx.IsAlive() then ctx.RefreshAll() end end)
+        -- Unsent edits were dropped (Undo, lost permission): even a focused field shows the label again.
+        local dropped = Labels.Discards(boundId) ~= discards
+        discards = Labels.Discards(boundId)
+        Labels.Observe(boundId, QueueRefresh)
         local width = C.sidePanelWidth * Session.UIScale()
         if ctx.root.renderedWidth < C.narrowWidth then width = ctx.root.renderedWidth end
         if panel.data.width ~= width then panel.data.width = width; panel.selfStyle.width = width end
@@ -174,7 +185,7 @@ function RegionMapLabelPanel.Create(ctx)
             angle = string.format("%.3g", row.angle), spacing = string.format("%.3g", format.spacing * 100),
             color = format.color, backgroundColor = format.backgroundColor }
         for key, input in pairs(inputs) do
-            if changedId or (not input.hasFocus and not invalid[key]) then
+            if changedId or dropped or (not input.hasFocus and not invalid[key]) then
                 if input.text ~= values[key] then input.text = values[key] end
                 input:SetClass("invalid", false)
             end

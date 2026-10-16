@@ -42,6 +42,7 @@ local function Fixture()
         SetSettingValue = function() end,
         DeepEqual = Equal,
         GenerateGuid = function() f.sequence = f.sequence + 1; return "fixture-" .. f.sequence end,
+        Time = function() return f.now or 0 end,
         GetTable = function(name) f.tables[name] = f.tables[name] or {}; return f.tables[name] end,
         Schedule = function(delay, callback) f.timers[#f.timers + 1] = { at = f.time + delay, callback = callback } end,
         SetAndUploadTableItem = function(name, row, callbacks)
@@ -180,7 +181,10 @@ local function Fixture()
         local mode = kind == "path" and (editing and "pathEdit" or "path") or (editing and "edit" or "read")
         data.panelMode = mode
         if kind == "path" then data.selectedPathId = id else data.selectedId = id end
-        local panel = env.RegionMapArtwork.Create(f.ctx, kind, editing)
+        local panel = env.RegionMapArtwork.Create(f.ctx, kind, editing, function(selected)
+            local current = kind == "path" and f.ctx.data.selectedPathId or f.ctx.data.selectedId
+            return current == selected and f.ctx.data.panelMode == mode
+        end)
         panel.data.kind, panel.data.mode = kind, mode
         root:AddChild(panel)
         f.ctx.RefreshAll()

@@ -290,7 +290,8 @@ function RegionMapPathPanel.Create(ctx)
 
     local ends = Label({ "regionMapBody" })
     local time = Label({ "regionMapBody", "regionMapPathTime" })
-    local readArtwork = RegionMapArtwork.Create(ctx, "path", false)
+    local readArtwork = RegionMapArtwork.Create(ctx, "path", false,
+        function(id) return data.selectedPathId == id and data.panelMode == "path" end)
     local description = Label({ "regionMapBody" })
 
     local editButton = Button(T("panel.edit"), function()
@@ -483,7 +484,8 @@ function RegionMapPathPanel.Create(ctx)
         if data.selectedPathId ~= nil then ctx.SelectPath(data.selectedPathId, "path") end
     end)
 
-    local editArtwork = RegionMapArtwork.Create(ctx, "path", true)
+    local editArtwork = RegionMapArtwork.Create(ctx, "path", true,
+        function(id) return data.selectedPathId == id and data.panelMode == "pathEdit" end)
     editView = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
         Label({ "regionMapFormLabel" }, T("edit.visibility")),
