@@ -1,9 +1,9 @@
 # Overland Map labels
 
-Decided with the user and implemented on 2026-10-14. Verification and delivery status
-are recorded in [../tests/LABELS.md](../tests/LABELS.md).
-This supersedes idea 15's provisional scope in [IDEAS_RESEARCH.md](IDEAS_RESEARCH.md).
-The implementation is locally deployed; publication and fixture cleanup are paused.
+Decided with the user and implemented in the development checkout on 2026-10-14.
+The [text appearance contract](TEXT_APPEARANCE_BRIEF.md)
+adds outlines and uploaded image backgrounds to the original formatting below.
+[Verification](../tests/LABELS.md) records coverage and remaining limits.
 
 ## Agreed behavior
 
@@ -99,8 +99,8 @@ newlines increase the measured height. Use cached natural bounds and inverse rot
 hit testing. Scaling the whole map layer is an existing measured performance trap; pan
 slides the layer and zoom updates guarded per-label transforms.
 
-The visual probe found that textOutlineWidth did not produce the required backing in this
-build. The Auto contrast implementation therefore draws its snug backing explicitly.
+Auto contrast draws its snug backing explicitly. Later live probes confirmed that
+native glyph outlines work separately; see the text appearance contract.
 
 Completed verification includes 18 isolated production-model/UI checks, 27 artwork
 regression checks, disposable Director-client fixtures, selected native/in-app layout
@@ -111,7 +111,6 @@ tooling limitations are recorded in [../tests/LABELS.md](../tests/LABELS.md).
 Delivery uses the existing Overland Map CodeMod ec447c62-03db-4416-a5a2-0b013c0f3893.
 Register helpers in dependency order, deploy the complete module, audit the code-only
 package, and never switch the user's current game to publish/install it.
-The three helpers are already registered and the 29-file module was deployed locally.
-The last verified installable package is version 2, before labels; no labels publication
-or installation is claimed. Engine access was released for the subsequent 2026-10-15
-window, menu and position-lock work; publication and fixture cleanup remain separate.
+The three helpers are registered; see the [current runtime order](../README.md#2-architecture).
+Local deployment does not establish the current installable package version. Check
+the live module/package before publishing or reporting that status.

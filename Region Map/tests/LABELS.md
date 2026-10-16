@@ -1,42 +1,23 @@
 # Map label verification
 
-Follow-up on 2026-10-15: the user released the engine and requested removal of all
-Move label actions. The editor/context buttons and separate placement tool are removed;
-Positions locked/unlocked now names the shared Location/label lock. All 18 isolated
-label checks and 13 window-host checks passed, with 0 mod type-check problems. Live
-drag checks confirmed locked/unlocked/relocked behavior on a disposable label, and the
-temporary map, Location and label were removed. These changes are locally deployed;
-publication remains paused. See [README.md](README.md) for the combined UI verification.
+Evidence collected 2026-10-14/15, with placement and text-appearance follow-ups on
+2026-10-16. Labels are implemented in the development checkout. This record does not
+assert the current version of an installable cloud package.
 
-Results collected on 2026-10-14, engine 0.0.857, bridge build 10. The feature is
-implemented and deployed to the local development checkout. **The complete labels
-update has not been published.** The user paused runtime work and then requested
-documentation only; no further app inspection, cleanup, reload, deployment or publication
-was performed for this documentation pass.
+Positions locked/unlocked now controls both Location and label movement; separate
+Move label actions are removed. Live checks confirmed locked/unlocked/relocked behavior.
+The temporary map, Location and label from that follow-up were removed.
 
-The behavior contract is [LABELS_BRIEF.md](../docs/LABELS_BRIEF.md). The three helpers are
-registered persistently in the existing Overland Map CodeMod, bringing it to 29 runtime
-files. Registration is distinct from publishing the completed sources.
+The [label contract](../docs/LABELS_BRIEF.md), [appearance contract](../docs/TEXT_APPEARANCE_BRIEF.md)
+and [combined test index](README.md) describe current behavior and validation.
 
-## Local validation already completed
+## Automated validation
 
-| Check | Recorded result |
-|---|---|
-| Shipped Lua 5.4.7 syntax checker | Passed for 33 runtime/test Lua files |
-| Lua source ASCII sweep | Passed |
-| Isolated label checks | 18 passed |
-| Artwork regression checks | 27 passed |
-| Available `../dependencies/check-mod.ps1 -Mod 'Region Map'` | 0 problems; final recorded run 38 seconds |
-| Required baseline-aware checker | Unavailable; no pass claimed |
-
-`../tools/lua-typing/check.ps1`, `tools/lua-typing/baseline.json`, and the table-overload
-generator were not found. Searches included hidden files in the accessible project and
-development-mod directories and repository history. The installed app and its compiled
-engine were available; the expected source-checkout tooling was not. The available
-module checker loads the other modules as libraries, but does not replace the missing
-historical-baseline comparison. No baseline or successful standard check was fabricated.
-
-These are recorded results, not new test runs during the documentation-only pass.
+- 18 label checks and 27 artwork checks passed; the latest combined run is recorded
+  in [README.md](README.md).
+- Runtime/test Lua passed syntax and ASCII checks.
+- The available module type checker reported zero problems. The prescribed
+  whole-repository checker is absent; no whole-repository pass is claimed.
 
 ## Isolated coverage
 
@@ -141,42 +122,16 @@ rendering/GPU work and are not frame rates. They preceded the final backing-imag
 adjustment; whole-frame timing of the final renderer remains unverified. Pan moves the
 existing layer and does not write per-label styles.
 
-## Registration, publication and paused cleanup
+## Registration and retained fixture
 
-CodeMod: `ec447c62-03db-4416-a5a2-0b013c0f3893`, Overland Map.
-Development directory: `C:/Users/ElderHex/codex-dev-mods/Overland Map`.
+RegionMapLabels, RegionMapLabelLayer and RegionMapLabelPanel were registered
+persistently. Current order is in the [runtime file table](../README.md#2-architecture);
+the original 29-file order has been superseded by later features.
 
-| Helper | Registered position | File ID |
-|---|---|---|
-| RegionMapLabels | After RegionMapUndo, index 7 | `26fd4f77-afd3-4aef-9bcf-862b2d3a1e21` |
-| RegionMapLabelLayer | After RegionMapPathLayer, index 15 | `1c1b50af-c6c3-46ac-b09f-6f5a20c3069e` |
-| RegionMapLabelPanel | After RegionMapPathPanel, index 21 | `91268f42-666a-4d90-88b1-86c14891b1e5` |
+The map originally named **Labels verification (temporary)**,
+`bd2a3594-9362-4132-b4ca-0186eaa91850`, was preserved and subsequently used by the
+user. It is not a pending automatic-cleanup target. The old pre-test preference
+snapshot must not be restored over later user changes.
 
-All three registrations were read back successfully. The complete 29-file module was
-deployed locally, preserving concurrent source edits. The checked-out source cache was
-refreshed and the final contrast/search changes were exercised. The development checkout
-and its original automatic-reload setting were retained. No C# engine source was changed.
-
-The last verified installable package, `elderhex-elderhex_mapregion`, was version **2**,
-with data ID `3da61d59-e334-4c69-a4cf-ccad8f714117`. It predates labels. No completed-label
-CodeMod commit or new package version was published before the pause.
-
-Cleanup remains outstanding at the user's request to leave the app untouched:
-
-- Game: `ab736f85-7b96-4216-bee8-6ea3d2d8cc59`.
-- Disposable map: **Labels verification (temporary)**,
-  `bd2a3594-9362-4132-b4ca-0186eaa91850`, last observed unshared, with four labels.
-- Original map: **Broadhurst**, `8f5ad0d2-5ef0-4d33-a59d-0925184a3346`.
-- Font Size 100 and the MCDM theme were restored before the pause; the native popout was
-  returned to the app. The original map view, window geometry and label-format/display
-  preferences were not fully restored. Do not overwrite preferences changed since testing.
-- The [fixture inventory and pre-test preferences](../../output/labels-live-fixture-2026-10-14.json)
-  identify the four label IDs and original values. The existing image asset must remain.
-  Temporary probe globals may remain until a later reload or explicit cleanup.
-
-If runtime work is authorized again, first inspect the current state and remove only the
-identified disposable fixtures through normal model deletion. Restore only preferences
-still attributable to testing. Then, when publication is requested, compare and publish
-the complete source set, audit a new code-only snapshot for unrelated data/modules, and
-update the same game without switching games. None of those steps is part of this
-documentation-only completion.
+Git pushes and local development deployment are separate from publishing an
+installable CodeMod package. Check the live module/package before reporting its status.

@@ -2,7 +2,8 @@
 
 Design agreed 2026-10-15/16. Status: IMPLEMENTED. Scope: Overland Map only.
 
-This is the decided design; TEXT_APPEARANCE_RESEARCH.md remains the evidence appendix.
+This is the current contract. [Research notes](TEXT_APPEARANCE_RESEARCH.md) retain
+engine findings and the unresolved custom-font investigation.
 
 ## Decisions
 

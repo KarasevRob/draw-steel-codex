@@ -1,21 +1,14 @@
 # Overland Map V2.1 - Design Brief
 
-Status: BUILT 2026-10-10, except Torn edge and Frame (K9: they wait for the user's art) and
-the player-client checks (batched for a session the user sets up). What changed from this
-brief while building is in the build notes, [TECH_TASK_V2_1.md](../TECH_TASK_V2_1.md)
-section 8. All V2.1 copy is signed off, including the build-time choices V2_COPY.md 25.7
-and 25.8 (2026-10-10).
+The point-crawl, image-guidance, Soft fade and import features are implemented.
+Torn edge and Frame remain unfinished, awaiting artwork and rendering work.
 
-LOCKED 2026-10-08 by the user. Build per the ledger (sections 2, 2.1, 2.2) in the M5
-order; changes from here are new ledger rows agreed with the user. Mockups:
-https://claude.ai/artifact/UieXXhuoYwRF4678XZp81U (private), accepted 2026-10-08 (N1); they
-predate the critique round, so where they differ the ledger wins. Section 3 is the map of
-decisions; section 4 lists what is left to the build. Build plan:
-[TECH_TASK_V2_1.md](../TECH_TASK_V2_1.md); copy: [V2_COPY.md](V2_COPY.md) sections 18-25.
+Retained as the decision-ID reference used by source comments. The
+[current README](../README.md), later feature contracts and [checks](../tests/README.md)
+supersede old limits, controls and implementation status. Completed build plans are in
+Git history. Copy decisions remain in [V2_COPY.md](V2_COPY.md).
 
-V2.1 covers point crawl mode and three quick ideas from [IDEAS.md](../IDEAS.md). The hex
-overlay and hex mode move to V2.2. [V2_BRIEF.md](V2_BRIEF.md) stays the source of truth for
-everything V2.1 does not change.
+Hex work is deferred by the user; no V2.2 hex phase is scheduled.
 
 ## 1. Frame (agreed 2026-10-08)
 
@@ -166,7 +159,7 @@ region is built.
 | W1 | When the Director picks a hidden path in Travel to, a prompt asks "Reveal it to players?" with "Reveal and travel" and "Travel in secret" (and Cancel). In secret, players see the leg without the path's name or line ("{party} traveled from Ashford to Hollow Barrow - 1 day"; if the destination is hidden too, the V2 log rules for hidden Locations apply). The Director's Travel list marks hidden paths with the eye-slash | User; both reviews found the leak |
 | W2 | A path has an optional "The other way" field: Same (default), Different time (a second time for the B-to-A direction), or Not possible. The Travel list, the stop-partway time and the log follow it. Amends B3 (paths are still one record, drawn once) | User; rivers and one-way passages |
 | W3 | A new path starts Revealed; players still see it only while both ends are revealed (H1). Secret paths are hidden by hand | User; revealing places reveals the roads between them |
-| W5 | Image size numbers (J1): minimum 1500 px wide, recommended 4000, maximum 12000. Measured 2026-10-08 (TECH_TASK_V2_1 section 8); the user picked the looser set, warning only on clearly tiny or huge images | User, after measurement |
+| W5 | Image size numbers (J1): minimum 1500 px wide, recommended 4000, maximum 12000. Measured 2026-10-08; the user picked the looser set, warning only on clearly tiny or huge images | User, after measurement |
 | W4 | A game never has two Directors. Director-only actions (paths, types, import, borders) need no handling for two Directors editing at once; player edits still sync as in V2. Added after lock | User |
 
 ## 3. Decision map
@@ -257,20 +250,13 @@ time. Status is open unless the ledger settles it.
 - M4. Regression: free maps unchanged; on point crawl maps a free Party drop is replaced.
 - M5. Phasing and build order inside V2.1.
 
-## 4. Open questions
+## 4. Remaining work
 
-Left to the build; each answer goes back into this brief before the slice that needs it ships.
-
-- K3. **Deferred until the user provides the art (2026-10-08).** Torn edge and Frame (V21-04)
-  are not built. The art format is in [BORDER_ART.md](BORDER_ART.md). When the two images are
-  in the journal library, put their ids in `RegionMapConstants.borderTornMask` and
-  `borderFrameImage`, then build V21-04. Until then both tiles show dimmed with "Not
-  available yet". Soft fade and None are built and live.
-- B1, B2. The path table's exact name, record type and schema (including W2's other-way time
-  and Q13's partway Party fields).
-- F4. Zoom declutter and a performance cap for paths, measured with a full 250-pin map.
-- M3. Late joiner, an end deleted while its path is being edited, hot reload: each tested on
-  the slice that adds it.
+- Torn edge and Frame need the user's [artwork](BORDER_ART.md), renderer integration,
+  and live checks. Supplying the Constants artwork IDs alone is not sufficient.
+- Separate-player and native-input gaps are tracked in the [test index](../tests/README.md).
+- Table/schema, path-layout and build-order questions from the original plan are resolved
+  in the implementation and [architecture notes](../README.md#2-architecture).
 
 ## 5. Evidence
 

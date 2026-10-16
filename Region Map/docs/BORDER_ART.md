@@ -1,10 +1,9 @@
 # Overland Map - Border art format (V2.1, K3)
 
 Soft fade needs no art. The other two looks, **Torn edge** and **Frame**, use art the user
-supplies. Their tiles in Settings stay disabled until the art is in (task V21-04 in
-[TECH_TASK_V2_1.md](../TECH_TASK_V2_1.md)). Written 2026-10-08. The two items marked
-*check* are confirmed with a live test when V21-04 starts, and this file is corrected if
-needed.
+supplies. Their Settings tiles are disabled; rendering is not implemented yet.
+Supplying the artwork IDs alone will not finish these borders. Items marked *check*
+need live verification when implementation resumes.
 
 The artist-facing version of this spec, with a template drawing, is the doc "Overland Map
 border art brief" (2026-10-12). Revised the same day: the mask went from 2048 to 4096 px and
@@ -45,4 +44,4 @@ their size, and the edges stretch.
 Upload both files as images in the DMHub journal library and send me their ids, or drop the
 PNGs in the repo and say where they are. *Check:* whether a library image id is readable in
 other games that load the mod. If it isn't, the art ships as an asset that every game can
-read; we decide how when V21-04 starts.
+read; decide how when border implementation resumes.

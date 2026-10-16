@@ -1,5 +1,36 @@
 # Overland Map checks
 
+## Test helpers
+
+The seven Lua helpers remain active. They are not registered CodeMod files.
+LabelChecks provides the isolated model fixture used by several other suites.
+
+| Suite | Checks | Execution |
+|---|---:|---|
+| CanvasToolsChecks | 5 | Offline |
+| TextAppearanceChecks | 13 | Offline |
+| LabelChecks | 18 | Offline |
+| PinTextChecks | 15 | Offline |
+| ArtworkChecks | 27 | Offline |
+| WindowHostChecks | 13 | Offline; includes the core resize helper |
+| ImportChecks | Parser/editor checks | Connected Director app; no Import writes in the editor suite |
+
+On 2026-10-16, the first five suites passed together (78 checks), all 38 mod Lua files
+passed syntax/ASCII checks, and the available module type checker reported zero problems.
+The required whole-repository checker is absent. WindowHost's 13 checks passed in the
+recorded window work. These results do not replace the live-input checks below.
+
+Run any offline suite from the repository root:
+
+```powershell
+& '..\dependencies\lua\bin\lua.exe' -e "assert(dofile('Region Map/tests/LabelChecks.lua').Run())"
+```
+
+Replace LabelChecks with the desired suite. Feature evidence:
+[labels](LABELS.md), [pin text](PIN_TEXT.md), [artwork](ARTWORK.md),
+[text appearance](TEXT_APPEARANCE.md), and
+[window behavior](../docs/PANEL_VIEW_BRIEF.md#review-and-validation).
+
 For canvas placement, run
 `& '..\dependencies\lua\bin\lua.exe' 'Region Map/tests/CanvasToolsChecks.lua' run`.
 The five isolated checks load the complete production module and cover Location/label
@@ -130,7 +161,7 @@ the file read/preview path and editor buffer limits were exercised through the b
 ## Atlas, window and position-lock verification, 2026-10-15
 
 The engine was released for testing. All changed loaded files were compared with source
-after F4; the complete 29-file development mod is current. Lua syntax, ASCII and diff
+after F4; the then-29-file development mod matched the checked sources. Lua syntax, ASCII and diff
 checks passed; 13 window-host checks and 18 label checks passed; the available mod type
 checker reported 0 problems in 38 seconds. The standard baseline checker remains absent.
 

@@ -1,6 +1,7 @@
 # Overland Map: in-app window view
 
-Status: LOCKED. User approved the reviewed defaults with "Continue" on 2026-10-14.
+Status: IMPLEMENTED. User approved the reviewed defaults on 2026-10-14.
+The validation section records completed checks and the remaining keyboard/player gaps.
 Implemented and deployed to the development app. Window movement, resizing, mode
 changes and minimum-size layouts were verified live. Keyboard focus isolation still
 needs follow-up; native popout wheel delivery needs an engine change.
