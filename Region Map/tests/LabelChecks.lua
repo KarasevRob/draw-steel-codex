@@ -24,14 +24,18 @@ local function Fixture()
     env.DeepCopy, env.ServerTimestamp = Copy, function() return f.now end
     env.RegionMapJournal, env.RegionMapLog = {}, { Add = function() end }
     env.gui = { availableFonts = { "berling", "courier", "liberationsans" } }
+    f.images = {}
+    env.assets = { imagesTable = f.images }
     env.dmhub = {
         isDM = true, loginUserid = "director", userDisplayName = "Fixture", tablesUpdateId = 0,
         GetModLoading = function() return f.mod end,
         GenerateGuid = function() f.sequence = f.sequence + 1; return "label-test-" .. f.sequence end,
+        Time = function() return f.now end,
         GetTable = function(n) f.tables[n] = f.tables[n] or {}; return f.tables[n] end,
         DeepEqual = Equal,
         Schedule = function(delay, fn) table.insert(f.timers, { at = f.now + delay, fn = fn }) end,
         SetAndUploadTableItem = function(n, row, cb)
+            if f.mode == "refuse" then return nil end
             f.writes[#f.writes + 1] = { row = Copy(row), callbacks = cb }
             env.dmhub.GetTable(n)[row.id] = Copy(row)
             env.dmhub.tablesUpdateId = env.dmhub.tablesUpdateId + 1
@@ -276,8 +280,85 @@ function checks.Run()
         assert(contrast("#ffffffff") == "#000000ff")
         assert(contrast("#808080ff") == "#000000ff")
     end)
+    local function Asset(f, id)
+        f.images[id] = { imageid = id, isVideo = false, HaveReadPermissions = function() return true end }
+    end
+    Check("a remembered image or font that is gone never discards a new label", function(f)
+        local id = f.L.NewDraft(f.map, 0.5, 0.5, { background = "image", backgroundImageId = "gone-image", font = "missing" })
+        assert(f.L.Stage(id, { text = "Kept" })); f.L.Flush(id); f.Advance(0)
+        local row = f.L.Get(id)
+        assert(row ~= nil and row.text == "Kept" and row.background == "auto" and row.font == "berling")
+    end)
+    Check("an image deleted before saving drops only the image change", function(f)
+        local id = f.Create("Before")
+        Asset(f, "picked-image")
+        assert(f.L.Stage(id, { text = "After", background = "image", backgroundImageId = "picked-image" }))
+        f.images["picked-image"] = nil
+        f.L.Flush(id); f.Advance(0)
+        assert(f.L.Get(id).text == "After" and f.L.Get(id).background ~= "image")
+        assert(f.L.Status(id) == "saved")
+    end)
+    Check("a player's text survives the Director switching the background to an image", function(f)
+        assert(f.L.SetPlayersCanManage(true))
+        Asset(f, "director-image")
+        f.env.dmhub.isDM, f.env.dmhub.loginUserid = false, "player"
+        local id = f.Create("Player text")
+        assert(f.L.Stage(id, { text = "Edited", background = "plate" }))
+        f.env.dmhub.isDM = true
+        assert(f.L.Update(id, { background = "image", backgroundImageId = "director-image" }))
+        f.env.dmhub.isDM = false
+        f.L.Flush(id); f.Advance(0)
+        assert(f.L.Get(id).text == "Edited" and f.L.Get(id).background == "image")
+    end)
+    Check("Undo drops unsent edits instead of writing them back", function(f)
+        local id = f.Create("One")
+        assert(f.L.Stage(id, { text = "Two" })); f.L.Flush(id); f.Advance(0)
+        assert(f.L.Stage(id, { text = "Three" }))
+        assert(f.U.UndoLast()); f.Advance(0)
+        assert(f.L.Get(id).text == "One")
+        f.Advance(3)
+        assert(f.L.Get(id).text == "One" and f.L.Discards(id) == 1)
+    end)
+    Check("View as player sends typed label edits first", function(f)
+        local id = f.Create("Before")
+        assert(f.L.Stage(id, { text = "Typed" }))
+        f.M.SetViewAsPlayer(true); f.Advance(3)
+        assert(f.L.Table()[id].text == "Typed")
+    end)
+    Check("a label hide that never started adds no Undo step", function(f)
+        local id = f.Create("Kept")
+        f.mode = "refuse"
+        assert(#f.L.HideSteps({ f.L.Get(id) }, "Delete") == 0)
+    end)
+    Check("cancelling with nothing unsent leaves the label saved", function(f)
+        local id = f.Create("Quiet")
+        f.L.Observe(id, function() end)
+        f.L.CancelPending(id)
+        assert(f.L.Status(id) == "saved")
+    end)
+    Check("text edits in quick succession share one Undo", function(f)
+        local id = f.Create("A")
+        assert(f.L.Stage(id, { text = "B" })); f.L.Flush(id); f.Advance(0)
+        assert(f.L.Stage(id, { text = "C" })); f.L.Flush(id); f.Advance(0)
+        assert(f.U.UndoLast()); f.Advance(0)
+        assert(f.L.Get(id).text == "A")
+    end)
     print("LABEL CHECKS: " .. passed .. " passed")
     return passed
+end
+--- A RegionMapSession stand-in with the production text appearance controls: the
+--- appearance functions are loaded from RegionMapSession.lua, the rest are simple stubs.
+function checks.SessionStub(env, folder)
+    local stub = { SetText = function(p, text) p.text = text end,
+        SetClassIf = function(p, key, value) p.classes[key] = value end }
+    local saved = env.RegionMapSession
+    assert(loadfile(folder .. "/RegionMapSession.lua", "t", env))()
+    local real = env.RegionMapSession
+    for _, name in ipairs({ "AppearanceImage", "AppearanceImageStatus", "RetryAppearanceImage", "AppearanceEditor", "ScaleColorPopup" }) do
+        stub[name] = real[name]
+    end
+    env.RegionMapSession = saved
+    return stub
 end
 checks.Fixture = Fixture
 if ... == "run" then checks.Run() end

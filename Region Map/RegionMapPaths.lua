@@ -172,7 +172,7 @@ end
 
 local function ValidType(item)
     return type(item) == "table" and type(item.id) == "string" and item.id ~= "" and #item.id <= C.pathTypeIdLimit
-        and R.ValidText(item.name) and patterns[item.pattern] == true and colors[item.color] == true
+        and R.ValidStoredText(item.name) and patterns[item.pattern] == true and colors[item.color] == true
         and widths[item.width] == true
 end
 
@@ -253,7 +253,10 @@ function RegionMapPaths.UpdateType(id, changes)
     for _, item in ipairs(list) do
         if item.id == id then
             for key, value in pairs(changes) do
-                if key == "name" then value = R.TrimSingleLine(value) end
+                if key == "name" then
+                    value = R.TrimSingleLine(value)
+                    if not R.ValidText(value) then return false, "invalid", nil end
+                end
                 if item[key] ~= value then
                     item[key] = value
                     changed = true
@@ -460,29 +463,10 @@ end
 -- Writes (H3: Director only) -------------------------------------------------------------------------
 
 -- Upload one path row built from current (nil to create) plus changes; the undo step or nil.
-local function WritePath(current, changes, description, callbacks)
+local function WritePath(current, changes, description, callbacks, retry)
     local record = current and DeepCopy(current) or RegionMapPathRecord.new { revision = 0, artworkImageId = "" }
     for key, value in pairs(changes) do record[key] = value end
-    local revision = R.NextRevision(record)
-    if revision == nil then return nil end
-    record.revision = revision
-    R.Audit(record, current == nil)
-    local function Finish(callback)
-        return function(write)
-            Model.InvalidateIndex()
-            if callback ~= nil then callback(write) end
-        end
-    end
-    local operation = R.UploadRecord(C.pathTableName, record, description, {
-        success = Finish(callbacks and callbacks.success), failure = Finish(callbacks and callbacks.failure),
-    }, current == nil)
-    if operation == nil then return nil end
-    Model.InvalidateIndex()
-    return {
-        tableName = C.pathTableName, id = record.id,
-        before = current and DeepCopy(current) or nil,
-        afterRevision = revision, afterMutationId = record.mutationId,
-    } --[[@as RegionMapUndoStep]]
+    return R.WriteRow(C.pathTableName, current, record, description, callbacks, { retry = retry })
 end
 
 local function CopyBends(bends)
@@ -579,23 +563,23 @@ end
 --- @param id string
 --- @param changes RegionMapPathFields
 --- @param description nil|string
---- @param retryArtwork nil|RegionMapWrite the failed artwork upload being explicitly retried
+--- @param retry nil|RegionMapRetry an explicit retry of this client's failed write
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
-function RegionMapPaths.UpdatePath(id, changes, description, retryArtwork)
+function RegionMapPaths.UpdatePath(id, changes, description, retry)
     local current = RegionMapPaths.Get(id)
     if current == nil then return false, "invalid", nil end
     if mod.unloaded or not Model.IsDirector() then return false, "permission", nil end
     if R.PendingWrite(C.pathTableName, id) then return false, "busy", nil end
     local normalized = NormalizeFields(changes)
     if normalized == nil then return false, "invalid", nil end
-    if normalized.artworkImageId == R.ArtworkValue(current) and not R.CanRetryArtwork(C.pathTableName, current, retryArtwork) then
+    if normalized.artworkImageId == R.ArtworkValue(current) and not R.CanRetryWrite(C.pathTableName, current, retry) then
         normalized.artworkImageId = nil
     end
     if next(normalized) == nil then return true, nil, nil end
     description = description or "Edit region map path"
-    local step = WritePath(current, normalized, description)
+    local step = WritePath(current, normalized, description, nil, retry)
     if step == nil then return false, "unavailable", nil end
     return true, nil, Entry(description, { step })
 end

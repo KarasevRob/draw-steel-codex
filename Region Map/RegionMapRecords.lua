@@ -300,12 +300,27 @@ function RegionMapRecords.TextLength(value)
 end
 local TextLength = RegionMapRecords.TextLength
 
---- Map names and label text: one trimmed line of 1..textLimit characters.
+-- Control characters, DEL, and the bidi embedding/override/isolate marks that can reorder text around a name.
+local function HasControls(value)
+    return value:find("[%z\1-\31\127]") ~= nil or value:find("\226\128[\170-\174]") ~= nil
+        or value:find("\226\129[\166-\169]") ~= nil
+end
+
+--- A name as stored: one trimmed line of 1..textReadLimit characters. Reads use this
+--- fixed cap, never textLimit, so widening the write limit cannot hide rows on older clients.
+--- @param value any
+--- @return boolean
+function RegionMapRecords.ValidStoredText(value)
+    return type(value) == "string" and value ~= "" and TrimSingleLine(value) == value
+        and TextLength(value) <= C.textReadLimit
+end
+local ValidStoredText = RegionMapRecords.ValidStoredText
+
+--- A name a write may store: one trimmed line of 1..textLimit characters, no control characters.
 --- @param value any
 --- @return boolean
 function RegionMapRecords.ValidText(value)
-    return type(value) == "string" and value ~= "" and TrimSingleLine(value) == value
-        and TextLength(value) <= C.textLimit
+    return ValidStoredText(value) and TextLength(value) <= C.textLimit and not HasControls(value)
 end
 local ValidText = RegionMapRecords.ValidText
 
@@ -496,14 +511,75 @@ function RegionMapRecords.PendingWrite(tableName, id)
 end
 local LastWrite = RegionMapRecords.LastWrite
 
---- Retry only this client's failed optimistic write; normal same-image selections stay no-ops.
+--- An explicit retry of this client's failed optimistic write: the operation that failed
+--- and the row Undo must restore (the row before the first attempt; nil when it created the row).
+--- @class RegionMapRetry
+--- @field operation nil|RegionMapWrite
+--- @field before nil|table
+
+--- Whether a retry may resend: the row still holds exactly this client's failed write.
+--- Retrying re-sends unchanged values too, which a normal write treats as a no-op.
 --- @param tableName string
---- @param row table
---- @param operation nil|RegionMapWrite
+--- @param row any
+--- @param retry nil|RegionMapRetry
 --- @return boolean
-function RegionMapRecords.CanRetryArtwork(tableName, row, operation)
-    return operation ~= nil and operation == LastWrite(tableName, row.id) and operation.status == "failed"
-        and Field(row, "mutationId", nil) == operation.mutationId
+function RegionMapRecords.CanRetryWrite(tableName, row, retry)
+    local operation = retry and retry.operation
+    return operation ~= nil and row ~= nil and operation == LastWrite(tableName, Field(row, "id", nil))
+        and operation.status == "failed" and Field(row, "mutationId", nil) == operation.mutationId
+end
+
+-- Called after every row write starts or finishes, so caches keyed on the data rebuild.
+-- The model sets it (it owns the caches); Records loads first and cannot call it by name.
+local changed = function() end
+
+--- @param fn fun()
+function RegionMapRecords.SetChangeListener(fn)
+    changed = fn
+end
+
+--- Options of WriteRow.
+--- @class RegionMapWriteRowOptions
+--- @field creating nil|boolean the row is new (or a retry of this client's failed create)
+--- @field retry nil|RegionMapRetry Undo restores retry.before instead of current
+
+--- Upload one row and return its Undo step. Every Location, path and label write goes
+--- through here, so they share one rule: no step unless the upload started.
+--- @param tableName string
+--- @param current nil|table the row being replaced; nil creates it
+--- @param record table the new row; its revision and audit fields are filled in here
+--- @param description string
+--- @param callbacks nil|RegionMapWriteCallbacks
+--- @param options nil|RegionMapWriteRowOptions
+--- @return nil|RegionMapUndoStep step
+--- @return nil|RegionMapWrite operation the started upload, or this row's last write when it could not start
+function RegionMapRecords.WriteRow(tableName, current, record, description, callbacks, options)
+    options = options or {}
+    local revision = RegionMapRecords.NextRevision(current or { revision = 0 })
+    if revision == nil then return nil, nil end
+    -- Decide before uploading: the upload replaces this row's LastWrite.
+    local before = current and DeepCopy(current) or nil
+    if options.retry ~= nil and RegionMapRecords.CanRetryWrite(tableName, current, options.retry) then
+        before = options.retry.before and DeepCopy(options.retry.before) or nil
+    end
+    record.revision = revision
+    local creating = options.creating == true or current == nil
+    RegionMapRecords.Audit(record, creating)
+    local function Finish(callback)
+        return function(write)
+            changed()
+            if callback ~= nil then callback(write) end
+        end
+    end
+    local operation = RegionMapRecords.UploadRecord(tableName, record, description, {
+        success = Finish(callbacks and callbacks.success), failure = Finish(callbacks and callbacks.failure),
+    }, creating)
+    changed()
+    if operation == nil then return nil, LastWrite(tableName, record.id) end
+    return {
+        tableName = tableName, id = record.id, before = before,
+        afterRevision = revision, afterMutationId = record.mutationId,
+    }, operation
 end
 
 --- @return table<string, RegionMapLocationDetailRecord>
@@ -568,11 +644,18 @@ RegionMapRecords.pathBacks = SetOf(C.pathBacks)
 RegionMapRecords.logKinds = { arrived = true, traveling = true, travelingOn = true, placed = true, leg = true, stopped = true }
 RegionMapRecords.legRests = { [""] = true, on = true, back = true }
 
---- A Location name: "" (not named yet) or one trimmed line of 1..textLimit characters.
+--- A Location name a write may store: "" (not named yet) or a ValidText name.
 --- @param value any
 --- @return boolean
 function RegionMapRecords.ValidName(value)
     return value == "" or ValidText(value)
+end
+
+--- A stored Location, path or log name: "" or a ValidStoredText name.
+--- @param value any
+--- @return boolean
+function RegionMapRecords.ValidStoredName(value)
+    return value == "" or ValidStoredText(value)
 end
 
 --- @param value any
@@ -607,7 +690,7 @@ function RegionMapRecords.IsValidLocationFields(location)
     if type(id) ~= "string" or id == "" then return RejectMalformed("location", id, "missing id") end
     local parentId = Field(location, "parentId", nil)
     if type(parentId) ~= "string" or parentId == id then return RejectMalformed("location", id, "invalid parent") end
-    if not RegionMapRecords.ValidName(Field(location, "name", nil)) then return RejectMalformed("location", id, "invalid name") end
+    if not RegionMapRecords.ValidStoredName(Field(location, "name", nil)) then return RejectMalformed("location", id, "invalid name") end
     if not RegionMapRecords.pinStyles[Field(location, "pinStyle", "")]
         or not RegionMapRecords.importances[Field(location, "importance", "")]
         or not RegionMapRecords.visibilities[Field(location, "visibility", "")] then
@@ -705,7 +788,7 @@ function RegionMapRecords.IsValidLogEntry(entry)
         local pathId, fromId, toId = Field(entry, "pathId", ""), Field(entry, "fromId", ""), Field(entry, "toId", "")
         if type(pathId) ~= "string" or pathId == "" or type(fromId) ~= "string" or fromId == ""
             or type(toId) ~= "string" or toId == "" or fromId == toId
-            or not RegionMapRecords.ValidName(Field(entry, "pathName", "")) then
+            or not RegionMapRecords.ValidStoredName(Field(entry, "pathName", "")) then
             return RejectMalformed("log entry", id, "invalid path")
         end
         if not RegionMapRecords.ValidTime(Field(entry, "time", 0)) or not RegionMapRecords.ValidTime(Field(entry, "spent", 0))
@@ -752,7 +835,7 @@ function RegionMapRecords.IsValidPathFields(path)
         end
     end
     local name, typeId = Field(path, "name", nil), Field(path, "typeId", nil)
-    if not RegionMapRecords.ValidName(name) or type(typeId) ~= "string" or #typeId > C.pathTypeIdLimit then
+    if not RegionMapRecords.ValidStoredName(name) or type(typeId) ~= "string" or #typeId > C.pathTypeIdLimit then
         return RejectMalformed("path", id, "invalid name or type")
     end
     if not RegionMapRecords.ValidTime(Field(path, "time", nil)) or not RegionMapRecords.pathBacks[Field(path, "back", "")]

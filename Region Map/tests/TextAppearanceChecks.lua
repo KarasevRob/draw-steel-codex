@@ -12,7 +12,7 @@ local function Fixture()
         video = { imageid = "video-source", isVideo = true, HaveReadPermissions = function() return true end },
         private = { imageid = "private-source", HaveReadPermissions = function() return false end },
     } }
-    f.env.RegionMapSession = { SetText = function(p, text) p.text = text end, SetClassIf = function(p, key, value) p.classes[key] = value end }
+    f.env.RegionMapSession = Base.SessionStub(f.env, directory)
     f.env.ThemeEngine = { MergeTokens = function() return { { fontFace = "berling", color = "#ffffffff", bgcolor = "#111111ff" } } end,
         OnThemeChanged = function() end }
     for _, file in ipairs({ "RegionMapLabelLayer", "RegionMapPinText" }) do assert(loadfile(directory .. "/" .. file .. ".lua", "t", f.env))() end
@@ -34,7 +34,15 @@ local function MockPanels(f)
             elseif type(value) == "function" then p.events[key] = value end
         end
         function p:SetClass(key, value) self.classes[key] = value end
-        function p:AddChild(child) self.children[#self.children + 1] = child end
+        function p:HasClass(key) return self.classes[key] == true end
+        function p:AddChild(child) self.children[#self.children + 1] = child; child.parent = self end
+        function p:SetAsFirstSibling()
+            local parent = self.parent
+            if parent == nil then return end
+            for i, child in ipairs(parent.children) do if child == self then table.remove(parent.children, i); break end end
+            table.insert(parent.children, 1, self)
+        end
+        function p:SetAsLastSibling() end
         function p:FireEvent(event, ...) if self.events[event] then self.events[event](self, ...) end end
         function p:DestroySelf() self:FireEvent("destroy"); self.valid = false end
         return p
@@ -168,8 +176,9 @@ function checks.Run()
         assert(a.image.x2 - a.image.x1 == 95 and a.image.y2 - a.image.y1 == 22.5)
     end)
     Check("late image callbacks cannot replace a newer asset; timeout Retry recovers", function(f)
-        MockPanels(f)
-        local view = f.A.CreateImage(function() end)
+        local Panel = MockPanels(f)
+        local view = f.env.RegionMapSession.AppearanceImage(function() end)
+        view.Mount(Panel {})
         local format = f.A.Format({}, true)
         format.background, format.backgroundImageId = "image", "art"
         view.Bind(format)
@@ -179,7 +188,7 @@ function checks.Run()
         old.bgimageWidth, old.bgimageHeight = 200, 100; old:FireEvent("imageLoaded")
         assert(view.status == "loading" and view.id == "second")
         f.Advance(10); assert(view.status == "unavailable")
-        f.A.RetryImage("second")
+        f.env.RegionMapSession.RetryAppearanceImage("second")
         assert(view.status == "loading")
         local leaf = view.leaf
         leaf.bgimageWidth, leaf.bgimageHeight = 400, 200; leaf:FireEvent("imageLoaded")
@@ -192,7 +201,13 @@ function checks.Run()
         local owner = Panel { hover = function(element, target) (target or element).tooltip = {} end,
             press = function(element) element.data.pressed = true end }
         local name = f.P.CreateName(true, false, owner)
+        assert(name.data.appearance.hit == nil and #name.children == 1)
+        local format = f.P.Format(f.M.GetLocation(f.map))
+        format.background, format.backgroundImageId = "image", "art"
+        name.data.appearance.text.renderedWidth, name.data.appearance.text.renderedHeight = 40, 12
+        f.P.Apply(name, "Name", format, "normal", true, 1)
         local hit = name.data.appearance.hit
+        assert(hit ~= nil and name.children[1] == name.data.appearance.image.panel)
         hit:FireEvent("hover")
         assert(hit.tooltip ~= nil and owner.tooltip == nil)
         hit:FireEvent("dehover"); assert(hit.tooltip == nil)

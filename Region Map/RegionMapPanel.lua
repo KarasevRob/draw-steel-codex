@@ -37,20 +37,28 @@ end
 
 --- Build the Region Map content panel.
 --- Host hooks from RegionMap.lua; each adds its toolbar button when present.
+--- The host-to-content contract. The host passes these callbacks once and never reads
+--- the table again; the content never writes to it.
+--- Content -> host: the callbacks below.
+--- Host -> content: events on the content root:
+---   regionMapHostMode(mode)        the view changed ("fullscreen" or "window"); the content restyles
+---   regionMapHostActive(engaged)   whether this window takes Esc and shortcuts now
+---   requestClose(continue)         finish edits and imports, then call continue()
 --- The in-app host can change view without replacing this content.
 --- @class RegionMapHostOptions
 --- @field close nil|fun() close the in-app map (also Esc at the Atlas)
 --- @field popOut nil|fun() move the map into its own OS window
 --- @field popIn nil|fun() bring a popped-out map back into the app
 --- @field toggleView nil|fun() switch the existing in-app host's size
---- @field mode nil|"fullscreen"|"window"|"native"
---- @field active nil|boolean whether this in-app window should take Escape
+--- @field mode nil|"fullscreen"|"window"|"native" the view it starts in
 
 --- @param options nil|RegionMapHostOptions
 --- @return Panel
 function RegionMapPanel.Create(options)
     options = options or {}
-    options.mode = options.mode or (options.close ~= nil and "fullscreen" or "native")
+    -- What the host last told this content; kept here, not in the host's options table.
+    local hostMode = options.mode or (options.close ~= nil and "fullscreen" or "native")
+    local hostEngaged = true
     --- @type RegionMapShellData
     local data = {
         mapId = nil, selectedId = nil, selectedPathId = nil, panelMode = "none", pickKind = nil, newMapMode = nil,
@@ -427,11 +435,15 @@ function RegionMapPanel.Create(options)
 
     -- Chrome ------------------------------------------------------------------------------------
 
-    -- The start of a description for a tooltip: blank lines folded, cut at a word near limit.
+    -- The start of a description for a tooltip: blank lines folded, cut at a word near limit
+    -- characters (never inside a multi-byte character).
     local function Preview(text, limit)
         text = text:gsub("\r", ""):gsub("\n%s*\n", "\n"):match("^%s*(.-)%s*$")
-        if #text <= limit then return text end
-        local cut = text:sub(1, limit)
+        local length = Model.TextLength(text)
+        if length <= limit then return text end
+        -- Malformed UTF-8 (length is huge) can only be cut by bytes.
+        local finish = length < math.huge and utf8.offset(text, limit + 1) or nil
+        local cut = text:sub(1, finish and finish - 1 or limit)
         return (cut:match("^(.*)%s") or cut) .. "..."
     end
 
@@ -651,8 +663,9 @@ function RegionMapPanel.Create(options)
     end
 
     -- Esc goes to the map's own layers first; with none open, only the host can take it (close).
+    -- A window that is not engaged (focus and pointer elsewhere) leaves Esc to the rest of Codex.
     local function SyncEscape()
-        root.captureEscape = (options.mode ~= "window" or options.active ~= false)
+        root.captureEscape = (hostMode ~= "window" or hostEngaged)
             and (EscapeLayer() ~= nil or options.close ~= nil)
     end
 
@@ -746,10 +759,7 @@ function RegionMapPanel.Create(options)
             sidePanel:FireEvent("bind")
             pathPanel:FireEvent("bind")
             labelPanel:FireEvent("bind")
-            local artworkReader = nil
-            if data.panelMode == "read" then artworkReader = root:Get("region-map-artwork-location-read")
-            elseif data.panelMode == "path" then artworkReader = root:Get("region-map-artwork-path-read") end
-            if artworkReader ~= nil and artworkReader:HasClass("collapsed") then artworkReader = nil end
+            local artworkReader = RegionMapArtwork.ActiveReader(ctx)
             local labelTool = data.tool == "labelAdd"
             if canvas.data.artworkReader ~= artworkReader or canvas.data.labelTool ~= labelTool then
                 canvas.data.artworkReader = artworkReader
@@ -778,9 +788,9 @@ function RegionMapPanel.Create(options)
     -- Components ---------------------------------------------------------------------------------
 
     present = RegionMapPresent.Create(ctx)
-    canvas = RegionMapCanvas.Create(ctx)
+    -- Enter on the focused canvas: Add label places at the view's center, else the open image reader opens.
     -- Input events follow focus; selecting a pin or path leaves focus on the canvas.
-    canvas.events.enter = function(element)
+    function ctx.HandleEnter(element)
         if element.hasFocus and data.tool == "labelAdd" then
             RegionMapCanvasTools.PlaceAt(ctx, Model.Clamp(data.camera.centerX, 0, 1), Model.Clamp(data.camera.centerY, 0, 1))
             return
@@ -788,6 +798,7 @@ function RegionMapPanel.Create(options)
         local reader = element.data.artworkReader
         if ctx.IsAlive() and reader ~= nil and reader.valid then reader:FireEvent("enter") end
     end
+    canvas = RegionMapCanvas.Create(ctx)
     atlas = RegionMapAtlas.Create(ctx)
     sidePanel = RegionMapSidePanel.Create(ctx)
     pathPanel = RegionMapPathPanel.Create(ctx)
@@ -838,7 +849,7 @@ function RegionMapPanel.Create(options)
     closeButton = Session.IconButton("region-map-close", C.iconClose, T("tb.close"), function()
         RunHostHook(options.close)
     end, { "regionMapHostControl" })
-    closeButton:SetClass("collapsed", options.close == nil or options.mode == "window")
+    closeButton:SetClass("collapsed", options.close == nil or hostMode == "window")
     viewButton = Session.IconButton("region-map-view", C.iconWindow, T("tb.window"), function()
         if ctx.IsAlive() and options.toggleView ~= nil then options.toggleView() end
     end, { "regionMapHostControl" })
@@ -980,7 +991,7 @@ function RegionMapPanel.Create(options)
         styles = ThemeEngine.MergeStyles(Styles.Build()),
         popupsInheritStyles = true,
         thinkTime = C.rootThink,
-        escapePriority = options.mode == "fullscreen" and FULLSCREEN_PRIORITY or WINDOW_PRIORITY,
+        escapePriority = hostMode == "fullscreen" and FULLSCREEN_PRIORITY or WINDOW_PRIORITY,
         monitorAssets = MonitoredTables(C.locationTableName, C.labelTableName, C.detailsTableName, C.notesTableName, C.logTableName,
             C.pathTableName),
         monitorGame = { Model.StatePath(), GameHud.PresentDialogPath() },
@@ -1004,7 +1015,7 @@ function RegionMapPanel.Create(options)
         requestClose = function(_, continue) RunHostHook(continue) end,
         regionMapHostMode = function(element, mode)
             canvas:FireEvent("cancelGesture")
-            options.mode = mode
+            hostMode = mode
             element.escapePriority = mode == "fullscreen" and FULLSCREEN_PRIORITY or WINDOW_PRIORITY
             closeButton:SetClass("collapsed", options.close == nil or mode == "window")
             Session.SetIconButton(viewButton, T(mode == "window" and "tb.fullscreen" or "tb.window"),
@@ -1012,12 +1023,9 @@ function RegionMapPanel.Create(options)
             QueueRefresh(0.01)
             SyncEscape()
         end,
-        regionMapHostActive = function(_, active)
-            options.active = active
+        regionMapHostActive = function(_, engaged)
+            hostEngaged = engaged
             SyncEscape()
-        end,
-        regionMapHostFocus = function(element, from, direction)
-            if options.mode == "native" then Session.FocusHostControl(element, from, direction) end
         end,
         rendered = function() QueueRefresh(0.01) end,
         destroy = function(element)
