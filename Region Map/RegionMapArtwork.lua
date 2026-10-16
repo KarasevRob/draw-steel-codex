@@ -51,12 +51,26 @@ local function ReadableAsset(value)
     return asset
 end
 
+-- Read-mode instances by panel, so the shell can hand Enter to the one showing now.
+local readers = setmetatable({}, { __mode = "k" })
+
+--- The read-mode artwork panel this window shows now, or nil; Enter opens its image.
+--- @param ctx RegionMapContext
+--- @return nil|Panel
+function RegionMapArtwork.ActiveReader(ctx)
+    for panel, reader in pairs(readers) do
+        if reader.ctx == ctx and panel.valid and not panel:HasClass("collapsed") and reader.Active() then return panel end
+    end
+    return nil
+end
+
 --- bind(id) activates this instance; bind(nil) cancels all outstanding chooser work.
 --- @param ctx RegionMapContext
 --- @param kind RegionMapArtworkKind
 --- @param editing boolean
+--- @param isActive fun(id: string): boolean the owning panel says whether it still shows this object in this mode
 --- @return Panel
-function RegionMapArtwork.Create(ctx, kind, editing)
+function RegionMapArtwork.Create(ctx, kind, editing, isActive)
     local panel, frame, openButton, chooseButton, removeButton, controls, pickerSlot, message, retryButton
     local saveLine, saveRetry, saveRow, heading
     local Bind, Load, Write
@@ -66,11 +80,7 @@ function RegionMapArtwork.Create(ctx, kind, editing)
 
     local function Active()
         if mod.unloaded or not ctx.IsAlive() or panel == nil or not panel.valid or state.id == nil then return false end
-        local mode = ctx.data.panelMode
-        if kind == "path" then
-            return ctx.data.selectedPathId == state.id and mode == (editing and "pathEdit" or "path")
-        end
-        return ctx.data.selectedId == state.id and mode == (editing and "edit" or "read")
+        return isActive(state.id)
     end
 
     local function Current()
@@ -129,11 +139,14 @@ function RegionMapArtwork.Create(ctx, kind, editing)
         Session.SetText(saveLine, status == "failed" and T("edit.notSaved") or T("edit.saving"))
     end
 
+    -- The toast outlives the editor: its Retry rechecks the row and the Director's rights
+    -- instead of whether this editor is still open.
     local function Failed(operation)
         if not OperationCurrent(operation) then return end
         SaveStatus("failed")
         Undo.Notify("toast.saveFailed", nil, function()
-            if OperationCurrent(operation) then Write(operation, 1) end
+            if mod.unloaded or operation.finished then return end
+            if OperationCurrent(operation) then Write(operation, 1) else Write(operation, 1, true) end
         end)
     end
 
@@ -141,7 +154,8 @@ function RegionMapArtwork.Create(ctx, kind, editing)
         if mod.unloaded or operation.finished then return end
         local write = operation.write
         if write == nil or write.status == "failed" then
-            if OperationCurrent(operation) then Failed(operation) else Undo.Notify("toast.saveFailed") end
+            if OperationCurrent(operation) then Failed(operation)
+            else Undo.Notify("toast.saveFailed", nil, function() Write(operation, 1, true) end) end
             return
         end
         if write.status == "pending" then
@@ -154,44 +168,58 @@ function RegionMapArtwork.Create(ctx, kind, editing)
         if ctx.IsAlive() then ctx.RefreshAll() end
     end
 
-    Write = function(operation, attempt)
-        if not OperationCurrent(operation) then return end
-        local row = Current()
-        if row == nil then Cancel(); return end
-        if not dmhub.DeepEqual(R.ArtworkValue(row), operation.expected) then Conflict(operation); return end
+    -- detached: a toast Retry after this editor moved on; only the row and permission are checked.
+    Write = function(operation, attempt, detached)
+        if mod.unloaded or operation.finished then return end
+        if not detached and not OperationCurrent(operation) then return end
+        local row = detached and RegionMapArtwork.Current(kind, operation.id) or Current()
+        if row == nil or (detached and not Model.IsDirector()) then
+            if detached then Undo.Notify("artwork.changed") else Cancel() end
+            return
+        end
+        if not dmhub.DeepEqual(R.ArtworkValue(row), operation.expected) then
+            if detached then Undo.Notify("artwork.changed") else Conflict(operation) end
+            return
+        end
         local value = operation.value
         if value == nil or not R.ValidArtwork(value) then
             local _, reason = R.ArtworkAsset(value)
-            Cancel()
+            if not detached then Cancel() end
             Undo.Notify(reason == "video" and "artwork.still" or "artwork.unavailable")
             return
         end
-        SaveStatus("pending")
+        if not detached then SaveStatus("pending") end
         local update = kind == "path" and RegionMapPaths.UpdatePath or Model.UpdateLocation
         local tableName = kind == "path" and C.pathTableName or C.locationTableName
         local previousWrite = R.LastWrite(tableName, operation.id)
+        -- Undo of a retried upload restores the row from before the first attempt.
+        local retry = { operation = operation.write, before = operation.entry and operation.entry.steps[1].before }
         local ok, reason, entry = update(operation.id, { artworkImageId = value },
-            value == "" and "Remove image" or "Update image", operation.write)
+            value == "" and "Remove image" or "Update image", retry)
         if reason == "busy" and attempt < C.busyRetries then
-            dmhub.Schedule(C.busyRetryDelay, function() Write(operation, attempt + 1) end)
+            dmhub.Schedule(C.busyRetryDelay, function() Write(operation, attempt + 1, detached) end)
             return
         end
         if not ok then
             local failedWrite = R.LastWrite(tableName, operation.id)
             if failedWrite ~= nil and failedWrite ~= previousWrite and failedWrite.status == "failed" then
                 operation.write = failedWrite
-                if R.Field(Current(), "mutationId", nil) == failedWrite.mutationId then operation.expected = value end
+                local now = RegionMapArtwork.Current(kind, operation.id)
+                if R.Field(now, "mutationId", nil) == failedWrite.mutationId then operation.expected = value end
             end
-            if reason == "permission" then Cancel() else Failed(operation) end
+            if detached then Undo.Notify("toast.saveFailed", nil, function() Write(operation, 1, true) end)
+            elseif reason == "permission" then Cancel() else Failed(operation) end
             return
         end
         operation.expected = value
         operation.entry = entry
-        if entry == nil then operation.finished = true; SaveStatus(nil); return end
-        -- A retried optimistic upload must still undo to the original attachment.
-        if entry.steps[1].before ~= nil then entry.steps[1].before.artworkImageId = DeepCopy(operation.original) end
+        if entry == nil then
+            operation.finished = true
+            if not detached then SaveStatus(nil) end
+            return
+        end
         operation.write = R.LastWrite(tableName, operation.id)
-        ctx.RefreshAll()
+        if ctx.IsAlive() then ctx.RefreshAll() end
         Observe(operation)
     end
 
@@ -383,7 +411,8 @@ function RegionMapArtwork.Create(ctx, kind, editing)
             local popup = ctx.root:FindChildRecursive(function(child) return child.popup ~= nil end)
             if popup == nil then Open(openButton) end
         end,
-        destroy = function()
+        destroy = function(element)
+            readers[element] = nil
             state.generation, state.request = state.generation + 1, state.request + 1
             state.id, state.operation = nil, nil
         end,
@@ -391,5 +420,6 @@ function RegionMapArtwork.Create(ctx, kind, editing)
         gui.Panel { classes = { "regionMapButtonRow" }, openButton },
         controls, pickerSlot, saveRow,
     }
+    if not editing then readers[panel] = { ctx = ctx, Active = Active } end
     return panel
 end

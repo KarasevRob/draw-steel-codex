@@ -133,6 +133,7 @@ RegionMapCopy.strings = {
     ["tb.close"] = "Close the map",
     ["window.options"] = "Window options",
     ["window.reset"] = "Reset window size and position",
+    ["window.tooSmall"] = "Window view needs at least {width} x {height}. The map stays fullscreen until the app has room.",
 
     -- 4. Breadcrumb and Atlas
     ["crumb.root"] = "Atlas",
@@ -396,6 +397,7 @@ RegionMapCopy.strings = {
 }]],
     ["dlg.close"] = "Close",
     ["toast.imported"] = "{count} locations imported into {map}",
+    ["toast.importStopped"] = "Import stopped after {count} locations. Check your connection.",
     ["toast.imported.one"] = "1 location imported into {map}",
     ["set.you"] = "Only for you",
     ["set.reduceMotion"] = "Reduce motion",

@@ -9,24 +9,16 @@ local C, Copy = RegionMapConstants, RegionMapCopy
 local Appearance = RegionMapTextAppearance
 local baseFont = 64
 
---- @param color string
---- @return string
-function RegionMapLabelLayer.Contrast(color)
-    local function Channel(at)
-        local n = (tonumber(color:sub(at, at + 1), 16) or 255) / 255
-        if n <= 0.04045 then return n / 12.92 end
-        return ((n + 0.055) / 1.055) ^ 2.4
-    end
-    local luminance = 0.2126 * Channel(2) + 0.7152 * Channel(4) + 0.0722 * Channel(6)
-    return luminance > 0.179 and "#000000ff" or "#ffffffff"
-end
+RegionMapLabelLayer.Contrast = Appearance.Contrast
 
 --- @param ctx RegionMapContext
 function RegionMapLabelLayer.Create(ctx)
     local entries, order = {}, {}
-    local layout, reference, signature = nil, nil, nil
+    local layout, reference, signature, signatureVersion = nil, nil, nil, nil
     local dirty = true
     local measureRefreshPending = false
+    local rebindPending = {} --- @type table<string, boolean> entries whose image status changed
+    local rebindScheduled = false
     local previewId, preview = nil, nil
     local layer = gui.Panel { classes = { "regionMapOverlay" }, floating = true, interactable = false }
     local outline = gui.Panel { classes = { "regionMapLabelOutline", "collapsed" }, floating = true, interactable = false }
@@ -34,13 +26,13 @@ function RegionMapLabelLayer.Create(ctx)
     local rotate = gui.Panel { classes = { "regionMapLabelHandle", "collapsed" }, floating = true, interactable = false,
         gui.Label { classes = { "label", "sizeS" }, text = "R", interactable = false } }
     local handles = gui.Panel { classes = { "regionMapOverlay" }, floating = true, interactable = false, outline, resize, rotate }
-    local api = { layer = layer, handles = handles, metrics = { builds = 0, styleWrites = 0, layouts = 0 } }
+    local api = { layer = layer, handles = handles }
+    local BindEntry
 
     local function Style(element, property, value)
         if element.data.written[property] == value then return end
         element.data.written[property] = value
         element.selfStyle[property] = value
-        api.metrics.styleWrites = api.metrics.styleWrites + 1
     end
 
     local function Measure(entry)
@@ -59,18 +51,29 @@ function RegionMapLabelLayer.Create(ctx)
         end
     end
 
+    -- An image finished (or failed) loading: restyle just those entries, once per batch of
+    -- notices, and lay the layer out again. The rest of the window does not need to refresh.
+    local function ImageChanged(entry)
+        if not entry.panel or not entry.panel.valid then return end
+        rebindPending[entry.id] = true
+        if rebindScheduled then return end
+        rebindScheduled = true
+        dmhub.Schedule(C.afterLayoutDelay, function()
+            rebindScheduled = false
+            if mod.unloaded or not layer.valid then return end
+            for id in pairs(rebindPending) do
+                local pending = entries[id]
+                if pending and pending.row then pending.look = nil; BindEntry(pending, pending.row) end
+            end
+            rebindPending = {}
+            dirty = true
+            if layout ~= nil then api.Layout(layout) end
+        end)
+    end
+
     local function NewEntry(id)
         local entry = { id = id, measured = false, width = 0, height = 0 }
-        entry.image = Appearance.CreateImage(function()
-            if entry.panel and entry.panel.valid then
-                dirty = true
-                signature = nil
-                entry.look = nil
-                dmhub.Schedule(C.afterLayoutDelay, function()
-                    if not mod.unloaded and entry.panel.valid then ctx.RefreshAll() end
-                end)
-            end
-        end)
+        entry.image = Session.AppearanceImage(function() ImageChanged(entry) end)
         entry.text = gui.Label { width = "auto", height = "auto", textWrap = false, text = "", interactable = false,
             data = { written = {} } }
         entry.panel = gui.Panel { floating = true, halign = "center", valign = "center",
@@ -78,16 +81,16 @@ function RegionMapLabelLayer.Create(ctx)
             classes = { "regionMapLettering" }, width = "auto", height = "auto", borderBox = true,
             interactable = false, data = { written = {} },
             rendered = function() Measure(entry) end,
-            entry.image.panel, entry.text }
+            entry.text }
+        entry.image.Mount(entry.panel)
         layer:AddChild(entry.panel)
         entry.eye = gui.Panel { classes = { "regionMapLabelEye", "collapsed" }, floating = true, interactable = false,
             gui.Panel { classes = { "regionMapIconGlyph" }, bgimage = C.iconEyeSlash, interactable = false } }
         layer:AddChild(entry.eye)
-        api.metrics.builds = api.metrics.builds + 1
         return entry
     end
 
-    local function BindEntry(entry, row)
+    BindEntry = function(entry, row)
         local format = Labels.Format(row)
         local text = Copy.Literal(row.text ~= "" and row.text or Copy.T("label.new"))
         local display = string.format("<cspace=%.4fem>%s</cspace>", format.spacing, text)
@@ -100,11 +103,13 @@ function RegionMapLabelLayer.Create(ctx)
         entry.size, entry.angle = format.size, row.angle or 0
         if entry.look ~= key then
             entry.look, entry.measured = key, false
-            local material = Appearance.MaterialKey(format, 0, RegionMapLabelLayer.Contrast(format.color))
+            local material = Appearance.MaterialKey(format, 0, Appearance.Contrast(format.color))
             if entry.material and entry.material ~= material then
+                local old = entry.text
                 entry.text = gui.Label { width = "auto", height = "auto", textWrap = false, text = "", interactable = false,
                     data = { written = {} } }
-                entry.panel.children = { entry.image.panel, entry.text }
+                entry.panel:AddChild(entry.text)
+                if old.valid then old:DestroySelf() end
             end
             entry.material = material
             entry.text.text = display
@@ -114,11 +119,11 @@ function RegionMapLabelLayer.Create(ctx)
             Style(entry.text, "italics", format.italics)
             Style(entry.text, "textAlignment", format.alignment)
             Style(entry.text, "color", format.color)
-            local outlineWidth, outlineColor = Appearance.Outline(format, 0, RegionMapLabelLayer.Contrast(format.color))
+            local outlineWidth, outlineColor = Appearance.Outline(format, 0, Appearance.Contrast(format.color))
             Style(entry.text, "textOutlineWidth", outlineWidth)
             Style(entry.text, "textOutlineColor", outlineColor)
             -- The backing contrasts with the text, never with moving map pixels.
-            local backing = RegionMapLabelLayer.Contrast(format.color)
+            local backing = Appearance.Contrast(format.color)
             local fill, hpad, vpad, radius = "clear", 0, 0, 0
             if format.background == "auto" then
                 fill, hpad, vpad, radius = backing, baseFont * 0.04, baseFont * 0.02, baseFont * 0.02
@@ -143,11 +148,20 @@ function RegionMapLabelLayer.Create(ctx)
     function api.Bind(mapId)
         local selected = ctx.data.selectedLabelId
         local selectedRow = selected and Labels.Snapshot(selected) or nil
+        local version = tostring(RegionMapRecords.Field(selectedRow, "_tmp_labelVersion", 0))
+        -- The tool and the right to edit decide whether the selection shows its handles.
         local key = table.concat({ tostring(mapId), tostring(RegionMapModel.Revision()), tostring(selected),
-            tostring(RegionMapRecords.Field(selectedRow, "_tmp_labelVersion", 0)), tostring(Session.ShowLabels()),
-            tostring(RegionMapModel.IsDirector()), tostring(ctx.data.locked), tostring(Session.UIScale()) }, ":")
-        if key == signature then return end
-        signature, dirty = key, true
+            tostring(Session.ShowLabels()), tostring(RegionMapModel.IsDirector()), tostring(ctx.data.locked),
+            tostring(Session.UIScale()), tostring(ctx.data.tool), tostring(Labels.CanEdit(selectedRow)) }, ":")
+        if key == signature and version == signatureVersion then return end
+        dirty = true
+        -- Typing in the editor changes only the selected label: restyle that one entry.
+        if key == signature and selectedRow ~= nil and entries[selected] ~= nil then
+            signatureVersion = version
+            BindEntry(entries[selected], selectedRow)
+            return
+        end
+        signature, signatureVersion = key, version
         local rows = Session.ShowLabels() and Labels.ForMap(mapId) or {}
         local wanted = {}
         order = {}
@@ -216,7 +230,6 @@ function RegionMapLabelLayer.Create(ctx)
             handles.x, handles.y = layer.x, layer.y
             return
         end
-        api.metrics.layouts = api.metrics.layouts + 1
         dirty, reference = false, current
         layer.x, layer.y, handles.x, handles.y = 0, 0, 0, 0
         for _, id in ipairs(order) do
@@ -288,7 +301,6 @@ function RegionMapLabelLayer.Create(ctx)
         previewId, preview, dirty = id, values, true
     end
 
-    function api.Bounds(id) return Box(entries[id]) end
     function api.ImageDimensions(id)
         local entry = entries[id]
         local box = Box(entry)

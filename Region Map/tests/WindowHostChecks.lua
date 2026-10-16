@@ -31,6 +31,8 @@ local function Fixture()
         GetSettingValue = function(key) return f.settings[key] end,
         SetSettingValue = function(key, value) f.settings[key] = Copy(value) end,
         KeyPressed = function(key) return f.keys[key] == true end,
+        -- Each call is a second later, so every think also runs the idle-rate refit.
+        Time = function() f.clock = (f.clock or 0) + 1; return f.clock end,
         cursorIds = {}, screenDimensionsBelowTitlebar = { x = 1600, y = 1000 },
     }
     env.RailModeActive = function() return f.rail end

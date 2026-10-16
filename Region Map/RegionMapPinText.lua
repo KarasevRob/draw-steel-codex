@@ -7,71 +7,14 @@ local PinText = RegionMapPinText
 local C, R, Model = RegionMapConstants, RegionMapRecords, RegionMapModel
 local Session, Copy = RegionMapSession, RegionMapCopy
 
---- Sparse overrides belong to the map, never to one of its pins.
---- @class RegionMapPinNameFormat: RegionMapTextAppearanceFormat
---- @field font nil|string
---- @field majorSize nil|number
---- @field normalSize nil|number
---- @field minorSize nil|number
---- @field bold nil|boolean
---- @field italics nil|boolean
---- @field anchor nil|string
---- @field spacing nil|number
---- @field color nil|string
---- @field background nil|string
---- @field backgroundColor nil|string
-local fields = { "font", "majorSize", "normalSize", "minorSize", "bold", "italics", "anchor",
-    "spacing", "color", "background", "backgroundColor" }
-for key in pairs(RegionMapTextAppearance.defaults) do fields[#fields + 1] = key end
-table.sort(fields)
-local known = {}; for _, key in ipairs(fields) do known[key] = true end
+local A = RegionMapTextAppearance
+local fields = A.pinFields
 
-local function Valid(key, value)
-    if RegionMapTextAppearance.defaults[key] ~= nil then return RegionMapTextAppearance.Valid(key, value) end
-    if key == "font" then return type(value) == "string" and #value > 0 and #value <= 128 end
-    if key == "bold" or key == "italics" then return type(value) == "boolean" end
-    if key == "majorSize" or key == "normalSize" or key == "minorSize" then
-        return R.IsFinite(value) and value >= 6 and value <= 72 and math.abs(value * 10 - math.floor(value * 10 + 0.5)) < 0.00001
-    end
-    if key == "anchor" then return value == "left" or value == "center" or value == "right" end
-    if key == "spacing" then return R.IsFinite(value) and value >= 0 and value <= 1 end
-    if key == "background" then return value == "auto" or value == "plate" or value == "none" or value == "image" end
-    if key == "color" or key == "backgroundColor" then
-        return type(value) == "string" and (value:match("^#%x%x%x%x%x%x$") ~= nil or value:match("^#%x%x%x%x%x%x%x%x$") ~= nil)
-    end
-    return false
-end
-
---- Bad optional leaves fall back independently; they never affect Location validity.
+--- The overrides this client understands for a map; bad leaves fall back independently.
+--- @param map any
+--- @return table<string, any>
 function RegionMapPinText.Overrides(map)
-    local stored, result = R.Field(map, "pinNameFormat", nil), {}
-    for _, key in ipairs(fields) do
-        local value = R.Field(stored, key, nil)
-        if Valid(key, value) then result[key] = value end
-    end
-    return result
-end
-
-local function ValidPatch(patch)
-    if type(patch) ~= "table" then return false end
-    for key, value in pairs(patch) do
-        if not known[key] or (value ~= false and not Valid(key, value)) then return false end
-        if key == "font" and value ~= false and RegionMapLabels.DisplayFont(value) ~= value then return false end
-    end
-    return true
-end
-
-local function Merge(format, patch)
-    for key, value in pairs(patch) do
-        if value == false and key ~= "bold" and key ~= "italics" then format[key] = nil else format[key] = value end
-    end
-    return format
-end
-
-function RegionMapPinText.ApplyPatch(map, patch, reset)
-    if not ValidPatch(patch) or type(reset) ~= "boolean" then return nil end
-    if not RegionMapTextAppearance.CanChange(PinText.Overrides(map), patch, Model.IsDirector(), reset) then return nil end
-    return Merge(reset and {} or PinText.Overrides(map), patch)
+    return A.PinOverrides(R.Field(map, "pinNameFormat", nil))
 end
 
 function RegionMapPinText.CanEdit(id)
@@ -79,111 +22,88 @@ function RegionMapPinText.CanEdit(id)
     return not mod.unloaded and Model.IsDirector() and map ~= nil and map.imageId ~= ""
 end
 
-local queues = {}
-local function Notify(q) if q.notify then q.notify() end end
+-- One queue per map: every change saves at once (sliders on release), one write at a time.
+local queue = RegionMapUndo.SaveQueue {
+    canEdit = function(id) return PinText.CanEdit(id) end,
+    busy = function(id) return R.PendingWrite(C.locationTableName, id) ~= nil end,
+    send = function(id, batch, callbacks)
+        local ok, reason, entry, operation = Model.SetPinNameFormat(id, batch.changes, batch.kind == "reset", callbacks, batch.retry)
+        return ok, reason, entry, operation
+    end,
+    mergeKinds = { edit = true },
+    -- Changes queued behind a write in flight go out as one write; a failed batch takes them
+    -- too, so Retry never resends an older color first. A reset discards what came before it.
+    coalesce = function(first, later)
+        if later.kind == "reset" then return { changes = DeepCopy(later.changes), kind = "reset", retry = first.retry } end
+        local changes = DeepCopy(first.changes)
+        for key, value in pairs(later.changes) do changes[key] = value end
+        return { changes = changes, kind = first.kind, retry = first.retry }
+    end,
+}
+
+--- Drop unsent changes to a map's pin text (map removed, permission lost).
+--- @param id string
 function RegionMapPinText.CancelPending(id)
-    local q = queues[id]
-    if q == nil then return end
-    q.pending, q.reset, q.failed = {}, false, false
-    if not q.running then q.batch = nil end
-    q.status = "denied"
+    queue.Cancel(id)
 end
 
 function RegionMapPinText.CancelUnauthorized()
-    for id in pairs(queues) do if not PinText.CanEdit(id) then PinText.CancelPending(id) end end
+    for id in pairs(queue.All()) do if not PinText.CanEdit(id) then queue.Cancel(id) end end
 end
 
+--- The map's overrides with every change not yet confirmed on top. Reading never cancels anything.
+--- @param map any
+--- @return table<string, any>
 function RegionMapPinText.Snapshot(map)
     local result = PinText.Overrides(map)
     local id = R.Field(map, "id", nil)
-    local q = queues[id]
-    if q == nil then return result end
-    if not PinText.CanEdit(id) then PinText.CancelPending(id); return result end
-    if q.batch then result = Merge(q.batch.reset and {} or result, q.batch.patch) end
-    return Merge(q.reset and {} or result, q.pending)
+    if id == nil then return result end
+    local batches, pending = queue.Unconfirmed(id)
+    for _, batch in ipairs(batches) do
+        result = A.MergePinPatch(batch.kind == "reset" and {} or result, batch.changes)
+    end
+    return A.MergePinPatch(result, pending)
 end
 
+--- @param id string
+--- @return string
 function RegionMapPinText.Status(id)
-    if not PinText.CanEdit(id) then PinText.CancelPending(id) end
-    return queues[id] and queues[id].status or "saved"
+    return queue.Status(id)
 end
 
+--- @param id string
+--- @param callback nil|fun()
 function RegionMapPinText.Observe(id, callback)
-    if queues[id] == nil then queues[id] = { pending = {}, reset = false, status = "saved" } end
-    queues[id].notify = callback
+    queue.Observe(id, callback)
 end
 
-local Drain
-Drain = function(id)
-    local q = queues[id]
-    if mod.unloaded or q == nil or q.running or q.failed then return end
-    if not PinText.CanEdit(id) then PinText.CancelPending(id); Notify(q); return end
-    if q.batch == nil and not q.reset and next(q.pending) == nil then q.status = "saved"; return end
-    if R.PendingWrite(C.locationTableName, id) then
-        if not q.waiting then
-            q.waiting = true
-            dmhub.Schedule(C.busyRetryDelay, function()
-                q.waiting = false
-                if not mod.unloaded then Drain(id) end
-            end)
-        end
-        return
-    end
-    -- Fold the latest picker values into the retry, so Retry cannot briefly resend an obsolete color.
-    local batch = q.batch or { patch = {}, reset = false }
-    if q.reset then batch.patch, batch.reset = {}, true end
-    for key, value in pairs(q.pending) do batch.patch[key] = value end
-    q.pending, q.reset, q.batch = {}, false, batch
-    q.running, q.status = true, "saving"
-    local function Receipt(success, operation)
-        -- Upload callbacks may run before SetPinNameFormat returns its Undo entry.
-        dmhub.Schedule(0, function()
-            if mod.unloaded or queues[id] ~= q or q.batch ~= batch or not q.running then return end
-            q.running = false
-            if success then
-                if batch.entry then RegionMapUndo.Remember(batch.entry) end
-                q.batch, q.status = nil, "saved"
-                Drain(id)
-            elseif PinText.CanEdit(id) then
-                q.failed, q.status = true, "failed"
-                batch.retry = { operation = operation, before = batch.before }
-            else PinText.CancelPending(id) end
-            Notify(q)
-        end)
-    end
-    batch.before = batch.retry and batch.retry.before or DeepCopy(Model.GetLocation(id))
-    local ok, reason, entry, operation = Model.SetPinNameFormat(id, batch.patch, batch.reset, {
-        success = function(op) Receipt(true, op) end,
-        failure = function(op) Receipt(false, op) end,
-    }, batch.retry)
-    batch.entry = entry
-    if entry then batch.before = entry.steps[1].before end
-    if not ok and (reason == "permission" or reason == "invalid") then
-        q.running = false; PinText.CancelPending(id)
-    elseif not ok then Receipt(false, operation) end
-    Notify(q)
-end
-
+--- Queue a change (reset = start from the theme defaults); false when invalid or not permitted.
+--- @param id string
+--- @param patch table
+--- @param reset nil|boolean
+--- @return boolean
 function RegionMapPinText.Commit(id, patch, reset)
-    if not PinText.CanEdit(id) then PinText.CancelPending(id); return false end
-    if not ValidPatch(patch) then return false end
-    if not RegionMapTextAppearance.CanChange(PinText.Snapshot(Model.GetLocation(id)), patch, Model.IsDirector(), reset) then return false end
-    if queues[id] == nil then PinText.Observe(id, nil) end
-    local q = queues[id]
-    if reset then q.pending, q.reset = {}, true end
-    for key, value in pairs(patch) do q.pending[key] = value end
-    if not q.failed then q.status = "saving" end
-    Drain(id)
-    Notify(q)
+    if not PinText.CanEdit(id) then queue.Cancel(id); return false end
+    if not A.ValidPinPatch(patch) then return false end
+    if not A.CanChange(PinText.Snapshot(Model.GetLocation(id)), patch, Model.IsDirector(), reset) then return false end
+    queue.Commit(id, patch, reset and "reset" or "edit")
     return true
 end
 
+--- @param id string
 function RegionMapPinText.Retry(id)
-    local q = queues[id]
-    if q == nil or not q.failed then return end
-    q.failed = false
-    Drain(id)
+    queue.Retry(id)
 end
+
+--- Forget idle map queues once Settings is gone.
+function RegionMapPinText.Prune()
+    queue.Prune()
+end
+
+Model.RegisterCompanion {
+    cancelMap = function(id) queue.Cancel(id) end,
+    afterViewChange = function() PinText.CancelUnauthorized() end,
+}
 
 local theme, themeVersion = nil, 0
 local function Theme()
@@ -198,7 +118,7 @@ function RegionMapPinText.Format(map)
     local format, tokens = PinText.Snapshot(map), Theme()
     for key, value in pairs(RegionMapTextAppearance.Format(format, true)) do format[key] = value end
     local font = format.font or tokens.fontFace
-    format.font = RegionMapLabels.DisplayFont(font) == font and font or RegionMapLabels.DisplayFont(tokens.fontFace)
+    format.font = A.DisplayFont(font) == font and font or A.DisplayFont(tokens.fontFace)
     for importance, size in pairs(C.pinNameSize) do format[importance .. "Size"] = format[importance .. "Size"] or size end
     if format.bold == nil then format.bold = true end
     if format.italics == nil then format.italics = false end
@@ -217,10 +137,7 @@ function RegionMapPinText.Apply(label, text, format, importance, plate, scale)
     local composition = label.data and label.data.appearance
     if composition then
         local material = PinText.MaterialKey(format, plate)
-        if composition.material and composition.material ~= material then
-            composition.text = gui.Label { width = "auto", height = "auto", textWrap = false, interactable = false, text = "" }
-            host.children = { composition.image.panel, composition.text, composition.hit }
-        end
+        if composition.material and composition.material ~= material then composition.ReplaceText() end
         composition.material = material
         label = composition.text
         composition.format, composition.fontSize, composition.scale = format, fontSize, scale
@@ -230,7 +147,7 @@ function RegionMapPinText.Apply(label, text, format, importance, plate, scale)
     if format.background == "default" then
         if plate then fill, hpad, vpad, radius = tokens.bgcolor, 7, 2, 4 else outline = 0.3 end
     elseif format.background == "auto" then
-        fill, hpad, vpad, radius = RegionMapLabelLayer.Contrast(format.color), fontSize * 0.04, fontSize * 0.02, fontSize * 0.02
+        fill, hpad, vpad, radius = A.Contrast(format.color), fontSize * 0.04, fontSize * 0.02, fontSize * 0.02
     elseif format.background == "plate" then
         fill, hpad, vpad, radius = format.backgroundColor, fontSize * 0.2, fontSize * 0.12, fontSize * 0.1
     end
@@ -241,14 +158,17 @@ function RegionMapPinText.Apply(label, text, format, importance, plate, scale)
     host.selfStyle.bgcolor, host.selfStyle.bgimage = fill, true
     host.selfStyle.hpad, host.selfStyle.vpad, host.selfStyle.borderBox = hpad, vpad, true
     host.selfStyle.cornerRadius = radius
-    label.selfStyle.textOutlineWidth, label.selfStyle.textOutlineColor = RegionMapTextAppearance.Outline(format, outline, tokens.bgcolor)
+    label.selfStyle.textOutlineWidth, label.selfStyle.textOutlineColor = A.Outline(format, outline, tokens.bgcolor)
     Session.SetClassIf(host, "customPinBackground", format.background ~= "default")
     if composition then
         composition.image.Bind(format)
         composition.Layout()
-        dmhub.Schedule(C.afterLayoutDelay, function()
-            if not mod.unloaded and host.valid then composition.Layout() end
-        end)
+        -- Image placement needs the text's rendered size; plain text needs nothing more.
+        if format.background == "image" then
+            dmhub.Schedule(C.afterLayoutDelay, function()
+                if not mod.unloaded and host.valid then composition.Layout() end
+            end)
+        end
     end
 end
 
@@ -257,50 +177,73 @@ function RegionMapPinText.MaterialKey(format, plate)
     return RegionMapTextAppearance.MaterialKey(format, width, Theme().bgcolor)
 end
 
+--- A pin name: text, plus an image backing and (on name plates) its click area, which are
+--- built only when the map's format first asks for an image background.
+--- @param plate boolean
+--- @param floating boolean
+--- @param owner nil|Panel the pin, which receives clicks on the image area
+--- @return Panel
 function RegionMapPinText.CreateName(plate, floating, owner)
     local host
     local composition = {}
-    function composition.Layout()
-        if mod.unloaded or host == nil or not host.valid or composition.format == nil then return end
-        local format, text = composition.format, composition.text
-        local shown = format.background == "image"
-        composition.hit:SetClass("collapsed", true)
-        if not shown then return end
-        local geometry = RegionMapTextAppearance.Geometry(format, text.renderedWidth, text.renderedHeight, composition.fontSize, composition.scale)
-        composition.image.Layout(geometry.image)
-        host.selfStyle.bgcolor = composition.image.status == "ready" and "clear" or RegionMapLabelLayer.Contrast(format.color)
-        if plate and composition.image.status == "ready" and format.backgroundOpacity > 0 then
-            local rect = geometry.image
-            local hit = composition.hit
-            hit.selfStyle.width, hit.selfStyle.height = rect.x2 - rect.x1, rect.y2 - rect.y1
-            hit.selfStyle.x, hit.selfStyle.y = (rect.x1 + rect.x2) / 2, (rect.y1 + rect.y2) / 2
-            hit:SetClass("collapsed", false)
-        end
-    end
-    composition.image = RegionMapTextAppearance.CreateImage(function()
-        if host and host.valid then composition.Layout() end
-    end)
-    composition.text = gui.Label { width = "auto", height = "auto", textWrap = false, interactable = false, text = "" }
     local function Forward(event)
         return function(element)
             if event == "press" then element.tooltip = nil end
             if owner and owner.valid then owner:FireEvent(event) end
         end
     end
-    composition.hit = gui.Panel { classes = { "regionMapImageHit", "collapsed" },
-        floating = true, halign = "center", valign = "center", width = 1, height = 1, interactable = plate,
-        swallowPress = true, press = Forward("press"), click = Forward("click"), doubleclick = Forward("doubleclick"),
-        rightClick = Forward("rightClick"),
-        -- The engine dismisses tooltips on the hovered element, not a forwarded parent.
-        hover = function(element) if owner and owner.valid then owner:FireEvent("hover", element) end end,
-        dehover = function(element) element.tooltip = nil end,
-        destroy = function(element) element.tooltip = nil end }
+    local function Hit()
+        if composition.hit ~= nil and composition.hit.valid then return composition.hit end
+        composition.hit = gui.Panel { classes = { "regionMapImageHit", "collapsed" },
+            floating = true, halign = "center", valign = "center", width = 1, height = 1, interactable = plate,
+            swallowPress = true, press = Forward("press"), click = Forward("click"), doubleclick = Forward("doubleclick"),
+            rightClick = Forward("rightClick"),
+            -- The engine dismisses tooltips on the hovered element, not a forwarded parent.
+            hover = function(element) if owner and owner.valid then owner:FireEvent("hover", element) end end,
+            dehover = function(element) element.tooltip = nil end,
+            destroy = function(element) element.tooltip = nil end }
+        host:AddChild(composition.hit)
+        return composition.hit
+    end
+    --- A new native text label in place of the old one (font or outline changed).
+    function composition.ReplaceText()
+        local old = composition.text
+        composition.text = gui.Label { width = "auto", height = "auto", textWrap = false, interactable = false, text = "" }
+        host:AddChild(composition.text)
+        if old ~= nil and old.valid then old:DestroySelf() end
+        if composition.hit ~= nil and composition.hit.valid then composition.hit:SetAsLastSibling() end
+    end
+    function composition.Layout()
+        if mod.unloaded or host == nil or not host.valid or composition.format == nil then return end
+        local format, text = composition.format, composition.text
+        if format.background ~= "image" then
+            if composition.hit ~= nil and composition.hit.valid then Session.SetClassIf(composition.hit, "collapsed", true) end
+            return
+        end
+        local geometry = A.Geometry(format, text.renderedWidth, text.renderedHeight, composition.fontSize, composition.scale)
+        composition.image.Layout(geometry.image)
+        host.selfStyle.bgcolor = composition.image.status == "ready" and "clear" or A.Contrast(format.color)
+        local hit = Hit()
+        if plate and composition.image.status == "ready" and format.backgroundOpacity > 0 then
+            local rect = geometry.image
+            hit.selfStyle.width, hit.selfStyle.height = rect.x2 - rect.x1, rect.y2 - rect.y1
+            hit.selfStyle.x, hit.selfStyle.y = (rect.x1 + rect.x2) / 2, (rect.y1 + rect.y2) / 2
+            Session.SetClassIf(hit, "collapsed", false)
+        else
+            Session.SetClassIf(hit, "collapsed", true)
+        end
+    end
+    composition.image = Session.AppearanceImage(function()
+        if host and host.valid then composition.Layout() end
+    end)
+    composition.text = gui.Label { width = "auto", height = "auto", textWrap = false, interactable = false, text = "" }
     local classes = { "regionMapPinName" }
     if plate then classes[#classes + 1] = "plate" end
     host = gui.Panel { classes = classes, floating = floating, interactable = false,
         width = "auto", height = "auto", data = { appearance = composition },
         rendered = function() composition.Layout() end,
-        composition.image.panel, composition.text, composition.hit }
+        composition.text }
+    composition.image.Mount(host)
     return host
 end
 
@@ -381,13 +324,15 @@ function RegionMapPinText.CreateSettings(ctx)
         change = function(e) Changed("font", e.idChosen ~= "default" and e.idChosen or false) end,
     }
     local function Numeric(key, multiplier, low, high)
+        -- Typing only marks the field; the window refreshes when its validity flips or on commit.
         local function Check(e, commit)
             if binding or not Active() then return end
             local value = tonumber(e.text)
-            local valid = R.IsFinite(value) and value >= low and value <= high and Valid(key, value / multiplier)
+            local valid = R.IsFinite(value) and value >= low and value <= high and A.ValidPin(key, value / multiplier)
+            local flipped = (invalid[key] == true) == valid
             invalid[key] = not valid or nil
             e:SetClass("invalid", not valid)
-            if commit and valid then Changed(key, value / multiplier) else ctx.RefreshAll() end
+            if commit and valid then Changed(key, value / multiplier) elseif flipped or commit then ctx.RefreshAll() end
         end
         local input = gui.Input {
             id = "region-map-pin-" .. key, classes = { "input", "bordered", "regionMapLabelInput" },
@@ -416,7 +361,7 @@ function RegionMapPinText.CreateSettings(ctx)
             width = "100%-44", minWidth = 0, borderBox = true, characterLimit = 9,
             change = function(e)
                 if binding or not Active() then return end
-                local valid = Valid(key, e.text)
+                local valid = A.ValidPin(key, e.text)
                 invalid[key] = not valid or nil
                 e:SetClass("invalid", not valid)
                 if valid then Changed(key, e.text) else ctx.RefreshAll() end
@@ -431,16 +376,11 @@ function RegionMapPinText.CreateSettings(ctx)
                 Changed(key, type(value) == "string" and value or value.tostring)
             end,
         }
-        local open = picker.events.click
-        picker.events.click = function(e)
-            if open == nil or not Active() then return end
+        Session.ScaleColorPopup(ctx, picker, function(e)
+            if not Active() then return false end
             e.data.openId, e.data.generation = boundId, generation
-            open(e)
-            if e.popup then
-                e.popup.constrainToScreen = true
-                e.popup.selfStyle.scale = math.min(1, (ctx.root.renderedWidth - 16) / 512, (ctx.root.renderedHeight - 16) / 280)
-            end
-        end
+            return true
+        end)
         inputs[key], colors[key] = hex, picker
         return Field(copyId, gui.Panel { classes = { "regionMapLabelColor" }, hex, picker })
     end
@@ -454,7 +394,7 @@ function RegionMapPinText.CreateSettings(ctx)
             Changed("color", value)
         end,
     }
-    local appearanceControls = RegionMapTextAppearance.CreateEditor(ctx, true, {
+    local appearanceControls = Session.AppearanceEditor(ctx, true, {
         Active = function(id) return Active() and id == boundId end,
         Format = function() return PinText.Format(ctx.CurrentMap()) end,
         Commit = function(changes) return PinText.Commit(boundId, changes) end,
@@ -527,10 +467,8 @@ function RegionMapPinText.CreateSettings(ctx)
         data = { bind = Bind, suspend = Suspend },
         destroy = function()
             Suspend()
-            for id in pairs(observed) do
-                local q = queues[id]
-                if q and q.notify == Refresh then q.notify = nil end
-            end
+            for id in pairs(observed) do PinText.Observe(id, nil) end
+            PinText.Prune()
         end,
         regionMapThemeChanged = function() if Active() then Bind(ctx.CurrentMap()) end end,
         Session.Label({ "regionMapFormLabel" }, T("pinText.title")),

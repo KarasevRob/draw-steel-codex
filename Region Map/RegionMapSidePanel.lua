@@ -362,7 +362,8 @@ function RegionMapSidePanel.Create(ctx)
     local metaRow = gui.Panel { classes = { "regionMapSideRow" }, metaLabel, eyeButton, mapButton }
     -- Every viewer sees a map's kind (A2).
     local modeChip = gui.Label { classes = { "regionMapChip", "regionMapSideChip" }, text = T("chip.pointcrawl"), interactable = false }
-    local readArtwork = RegionMapArtwork.Create(ctx, "location", false)
+    local readArtwork = RegionMapArtwork.Create(ctx, "location", false,
+        function(id) return data.selectedId == id and data.panelMode == "read" end)
     local description = Label({ "regionMapBody" })
     local journalLink = gui.Label {
         classes = { "regionMapLink" }, text = T("panel.journal"),
@@ -637,7 +638,8 @@ function RegionMapSidePanel.Create(ctx)
         if data.selectedId ~= nil then ctx.Select(data.selectedId, "read") end
     end)
 
-    local editArtwork = RegionMapArtwork.Create(ctx, "location", true)
+    local editArtwork = RegionMapArtwork.Create(ctx, "location", true,
+        function(id) return data.selectedId == id and data.panelMode == "edit" end)
     editView = gui.Panel {
         classes = { "regionMapSideBody", "collapsed" },
         visibilityLabel,

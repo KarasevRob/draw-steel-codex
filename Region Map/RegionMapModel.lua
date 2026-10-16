@@ -30,6 +30,7 @@ RegionMapModel.Clamp = Clamp
 RegionMapModel.IsFinite = IsFinite
 RegionMapModel.Field = Field
 RegionMapModel.TrimSingleLine = R.TrimSingleLine
+RegionMapModel.TextLength = R.TextLength
 
 --- @return string
 function RegionMapModel.StatePath()
@@ -64,6 +65,9 @@ end
 --- @class RegionMapUndoEntry
 --- @field description string
 --- @field steps RegionMapUndoStep[]
+--- @field partial nil|boolean the steps are independent rows (an import); Undo restores those still untouched
+--- @field mergeKey nil|string set by RegionMapUndo.PushMerged
+--- @field mergedAt nil|number
 
 --- The Party as the viewer may know it. At a Location, mapId/u/v follow that pin.
 --- @class RegionMapPartyView
@@ -81,15 +85,50 @@ end
 local Locations = R.LocationsTable
 local ValidName = R.ValidName
 
+-- Companions ---------------------------------------------------------------------------------
+
+--- A data module that keeps its own rows on a map (labels) or its own queue of map
+--- settings (pin text). It registers here so map deletion, Undo and View as player
+--- include it; the model never names it, and it may load after the model.
+--- @class RegionMapCompanion
+--- @field tableName nil|string Undo steps on this table are this companion's rows
+--- @field rowsOnMaps nil|fun(mapIds: table<string, boolean>): table[] its live rows on these maps
+--- @field anyPending nil|fun(rows: table[]): boolean whether one of the rows has a write in flight
+--- @field hideSteps nil|fun(rows: table[], description: string): RegionMapUndoStep[] soft-delete the rows
+--- @field cancelRow nil|fun(id: string) drop unsent edits of one of its rows
+--- @field cancelMap nil|fun(id: string) drop unsent edits that belong to this map
+--- @field canRevertStep nil|fun(step: RegionMapUndoStep, entry: RegionMapUndoEntry): boolean
+--- @field beforeViewChange nil|fun() send unsent edits while the viewer still has the rights
+--- @field afterViewChange nil|fun() drop unsent edits the viewer can no longer make
+
+local companions = {} --- @type RegionMapCompanion[]
+
+--- @param companion RegionMapCompanion
+function RegionMapModel.RegisterCompanion(companion)
+    companions[#companions + 1] = companion
+end
+
+local function CompanionFor(tableName)
+    for _, companion in ipairs(companions) do
+        if companion.tableName == tableName then return companion end
+    end
+    return nil
+end
+
 -- View as player (V2-19): the Director's client answers every visibility
 -- question as a player who owns nothing, and refuses writes while it is on.
 local viewAsPlayer = false
 
+--- Unsent edits go out before the switch, so turning it on never loses typing.
 --- @param on boolean
 function RegionMapModel.SetViewAsPlayer(on)
+    for _, companion in ipairs(companions) do
+        if companion.beforeViewChange then companion.beforeViewChange() end
+    end
     viewAsPlayer = on == true and dmhub.isDM
-    local pinText = rawget(_G, "RegionMapPinText")
-    if pinText then pinText.CancelUnauthorized() end
+    for _, companion in ipairs(companions) do
+        if companion.afterViewChange then companion.afterViewChange() end
+    end
 end
 
 --- @return boolean
@@ -142,6 +181,7 @@ function RegionMapModel.InvalidateIndex()
     dataRevision = dataRevision + 1
 end
 local InvalidateIndex = RegionMapModel.InvalidateIndex
+R.SetChangeListener(InvalidateIndex)
 
 local function NameKey(location)
     return R.MapNameKey(location.name)
@@ -412,7 +452,7 @@ end
 function RegionMapModel.PartyName()
     local data = StateData()
     local name = data and data.partyName
-    if ValidText(name) then return name --[[@as string]] end
+    if R.ValidStoredText(name) then return name --[[@as string]] end
     return RegionMapCopy.T("party.defaultName", nil, true)
 end
 
@@ -456,13 +496,26 @@ function RegionMapModel.SetPlayersCanAddLocations(value)
     end)
 end
 
---- Whether the viewer may add a Location on this map now.
+-- How many Locations deep a map is: 1 for a top-level map.
+local function Depth(id)
+    local location, depth = Raw(id), 0
+    while location ~= nil and depth <= C.maxDepth do
+        depth = depth + 1
+        if location.parentId == "" then break end
+        location = Raw(location.parentId)
+    end
+    return depth
+end
+
+--- Whether the viewer may add a Location on this map now. A map already maxDepth deep
+--- takes no more: every reader would reject the new row as nested too deep.
 --- @param mapId string
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 function RegionMapModel.CanAdd(mapId)
     if not CanWrite() or not CanOpenMap(Raw(mapId)) then return false, "permission" end
     if not IsDirector() and not RegionMapModel.PlayersCanAddLocations() then return false, "permission" end
+    if Depth(mapId) >= C.maxDepth then return false, "invalid" end
     return true, nil
 end
 local CanAdd = RegionMapModel.CanAdd
@@ -475,8 +528,10 @@ local CanAdd = RegionMapModel.CanAdd
 --- @param changes table
 --- @param description string
 --- @param callbacks nil|RegionMapWriteCallbacks told when the server confirms or refuses
---- @return nil|RegionMapUndoStep
-local function WriteLocation(current, changes, description, callbacks)
+--- @param retry nil|RegionMapRetry an explicit retry of this client's failed write
+--- @return nil|RegionMapUndoStep step
+--- @return nil|RegionMapWrite operation
+local function WriteLocation(current, changes, description, callbacks, retry)
     local record = current and DeepCopy(current) or RegionMapLocationRecord.new { revision = 0, artworkImageId = "" }
     for key, value in pairs(changes) do
         -- false clears optional fields; nil cannot sit in a change table.
@@ -484,26 +539,7 @@ local function WriteLocation(current, changes, description, callbacks)
             record[key] = nil
         else record[key] = value end
     end
-    local revision = NextRevision(record)
-    if revision == nil then return nil end
-    record.revision = revision
-    Audit(record, current == nil)
-    local function Finish(callback)
-        return function(write)
-            InvalidateIndex()
-            if callback ~= nil then callback(write) end
-        end
-    end
-    local operation = UploadRecord(C.locationTableName, record, description, {
-        success = Finish(callbacks and callbacks.success), failure = Finish(callbacks and callbacks.failure),
-    }, current == nil)
-    if operation == nil then return nil end
-    InvalidateIndex()
-    return {
-        tableName = C.locationTableName, id = record.id,
-        before = current and DeepCopy(current) or nil,
-        afterRevision = revision, afterMutationId = record.mutationId,
-    }
+    return R.WriteRow(C.locationTableName, current, record, description, callbacks, { retry = retry })
 end
 
 -- Validates and normalizes UpdateLocation changes; nil when any is invalid.
@@ -557,11 +593,11 @@ end
 --- @param id string
 --- @param changes {name: nil|string, u: nil|number, v: nil|number, pinStyle: nil|string, importance: nil|string, icon: nil|string, artworkImageId: nil|string, visibility: nil|string, mapShared: nil|boolean, scale: nil|false|RegionMapScale, pace: nil|false|number, border: nil|string}
 --- @param description nil|string
---- @param retryArtwork nil|RegionMapWrite the failed artwork upload being explicitly retried
+--- @param retry nil|RegionMapRetry an explicit retry of this client's failed write
 --- @return boolean ok
 --- @return nil|RegionMapWriteReason reason
 --- @return nil|RegionMapUndoEntry undo
-function RegionMapModel.UpdateLocation(id, changes, description, retryArtwork)
+function RegionMapModel.UpdateLocation(id, changes, description, retry)
     local current = Raw(id)
     if mod.unloaded or current == nil then return false, "invalid", nil end
     if not CanEdit(current) then return false, "permission", nil end
@@ -569,12 +605,12 @@ function RegionMapModel.UpdateLocation(id, changes, description, retryArtwork)
     if R.PendingWrite(C.locationTableName, id) then return false, "busy", nil end
     local normalized = NormalizeChanges(current, changes)
     if normalized == nil then return false, "invalid", nil end
-    if normalized.artworkImageId == R.ArtworkValue(current) and not R.CanRetryArtwork(C.locationTableName, current, retryArtwork) then
+    if normalized.artworkImageId == R.ArtworkValue(current) and not R.CanRetryWrite(C.locationTableName, current, retry) then
         normalized.artworkImageId = nil
     end
     if next(normalized) == nil then return true, nil, nil end
     description = description or "Edit region map location"
-    local step = WriteLocation(current, normalized, description)
+    local step = WriteLocation(current, normalized, description, nil, retry)
     if step == nil then return false, "unavailable", nil end
     return true, nil, Entry(description, { step })
 end
@@ -585,28 +621,28 @@ local UpdateLocation = RegionMapModel.UpdateLocation
 --- @param patch table
 --- @param reset boolean
 --- @param callbacks nil|RegionMapWriteCallbacks
---- @param retry nil|table
+--- @param retry nil|RegionMapRetry
 --- @return boolean, nil|RegionMapWriteReason, nil|RegionMapUndoEntry, nil|RegionMapWrite
 function RegionMapModel.SetPinNameFormat(id, patch, reset, callbacks, retry)
     if not IsDirector() or not CanWrite() then return false, "permission" end
     local current = Raw(id)
     if current == nil or current.imageId == "" then return false, "invalid" end
     if R.PendingWrite(C.locationTableName, id) then return false, "busy" end
-    local format = RegionMapPinText.ApplyPatch(current, patch, reset)
+    local format = RegionMapTextAppearance.ApplyPinPatch(Field(current, "pinNameFormat", nil), patch, reset, true)
     if format == nil then return false, "invalid" end
     local value = next(format) ~= nil and format or false
-    local retrying = retry ~= nil and R.CanRetryArtwork(C.locationTableName, current, retry.operation)
-    if not retrying and dmhub.DeepEqual(Field(current, "pinNameFormat", false), value) then
+    if not R.CanRetryWrite(C.locationTableName, current, retry)
+        and dmhub.DeepEqual(Field(current, "pinNameFormat", false), value) then
         if callbacks and callbacks.success then callbacks.success(nil) end
         return true
     end
     local description = reset and "Reset map pin text" or "Format map pin text"
-    local step = WriteLocation(current, { pinNameFormat = value }, description, callbacks)
-    local operation = R.LastWrite(C.locationTableName, id)
+    local step, operation = WriteLocation(current, { pinNameFormat = value }, description, callbacks, retry)
     if step == nil then return false, "unavailable", nil, operation end
-    if retrying and retry then step.before = retry.before end
     return true, nil, Entry(description, { step }), operation
 end
+
+local NewLocationRow
 
 --- The style a new pin starts with (R10: copied from the last one placed).
 --- @class RegionMapPinStyle
@@ -629,11 +665,49 @@ end
 --- @return nil|RegionMapUndoEntry undo
 --- @return nil|string id
 function RegionMapModel.CreateLocation(mapId, u, v, style, callbacks, name)
-    style = style or {}
     name = R.TrimSingleLine(name)
     if not IsFinite(u) or not IsFinite(v) or not ValidName(name) then return false, "invalid", nil, nil end
     local ok, reason = CanAdd(mapId)
     if not ok then return false, reason, nil, nil end
+    local step, id = NewLocationRow(mapId, u, v, style, callbacks, name)
+    if step == nil then return false, "unavailable", nil, nil end
+    return true, nil, Entry("Add region map location", { step }), id
+end
+
+--- One import item for CreateLocations.
+--- @class RegionMapNewLocation
+--- @field u number
+--- @field v number
+--- @field style nil|RegionMapPinStyle
+--- @field name string
+--- @field callbacks nil|RegionMapWriteCallbacks
+
+--- Create several Locations on one map after one permission check (JSON import), so a
+--- long import does not rebuild the whole Location index once per row.
+--- @param mapId string
+--- @param items RegionMapNewLocation[]
+--- @return boolean ok false when the viewer may not add here; nothing was written
+--- @return nil|RegionMapWriteReason reason
+--- @return {id: nil|string, step: nil|RegionMapUndoStep}[] results one per item; step nil when that row was invalid or its upload did not start
+function RegionMapModel.CreateLocations(mapId, items)
+    local ok, reason = CanAdd(mapId)
+    if not ok then return false, reason, {} end
+    local results = {}
+    for i, item in ipairs(items) do
+        local name = R.TrimSingleLine(item.name)
+        if IsFinite(item.u) and IsFinite(item.v) and ValidName(name) then
+            local step, id = NewLocationRow(mapId, item.u, item.v, item.style, item.callbacks, name)
+            results[i] = { id = id, step = step }
+        else
+            results[i] = {}
+        end
+    end
+    return true, nil, results
+end
+
+-- Writes a new Location row; the caller already checked the name, position and CanAdd.
+NewLocationRow = function(mapId, u, v, style, callbacks, name)
+    style = style or {}
     local director = IsDirector()
     local visibility = "revealed"
     if director then visibility = R.visibilities[style.visibility] and style.visibility or "hidden" end
@@ -648,8 +722,7 @@ function RegionMapModel.CreateLocation(mapId, u, v, style, callbacks, name)
         ownerId = dmhub.loginUserid, ownerName = CurrentUserName(), createdByDirector = director,
         hidden = false,
     }, "Add region map location", callbacks)
-    if step == nil then return false, "unavailable", nil, nil end
-    return true, nil, Entry("Add region map location", { step }), id
+    return step, id
 end
 
 --- Whether a map is a point crawl map (A1). Maps from before V2.1 are free (L3).
@@ -1050,8 +1123,9 @@ local function HideAll(locations, description)
         local step = WriteLocation(locations[i], { hidden = true }, description)
         if step ~= nil then
             steps[#steps + 1] = step
-            local pinText = rawget(_G, "RegionMapPinText")
-            if pinText then pinText.CancelPending(locations[i].id) end
+            for _, companion in ipairs(companions) do
+                if companion.cancelMap then companion.cancelMap(locations[i].id) end
+            end
         end
     end
     return steps
@@ -1077,6 +1151,35 @@ local function AnyPending(locations)
         if R.PendingWrite(C.locationTableName, location.id) then return true end
     end
     return false
+end
+
+-- Each companion's rows on the maps going away, read before anything is hidden.
+local function CompanionRows(mapIds)
+    local result = {}
+    for _, companion in ipairs(companions) do
+        if companion.rowsOnMaps then result[#result + 1] = { companion = companion, rows = companion.rowsOnMaps(mapIds) } end
+    end
+    return result
+end
+
+local function CompanionsPending(groups)
+    for _, group in ipairs(groups) do
+        if group.companion.anyPending and group.companion.anyPending(group.rows) then return true end
+    end
+    return false
+end
+
+-- Hide the companions' rows in the caller's batch; their unsent edits are dropped first.
+local function HideCompanionRows(groups, description, steps)
+    for _, group in ipairs(groups) do
+        local companion = group.companion
+        for _, row in ipairs(group.rows) do
+            if companion.cancelRow then companion.cancelRow(row.id) end
+        end
+        if companion.hideSteps then
+            for _, step in ipairs(companion.hideSteps(group.rows, description)) do steps[#steps + 1] = step end
+        end
+    end
 end
 
 --- Whether the viewer may delete a Location. Players delete only their own
@@ -1109,9 +1212,8 @@ function RegionMapModel.DeleteLocation(id)
     for _, location in ipairs(all) do removed[location.id] = true end
     -- A path always joins two pins, so every path touching a deleted pin goes too (B5).
     local paths = RegionMapPaths.Touching(removed)
-    local labels = rawget(_G, "RegionMapLabels")
-    local lettering = labels and labels.OnMaps(removed) or {}
-    if AnyPending(all) or RegionMapPaths.AnyPending(paths) or (labels and labels.AnyPending(lettering)) then
+    local groups = CompanionRows(removed)
+    if AnyPending(all) or RegionMapPaths.AnyPending(paths) or CompanionsPending(groups) then
         return false, "busy", nil, 0
     end
     local description = "Delete region map location"
@@ -1120,10 +1222,7 @@ function RegionMapModel.DeleteLocation(id)
     local steps = HideAll(all, description)
     if #steps == 0 then return false, "unavailable", nil, 0 end
     for _, step in ipairs(RegionMapPaths.HideSteps(paths, description)) do steps[#steps + 1] = step end
-    if labels then
-        for _, row in ipairs(lettering) do labels.CancelPending(row.id) end
-        for _, step in ipairs(labels.HideSteps(lettering, description)) do steps[#steps + 1] = step end
-    end
+    HideCompanionRows(groups, description, steps)
     -- The Party moves only once the rows are on their way, so a failed delete leaves it be.
     if target ~= nil then
         local partyStep = SetParty(target or nil, description)
@@ -1150,12 +1249,12 @@ function RegionMapModel.RemoveMap(id)
     local removed = {}
     for _, location in ipairs(descendants) do removed[location.id] = true end
     local paths = RegionMapPaths.Touching(removed)
-    local labels = rawget(_G, "RegionMapLabels")
-    local labelMaps = DeepCopy(removed)
-    labelMaps[id] = true
-    local lettering = labels and labels.OnMaps(labelMaps) or {}
+    -- Rows drawn on the removed map itself go too, not only those on the maps below it.
+    local mapIds = DeepCopy(removed)
+    mapIds[id] = true
+    local groups = CompanionRows(mapIds)
     if R.PendingWrite(C.locationTableName, id) or AnyPending(descendants) or RegionMapPaths.AnyPending(paths)
-        or (labels and labels.AnyPending(lettering)) then
+        or CompanionsPending(groups) then
         return false, "busy", nil, 0
     end
     local description = "Remove map from location"
@@ -1171,16 +1270,14 @@ function RegionMapModel.RemoveMap(id)
     if NextRevision(current) == nil then return false, "unavailable", nil, 0 end
     local steps = HideAll(descendants, description)
     for _, step in ipairs(RegionMapPaths.HideSteps(paths, description)) do steps[#steps + 1] = step end
-    if labels then
-        for _, row in ipairs(lettering) do labels.CancelPending(row.id) end
-        for _, step in ipairs(labels.HideSteps(lettering, description)) do steps[#steps + 1] = step end
-    end
+    HideCompanionRows(groups, description, steps)
     -- The mode goes with the image, so Add map can pick it again (A4).
     local own = WriteLocation(current, { imageId = "", mapShared = false, scale = false, pace = false, mode = false,
         pinNameFormat = false }, description)
     if own == nil then return false, "unavailable", nil, 0 end
-    local pinText = rawget(_G, "RegionMapPinText")
-    if pinText then pinText.CancelPending(id) end
+    for _, companion in ipairs(companions) do
+        if companion.cancelMap then companion.cancelMap(id) end
+    end
     steps[#steps + 1] = own
     if partyTarget ~= nil then
         local partyStep = SetParty(partyTarget, description)
@@ -1218,28 +1315,35 @@ function RegionMapModel.IsSettled(entry)
     return true
 end
 
+-- Whether one step is still exactly as this client left it and the viewer may restore it.
+local function StepMatches(step, entry)
+    local revision, mutationId = StepCurrent(step)
+    if revision ~= step.afterRevision or mutationId ~= step.afterMutationId then return false end
+    local companion = step.tableName and CompanionFor(step.tableName)
+    if companion and companion.canRevertStep and not companion.canRevertStep(step, entry) then return false end
+    if not IsDirector() and step.before ~= nil
+        and (step.tableName == C.locationTableName or step.tableName == C.pathTableName) then
+        local current = (dmhub.GetTable(step.tableName) or {})[step.id]
+        if not dmhub.DeepEqual(R.ArtworkValue(current), R.ArtworkValue(step.before)) then return false end
+        if step.tableName == C.locationTableName
+            and not dmhub.DeepEqual(Field(current, "pinNameFormat", false), Field(step.before, "pinNameFormat", false)) then return false end
+    end
+    return true
+end
+
 --- Whether every step of an entry is still exactly as this client left it.
---- False after anyone else changed one of the rows (R14).
+--- False after anyone else changed one of the rows (R14). A partial entry (an import:
+--- independent new rows) stays undoable while any of its rows is untouched.
 --- @param entry RegionMapUndoEntry
 --- @return boolean
 function RegionMapModel.CanRevert(entry)
     if not CanWrite() or #entry.steps == 0 then return false end
+    local any = false
     for _, step in ipairs(entry.steps) do
-        local revision, mutationId = StepCurrent(step)
-        if revision ~= step.afterRevision or mutationId ~= step.afterMutationId then return false end
-        if step.tableName == C.labelTableName then
-            local labels = rawget(_G, "RegionMapLabels")
-            if labels == nil or not labels.CanRevertStep(step, entry) then return false end
-        end
-        if not IsDirector() and step.before ~= nil
-            and (step.tableName == C.locationTableName or step.tableName == C.pathTableName) then
-            local current = (dmhub.GetTable(step.tableName) or {})[step.id]
-            if not dmhub.DeepEqual(R.ArtworkValue(current), R.ArtworkValue(step.before)) then return false end
-            if step.tableName == C.locationTableName
-                and not dmhub.DeepEqual(Field(current, "pinNameFormat", false), Field(step.before, "pinNameFormat", false)) then return false end
-        end
+        if StepMatches(step, entry) then any = true
+        elseif not entry.partial then return false end
     end
-    return true
+    return any
 end
 
 --- A row (or the Party) that an undo rewrote: the state it restored, and the
@@ -1266,7 +1370,12 @@ function RegionMapModel.Revert(entry)
     local ok = true
     for i = #entry.steps, 1, -1 do
         local step = entry.steps[i]
-        if step.tableName ~= nil then
+        if entry.partial and not StepMatches(step, entry) then
+            -- Someone changed this row since; a partial entry leaves it and undoes the rest.
+        elseif step.tableName ~= nil then
+            -- Unsent autosave edits of this row would write the undone values back.
+            local companion = CompanionFor(step.tableName)
+            if companion and companion.cancelRow then companion.cancelRow(step.id) end
             local current = (dmhub.GetTable(step.tableName) or {})[step.id]
             local record
             if step.before ~= nil then record = DeepCopy(step.before) else record = DeepCopy(current); record.hidden = true end
