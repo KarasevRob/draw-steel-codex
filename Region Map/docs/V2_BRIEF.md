@@ -2,9 +2,9 @@
 
 Status: LOCKED, signed off by the user 2026-10-05 (critique round folded in, section 10b).
 Copy is in [V2_COPY.md](V2_COPY.md), signed off 2026-10-05.
-Build plan: [../TECH_TASK_V2.md](../TECH_TASK_V2.md).
-Everything below is a settled decision unless it is listed under Open questions.
-The decision ledger (section 10) is the record; the sections above it describe the result.
+Retained as the decision-ID reference used by source comments. Later feature briefs
+and [current behavior](../README.md) supersede changed controls, limits and defaults.
+The completed build plan is available in Git history.
 
 ## 1. Frame
 
@@ -259,7 +259,7 @@ description, journal link; Director notes stay Director-only.
 | 2026-10-05 | R13 | Brief signed off and locked | User sign-off |
 | 2026-10-05 | R14 | Undo is refused when someone else changed the same item since: the toast's Undo button disappears | Never overwrite another person's edit; confirmed by user after the engine checks |
 | 2026-10-05 | R15 | Session log keeps the newest 500 entries per game; the Director's client deletes older ones on open | Bounded storage over a long campaign |
-| 2026-10-05 | R16 | If players cannot write data tables, their Locations and log entries go in a shared document; Director content stays in tables | Fallback for the first build check (TECH_TASK_V2 V2-00) |
+| 2026-10-05 | R16 | If players cannot write data tables, their Locations and log entries go in a shared document; Director content stays in tables | Fallback for the initial engine capability check |
 | 2026-10-06 | R17 | V1 may break and is replaced wholly by V2; V1 data is dropped (no migration). Supersedes C (migration part) and D4e; `migrate.done` is dropped from the copy | User decision; the only V1 content was test data |
 | 2026-10-14 | R18 | Atlas cards explicitly show Hidden/Revealed to the Director, from map sharing. New map and Add map show the approved hidden-by-default notice inline on both steps | User requested both states and selected an inline notice over an extra confirmation; sharing rules remain unchanged |
 | 2026-10-15 | R19 | Positions locked/unlocked controls dragging of Locations and labels; remove every Move label action and the separate label-placement move tool | User requested one shared lock control; select an unlocked label before dragging it |
@@ -296,14 +296,11 @@ accessibility. Findings that two or three reviewers raised are marked (x2) / (x3
 | P17 | Director right-click on any map: "Place Party here" (puts the Party onto a map it is not on) | Director |
 | P18 | Glossary in the copy manifest: one name per concept ("Show to players", "Map shared", "Show names", "travelling"); the section 7 menu gains "Remove map" (D12c) | UX |
 
-## 11. Open questions
+## 11. Verification
 
-1. ~~Copy~~: resolved, [V2_COPY.md](V2_COPY.md) signed off 2026-10-05.
-2. Accessibility pass: colour never the only signifier (Hidden uses dim + badge), hover-only
-   content (icon-only names, hover summaries) needs a non-hover path (selection shows it).
-3. ~~Engine checks~~: done 2026-10-05, see section 11b. One item stays open there
-   (cold-load time of very large map images).
-4. ~~Session log storage size~~: resolved, R15.
+The original copy, storage and engine-capability decisions are resolved. Current
+coverage and remaining client/input checks are listed in the [test index](../tests/README.md).
+Keep non-color visibility cues and a selection-based route to hover information.
 
 ## 11b. Engine checks (2026-10-05)
 
