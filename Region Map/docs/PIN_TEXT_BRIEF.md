@@ -3,6 +3,9 @@
 Status: IMPLEMENTED in the development checkout, 2026-10-15. User signed off on the
 design. See [verification](../tests/PIN_TEXT.md). Cloud publication is separate.
 
+The [text appearance contract](TEXT_APPEARANCE_BRIEF.md) extends the original
+background choices below with independent outlines and uploaded static images.
+
 ## Goal and confirmed scope
 
 Let the Director format every Location name on one map from one settings section,

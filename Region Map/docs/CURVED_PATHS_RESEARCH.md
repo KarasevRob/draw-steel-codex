@@ -141,10 +141,8 @@ An engine source checkout was unavailable at the checked locations.
 | Hit testing | Scanning every sampled segment increases pointer-query work. Cached bounds can reject distant paths before segment-distance tests. |
 | Network and persistence | Store bend/control points and curve settings, rather than viewport-specific samples. Sampling can remain local. Historical route snapshots need a separate geometry policy. |
 
-The earlier [ideas research](IDEAS_RESEARCH.md#14-curved-paths---score-10) estimated a
-rough doubling of pieces and extrapolated timing from existing tests. Those figures
-were estimates. The new construction measurements demonstrate that the multiplier
-depends on sampling density and representation; there is no universal twofold cost.
+The construction measurements show that geometry cost depends on sampling density
+and representation; there is no universal twofold cost for curved paths.
 
 ## Curve shape and integration
 

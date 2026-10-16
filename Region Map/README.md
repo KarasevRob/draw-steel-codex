@@ -10,19 +10,17 @@ their own places and follows one shared Party across the maps. The mod owns its 
 canvas and data. It does not touch
 tactical maps, tokens, combat rules or character content.
 
-This is V2.1: V2 plus point crawl maps, map image guidance and borders, and JSON import.
-The designs are [docs/V2_BRIEF.md](docs/V2_BRIEF.md) and
-[docs/V2_1_BRIEF.md](docs/V2_1_BRIEF.md) (both locked; V2.1 changes only what it names), the
-on-screen text is [docs/V2_COPY.md](docs/V2_COPY.md) (sections 1-17 V2, 18-25 V2.1), and
-the build plans and build notes are [TECH_TASK_V2.md](TECH_TASK_V2.md) and
-[TECH_TASK_V2_1.md](TECH_TASK_V2_1.md). [TECH_TASK.md](TECH_TASK.md) is the superseded V1
-plan; the images `docs/01`-`04` are V1 schematics, kept for history. Ideas not yet scheduled
-are in [IDEAS.md](IDEAS.md). The cleanup audit of the Lua (duplication, dead code, bugs found
-along the way) and its tiers are in [docs/CLEANUP_AUDIT.md](docs/CLEANUP_AUDIT.md).
+This README describes current behavior and the runtime file order.
+[IDEAS.md](IDEAS.md) contains only unfinished work.
+[Tests](tests/README.md) lists runnable checks, recorded live evidence and remaining
+verification gaps. Development deployment and Git commits do not by themselves
+publish a new installable CodeMod package.
 
-Map labels are implemented in the development checkout. Their complete cloud update is
-not published; runtime work and fixture cleanup are paused. The current verification and
-delivery record is [tests/LABELS.md](tests/LABELS.md).
+The original [V2](docs/V2_BRIEF.md) and [V2.1](docs/V2_1_BRIEF.md) decision ledgers
+remain references for IDs used in source comments; later feature contracts supersede
+changed behavior. [V2_COPY.md](docs/V2_COPY.md) records agreed wording, while
+[RegionMapCopy.lua](RegionMapCopy.lua) is the runtime source of text.
+[Maintenance candidates](docs/CLEANUP_AUDIT.md) retain unresolved audit leads.
 
 ## 1. Behavior
 
@@ -78,7 +76,7 @@ delivery record is [tests/LABELS.md](tests/LABELS.md).
 - Only the Director changes visibility. Players can see/search a label only while it is
   Revealed and its map is accessible; ownership does not bypass those checks.
 - The editor supports explicit line breaks, available fonts, bold/italic, alignment,
-  color, size, rotation, spacing, and Auto contrast / Plate / None backgrounds. Auto
+  color, size, rotation, spacing, outlines, and Auto contrast / Plate / None / Image backgrounds. Auto
   contrast is a snug black/white backing. Size is a percentage of map width (0.1-25%).
   Text grows with map zoom, without overlap hiding or Font Size changing its proportions.
 - Text permits 256 Unicode characters and 1,024 bytes, with explicit newlines and no
@@ -117,7 +115,7 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   Import, Settings and Show to players open that card's map first. Delete confirms the
   contained Locations, paths and labels; one Undo restores the map and its contents. Long menus
   scroll in short windows.
-- The breadcrumb shows Atlas > ... > current map; every part is clickable. "Open map" in
+- The breadcrumb shows Atlas > ... > current map; every part is clickable and long names truncate with an ellipsis. "Open map" in
   the side panel zooms into the pin and crossfades to its map.
 - **Reading a parent from the breadcrumb.** Hover a Location crumb to see the start of its
   description (300 characters). Right-click a parent's crumb to read all of it in the side
@@ -187,9 +185,8 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   never invalidate the owning row. Map replacement/removal and object deletion Undo keep
   artwork. JSON import does not accept attachments.
 
-Implementation and verification status: [artwork research](docs/ARTWORK_RESEARCH.md),
-[checks](tests/ARTWORK.md). The helper is registered before both detail panels and the
-complete feature is deployed to the development app.
+The helper is registered before both detail panels.
+[Artwork checks](tests/ARTWORK.md) record implementation evidence and validation limits.
 
 ### Map images (V2.1)
 
@@ -395,138 +392,62 @@ each use is guarded.
 | Two clients editing one row at once. | Last write wins per field; undo refuses after a remote edit. True merges need a host patch API. |
 | Players cannot set Reduce motion. | It lives in Settings, which is Director-only (D11c). Needs a decision: a player-visible "Only for you" section, or follow a host setting. |
 | Live theme switch. | Checkboxes (and the host's own window title bar) keep the old colors until the window is reopened. Host limitation; not worked around. |
-| Torn edge and Frame borders (V2.1, K9). | Wait for the user's art; the art ids in Constants are empty until then. |
+| Torn edge and Frame borders (V2.1, K9). | Await the user's art and rendering integration; supplying the Constants art IDs alone is not sufficient. |
 | `@danger` as text (host). | In Default, MCDM and Warm Gold it reads 3.4-4.0:1 on `@bg`, under 4.5:1. The mod puts warning text in `@fgStrong` with a `@danger` bar instead. A host fix would be a darker or lighter text variant of the token; not a mod change. |
 
 ## 5. Performance
 
-Measured 2026-10-07 on the Director client (2560x1600 screen) with 250 test pins kept only
-in memory.
+Recorded measurements are fixture-specific, not guarantees for larger maps or other
+clients. They are kept here because future rendering work needs a comparison point.
 
-| Measure | Result |
+| Fixture and date | Observed cost |
 |---|---|
-| Pan with 250 pins on one map | 16.6 ms per frame (the display's 60 fps cap) |
-| First draw of a map with 250 pins | 221 ms |
-| Refresh with 250 pins on one map | 2.6 ms |
-| Location list rebuild, 3 x 250 across maps (753 Locations) | 17 ms; a full refresh after a remote change about 21 ms |
-| First open of a large image not loaded before (6000x13985) | 6.3 s until the engine reports it loaded; frames stayed at 16-18 ms meanwhile |
-| Open of a large image already in the local cache (4500x6407 to 8400x6300) | Same frame; no frame over 18 ms afterwards |
+| 250 pins held in memory, 2026-10-07 | Pan 16.6 ms/frame at the 60 Hz display cap; first draw 221 ms; pin refresh 2.6 ms |
+| 150 paths on the active map, 2026-10-10 | First draw at Fit: 1,401 pieces, 123 ms; zoom layout: 23-34 ms, with extra pool-growth cost |
+| Large session log, 2026-10-11 | First batch 54 ms, then 40 rows/frame; unchanged open-log refresh about 1 ms |
+| Focused PC test map, 2026-10-13: about 760 path pieces, 600 route dots and 33 pins | Pan improved from over 100 ms/frame to 16.7 ms after position writes stopped using selfStyle; animated Fit measured 16.7 ms/frame |
+| Same zoom work with stable per-segment pooling, unfocused app at 30 Hz | Four wheel notches dropped from five frames over 33 ms to one; this is not a focused FPS benchmark |
 
-V2.1 paths, measured 2026-10-10 the same way: the PC test map with 244 test pins (250 in
-all) and 150 test paths (160 in all, 315 segments, every pattern), kept only in memory,
-timed inside the path layer. The app was unfocused, which caps it at 30 fps, so whole-frame
-samples only show costs over 33 ms; with and without the test paths they matched.
+Current rendering constraints:
 
-| Measure | Result |
-|---|---|
-| Location and path index rebuild | 8 ms |
-| Path layer refresh with no change (Bind) | 6-8 ms |
-| First draw at Fit, 1401 line pieces | 123 ms, then one re-place of ~115 ms as the window settles its size |
-| First draw three zoom steps in, 1963 pieces | 554 ms (panel creation, ~0.14-0.28 ms a piece; once per window) |
-| Zoom re-layout (re-places every piece) | 23-34 ms; 77-125 ms the first time a deeper zoom grows the pool |
-| Pan | ~0.02 ms a frame of Lua in the path layer (the layer slides); a long pan re-places, as a zoom. The whole frame was far slower until positions moved off `selfStyle` (see below) |
-| Hover hit test / label pass with Show names | 0.2 ms / ~1 ms |
-| Pieces by zoom, Fit to four steps in | 1401, 1639, 1963, 2329, then the 2500 cap (`C.pathPieceLimit`): past it a segment draws solid |
+- Each selfStyle write can rematch a panel and its subtree against the theme rules.
+  Map positions use panel.x/y instead; avoid style writes during ordinary pan.
+- Revision/signature caches skip unchanged pins, paths and log rows. Unrelated game
+  updates should not rebuild the mod's indexes.
+- Pins and Party move as a layer while panning. Paths and route marks use pooled pieces
+  inside the view plus a margin; crossing the margin triggers layout.
+- During zoom, Stretch repositions existing pieces; final dimensions/styles update
+  when zoom settles. Pools retain pieces per segment so most styles stay unchanged.
+- The 2,500 path-piece threshold simplifies patterned segments to solid lines.
+  It is not a hard memory or geometry cap.
+- The log builds rows in batches. Canvas think runs at the active rate while hovered,
+  dragging or animating; camera saves and model refreshes are debounced.
+- Images load asynchronously; artwork previews load only for the selected object.
 
-Optimization pass, measured 2026-10-11 the same way (250 pins, 160 paths, 513 log entries in
-memory), before and after:
-
-| Measure | Before | After |
-|---|---|---|
-| Refresh with nothing changed | ~20 ms | 0.8 ms |
-| Refresh after a data change | ~43 ms | ~28 ms |
-| All three caches rebuilt (Locations, paths, log) | 21 ms | 11 ms |
-| A token move, chat line or other game update | rebuilt all three caches | no rebuild |
-| Open the log | 700-830 ms in one frame (3168 panels) | 54 ms, then 40 rows a frame |
-| Refresh with the log open | rebuilt every row on any game update | 1 ms; a new entry builds one row |
-| Animated zoom (Fit, Go to Party) | every line piece placed each frame | placed once, when it lands |
-| Zoom step under Reduce motion | 24-38 ms | 22-30 ms |
-| Window build | 160-175 ms | 145-160 ms (Settings is built on first open) |
-
-Pan and zoom frame time, measured 2026-10-13 in the app (focused, 60 Hz, PC test map zoomed in:
-~760 path pieces, 600 route dots, 33 pin panels), whole frames rather than Lua time:
-
-| Measure | Before | After |
-|---|---|---|
-| Drag pan at close zoom | every frame 100 ms or more (~10 fps) | 16.7 ms (60 fps) |
-| Path, route and pin layers slid every frame | ~100 ms a frame | 16.9 ms |
-| All 1357 line and route pieces moved every frame | ~100 ms a frame | 18 ms |
-| Animated Fit zoom | not measured | 16.7 ms a frame |
-| Line and route layers scaled every frame (the old mid-zoom stretch) | ~100 ms a frame | pieces moved instead: see below |
-| Four wheel notches, stall time | ~1.1 s (14 slow frames, most 100 ms) | ~0.4 s (8 slow frames, worst 83 ms) |
-
-Mid-zoom, `Tools.Stretch` used to scale the layer (`selfStyle.scale`, a style pass over every
-piece); it now moves each placed piece through `panel.x` / `panel.y` from where it was placed,
-keeping its size until the zoom settles. The re-place when the zoom settles was the rest:
-pieces were handed out from one shared pool in drawing order, so after a zoom most of them
-changed segment and got new width, angle and colour styles (one style write on each of ~1500
-pieces costs a 50 ms and a 100 ms frame). Casings and marks now come from `Tools.RunPool`, one
-run per segment of each path (dots and dashes apart), so a segment gets back pieces that
-already have its angle, colour and size, and sizes and angles are rounded to 1/100 so float
-noise does not count as a change. Measured with the app unfocused (capped at 30 fps, so only
-frames over 33 ms show): the same four wheel notches went from 5 frames over 33 ms (50-83 ms)
-to 1 (50 ms); a long drag pan, which also re-places, had none.
-
-The Lua side was always cheap (under 1 ms a frame). The cost was the engine's style pass: every
-`selfStyle` write re-matches that panel against the map's 544 style rules, and a write on a layer
-re-matches its whole subtree. So positions on the map go through `panel.x` / `panel.y` (an
-offset the engine applies without a style pass), never `selfStyle.x` / `selfStyle.y`; see
-`RegionMapCanvasTools.PlaceCentered`. The piece count, rounded corners and clipping made no
-measurable difference.
-
-How it stays cheap: one data revision (`RegionMapModel.Revision`) moves only when an Overland
-Map table changes (the engine's `tablesUpdateId`, this client's writes, or another client's
-change seen by the window), and the caches and the canvas, path and log signatures key on it;
-a refresh that finds the same inputs skips the pins, the lines, the route and the log rows;
-mid-zoom the line and route layers stretch as a whole and are placed for real once the zoom
-settles (`C.zoomSettleSeconds` after the last wheel notch); line pieces write only the style
-values that changed; pins and the Party sit on one layer that slides as a whole on pan;
-pin panels are reused across refreshes, keyed by Location id, and restyled only when they
-changed; name plates and badges are created only when shown; route dots are rebuilt only
-when the log changes, after a zoom or after a pan of more than half the view; the canvas
-thinks every frame (0.001 s) only while hovered, dragging or animating (0.25 s otherwise); refreshes
-coalesce over 0.05 s; camera saves are debounced 0.5 s. Pins appear only once the image size
-is known, and the new image fades in only after it has loaded. Paths follow the same plan:
-their pieces are pooled (collapsed, never destroyed), placed only on screen plus half a view
-around it, and placed again only after a zoom, a resize, a change or a pan of half a view.
+[Curved-path research](docs/CURVED_PATHS_RESEARCH.md) records later construction
+measurements and native-shape lifecycle questions. [Label checks](tests/LABELS.md)
+and [text appearance checks](tests/TEXT_APPEARANCE.md) retain their rendering evidence.
 
 ## 6. Acceptance status
 
-Labels have their own [verification record](tests/LABELS.md): 18 isolated checks, 27
-artwork regression checks, live Director/View as player observations, layout and Lua
-performance measurements. It lists the unverified player/physical-input cases and the
-paused cleanup/publication steps. The older acceptance notes below describe earlier work.
+See the [test index](tests/README.md) for commands and feature-specific evidence.
+The 2026-10-16 pre-commit run passed 78 isolated checks, syntax/ASCII checks for all
+38 runtime/test Lua files, and the available module type checker with zero problems.
+The 13 window-host checks also passed in the recorded window/position-lock work.
 
-Verified live on the Director client: every M2-M4 surface (see the build notes in
-TECH_TASK_V2.md section 7b), the styles and accessibility pass (720x480, 1000x800,
-Expanded; Font Size 80/100/140; Default and Warm Gold with no `THEME_ENGINE` log lines;
-faded camera controls at 3:1 or better), and on one player client the M1 permissions and
-Show to players.
+Live checks cover the creation tools, breadcrumb truncation, tooltip cleanup,
+window sizing, label/pin formatting, image backgrounds, import preview, paths and
+travel on the Director client. Model fixtures cover permissions, failure/Retry,
+remote rebasing and guarded Undo. These do not replace separate player-client tests.
 
-**V2.1**, verified live on the Director client (build notes in TECH_TASK_V2_1.md section
-8): size guidance; Soft fade; import (24 entries with one Undo, duplicates, skips, over the
-limit, bad and empty files); both map kinds; every path pattern, label, hidden path and
-cascade with its Undo; the Path tool, Connect to... by keyboard, Redraw line and bend
-handles; travel by list and menu, stop partway, going on and turning back, Q14 replacement,
-hidden-path travel both ways, the Party moved off a deleted path; View as player for paths,
-travel options and the log. Accessibility pass (V21-18): line and casing contrast 6.5:1 or
-more, each line or its casing 4.5:1 or more on light, mid, dark and sea art, hidden lines
-3:1 or more against their casing, the toast Undo 5.8:1 or more, warning text in
-`@fgStrong`; Font Size 80/100/140; Default and Warm Gold with no `THEME_ENGINE` lines; every
-new action reachable without drag or hover.
+Still requiring targeted verification:
 
-Still open for V2.1 (needs a player client): the Travel list with "Players can move the
-Party" off and on, hidden paths absent, secret legs anonymous, no Move Party here on point
-crawl maps; Backspace in the Path tool (the bridge's keys do not reach `dmhub.KeyPressed`);
-the native file dialog for import.
-
-Still open (TECH_TASK_V2.md section 6.3, needs one Director and two player clients):
-player create, edit, move and delete of their own Locations; Hidden Locations absent
-everywhere for players (pin, search, breadcrumb, route, log, status); shared on/off and an
-open edit form surviving Show to players; Party drag, snap and undo with the player switch
-off and on; log entries and merging on a player; an undo refused after a remote edit; the
-fullscreen map in rail mode at Font Size 80 and 140, and Font Size with the rail off; pop out
-and return; mouse wheel over the fullscreen map must not also zoom the game map.
+- Real player-client editing, visibility, presentation, Party movement, secret legs,
+  asset access and late joins; simultaneous edits and remote Undo refusal.
+- The complete keyboard/focus/Escape matrix, including Tab and the intermittent
+  Space/freeze interaction recorded in the [window brief](docs/PANEL_VIEW_BRIEF.md).
+- Native file-picker cancellation, physical clipboard paste and fresh image uploads.
+- Native popout wheel routing remains an [engine issue](docs/POPOUT_WHEEL_ENGINE_HANDOFF.md).
 
 ## 7. Development
 
@@ -536,11 +457,10 @@ and return; mouse wheel over the fullscreen map must not also zoom the game map.
 - Change only files in `Region Map/`. Register new files with
   `mcp__dmhub__register_lua_file` in the order above; never edit `main.lua`.
 - Check syntax with `..\dependencies\lua\bin\luac.exe -p`. The required type checker is
-  `../tools/lua-typing/check.ps1`, with `tools/lua-typing/baseline.json` in this repository.
-  Both were absent during the labels work. The available `../dependencies/check-mod.ps1`
-  reported zero problems for Region Map; that is not a baseline-aware whole-codex pass.
+  `../tools/lua-typing/check.ps1`; it is absent in this checkout. The available
+  `../dependencies/check-mod.ps1 -Mod 'Region Map'` loads other mods as libraries and
+  checks this mod. It is not the prescribed whole-repository check.
 - Deploy with explicit paths so nothing outside the runtime files is copied:
   `.\deploy.ps1 "Region Map/RegionMapConstants.lua" ...`, then reload Lua. The app reads
   dev mods from a dev-mod folder named after the CodeMod, so these files go to
-  `<git folder>\Overland Map\`, not `Region Map\`. Where `deploy.ps1` cannot run, or does not
-  know the rename, copy the files there directly.
+  `<git folder>\Overland Map\`, not `Region Map\`. Use the repository deployment workflow.

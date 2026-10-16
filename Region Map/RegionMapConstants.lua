@@ -55,7 +55,7 @@ RegionMapConstants.visibilities = { "hidden", "revealed" }
 RegionMapConstants.scaleUnits = { "mi", "km" }
 
 -- Map image size guidance (V2.1 J1, brief W5): a newly picked image narrower or wider
--- than this warns with a toast; nothing is blocked. Measured 2026-10-08 (TECH_TASK_V2_1).
+-- than this warns with a toast; nothing is blocked. Measured 2026-10-08.
 RegionMapConstants.imageMinWidth = 1500             -- narrower blurs as soon as it is zoomed in
 RegionMapConstants.imageRecommendedWidth = 4000     -- shown in the hint and the warnings
 RegionMapConstants.imageMaxWidth = 12000            -- wider loads slowly for players

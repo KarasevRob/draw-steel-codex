@@ -3,9 +3,9 @@
 Status: sections 1-17 SIGNED OFF by the user 2026-10-05. Sections 18-25 (V2.1, companion to
 [V2_1_BRIEF.md](V2_1_BRIEF.md)) SIGNED OFF by the user 2026-10-08.
 Companion to [V2_BRIEF.md](V2_BRIEF.md).
-Every user-facing string in V2 is listed here. A string that is not in this file does not
-ship. IDs are the keys the code will use, so a wording change touches this file and one
-lookup table only.
+Reference wording and conventions for the mod. RegionMapCopy.lua is the runtime
+source; keep the corresponding entries here current when changing agreed wording.
+Removed copy IDs are available in Git history.
 
 ## 1. Conventions
 
@@ -79,8 +79,6 @@ lookup table only.
 | atlas.card.hidden | Hidden | Director-only Atlas badge when the map is not shared with players |
 | atlas.card.revealed | Revealed | Director-only Atlas badge when the map is shared with players |
 | atlas.card.count | {count} locations | Card footer |
-| ~~atlas.new~~ | ~~New map~~ | Dropped 2026-10-10: the card shows a plus icon and the `atlas.new.picker` tooltip (cleanup audit) |
-| ~~atlas.new.hint~~ | ~~Choose an image to start a top-level map~~ | Dropped 2026-10-10 with `atlas.new` (cleanup audit) |
 | atlas.new.picker | Choose a map image | Image picker title |
 | atlas.new.defaultName | New map | Name of a new map until renamed (opens with the name selected) |
 | map.new.hidden | New maps are hidden from players until you share them. | Always-visible inline notice on both steps of Atlas New map and Location Add map; absent for Replace map image. User approved 2026-10-14 |
@@ -248,7 +246,6 @@ Path tool, Ruler and View as player stay in the map toolbar, outside the Atlas m
 | ID | String | When / notes |
 |---|---|---|
 | search.placeholder | Search locations | |
-| ~~search.result.path~~ | ~~{map} > {parent}~~ | Dropped 2026-10-10: the result draws each ancestor as its own label with crumb icons between (cleanup audit) |
 | search.none | No locations match "{query}". | |
 | search.hint | Enter opens the top result. | Under the field (R9) |
 
@@ -313,9 +310,7 @@ Path tool, Ruler and View as player stay in the map toolbar, outside the Atlas m
 
 | ID | String | When / notes |
 |---|---|---|
-| ~~limit.locations~~ | ~~This map has 250 locations, the most it can hold. Delete some to add more.~~ | Dropped 2026-10-10 with the per-map cap (D13f revised) |
 | load.missing | Overland Map needs a newer Draw Steel Codex and was not loaded. Missing: {list} | As V1, with the new name |
-| ~~migrate.done~~ | ~~Region Map updated: your maps and labels are now locations. Nothing was removed.~~ | Dropped 2026-10-06 with the migration (brief R17) |
 
 ## 17. Choices made in this manifest
 
@@ -406,7 +401,6 @@ New glossary rows:
 | import.duplicates | {count} names are already on this map; they will be added again: | `.one`: "1 name is already on this map; it will be added again:" |
 | import.placement | Locations without a position are set out in rows near the center of the map. Unlock pins to place them exactly. One Undo removes the whole import. | Q24 |
 | import.ok | Import {count} locations | `.one`: "Import 1 location" |
-| ~~import.tooMany~~ | ~~This file has {count} locations, but {map} has room for {room} more (a map holds up to 250). Nothing will be imported; split the file and import it in parts.~~ | Dropped 2026-10-10 with the per-map cap (IM6 revised) |
 | import.error.json | This file isn't valid JSON, so nothing was imported. | Error card |
 | import.error.empty | This file has no locations in it. | Error card |
 | import.error.allSkipped | None of the entries in this file can be imported: | Error card, then the reasons |
