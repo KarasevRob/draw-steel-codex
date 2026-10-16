@@ -1263,7 +1263,7 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                             --A constrained pull ("toward the nearest enemy...") keeps its authored text, since the generic line cannot name the anchor.
                             local constraintMode = self:try_get("movementConstraint", "none")
                             if self.promptText ~= "" and constraintMode ~= "none" and constraintMode ~= "" then
-                                description = StringInterpolateGoblinScript(self.promptText, casterToken.properties:LookupSymbol{})
+                                description = StringInterpolateGoblinScript(self.promptText, casterToken.properties:LookupSymbol{}) or description
                             end
                             if #adjustments > 0 then
                                 description = description .. " (" .. table.concat(adjustments, ", ") .. ")"
