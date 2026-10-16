@@ -1,3 +1,5 @@
+-- Run through the MCP bridge after the label test fixture is installed; that fixture sets this global at runtime.
+---@diagnostic disable-next-line: undefined-global
 local f = assert(CodexLabelFixture)
 local canvas = f.Open(nil)
 f.ctx.SetPopover(nil)
