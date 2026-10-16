@@ -181,6 +181,7 @@ end
 function Host:Place(geometry)
     local clamp = RegionMapModel.Clamp
     local a, scale = self.area, self.scale
+    if a == nil then return end
     local width = clamp((geometry and geometry.width or C.panelWidth) * scale,
         C.windowMinWidth * scale, math.min(C.windowMaxWidth * scale, a.right - a.left))
     local height = clamp((geometry and geometry.height or C.panelHeight) * scale,
@@ -517,16 +518,18 @@ local function ShowMapHost(focus)
         pcall(function() popout:RaiseNativeWindow() end)
         return
     end
-    if IsOpen() then
-        inAppHost:Raise()
+    local host = inAppHost
+    if host ~= nil and host:Valid() then
+        host:Raise()
         return
     end
     OpenInApp(focus)
 end
 
 local function ToggleInApp()
-    if IsOpen() then
-        if inAppHost.mode == "window" and not inAppHost:Foremost() then inAppHost:Activate() else RequestClose() end
+    local host = inAppHost
+    if host ~= nil and host:Valid() then
+        if host.mode == "window" and not host:Foremost() then host:Activate() else RequestClose() end
     else
         ShowMapHost(true)
     end
