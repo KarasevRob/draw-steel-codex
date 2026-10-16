@@ -1,0 +1,364 @@
+-- Region Map review reproduction fixture, 2026-09-05.
+-- This is a review artifact, not a CodeMod file. Do not register or deploy it.
+-- Run with Lua 5.4 or compile and invoke via the DMHub MCP execute_lua tool.
+-- Only loadfile and print use the hosting runtime. All mod globals, records,
+-- settings, documents, GUI nodes, and writes are isolated in fixture tables.
+-- ERROR observations intentionally demonstrate defects in unchanged source.
+-- The fixture is not a renderer, network server, or live multiplayer test.
+-- Edit REVIEW_REPO below if running from another checkout.
+
+
+local function copy(value, seen)
+ if type(value) ~= "table" then return value end
+ seen=seen or {}; if seen[value] then return seen[value] end
+ local result={}; seen[value]=result
+ for k,v in pairs(value) do result[k]=copy(v,seen) end
+ return setmetatable(result,getmetatable(value))
+end
+local function fixture()
+ local F={tables={}, settings={}, docs={}, nodes={}, writes={}, scheduled={}, logs={}, guid=0,time=0}
+ local E={assert=assert,error=error,ipairs=ipairs,pairs=pairs,next=next,pcall=pcall,select=select,tonumber=tonumber,tostring=tostring,type=type,rawget=rawget,rawset=rawset,setmetatable=setmetatable,getmetatable=getmetatable,math=math,string=string,table=table,utf8=utf8}
+ E._G=E
+ E.print=function(...) local parts={}; for i=1,select("#",...) do parts[i]=tostring(select(i,...)) end; F.logs[#F.logs+1]=table.concat(parts," ") end
+ E.DeepCopy=copy
+ E.ServerTimestamp=function() return "timestamp-"..F.time end
+ E.TimestampAgeInSeconds=function() return 0 end
+ E.setting=function(args) F.settings[args.id]=copy(args.default) end
+ E.RegisterGameType=function(name)
+   local T={}
+   T.new=function(fields)
+    local obj=copy(fields)
+    return setmetatable(obj,{__index=function(t,k)
+      if k=="try_get" then return function(self,key,default) local v=rawget(self,key); if v==nil then return default end; return v end end
+      if T[k]~=nil then return T[k] end
+      error("Attempt to read unknown field "..tostring(k).." in type "..name)
+    end})
+   end
+   return T
+ end
+ local mod={unloaded=false}
+ function mod:RegisterDocumentForCheckpointBackups(id) F.backup=id end
+ function mod:GetDocumentSnapshot(id)
+   if not F.docs[id] then
+    F.docs[id]={data={},path="/fixture/"..id,
+     BeginChange=function() end,
+     CompleteChange=function(_,description) F.writes[#F.writes+1]={document=id,description=description} end}
+   end
+   return F.docs[id]
+ end
+ E.dmhub={
+  isDM=true,loginUserid="director",userDisplayName="Director",mouseWheel=0,
+  GetModLoading=function() return mod end,
+  GetTable=function(name) return F.tables[name] end,
+  SetAndUploadTableItem=function(name,record)
+    F.writes[#F.writes+1]={tableName=name,record=copy(record)}
+    if not F.delayWrites then F.tables[name]=F.tables[name] or {}; F.tables[name][record.id]=copy(record) end
+    return record.id
+  end,
+  GetSettingValue=function(id) return F.settings[id] end,
+  SetSettingValue=function(id,value) F.settings[id]=copy(value) end,
+  GenerateGuid=function() F.guid=F.guid+1; return "guid-"..F.guid end,
+  Time=function() return F.time end,
+  Schedule=function(delay,fn) F.scheduled[#F.scheduled+1]=fn end,
+  KeyPressed=function(key) return F.keys and F.keys[key] or false end
+ }
+ E.ThemeEngine={MergeStyles=function(s) return s end,OnThemeChanged=function() return {Deregister=function() end} end}
+ local methods={}
+ function methods:SetClass(c,on) self._classes[c]=on==true end
+ function methods:HasClass(c) return self._classes[c]==true end
+ function methods:SetClassTree(c,on) self:SetClass(c,on) end
+ function methods:FireEvent(event,...)
+  local fn=(self.events or {})[event] or rawget(self,event)
+  if type(fn)=="function" then return fn(self,...) end
+ end
+ function methods:DestroySelf() self.valid=false end
+ function methods:ScheduleEvent(event,delay) F.scheduled[#F.scheduled+1]=function() self:FireEvent(event) end end
+ function methods:GetMouseButton(index) return F.mouseButtons and F.mouseButtons[index] or false end
+ function methods:UpdateStyle() end
+ local function node(args)
+   local n=args or {}; n.data=n.data or {}; n.events=n.events or {}; n._classes={}; n.selfStyle={}
+   n.valid=true; n.renderedWidth=800;n.renderedHeight=600;n.children=n.children or {}
+   for _,c in ipairs(n.classes or {}) do n._classes[c]=true end
+   for _,child in ipairs(n) do n.children[#n.children+1]=child end
+   setmetatable(n,{__index=methods});F.nodes[#F.nodes+1]=n; return n
+ end
+ E.gui={Panel=node,Label=node,Input=node,Button=node,Dropdown=node,Check=node,IconEditor=node,
+  ModalMessage=function(args) F.modal=args end,
+  SetFocus=function(n) for _,el in ipairs(F.nodes) do el.hasFocus=false end; n.hasFocus=true end}
+ E.GameHud={
+  PresentDialogPath=function() return "/fixture/present" end,
+  GetPresentDialogDoc=function() return F.present end,
+  PresentDialogToUsers=function(_,id,args) F.present={data={dialog={dialog=id,args=args},timestamp="now"}} end,
+  HidePresentedDialog=function() F.present=nil end
+ }
+ F.E=E;F.mod=mod
+ function F:load(source,name) local f,e=load(source,"@"..name,"t",E);assert(f,e); f() end
+ function F:find(key,value)
+  for i=#self.nodes,1,-1 do local n=self.nodes[i]; if rawget(n,key)==value then return n end end
+ end
+ function F:class(c)
+  for i=#self.nodes,1,-1 do local n=self.nodes[i];if n:HasClass(c) then return n end end
+ end
+ function F:map(id,published)
+  local m=E.RegionMapRecord.new{id=id or "map",schemaVersion=1,name=id or "North Coast",imageId="image",imageRevision=1,published=published~=false,revision=1,hidden=false}
+  self.tables[E.RegionMapAddon.mapTableName]=self.tables[E.RegionMapAddon.mapTableName] or {}
+  self.tables[E.RegionMapAddon.mapTableName][m.id]=m;return m
+ end
+ function F:label(id,mapid,owner)
+  local l=E.RegionMapLabelRecord.new{id=id or "label",schemaVersion=1,mapId=mapid or "map",u=0.5,v=0.5,text="Old Tower",ownerId=owner or "director",ownerName="Director",createdByDirector=true,visibility="shared",revision=1,hidden=false}
+  self.tables[E.RegionMapAddon.labelTableName]=self.tables[E.RegionMapAddon.labelTableName] or {}
+  self.tables[E.RegionMapAddon.labelTableName][l.id]=l;return l
+ end
+ function F:open()
+  local root=E.RegionMapAddon.Panel.Create(); self.root=root;root:FireEvent("create"); return root
+ end
+ function F:readyImage()
+  local image=self:class("regionMapImage");image.bgimageWidth=1600;image.bgimageHeight=1000;image:FireEvent("imageLoaded")
+ end
+ return F
+end
+
+local REVIEW_REPO = "C:/Users/ElderHex/IdeaProjects/draw-steel-codex/"
+local function loadFixtureFile(f,relative)
+ local chunk,err=loadfile(REVIEW_REPO..relative,"t",f.E);assert(chunk,err);chunk()
+end
+local function boot()
+ local f=fixture()
+ loadFixtureFile(f,"Region Map/RegionMapModel.lua")
+ loadFixtureFile(f,"Region Map/RegionMapStyles.lua")
+ loadFixtureFile(f,"Region Map/RegionMapPanel.lua")
+ return f
+end
+local function check(name,fn)
+ local ok,result=pcall(fn)
+ print("REVIEW_TEST "..name.." => "..(ok and tostring(result) or "ERROR: "..tostring(result)))
+end
+
+check("map_actions",function()
+ local f=boot();f:map();f:open();f:find("tooltip","More map actions"):FireEvent("click");return "opened"
+end)
+check("labels_toggle",function()
+ local f=boot();f:map();f:open();local b=f:find("tooltip","Labels")
+ b:FireEvent("click");local first=f.root.data.drawerMode;b:FireEvent("click")
+ return "first="..tostring(first)..", second="..tostring(f.root.data.drawerMode)
+end)
+check("malformed_label_missing_mapId",function()
+ local f=boot();f:map();local l=f:label();l.mapId=nil;return f.E.RegionMapAddon.Model.IsValidLabel(l)
+end)
+check("malformed_map_scalar",function()
+ local f=boot();return f.E.RegionMapAddon.Model.IsValidMap(42)
+end)
+check("valid_fit_and_roundtrip",function()
+ local f=boot();local P=f.E.RegionMapAddon.Panel;local c={zoom=1,centerX=.5,centerY=.5}
+ local l=P.CalculateImageLayout(800,600,1600,900,c)
+ assert(l.x==0 and l.y==75 and l.width==800 and l.height==450)
+ assert(P.PanelToImage(l,400,10)==nil)
+ local x,y=P.ImageToPanel(l,.3,.7);local u,v=P.PanelToImage(l,x,y)
+ assert(math.abs(u-.3)<1e-9 and math.abs(v-.7)<1e-9);return "PASS"
+end)
+
+local function bootActions()
+ local f=boot()
+ -- Fixture-only adapter to reach workflows behind the separately proven missing import.
+ f.E.PlayersCanMoveParty=f.E.RegionMapAddon.Model.PlayersCanMoveParty
+ return f
+end
+local function addAtCenter(f,text)
+ f:find("tooltip","Add Label"):FireEvent("click")
+ local canvas=f:find("id","region-map-canvas");canvas.mousePoint={x=0.5,y=0.5};canvas:FireEvent("click")
+ local input=f:find("placeholderText","Label text");input.text=text;input:FireEvent("enter")
+end
+check("delete_after_director_revocation",function()
+ local f=bootActions();f:map();f:open()
+ f:find("tooltip","More map actions"):FireEvent("click");f:find("text","Delete Map"):FireEvent("click")
+ f.E.dmhub.isDM=false;f.E.dmhub.loginUserid="player"
+ f.modal.options[1].execute()
+ return "writes="..#f.writes..", tombstoned="..tostring(f.E.RegionMapAddon.Model.IsTombstoned("map"))
+end)
+check("unpublish_after_director_revocation",function()
+ local f=bootActions();f:map();f:open()
+ f:find("tooltip","More map actions"):FireEvent("click");f:find("text","Unpublish Map"):FireEvent("click")
+ f.E.dmhub.isDM=false;f.modal.options[1].execute()
+ return "published="..tostring(f.E.RegionMapAddon.Model.GetMap("map").published)..", writes="..#f.writes
+end)
+check("delete_label_after_unpublish",function()
+ local f=boot();local map=f:map();local label=f:label("label","map","player")
+ f.E.dmhub.isDM=false;f.E.dmhub.loginUserid="player";f:open()
+ f:class("regionMapLabel"):FireEvent("press");f:find("tooltip","Labels"):FireEvent("click")
+ f:find("text","Delete Label"):FireEvent("click")
+ map.published=false
+ f.root:FireEvent("refreshAssets")
+ f.modal.options[1].execute()
+ return "hidden="..tostring(f.tables.RegionMapLabelRecords.label.hidden)..", writes="..#f.writes
+end)
+check("same_revision_remote_label",function()
+ local f=boot();f:map();local l=f:label();l.revision=6;f:open()
+ f:class("regionMapLabel"):FireEvent("press")
+ l.text="Remote winner";l.updatedBy="player";l.updatedByName="Player";l.revision=6
+ f.root:FireEvent("refreshAssets")
+ return "marker="..f:class("regionMapLabel").text..", notice="..f:class("regionMapNotice").text
+end)
+check("escape_during_party_drag",function()
+ local f=boot();f:map();f.E.RegionMapAddon.Model.WriteParty("map",0.2,0.2);f.writes={}
+ f:open();f:readyImage()
+ local p=f:class("regionMapParty");p:FireEvent("press");p.dragDelta={x=40,y=20};p:FireEvent("dragging")
+ f:find("id","region-map-canvas"):FireEvent("escape")
+ local preview=p.data.previewU
+ p:FireEvent("drag")
+ return "previewAfterEscape="..tostring(preview)..", writesAfterDrop="..#f.writes..", partyU="..f.E.RegionMapAddon.Model.GetParty().u
+end)
+check("same_map_image_replacement_during_label_drag",function()
+ local f=boot();local map=f:map();f:label();f:open();f:readyImage()
+ local p=f:class("regionMapLabel");p:FireEvent("press");p.dragDelta={x=40,y=20};p:FireEvent("dragging")
+ map.imageId="replacement";map.imageRevision=2
+ f.root:FireEvent("refreshAssets")
+ local preview=p.data.previewU;p:FireEvent("drag")
+ return "retainedPreview="..tostring(preview)..", writes="..#f.writes
+end)
+check("label_capacity_two_unacknowledged_creates",function()
+ local f=boot();f:map()
+ for i=1,249 do f:label("label-"..i) end
+ f:open();f:readyImage();f.delayWrites=true
+ addAtCenter(f,"First");addAtCenter(f,"Second")
+ return "existing="..f.E.RegionMapAddon.Model.LabelCount("map")..", acceptedUploads="..#f.writes
+end)
+check("map_actions_toggle",function()
+ local f=bootActions();f:map();f:open();local b=f:find("tooltip","More map actions")
+ b:FireEvent("click");b:FireEvent("click");return "afterSecondClick="..tostring(f.root.data.drawerMode)
+end)
+check("drawer_recreated_on_unrelated_refresh",function()
+ local f=boot();f:map();f:label();f:open();f:find("tooltip","Labels"):FireEvent("click")
+ local before=f:find("placeholderText","Search labels")
+ before.text="Unsaved";before:FireEvent("edit")
+ f.root:FireEvent("refreshGame")
+ local after=f:find("placeholderText","Search labels")
+ return "replaced="..tostring(before~=after)..", retainedText="..tostring(after.text)
+end)
+
+check("same_revision_remote_party",function()
+ local f=boot();f:map();local M=f.E.RegionMapAddon.Model
+ M.WriteParty("map",0.2,0.2);local party=M.StateDocument().data.party;party.revision=6
+ f:open();party.u=0.8;party.revision=6;party.updatedBy="player";party.updatedByName="Player"
+ f.root:FireEvent("refreshGame")
+ return "partyU="..f.root.data.partySnapshot.u..", notice="..f:class("regionMapNotice").text
+end)
+check("stale_dialog_after_mod_unload",function()
+ local f=boot();f.E.PlayersCanMoveParty=f.E.RegionMapAddon.Model.PlayersCanMoveParty
+ f:map();f:open();f:find("tooltip","More map actions"):FireEvent("click");f:find("text","Delete Map"):FireEvent("click")
+ f.mod.unloaded=true;f.root.valid=false
+ f.modal.options[1].execute()
+ return "writes="..#f.writes..", tombstoned="..tostring(f.E.RegionMapAddon.Model.IsTombstoned("map"))
+end)
+check("wheel_outside_canvas_documented_zero_point",function()
+ local f=boot();f:map();f:open();f:readyImage()
+ local c=f:find("id","region-map-canvas");c.mousePoint={x=0,y=0}
+ f.E.dmhub.mouseWheel=1;c:FireEvent("think")
+ return "zoom="..f.root.data.camera.zoom
+end)
+check("unsupported_state_schema",function()
+ local f=boot();f:map();local M=f.E.RegionMapAddon.Model;local d=M.StateDocument()
+ d.data.schemaVersion=999;d.data.playerCanMoveParty=true;d.data.party={mapId="map",u=0.2,v=0.3,revision=1}
+ f.E.dmhub.isDM=false
+ return "partyAccepted="..tostring(M.GetParty()~=nil)..", permissionAccepted="..tostring(M.CanMoveParty())
+end)
+check("huge_integer_image_revision",function()
+ local f=boot();local m=f:map();m.imageRevision=1e100
+ local M=f.E.RegionMapAddon.Model;local accepted=M.IsValidMap(m)
+ local ok,err=pcall(M.CameraKey,m)
+ return "validMap="..tostring(accepted)..", cameraKeyOk="..tostring(ok)..", error="..tostring(err)
+end)
+check("invalid_utf8_and_newline_record",function()
+ local f=boot();f:map();local l=f:label();l.text="line1\nline2"
+ local M=f.E.RegionMapAddon.Model;local newline=M.IsValidLabel(l);l.text=string.char(255)
+ return "newlineAccepted="..tostring(newline)..", invalidUtf8Accepted="..tostring(M.IsValidLabel(l))
+end)
+check("failed_write_clears_new_label_editor",function()
+ local f=boot();f:map();f:open();f:readyImage()
+ f.E.dmhub.SetAndUploadTableItem=function() return nil end
+ f:find("tooltip","Add Label"):FireEvent("click");local c=f:find("id","region-map-canvas");c.mousePoint={x=.5,y=.5};c:FireEvent("click")
+ local input=f:find("placeholderText","Label text");input.text="Unsaved";input:FireEvent("enter")
+ return "draft="..tostring(f.root.data.inlineDraft)..", labels="..f.E.RegionMapAddon.Model.LabelCount("map")..", notice="..f:class("regionMapNotice").text
+end)
+check("positive_validation_and_visibility",function()
+ local f=boot();local draft=f:map("A-draft",false);local pub=f:map("Z-published",true);local l=f:label("label","Z-published","player");l.createdByDirector=false;l.visibility="director"
+ local M=f.E.RegionMapAddon.Model
+ assert(M.ResolveFallbackMap(M.VisibleMaps(),nil,true).id=="Z-published")
+ f.E.dmhub.isDM=false;f.E.dmhub.loginUserid="player"
+ assert(not M.CanViewMap(draft));assert(M.CanViewLabel(l));assert(M.CanEditLabel(l));assert(M.LabelVisibility(l)=="shared")
+ assert(M.WriteParty("Z-published",.5,.5)==false)
+ local c=M.ReadCamera(pub);assert(c.zoom==1)
+ return "PASS"
+end)
+
+check("same_name_two_pending_map_creates",function()
+ local f=boot();f:open();f.delayWrites=true
+ local openCreate=f:find("text","Create Map")
+ for i=1,2 do
+  openCreate:FireEvent("click")
+  local name=f:find("placeholderText","Map name");name.text="North Coast";name:FireEvent("edit")
+  f.root.data.drawerDraft.imageId="image"
+  f:find("id","region-map-create-save"):FireEvent("click")
+ end
+ return "acceptedUploads="..#f.writes..", sameNames="..tostring(f.writes[1].record.name==f.writes[2].record.name)
+end)
+check("camera_after_present_then_switch",function()
+ local f=boot();f:map("A");f:map("B");f:open();f:readyImage()
+ f.present={data={dialog={args={regionMapId="B",nonce="n",ttl=10}},timestamp="now"}}
+ f.root:FireEvent("refreshGame");f:readyImage()
+ local selector=f:find("id","region-map-selector");selector.idChosen="A";selector:FireEvent("change")
+ f.root:FireEvent("refreshGame")
+ return "selection="..f.root.data.selectedMapId..", nonce="..f.root.data.lastPresentNonce
+end)
+check("layout_invalid_numbers",function()
+ local f=boot();local P=f.E.RegionMapAddon.Panel
+ assert(P.CalculateImageLayout(0,600,1600,1000,{})==nil)
+ assert(P.CalculateImageLayout(800,600,0/0,1000,{})==nil)
+ local c={zoom=30,centerX=-1,centerY=2};local l=P.CalculateImageLayout(800,600,1600,1000,c)
+ assert(c.zoom==20 and c.centerX>=0 and c.centerY<=1)
+ return "PASS"
+end)
+check("replacement_highlight_remote_client",function()
+ local f=boot();local map=f:map();f:label();f:open();f:readyImage()
+ map.imageRevision=2;map.imageId="replacement";f.root:FireEvent("refreshAssets");f:readyImage()
+ return "retainedRevision="..tostring(f.root.data.retainedRevision)..", markerRetained="..tostring(f:class("regionMapLabel"):HasClass("retained"))
+end)
+check("published_map_lost_clears_interaction",function()
+ local f=boot();local m=f:map();f.E.dmhub.isDM=false;f:open();f:readyImage()
+ f:find("tooltip","Add Label"):FireEvent("click");m.published=false;f.root:FireEvent("refreshAssets")
+ assert(f.root.data.selectedMapId==nil and f.root.data.tool=="navigate")
+ return "PASS"
+end)
+
+check("armed_tool_footer",function()
+ local f=boot();f:map();f:open();f:readyImage()
+ f:find("tooltip","Add Label"):FireEvent("click")
+ return "tool="..f.root.data.tool..", footer="..f:class("regionMapStatus").text
+end)
+check("tool_cancel_footer",function()
+ local f=boot();f:map();f:open();f:readyImage()
+ f:find("tooltip","Add Label"):FireEvent("click");f.root:FireEvent("refreshGame")
+ f:find("id","region-map-canvas"):FireEvent("escape")
+ return "tool="..f.root.data.tool..", footer="..f:class("regionMapStatus").text
+end)
+check("role_promotion_controls_stay_hidden",function()
+ local f=boot();f:map();f.E.dmhub.isDM=false;f:open()
+ f.E.dmhub.isDM=true;f.root:FireEvent("refreshGame")
+ return "presentCollapsed="..tostring(f:find("id","region-map-present"):HasClass("collapsed"))..", actionsCollapsed="..tostring(f:find("tooltip","More map actions"):HasClass("collapsed"))
+end)
+check("create_pending_map_disappears_after_delayed_ack",function()
+ local f=boot();f:open();f.delayWrites=true
+ f:find("text","Create Map"):FireEvent("click")
+ f.root.data.drawerDraft.name="North Coast";f.root.data.drawerDraft.imageId="image"
+ f:find("id","region-map-create-save"):FireEvent("click")
+ local id=f.root.data.pendingSelectMapId
+ assert(id~=nil and f.root.data.selectedMapId==nil)
+ f.tables.RegionMapRecords={[id]=f.writes[1].record};f.root:FireEvent("refreshAssets")
+ assert(f.root.data.selectedMapId==id and f.root.data.pendingSelectMapId==nil)
+ return "PASS"
+end)
+check("bootstrap_fail_closed_missing_public_service",function()
+ local f=boot()
+ setmetatable(f.E,{__index=function(_,k) error("Attempt to read uninitialized variable "..tostring(k)) end})
+ loadFixtureFile(f,"Region Map/RegionMap.lua")
+ return "registration skipped cleanly"
+end)
