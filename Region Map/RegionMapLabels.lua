@@ -485,34 +485,35 @@ function RegionMapLabels.CancelPending(id, status)
     if drafts[id] ~= nil and not running then drafts[id] = nil; queue.Touch(id) end
 end
 
---- @param id string
+--- @param id nil|string
 function RegionMapLabels.Flush(id)
-    queue.Flush(id)
+    if id ~= nil then queue.Flush(id) end
 end
 
 --- Typed changes wait for the autosave delay (or Flush). Blank text is allowed while typing.
---- @param id string
+--- @param id nil|string
 --- @param changes table
 --- @return boolean accepted
 function RegionMapLabels.Stage(id, changes)
     local row = Labels.Snapshot(id)
-    if not Labels.CanEdit(row) then return false end
-    changes = Changes(changes, Model.IsDirector(), true, row)
-    if changes == nil then return false end
-    queue.Stage(id, changes)
+    if id == nil or not Labels.CanEdit(row) then return false end
+    local valid = Changes(changes, Model.IsDirector(), true, row)
+    if valid == nil then return false end
+    queue.Stage(id, valid)
     return true
 end
 
 --- A finished gesture (move, resize, rotate) or a delete, saved now after any typing.
---- @param id string
+--- @param id nil|string
 --- @param changes table
 --- @param kind nil|string
 --- @return boolean accepted
 function RegionMapLabels.Commit(id, changes, kind)
     local row = Labels.Snapshot(id)
-    if not Labels.CanEdit(row) then return false end
-    changes = Changes(changes, Model.IsDirector(), false, row)
-    if changes == nil then return false end
+    if id == nil or not Labels.CanEdit(row) then return false end
+    local valid = Changes(changes, Model.IsDirector(), false, row)
+    if valid == nil then return false end
+    changes = valid
     queue.Flush(id)
     local batches = queue.Unconfirmed(id)
     local draft = drafts[id]
@@ -536,9 +537,9 @@ function RegionMapLabels.RequestDelete(id)
     return Labels.Commit(id, {}, "delete")
 end
 
---- @param id string
+--- @param id nil|string
 function RegionMapLabels.Retry(id)
-    queue.Retry(id)
+    if id ~= nil then queue.Retry(id) end
 end
 
 --- The editor closed: send typed changes; a draft with nothing to create is discarded.

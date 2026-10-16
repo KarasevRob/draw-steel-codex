@@ -65,24 +65,26 @@ function RegionMapPinText.Snapshot(map)
     return A.MergePinPatch(result, pending)
 end
 
---- @param id string
+--- @param id nil|string
 --- @return string
 function RegionMapPinText.Status(id)
+    if id == nil then return "saved" end
     return queue.Status(id)
 end
 
---- @param id string
+--- @param id nil|string
 --- @param callback nil|fun()
 function RegionMapPinText.Observe(id, callback)
-    queue.Observe(id, callback)
+    if id ~= nil then queue.Observe(id, callback) end
 end
 
 --- Queue a change (reset = start from the theme defaults); false when invalid or not permitted.
---- @param id string
+--- @param id nil|string
 --- @param patch table
 --- @param reset nil|boolean
 --- @return boolean
 function RegionMapPinText.Commit(id, patch, reset)
+    if id == nil then return false end
     if not PinText.CanEdit(id) then queue.Cancel(id); return false end
     if not A.ValidPinPatch(patch) then return false end
     if not A.CanChange(PinText.Snapshot(Model.GetLocation(id)), patch, Model.IsDirector(), reset) then return false end
@@ -90,9 +92,9 @@ function RegionMapPinText.Commit(id, patch, reset)
     return true
 end
 
---- @param id string
+--- @param id nil|string
 function RegionMapPinText.Retry(id)
-    queue.Retry(id)
+    if id ~= nil then queue.Retry(id) end
 end
 
 --- Forget idle map queues once Settings is gone.
