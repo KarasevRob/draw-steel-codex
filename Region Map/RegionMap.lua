@@ -557,7 +557,7 @@ DockablePanel.Deregister(C.panelName)
 -- launch instead of opening a window. content is still built for the native popout.
 DockablePanel.Register {
     name = C.panelName,
-    icon = C.panelIcon,
+    icon = mod.images["compass-icon"] or C.panelIcon,
     dmonly = false,
     vscroll = false,
     minWidth = C.windowMinWidth,

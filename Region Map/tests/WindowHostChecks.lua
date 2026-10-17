@@ -21,7 +21,7 @@ local function Fixture()
     local f = { settings = { hideactionbar = false }, keys = {}, scale = 1, rail = true, builds = 0, raises = 0 }
     local env = setmetatable({}, { __index = _G }) --[[@as table<string, any>]]
     env._G = env
-    local mod = { unloaded = false }
+    local mod = { unloaded = false, images = {} }
     f.mod = mod
     env.print = function() end
     env.RegisterGameType = function() return {} end
