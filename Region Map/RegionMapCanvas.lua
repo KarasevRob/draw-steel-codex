@@ -153,7 +153,7 @@ function RegionMapCanvas.Create(ctx)
     local fadingPanel = nil --- @type nil|Panel the previous map, fading out under the new one
     local edgeFade -- the Soft fade border, laid out over the image
     -- Pins and the Party live in one layer that slides as a whole while the
-    -- map pans, so a pan moves one panel instead of every pin (V2-21). The
+    -- map pans, so a pan moves one panel instead of every pin. The
     -- layer must stay interactable: a non-interactable layer stops its pins' clicks.
     local pinLayer
     local pinChildren = {} --- @type Panel[]
@@ -719,7 +719,7 @@ function RegionMapCanvas.Create(ctx)
 
     partyGlyph = gui.Panel { classes = { "regionMapPartyGlyph" }, bgimage = C.iconParty, interactable = false }
     partyName = gui.Label {
-        classes = { "regionMapPartyName" }, floating = true, interactable = false, text = "",
+        classes = { "regionMapPartyName", "sizeS" }, floating = true, interactable = false, text = "",
     }
     local partyDisc = gui.Panel { classes = { "regionMapPartyDisc" }, interactable = false, partyGlyph }
 
@@ -1049,7 +1049,7 @@ function RegionMapCanvas.Create(ctx)
         if state.drag == nil or state.drag.kind ~= "bend" then pathLayer.SetHandles(PathTool.HandlesFor(ctx), nil) end
     end
 
-    -- The line being drawn follows the pointer from its last point (V21-11).
+    -- The line being drawn follows the pointer from its last point.
     local function UpdateDraft(mouseX, mouseY)
         local layout = state.layout
         local points, look = nil, nil
@@ -1214,7 +1214,7 @@ function RegionMapCanvas.Create(ctx)
             state.keyEdges[key] = down
             return down and not previous
         end
-        -- Backspace drops the last bend of the line being drawn (V21-11).
+        -- Backspace drops the last bend of the line being drawn.
         if KeyEdge("Backspace") and PathTool.Back(ctx) then Layout() end
         local horizontal, vertical = 0, 0
         if KeyEdge("LeftArrow") then horizontal = horizontal - 1 end
@@ -1445,7 +1445,7 @@ function RegionMapCanvas.Create(ctx)
             local x, y = PointerInCanvas()
             if x == nil or y == nil then return end
             if data.tool == "none" then
-                -- A click within a path's band selects it (V21-09).
+                -- A click within a path's band selects it.
                 local pathId = PathUnder(x, y)
                 if pathId ~= nil then ctx.SelectPath(pathId)
                 elseif not data.locked then
@@ -1629,4 +1629,201 @@ function RegionMapCanvas.Create(ctx)
         imagePanel, edgeFade, labelLayer.layer, pinLayer, labelLayer.handles, controls,
     }
     return canvas
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapCanvas.Styles()
+    return {
+        {
+            selectors = { "regionMapCanvas" },
+            width = "100%",
+            height = "100%",
+            minWidth = 0,
+            minHeight = 0,
+            bgcolor = "@bgAlt",
+        },
+        {
+            selectors = { "regionMapImage" },
+            bgcolor = "white",
+        },
+        {
+            selectors = { "regionMapFadeEdge" },
+            bgimage = true,
+            bgcolor = "@bgAlt",
+        },
+        RegionMapStyles.FadeEdge("regionMapFadeLeft", { halign = "left", height = "100%" }, { x = 0, y = 0.5 }, { x = 1, y = 0.5 }),
+        RegionMapStyles.FadeEdge("regionMapFadeRight", { halign = "right", height = "100%" }, { x = 1, y = 0.5 }, { x = 0, y = 0.5 }),
+        RegionMapStyles.FadeEdge("regionMapFadeTop", { valign = "top", width = "100%" }, { x = 0.5, y = 1 }, { x = 0.5, y = 0 }),
+        RegionMapStyles.FadeEdge("regionMapFadeBottom", { valign = "bottom", width = "100%" }, { x = 0.5, y = 0 }, { x = 0.5, y = 1 }),
+        {
+            selectors = { "regionMapPin" },
+            flow = "none",
+            bgimage = true,
+            bgcolor = "clear",
+        },
+        {
+            selectors = { "regionMapPin", "hiddenPin" },
+            opacity = 0.55,
+        },
+        {
+            selectors = { "regionMapWaiting" },
+            opacity = 0,
+            priority = 10,
+        },
+        {
+            selectors = { "regionMapPinDisc" },
+            width = "100%",
+            height = "100%",
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@fgStrong",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapPinDisc", "parent:hover" },
+            borderColor = "@accent",
+        },
+        {
+            selectors = { "regionMapPinDisc", "parent:selected" },
+            borderColor = "@accent",
+            borderWidth = 3,
+        },
+        {
+            selectors = { "regionMapPinDisc", "parent:snapTarget" },
+            bgcolor = "@accent",
+            borderColor = "@fgStrong",
+            borderWidth = 3,
+        },
+        {
+            selectors = { "regionMapPinGlyph" },
+            width = "62%",
+            height = "62%",
+            halign = "center",
+            valign = "center",
+            bgcolor = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapPinGlyph", "image" },
+            width = "80%",
+            height = "80%",
+            bgcolor = "white",
+        },
+        {
+            selectors = { "regionMapPinName" },
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            valign = "top",
+            color = "@fgStrong",
+            fontFace = "@label",
+            bold = true,
+            textAlignment = "center",
+            textWrap = false,
+            -- Outline width is a 0..1 fraction of the glyph; larger values erode the text.
+            textOutlineWidth = 0.3,
+            textOutlineColor = "@bg",
+        },
+        {
+            selectors = { "regionMapPinName", "plate" },
+            valign = "center",
+            hpad = 7,
+            vpad = 2,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@border",
+            borderWidth = 1,
+            cornerRadius = 4,
+            textOutlineWidth = 0,
+        },
+        {
+            selectors = { "regionMapPinName", "plate", "customPinBackground" },
+            borderWidth = 0,
+        },
+        {
+            selectors = { "regionMapPinName", "plate", "parent:hover" },
+            borderColor = "@accent",
+            borderWidth = 1,
+        },
+        {
+            selectors = { "regionMapPinName", "plate", "parent:selected" },
+            borderColor = "@accent",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapPinName", "plate", "parent:snapTarget" },
+            borderColor = "@accent",
+            borderWidth = 3,
+        },
+        {
+            selectors = { "regionMapPinBadge" },
+            width = 14,
+            height = 14,
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@fgStrong",
+            borderWidth = 1,
+            cornerRadius = 7,
+        },
+        {
+            selectors = { "regionMapPinBadgeGlyph" },
+            width = "72%",
+            height = "72%",
+            halign = "center",
+            valign = "center",
+            bgcolor = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapParty" },
+            flow = "none",
+            bgimage = true,
+            bgcolor = "clear",
+        },
+        {
+            selectors = { "regionMapPartyDisc" },
+            width = "100%",
+            height = "100%",
+            bgimage = true,
+            bgcolor = "@accent",
+            borderColor = "@fgStrong",
+            borderWidth = 3,
+        },
+        {
+            selectors = { "regionMapPartyDisc", "parent:hover" },
+            borderColor = "@accentHover",
+        },
+        {
+            selectors = { "regionMapPartyGlyph" },
+            width = "60%",
+            height = "60%",
+            halign = "center",
+            valign = "center",
+            bgcolor = "@bg",
+        },
+        {
+            selectors = { "regionMapPartyGlyph", "image" },
+            width = "100%",
+            height = "100%",
+            bgcolor = "white",
+        },
+        {
+            selectors = { "regionMapPartyName" },
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            valign = "top",
+            hpad = 6,
+            vpad = 1,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@accent",
+            borderWidth = 1,
+            cornerRadius = 4,
+            color = "@fgStrong",
+            bold = true,
+            textWrap = false,
+        },
+    }
 end

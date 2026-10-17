@@ -2,23 +2,34 @@
 
 ## Test helpers
 
-The seven Lua helpers remain active. They are not registered CodeMod files.
+The eight Lua suites and the offline runner are not registered CodeMod files.
 LabelChecks provides the isolated model fixture used by several other suites.
 
 | Suite | Checks | Execution |
 |---|---:|---|
 | CanvasToolsChecks | 5 | Offline |
 | TextAppearanceChecks | 13 | Offline |
-| LabelChecks | 18 | Offline |
-| PinTextChecks | 15 | Offline |
+| LabelChecks | 26 | Offline |
+| PinTextChecks | 17 | Offline |
 | ArtworkChecks | 27 | Offline |
-| WindowHostChecks | 13 | Offline; includes the core resize helper |
+| WindowHostChecks | 15 | Offline; includes the core resize helper |
+| ImportOfflineChecks | 12 | Offline; transport, preview, Undo, Travel sort and log IDs |
 | ImportChecks | Parser/editor checks | Connected Director app; no Import writes in the editor suite |
 
-On 2026-10-16, the first five suites passed together (78 checks), all 38 mod Lua files
-passed syntax/ASCII checks, and the available module type checker reported zero problems.
-The required whole-repository checker is absent. WindowHost's 13 checks passed in the
-recorded window work. These results do not replace the live-input checks below.
+The review follow-up passes 115 isolated checks across seven offline suites. It adds
+bounded previews, single-read parsing, partial imports, sidecar-aware Undo, failure and
+timeout recovery, focus ownership and unknown pin-format fields. ImportOfflineChecks
+uses a stub JSON parser and transport: the live ImportChecks suite still owns actual
+engine parser/editor verification. All new live tests remain deferred.
+
+Run all offline suites from the repository root (also run by the Overland Map CI job):
+
+```powershell
+& '..\dependencies\lua\bin\lua.exe' 'Region Map/tests/RunOffline.lua'
+```
+
+See the [review follow-up](../docs/REVIEW_FIXES_2026-10-17.md) for type-check status and
+the remaining live verification. Historical results below predate these changes.
 
 Run any offline suite from the repository root:
 

@@ -1,8 +1,8 @@
 local mod = dmhub.GetModLoading()
 
 --- The two toolbar popovers, drawn inside the window under the toolbar:
---- Search (V2-13, every Location the viewer can see on any map) and the
---- Director's Settings (V2-16, manifest section 13). ctx.data.popover says
+--- Search (every Location the viewer can see on any map) and the
+--- Director's Settings (manifest section 13). ctx.data.popover says
 --- which one is open; the shell closes it with Esc or a press on the map.
 ---
 --- Events on the returned panel:
@@ -30,7 +30,7 @@ end
 
 local function BuildSearch(ctx)
     local results = gui.Panel { classes = { "regionMapPopoverList" } }
-    local none = Label({ "regionMapHint", "collapsed" })
+    local none = Label({ "regionMapHint", "collapsed", "sizeXs" })
     local found, selected, lastQuery = {}, 1, nil
     local searchKey = nil
 
@@ -43,7 +43,7 @@ local function BuildSearch(ctx)
                 if #parts > 0 then
                     parts[#parts + 1] = gui.Panel { classes = { "regionMapCrumbSep", "small" }, bgimage = C.iconCrumb, interactable = false }
                 end
-                parts[#parts + 1] = Label({ "regionMapResultPath" }, Copy.Literal(Model.DisplayName(path[i])))
+                parts[#parts + 1] = Label({ "regionMapResultPath", "sizeXs" }, Copy.Literal(Model.DisplayName(path[i])))
             end
         end
         return gui.Panel { classes = { "regionMapResultPathRow" }, interactable = false, children = parts }
@@ -71,8 +71,8 @@ local function BuildSearch(ctx)
         local rows = {} --- @type Panel[]
         for _, result in ipairs(found) do
             local children = {
-                Label({ "regionMapLabelKind" }, T(result.kind == "label" and "label.title" or "label.location")),
-                Label({ "regionMapRowName" }, Copy.Literal(result.name)),
+                Label({ "regionMapLabelKind", "sizeXs" }, T(result.kind == "label" and "label.title" or "label.location")),
+                Label({ "regionMapRowName", "sizeS" }, Copy.Literal(result.name)),
             }
             local location = result.kind == "label" and Model.GetLocation(result.row.mapId) or result.row
             if location ~= nil then children[#children + 1] = PathRow(location, result.kind == "label") end
@@ -125,7 +125,7 @@ local function BuildSearch(ctx)
     local body = gui.Panel {
         classes = { "regionMapPopoverBody", "collapsed" },
         input,
-        Label({ "regionMapHint" }, T("label.searchHint")),
+        Label({ "regionMapHint", "sizeXs" }, T("label.searchHint")),
         none,
         results,
     }
@@ -149,13 +149,13 @@ local function BuildSettings(ctx)
     local function Section(text)
         return gui.Panel {
             classes = { "regionMapSectionHeader" },
-            Label({ "regionMapSectionLabel" }, text),
+            Label({ "regionMapSectionLabel", "sizeS" }, text),
         }
     end
 
     local function Check(text, onChange)
         return gui.Check {
-            classes = { "regionMapCheck" }, text = text, value = false, fontSize = 14,
+            classes = { "regionMapCheck", "sizeS" }, text = text, value = false,
             change = function(element) if not mod.unloaded then onChange(element.value == true) end end,
         }
     end
@@ -221,7 +221,7 @@ local function BuildSettings(ctx)
         ctx.Report(Model.UpdateLocation(map.id, changes, description))
         ctx.RefreshAll()
     end
-    local scaleValue = Label({ "regionMapBody" })
+    local scaleValue = Label({ "regionMapBody", "sizeS" })
     local setScale = Button(T("set.map.scale.set"), function()
         data.scaleDraft = nil
         ctx.SetPopover(nil)
@@ -263,7 +263,7 @@ local function BuildSettings(ctx)
     end)
     local scaleFields = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
-        Label({ "regionMapFormLabel" }, T("set.map.scale.distance")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.map.scale.distance")),
         distance,
         units,
     }
@@ -281,7 +281,7 @@ local function BuildSettings(ctx)
     }
     local paceFields = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
-        Label({ "regionMapFormLabel" }, T("set.map.pace")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.map.pace")),
         pace,
     }
 
@@ -315,7 +315,7 @@ local function BuildSettings(ctx)
                 ctx.RefreshAll()
             end,
             preview,
-            Label({ "regionMapBorderName" }, T("set.border." .. border)),
+            Label({ "regionMapBorderName", "sizeXs" }, T("set.border." .. border)),
         }
     end
 
@@ -323,14 +323,14 @@ local function BuildSettings(ctx)
     local mapSection = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
         Section(T("set.map")),
-        Label({ "regionMapFormLabel" }, T("set.map.scale")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.map.scale")),
         scaleValue,
         gui.Panel { classes = { "regionMapButtonRow" }, setScale },
         scaleFields,
         paceFields,
-        Label({ "regionMapFormLabel" }, T("set.map.border")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.map.border")),
         gui.Panel { classes = { "regionMapBorderTiles" }, children = borderTiles },
-        Label({ "regionMapHint" }, T("set.map.border.hint")),
+        Label({ "regionMapHint", "sizeXs" }, T("set.map.border.hint")),
         pinText,
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
     }
@@ -385,7 +385,7 @@ local function BuildSettings(ctx)
         }
     end
     local widthSegments = Segments(C.pathWidthOrder, "width.", function(value) EditType({ width = value }) end)
-    local sameLook = Label({ "regionMapHint" })
+    local sameLook = Label({ "regionMapHint", "sizeXs" })
 
     local function DeleteType()
         local item = RegionMapPaths.TypeById(editingTypeId)
@@ -414,17 +414,17 @@ local function BuildSettings(ctx)
 
     local typeEditor = gui.Panel {
         classes = { "regionMapTypeEditor" },
-        Label({ "regionMapFormLabel" }, T("set.pathType.name")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.pathType.name")),
         typeName,
-        Label({ "regionMapFormLabel" }, T("set.pathType.pattern")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.pathType.pattern")),
         patternRows[1],
         patternRows[2],
-        Label({ "regionMapFormLabel" }, T("set.pathType.color")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.pathType.color")),
         gui.Panel { classes = { "regionMapSwatches" }, children = swatches },
-        Label({ "regionMapFormLabel" }, T("set.pathType.width")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.pathType.width")),
         widthSegments,
         sameLook,
-        gui.Label { classes = { "regionMapLink", "danger" }, tmargin = 8, text = T("set.pathType.delete"), click = DeleteType },
+        gui.Label { classes = { "regionMapLink", "danger", "sizeS" }, tmargin = 8, text = T("set.pathType.delete"), click = DeleteType },
     }
     -- The editor always lives in the list (collapsed when closed): a panel left
     -- without a parent warns and misses the root's styles.
@@ -432,8 +432,8 @@ local function BuildSettings(ctx)
 
     local function TypeRow(id)
         local sample = RegionMapPathLayer.Sample(40)
-        local name = Label({ "regionMapRowName", "regionMapTypeName" })
-        local edit = Label({ "regionMapTypeEdit" }, T("set.pathType.edit"))
+        local name = Label({ "regionMapRowName", "regionMapTypeName", "sizeS" })
+        local edit = Label({ "regionMapTypeEdit", "sizeS" }, T("set.pathType.edit"))
         return gui.Panel {
             classes = { "regionMapRow", "regionMapTypeRow" },
             data = { id = id, sample = sample, name = name },
@@ -505,11 +505,11 @@ local function BuildSettings(ctx)
         Section(T("set.game")),
         playersAdd,
         playersLabels,
-        Label({ "regionMapFormLabel" }, T("set.timeUnit")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.timeUnit")),
         unitSegments,
-        Label({ "regionMapHint" }, T("set.timeUnit.hint")),
-        Label({ "regionMapFormLabel" }, T("set.pathTypes")),
-        Label({ "regionMapHint" }, T("set.pathTypes.hint")),
+        Label({ "regionMapHint", "sizeXs" }, T("set.timeUnit.hint")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.pathTypes")),
+        Label({ "regionMapHint", "sizeXs" }, T("set.pathTypes.hint")),
         typesList,
         gui.Panel { classes = { "regionMapButtonRow" }, addType },
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
@@ -525,13 +525,13 @@ local function BuildSettings(ctx)
     -- one (Q22): the open map, the whole game, the Party, then only this viewer.
     local body = gui.Panel {
         classes = { "regionMapPopoverBody", "collapsed" },
-        Label({ "regionMapPopoverTitle" }, T("set.title")),
+        Label({ "regionMapPopoverTitle", "sizeM" }, T("set.title")),
         mapSection,
         gameSection,
         Section(T("set.party")),
-        Label({ "regionMapFormLabel" }, T("set.party.name")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.party.name")),
         partyName,
-        Label({ "regionMapFormLabel" }, T("set.party.image")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("set.party.image")),
         gui.Panel {
             classes = { "regionMapSideRow" },
             partyImageSlot,
@@ -671,4 +671,264 @@ function RegionMapPopovers.Create(ctx)
         scroll,
     }
     return panel
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapPopovers.Styles()
+    return {
+        RegionMapStyles.Chrome("regionMapPopover", {
+            width = C.popoverWidth,
+            maxWidth = "100%-16",
+            -- Sized to its content; the scroll inside it caps the height at the
+            -- space between the toolbar and the bottom controls (RegionMapPopovers).
+            height = "auto",
+            halign = "right",
+            valign = "top",
+            rmargin = C.chromeInset,
+            tmargin = C.belowChromeBar,
+            flow = "vertical",
+            borderColor = "@accent",
+        }),
+        {
+            selectors = { "regionMapPopoverScroll" },
+            width = "100%",
+            height = "auto",
+            hpad = 12,
+            vpad = 10,
+            borderBox = true,
+        },
+        {
+            selectors = { "regionMapPopoverBody" },
+            width = "100%",
+            height = "auto",
+            valign = "top",
+            flow = "vertical",
+        },
+        {
+            selectors = { "regionMapPopoverTitle" },
+            width = "100%",
+            height = "auto",
+            bmargin = 4,
+            bold = true,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapPopoverInput" },
+            -- The theme's input padding lands outside the width on a gui.SearchInput, and
+            -- borderBox does not take it back; 28 less fits the panel padding (measured live).
+            width = "100%-28",
+            height = 30,
+            -- The search field's own hpad (room for the magnifier) must stay inside the 100%.
+            borderBox = true,
+        },
+        {
+            selectors = { "regionMapPopoverList" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            tmargin = 6,
+        },
+        {
+            selectors = { "regionMapResult" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            hpad = 8,
+            vpad = 5,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "clear",
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapResult", "hover" },
+            bgcolor = "@bgAlt",
+            transitionTime = 0.1,
+        },
+        {
+            selectors = { "regionMapResultPathRow" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+            tmargin = 1,
+        },
+        {
+            selectors = { "regionMapResultPath" },
+            halign = "left",
+            width = "auto",
+            height = "auto",
+            maxWidth = 140,
+            valign = "center",
+            color = "@fgMuted",
+            textWrap = false,
+        },
+        {
+            selectors = { "regionMapBorderTiles" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+            tmargin = 2,
+        },
+        {
+            selectors = { "regionMapBorderTile" },
+            width = "25%",
+            height = "auto",
+            flow = "vertical",
+            hpad = 3,
+            vpad = 3,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "clear",
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapBorderTile", "available", "hover" },
+            bgcolor = "@bgAlt",
+            transitionTime = 0.1,
+        },
+        {
+            selectors = { "regionMapBorderPreview", "parent:needsArt" },
+            opacity = 0.35,
+        },
+        {
+            selectors = { "regionMapBorderName", "parent:needsArt" },
+            opacity = 0.6,
+        },
+        {
+            selectors = { "regionMapBorderPreview" },
+            width = "100%",
+            height = 44,
+            bgimage = true,
+            bgcolor = "white",
+            borderColor = "@border",
+            borderWidth = 1,
+            cornerRadius = 3,
+        },
+        {
+            selectors = { "regionMapBorderPreview", "parent:selected" },
+            borderColor = "@accent",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapBorderName" },
+            width = "100%",
+            height = "auto",
+            tmargin = 3,
+            textAlignment = "center",
+            color = "@fgMuted",
+        },
+        {
+            selectors = { "regionMapBorderName", "parent:selected" },
+            bold = true,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapTypeRow" },
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapTypeRow", "selected" },
+            bgcolor = "@bgAlt",
+        },
+        {
+            selectors = { "regionMapTypeName" },
+            width = "100%-90",
+            lmargin = 8,
+        },
+        {
+            selectors = { "regionMapTypeName", "parent:selected" },
+            bold = true,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapTypeEdit" },
+            width = "auto",
+            height = "auto",
+            halign = "right",
+            valign = "center",
+            color = "@accent",
+        },
+        {
+            selectors = { "regionMapTypeEdit", "parent:hover" },
+            color = "@accentHover",
+        },
+        {
+            selectors = { "regionMapTypeEditor" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            bmargin = 6,
+            hpad = 8,
+            vpad = 6,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bgAlt",
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapSwatches" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+        },
+        {
+            selectors = { "regionMapSwatch" },
+            width = 28,
+            height = 28,
+            rmargin = 6,
+            flow = "none",
+            bgimage = true,
+            bgcolor = "clear",
+            borderColor = "@border",
+            borderWidth = 1,
+            cornerRadius = 14,
+        },
+        {
+            selectors = { "regionMapSwatch", "hover" },
+            borderColor = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapSwatch", "selected" },
+            borderColor = "@accent",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapSwatchFill" },
+            width = 24,
+            height = 24,
+            halign = "center",
+            valign = "center",
+            bgimage = true,
+            cornerRadius = 12,
+        },
+        {
+            selectors = { "regionMapSwatchFill", "parent:ink" },
+            borderColor = "@fgStrong",
+            borderWidth = 1,
+        },
+        {
+            selectors = { "regionMapSwatchCheck" },
+            width = 14,
+            height = 14,
+            halign = "center",
+            valign = "center",
+            bgcolor = C.pathCasingDark,
+            opacity = 0,
+        },
+        {
+            selectors = { "regionMapSwatchCheck", "parent:selected" },
+            opacity = 1,
+        },
+        {
+            selectors = { "regionMapSwatchCheck", "parent:ink" },
+            bgcolor = C.pathCasingLight,
+        },
+        {
+            selectors = { "regionMapResult", "keyboardSelected" },
+            bgcolor = "@bgAlt",
+            borderColor = "@accent",
+            borderWidth = 1,
+        },
+    }
 end

@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- Party travel on point crawl maps (V21-17): the Party section at the right
+--- Party travel on point crawl maps: the Party section at the right
 --- edge (opened by clicking the banner or the status chip, G1), the Party's
 --- right-click "Travel to" menu, the hidden-path question (W1) and the
 --- Director's stop card for placing the Party partway along a path (G3, G7).
@@ -105,19 +105,19 @@ function RegionMapPartyPanel.Create(ctx)
     local signature = nil --- @type nil|string the rows were last built from this
 
     local icon = gui.Panel { classes = { "regionMapSideIcon" }, bgimage = C.iconParty, interactable = false }
-    local title = gui.Label { classes = { "regionMapSideTitle" }, text = T("party.section") }
+    local title = gui.Label { classes = { "regionMapSideTitle", "sizeL" }, text = T("party.section") }
     local closeButton = Session.IconButton("region-map-party-close", C.iconClose, T("panel.close"), function()
         if data.panelMode == "party" then
             data.panelMode = "none"
             ctx.RefreshAll()
         end
     end)
-    local status = Label({ "regionMapBody" })
-    local message = Label({ "regionMapBody" })
+    local status = Label({ "regionMapBody", "sizeS" })
+    local message = Label({ "regionMapBody", "sizeS" })
     local heading = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
-        Label({ "regionMapSectionLabel" }, T("party.travelTo")),
+        Label({ "regionMapSectionLabel", "sizeS" }, T("party.travelTo")),
     }
     local rows = gui.Panel { width = "100%", height = "auto", flow = "vertical", tmargin = 4 }
 
@@ -125,8 +125,8 @@ function RegionMapPartyPanel.Create(ctx)
         local children = {
             gui.Panel {
                 classes = { "regionMapTravelText" }, interactable = false,
-                Label({ "regionMapRowName" }, T("party.travel.row", { dest = NameOf(option.toId), path = PathLabel(path) })),
-                Label({ "regionMapMeta" }, Paths.FormatTime(option.time)),
+                Label({ "regionMapRowName", "sizeS" }, T("party.travel.row", { dest = NameOf(option.toId), path = PathLabel(path) })),
+                Label({ "regionMapMeta", "sizeXs" }, Paths.FormatTime(option.time)),
             },
         } --- @type Panel[]
         -- The Director sees which ways players don't know yet (W1).
@@ -240,8 +240,8 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
     local layer
     local state = { pathId = nil, fromId = nil } --- @type {pathId: nil|string, fromId: nil|string}
 
-    local title = gui.Label { classes = { "regionMapConfirmTitle" }, text = "", interactable = false }
-    local fieldLabel = Label({ "regionMapFormLabel" })
+    local title = gui.Label { classes = { "regionMapConfirmTitle", "sizeL" }, text = "", interactable = false }
+    local fieldLabel = Label({ "regionMapFormLabel", "sizeXs" })
     local Place
     local input = gui.Input {
         id = "region-map-stop-time", classes = { "input", "bordered", "regionMapInput", "regionMapTimeInput" },
@@ -250,8 +250,8 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
         -- Enter places the Party, like the Place Party button.
         submit = function() if not mod.unloaded and Place ~= nil then Place() end end,
     }
-    local of = Label({ "regionMapBody", "regionMapTimeUnit" })
-    local errorLine = Label({ "regionMapHint", "danger", "collapsed" })
+    local of = Label({ "regionMapBody", "regionMapTimeUnit", "sizeS" })
+    local errorLine = Label({ "regionMapHint", "danger", "collapsed", "sizeXs" })
     local swapButton
 
     local function Close()
@@ -315,7 +315,7 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
             gui.Panel { classes = { "regionMapTimeRow" }, input, of },
             errorLine,
             swapButton,
-            Label({ "regionMapHint" }, T("dlg.stop.hint")),
+            Label({ "regionMapHint", "sizeXs" }, T("dlg.stop.hint")),
             gui.Panel {
                 classes = { "regionMapConfirmButtons" },
                 gui.Button {
@@ -341,4 +341,37 @@ function RegionMapPartyPanel.CreateStopCard(ctx)
     end
     layer.data.close = Close
     return layer
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapPartyPanel.Styles()
+    return {
+        {
+            selectors = { "regionMapTravelText" },
+            width = "100%-22",
+            height = "auto",
+            flow = "vertical",
+            halign = "left",
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapTimeRow" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+        },
+        {
+            selectors = { "regionMapTimeInput" },
+            width = 100,
+            halign = "left",
+        },
+        {
+            selectors = { "regionMapTimeUnit" },
+            width = "auto",
+            halign = "left",
+            valign = "center",
+            lmargin = 8,
+        },
+    }
 end

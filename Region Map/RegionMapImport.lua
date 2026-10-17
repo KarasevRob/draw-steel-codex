@@ -36,8 +36,10 @@ local running = false
 --- A checked file: what will be created and what was left out.
 --- @class RegionMapImportPlan
 --- @field entries RegionMapImportEntry[]
---- @field skipped string[] one reason line per skipped entry, in file order
---- @field duplicates string[] names already on the map, each once
+--- @field skipped string[] first importPreviewLimit reasons, in file order
+--- @field skippedCount integer total skipped entries
+--- @field duplicates string[] first importPreviewLimit names already on the map, each once
+--- @field duplicateCount integer total distinct duplicate names
 --- @field error nil|"json"|"empty"|"allSkipped"
 
 -- Enum fields of an entry and the values each accepts.
@@ -103,14 +105,12 @@ end
 -- Anything else holds no entries. JSON nulls arrive as gaps, kept as nil entries.
 local function EntriesOf(data)
     if type(data) == "table" and data.locations ~= nil then data = data.locations end
-    local list = {}
-    if type(data) ~= "table" then return list, 0 end
+    if type(data) ~= "table" then return {}, 0 end
     local count = 0
     for key in pairs(data) do
         if math.type(key) == "integer" and key > count then count = key end
     end
-    for i = 1, count do list[i] = data[i] end
-    return list, count
+    return data, count
 end
 
 --- Check a parsed file against a map.
@@ -119,7 +119,7 @@ end
 --- @return RegionMapImportPlan
 function RegionMapImport.Check(data, mapId)
     --- @type RegionMapImportPlan
-    local plan = { entries = {}, skipped = {}, duplicates = {}, error = nil }
+    local plan = { entries = {}, skipped = {}, skippedCount = 0, duplicates = {}, duplicateCount = 0, error = nil }
     local list, count = EntriesOf(data)
     if count == 0 then
         plan.error = "empty"
@@ -131,13 +131,15 @@ function RegionMapImport.Check(data, mapId)
     for index = 1, count do
         local entry, reason = RegionMapImport.CheckEntry(list[index], index)
         if entry == nil then
-            plan.skipped[#plan.skipped + 1] = reason or ""
+            plan.skippedCount = plan.skippedCount + 1
+            if #plan.skipped < C.importPreviewLimit then plan.skipped[#plan.skipped + 1] = reason or "" end
         else
             plan.entries[#plan.entries + 1] = entry
             local key = R.MapNameKey(entry.name)
             if existing[key] and not listed[key] then
                 listed[key] = true
-                plan.duplicates[#plan.duplicates + 1] = entry.name
+                plan.duplicateCount = plan.duplicateCount + 1
+                if #plan.duplicates < C.importPreviewLimit then plan.duplicates[#plan.duplicates + 1] = entry.name end
             end
         end
     end
@@ -145,18 +147,25 @@ function RegionMapImport.Check(data, mapId)
     return plan
 end
 
---- Read and parse a file. The engine returns nil for both an empty file and
---- invalid JSON, so the raw text tells them apart.
+--- Parse the same text that was checked; file imports have no editor length cap.
+--- @param text nil|string
+--- @return any data
+--- @return nil|"json"|"empty" error
+local function ParseText(text)
+    if text == nil then return nil, "json" end
+    if R.TextLength(text) == math.huge then return nil, "json" end
+    text = text:gsub("^\239\187\191", "")
+    if text:match("^%s*$") then return nil, "empty" end
+    local ok, parsed = pcall(dmhub.FromJson, text)
+    if not ok or type(parsed) ~= "table" or parsed.success ~= true or parsed.result == nil then return nil, "json" end
+    return parsed.result, nil
+end
+
 --- @param path string
 --- @return any data
 --- @return nil|"json"|"empty" error
 function RegionMapImport.ReadFile(path)
-    local text = dmhub.ReadTextFile(path)
-    if text == nil then return nil, "json" end
-    if text:gsub("^\239\187\191", ""):match("^%s*$") then return nil, "empty" end
-    local data = dmhub.ParseJsonFile(path)
-    if data == nil then return nil, "json" end
-    return data, nil
+    return ParseText(dmhub.ReadTextFile(path))
 end
 
 --- Parse pasted JSON without letting the editor's native cap silently shorten an import.
@@ -167,14 +176,7 @@ function RegionMapImport.ReadText(text)
     local length = R.TextLength(text)
     if length == math.huge then return nil, "json" end
     if length > C.importTextLimit then return nil, "tooLong" end
-    text = text:gsub("^\239\187\191", "")
-    if text:match("^%s*$") then return nil, "empty" end
-    local ok, parsed = pcall(dmhub.FromJson, text)
-    -- FromJson can report success for malformed JSON but return no result.
-    if not ok or type(parsed) ~= "table" or parsed.success ~= true or parsed.result == nil then
-        return nil, "json"
-    end
-    return parsed.result, nil
+    return ParseText(text)
 end
 
 --- @param mapId nil|string
@@ -297,11 +299,12 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
                 if result.step == nil then trackers[i].Settle(false) end
             end
             if not WaitFor(function() return pending <= 0 end) then failed = true end
-            local created = {} --- @type {id: string, entry: RegionMapImportEntry}[]
+            local created = {} --- @type {id: string, entry: RegionMapImportEntry, step: RegionMapUndoStep}[]
             for i, result in ipairs(results) do
                 if trackers[i].ok and result.step ~= nil and result.id ~= nil then
+                    Model.GuardLocationUndo(result.step)
                     confirmed[#confirmed + 1] = result.step
-                    created[#created + 1] = { id = result.id, entry = plan.entries[first + i - 1] }
+                    created[#created + 1] = { id = result.id, entry = plan.entries[first + i - 1], step = result.step }
                 end
             end
 
@@ -325,6 +328,8 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
                         local tracker = Tracker()
                         if not Model.SaveDirectorNote(row.id, row.entry.note, tracker.callbacks) then tracker.Settle(false) end
                     end
+                    -- Capture our text writes before yielding to edits in this or another window.
+                    Model.GuardLocationUndo(row.step)
                 end
                 if not WaitFor(function() return pending <= 0 end) then failed = true end
             end
@@ -341,6 +346,8 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
             failed = true
             print("REGION_MAP: import stopped: " .. tostring(message))
         end
+        -- Release the lock before touching UI callbacks, which may themselves fail.
+        onDone()
         if not mod.unloaded then
             local map = Model.GetLocation(mapId)
             local entry = { description = "Import region map locations", steps = confirmed, partial = true }
@@ -352,7 +359,7 @@ local function Commit(ctx, mapId, plan, aspect, onDone)
                 ctx.Push(entry, "toast.imported", { count = #confirmed, map = Model.DisplayName(map) })
             end
         end
-        onDone()
+        if not mod.unloaded and ctx.IsAlive() then ctx.RefreshAll() end
     end)
 end
 
@@ -427,8 +434,8 @@ function RegionMapImport.Create(ctx)
         local map = Model.GetLocation(state.mapId)
         if map ~= nil then state.mapName = Model.DisplayName(map) end
         SetText(target, T("import.into", { map = state.mapName }))
-        SetText(counter, T("import.count", { count = length == math.huge and "?" or length }))
-        SetText(errorLabel, errorId ~= nil and T(errorId) or "")
+        SetText(counter, T("import.count", { count = length == math.huge and "?" or length, limit = C.importTextLimit }))
+        SetText(errorLabel, errorId ~= nil and T(errorId, { limit = C.importTextLimit }) or "")
         errorLabel:SetClass("collapsed", errorId == nil)
         previewButton:SetClass("disabled", reason ~= nil or length > C.importTextLimit or not HasDraft())
         okButton:SetClass("disabled", reason ~= nil or running)
@@ -497,7 +504,7 @@ function RegionMapImport.Create(ctx)
     end
 
     local function Line(text, classes)
-        return gui.Label { classes = classes or { "regionMapImportLine" }, text = text, interactable = false }
+        return gui.Label { classes = classes or { "regionMapImportLine", "sizeS" }, text = text, interactable = false }
     end
 
     local function ShowRows(rows)
@@ -513,8 +520,9 @@ function RegionMapImport.Create(ctx)
         ctx.RefreshAll()
     end
 
-    local function Reasons(rows, reasons)
-        for _, reason in ipairs(reasons) do rows[#rows + 1] = Line(reason, { "regionMapImportLine", "item" }) end
+    local function Reasons(rows, reasons, total)
+        for _, reason in ipairs(reasons) do rows[#rows + 1] = Line(reason, { "regionMapImportLine", "item", "sizeS" }) end
+        if total > #reasons then rows[#rows + 1] = Line(T("import.more", { count = total - #reasons })) end
     end
 
     local function Preview(data, source, readError)
@@ -538,23 +546,23 @@ function RegionMapImport.Create(ctx)
         end
         if plan.error == "allSkipped" then
             local rows = { Line(T(errorPrefix .. "allSkipped")) }
-            Reasons(rows, plan.skipped)
+            Reasons(rows, plan.skipped, plan.skippedCount)
             ShowRows(rows)
             return
         end
         local count = #plan.entries
-        local rows = { Line(T("import.summary", { count = count, map = Model.DisplayName(map) }), { "regionMapImportLine", "lead" }) }
-        if #plan.skipped > 0 then
-            rows[#rows + 1] = Line(T("import.skipped", { count = #plan.skipped }), { "regionMapImportLine", "heading" })
-            Reasons(rows, plan.skipped)
+        local rows = { Line(T("import.summary", { count = count, map = Model.DisplayName(map) }), { "regionMapImportLine", "lead", "sizeM" }) }
+        if plan.skippedCount > 0 then
+            rows[#rows + 1] = Line(T("import.skipped", { count = plan.skippedCount }), { "regionMapImportLine", "heading", "sizeS" })
+            Reasons(rows, plan.skipped, plan.skippedCount)
         end
-        if #plan.duplicates > 0 then
-            rows[#rows + 1] = Line(T("import.duplicates", { count = #plan.duplicates }), { "regionMapImportLine", "heading" })
+        if plan.duplicateCount > 0 then
+            rows[#rows + 1] = Line(T("import.duplicates", { count = plan.duplicateCount }), { "regionMapImportLine", "heading", "sizeS" })
             local names = {} --- @type string[]
             for _, name in ipairs(plan.duplicates) do names[#names + 1] = Copy.Literal(name) end
-            Reasons(rows, names)
+            Reasons(rows, names, plan.duplicateCount)
         end
-        rows[#rows + 1] = Line(T("import.placement"), { "regionMapImportLine", "note" })
+        rows[#rows + 1] = Line(T("import.placement"), { "regionMapImportLine", "note", "sizeS" })
         local job = {
             data = data, plan = plan, source = source, aspect = 1.5,
             imageId = map.imageId, imageRevision = map.imageRevision, mapName = Model.DisplayName(map),
@@ -582,6 +590,7 @@ function RegionMapImport.Create(ctx)
         local fresh = RegionMapImport.Check(job.data, map.id)
         if job.mapName ~= Model.DisplayName(map) or job.imageId ~= map.imageId or job.imageRevision ~= map.imageRevision
             or fresh.error ~= job.plan.error or #fresh.entries ~= #job.plan.entries
+            or fresh.skippedCount ~= job.plan.skippedCount or fresh.duplicateCount ~= job.plan.duplicateCount
             or not SameLines(fresh.skipped, job.plan.skipped) or not SameLines(fresh.duplicates, job.plan.duplicates) then
             Preview(job.data, job.source, nil)
             return
@@ -651,9 +660,9 @@ function RegionMapImport.Create(ctx)
         edit = function() if Alive() then SyncInput() end end,
         change = function() if Alive() then SyncInput() end end,
     })
-    target = Line("", { "regionMapImportLine", "regionMapImportTarget" })
-    counter = Line("", { "regionMapImportLine", "regionMapImportCounter" })
-    errorLabel = Line("", { "regionMapImportLine", "regionMapImportError", "collapsed" })
+    target = Line("", { "regionMapImportLine", "regionMapImportTarget", "sizeS" })
+    counter = Line("", { "regionMapImportLine", "regionMapImportCounter", "sizeS" })
+    errorLabel = Line("", { "regionMapImportLine", "regionMapImportError", "collapsed", "sizeS" })
     errorLabel.id = "region-map-import-error"
     local fields = {
         { name = "name", kind = "string", limit = C.textLimit, required = true },
@@ -669,8 +678,8 @@ function RegionMapImport.Create(ctx)
     local contractLines = { T("import.help.shape"), T("import.help.required"), "" }
     --- @type Panel[]
     local fieldRows = {
-        Line(T("import.help.shape"), { "monospace", "regionMapImportDetail" }),
-        Line(T("import.help.required"), { "regionMapImportDetail" }),
+        Line(T("import.help.shape"), { "monospace", "regionMapImportDetail", "sizeXs" }),
+        Line(T("import.help.required"), { "regionMapImportDetail", "sizeXs" }),
     }
     for _, field in ipairs(fields) do
         local name = field.name .. (field.required and " *" or "")
@@ -683,19 +692,19 @@ function RegionMapImport.Create(ctx)
             gui.Panel {
                 width = "100%", height = "auto", flow = "horizontal", wrap = true,
                 gui.Label {
-                    classes = { "monospace", "noBold", "regionMapImportFieldName" }, text = name, interactable = false,
+                    classes = { "monospace", "noBold", "regionMapImportFieldName", "sizeS" }, text = name, interactable = false,
                 },
                 gui.Label {
-                    classes = { "monospace", "regionMapImportType" }, text = field.kind, interactable = false,
+                    classes = { "monospace", "regionMapImportType", "sizeXs" }, text = field.kind, interactable = false,
                 },
             },
-            Line(detail, { "regionMapImportDetail" }),
+            Line(detail, { "regionMapImportDetail", "sizeXs" }),
             gui.Panel { classes = { "regionMapRule" }, interactable = false },
         }
     end
     local behavior = T("import.help.behavior", { limit = C.importTextLimit }, true)
     contractLines[#contractLines + 1] = "\n" .. behavior
-    fieldRows[#fieldRows + 1] = Line(behavior, { "regionMapImportDetail" })
+    fieldRows[#fieldRows + 1] = Line(behavior, { "regionMapImportDetail", "sizeXs" })
     local contract = table.concat(contractLines, "\n")
     contractScroll = gui.Panel {
         id = "region-map-import-contract-scroll", classes = { "bordered", "bg", "regionMapImportContract" },
@@ -712,7 +721,7 @@ function RegionMapImport.Create(ctx)
         gui.Panel {
             classes = { "regionMapImportHeader" },
             gui.Label {
-                classes = { "regionMapImportHeading" }, text = T("import.help"), interactable = false,
+                classes = { "regionMapImportHeading", "sizeS" }, text = T("import.help"), interactable = false,
             },
             gui.Button {
                 id = "region-map-import-copy-contract", classes = { "regionMapButton", "sizeS", "regionMapImportCopy" },
@@ -739,10 +748,10 @@ function RegionMapImport.Create(ctx)
                 classes = { "regionMapImportEditColumn" },
                 gui.Panel {
                     classes = { "regionMapImportHeader" },
-                    Line(T("import.paste"), { "regionMapImportHeading" }),
+                    Line(T("import.paste"), { "regionMapImportHeading", "sizeS" }),
                 },
                 editor, counter,
-                Line(T("import.draftHint"), { "regionMapImportLine", "note" }),
+                Line(T("import.draftHint"), { "regionMapImportLine", "note", "sizeS" }),
             },
             gui.Panel { classes = { "regionMapImportHelpColumn" }, children = help },
         },
@@ -809,7 +818,7 @@ function RegionMapImport.Create(ctx)
                     element:SetClassTree("importNarrow", narrow)
                 end
             end,
-            gui.Label { classes = { "regionMapConfirmTitle" }, text = T("import.title"), interactable = false },
+            gui.Label { classes = { "regionMapConfirmTitle", "sizeL" }, text = T("import.title"), interactable = false },
             target, editScroll, previewScroll, errorLabel,
             gui.Panel {
                 classes = { "regionMapImportActions", "footer" }, previewButton, backButton, okButton,
@@ -829,4 +838,260 @@ function RegionMapImport.Create(ctx)
     layer.data.close = function() RequestClose(nil) end
     layer.data.requestClose = RequestClose
     return layer
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapImport.Styles()
+    return {
+        {
+            selectors = { "regionMapConfirm", "regionMapImportCard" },
+            width = C.importCardWidth,
+            height = C.importCardHeight,
+            -- Percentage caps apply to content bounds, so reserve the card's padding.
+            maxWidth = "90%-40",
+            maxHeight = "90%-40",
+        },
+        {
+            selectors = { "regionMapConfirm", "regionMapImportCard", "importNarrow" },
+            pad = 8,
+            borderBox = true,
+            maxWidth = "90%-16",
+            maxHeight = "90%-16",
+        },
+        {
+            selectors = { "regionMapImportEditBody" },
+            width = "100%-16",
+            height = "auto",
+            flow = "vertical",
+            halign = "left",
+            valign = "top",
+        },
+        {
+            selectors = { "regionMapImportScroll" },
+            width = "100%",
+            height = "100% available",
+            minHeight = 0,
+            tmargin = 10,
+        },
+        {
+            selectors = { "regionMapImportColumns" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+            halign = "left",
+            valign = "top",
+        },
+        {
+            selectors = { "regionMapImportColumns", "importNarrow" },
+            flow = "vertical",
+        },
+        {
+            selectors = { "regionMapImportEditColumn" },
+            width = "60%-16",
+            height = "auto",
+            flow = "vertical",
+            valign = "top",
+            rmargin = 16,
+        },
+        {
+            selectors = { "regionMapImportHelpColumn" },
+            width = "40%",
+            height = "auto",
+            flow = "vertical",
+            halign = "left",
+            valign = "top",
+        },
+        {
+            selectors = { "regionMapImportEditColumn", "importNarrow" },
+            width = "100%",
+            rmargin = 0,
+        },
+        {
+            selectors = { "regionMapImportHelpColumn", "importNarrow" },
+            width = "100%",
+            tmargin = 12,
+        },
+        {
+            selectors = { "regionMapImportHeader" },
+            width = "100%",
+            height = "auto",
+            minHeight = "36sp",
+            flow = "horizontal",
+            halign = "left",
+            valign = "top",
+        },
+        {
+            selectors = { "regionMapImportHeading" },
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            valign = "center",
+            rmargin = 8,
+            bold = true,
+            color = "@fg",
+            textAlignment = "left",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapImportCopy" },
+            height = "28sp",
+            halign = "right",
+            valign = "center",
+            rmargin = 0,
+            bmargin = 0,
+            priority = 7,
+        },
+        {
+            selectors = { "regionMapTextArea", "regionMapImportEditor" },
+            -- The native editor adds 8 px of input padding outside its declared height.
+            height = 312,
+            tmargin = 6,
+        },
+        {
+            selectors = { "regionMapTextArea", "regionMapImportEditor", "importNarrow" },
+            height = 232,
+        },
+        {
+            selectors = { "regionMapImportTarget" },
+            textAlignment = "center",
+            tmargin = 4,
+            color = "@fgMuted",
+        },
+        {
+            selectors = { "regionMapImportCounter" },
+            tmargin = 6,
+            color = "@fgMuted",
+        },
+        {
+            selectors = { "regionMapImportContract" },
+            width = "100%",
+            height = 320,
+            tmargin = 6,
+            pad = 10,
+            borderBox = true,
+            halign = "left",
+            borderColor = "@borderSolid",
+            cornerRadius = 5,
+        },
+        {
+            selectors = { "regionMapImportContract", "importNarrow" },
+            height = 240,
+            pad = 10,
+            borderBox = true,
+        },
+        {
+            selectors = { "regionMapImportFields" },
+            width = "100%-8",
+            height = "auto",
+            halign = "left",
+            valign = "top",
+            flow = "vertical",
+        },
+        {
+            selectors = { "regionMapImportField" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            tmargin = 6,
+        },
+        {
+            selectors = { "regionMapRule", "parent:regionMapImportField" },
+            vmargin = 6,
+            bgcolor = "@borderSolid",
+        },
+        {
+            selectors = { "regionMapImportFieldName" },
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            textAlignment = "left",
+            color = "@fg",
+            rmargin = 10,
+        },
+        {
+            selectors = { "regionMapImportType" },
+            width = "auto",
+            height = "auto",
+            halign = "left",
+            valign = "center",
+            color = "@fgMuted",
+        },
+        {
+            selectors = { "regionMapImportDetail" },
+            width = "100%",
+            height = "auto",
+            halign = "left",
+            valign = "top",
+            textWrap = true,
+            tmargin = 4,
+            color = "@fgMuted",
+        },
+        RegionMapStyles.Danger({ "regionMapImportError" }),
+        {
+            selectors = { "regionMapImportError" },
+            tmargin = 8,
+        },
+        {
+            selectors = { "regionMapImportActions" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+            wrap = true,
+            tmargin = 10,
+        },
+        {
+            selectors = { "regionMapImportActions", "importNarrow" },
+            tmargin = 4,
+        },
+        {
+            selectors = { "regionMapButton", "parent:regionMapImportActions" },
+            width = "auto",
+            minWidth = 80,
+            maxWidth = "100%",
+            height = "auto",
+            minHeight = 30,
+            hpad = 12,
+            vpad = 6,
+            borderBox = true,
+            rmargin = 8,
+            bmargin = 4,
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapImportLines" },
+            width = "100%-16",               -- clears the scrollbar when the list scrolls
+            halign = "left",
+            height = "auto",
+            flow = "vertical",
+            valign = "top",                  -- a list taller than the scroll box would otherwise center in it
+        },
+        {
+            selectors = { "regionMapImportLine" },
+            width = "100%",
+            height = "auto",
+            color = "@fg",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapImportLine", "lead" },
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapImportLine", "heading" },
+            tmargin = 10,
+            bold = true,
+        },
+        {
+            selectors = { "regionMapImportLine", "item" },
+            lmargin = 12,
+            width = "100%-12",
+            tmargin = 2,
+        },
+        {
+            selectors = { "regionMapImportLine", "note" },
+            tmargin = 12,
+            color = "@fgMuted",
+        },
+    }
 end

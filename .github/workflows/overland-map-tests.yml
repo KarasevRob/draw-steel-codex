@@ -1,0 +1,32 @@
+name: Overland Map checks
+
+on:
+  push:
+    branches: [main, region-map-v2]
+    paths: ['Region Map/**', 'DMHub Core UI/DialogResize.lua', '.github/workflows/overland-map-tests.yml']
+  pull_request:
+    paths: ['Region Map/**', 'DMHub Core UI/DialogResize.lua', '.github/workflows/overland-map-tests.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.4
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Check syntax and ASCII source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          for path in Path('Region Map').rglob('*.lua'):
+              path.read_bytes().decode('ascii')
+              subprocess.run(['luac5.4', '-p', str(path)], check=True)
+          PY
+      - name: Run isolated suites
+        run: lua5.4 'Region Map/tests/RunOffline.lua'

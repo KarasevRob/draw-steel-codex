@@ -310,3 +310,48 @@ function RegionMapLabelLayer.Create(ctx)
     end
     return api
 end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapLabelLayer.Styles()
+    return {
+        {
+            selectors = { "regionMapLettering" },
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+        },
+        {
+            selectors = { "regionMapLettering", "hiddenForPlayers" },
+            opacity = 0.5,
+        },
+        {
+            selectors = { "regionMapLabelOutline" },
+            bgimage = "panels/square.png",
+            bgcolor = "clear",
+            borderWidth = 1,
+            borderColor = "@accent",
+            halign = "center",
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapLabelHandle" },
+            bgimage = "panels/square.png",
+            bgcolor = "@bg",
+            borderWidth = 2,
+            borderColor = "@accent",
+            cornerRadius = 4,
+            halign = "center",
+            valign = "center",
+        },
+        {
+            selectors = { "regionMapLabelEye" },
+            bgimage = "panels/square.png",
+            bgcolor = "@bg",
+            width = 20,
+            height = 20,
+            cornerRadius = 4,
+            halign = "center",
+            valign = "center",
+        },
+    }
+end

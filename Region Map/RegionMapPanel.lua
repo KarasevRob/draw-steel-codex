@@ -259,7 +259,7 @@ function RegionMapPanel.Create(options)
         end
     end
 
-    -- A path shows in its own panel, in the side panel's place (V21-10), read or edit (V21-13).
+    -- A path shows in its own panel, in the side panel's place, read or edit.
     function ctx.SelectPath(id, mode)
         ctx.FlushEdits()
         LeaveLabel()
@@ -526,7 +526,7 @@ function RegionMapPanel.Create(options)
         addButton:SetClass("on", data.tool == "add" or data.tool == "labelAdd")
         Session.SetIconButton(addButton, T(canLabel and (canAdd and "label.addMenu" or "label.add") or "tb.add"))
         importButton:SetClass("collapsed", not hasMap or not director)
-        importButton:SetClass("disabled", not canAdd)
+        importButton:SetClass("disabled", not canAdd or RegionMapImport.IsRunning())
         importButton:SetClass("on", not importLayer:HasClass("collapsed"))
         -- The Path tool: Director, point crawl maps only; it needs two pins to join (Q7).
         local crawl = hasMap and director and Model.IsPointCrawl(map)
@@ -626,7 +626,7 @@ function RegionMapPanel.Create(options)
         shell.bannerKey = key
         local children = {} --- @type Panel[]
         for _, line in ipairs(lines) do
-            children[#children + 1] = gui.Label { classes = { "regionMapBanner" }, text = line, interactable = false }
+            children[#children + 1] = gui.Label { classes = { "regionMapBanner", "sizeS" }, text = line, interactable = false }
         end
         banners.children = children
         if atlas ~= nil then atlas:FireEvent("bannerRows", #children) end
@@ -883,7 +883,7 @@ function RegionMapPanel.Create(options)
     }
 
     statusChip = gui.Label {
-        id = "region-map-status", classes = { "regionMapStatus" }, floating = true, text = "",
+        id = "region-map-status", classes = { "regionMapStatus", "sizeS" }, floating = true, text = "",
         data = { kind = "none", mapId = nil, travel = false },
         hover = function(element)
             if element.data.kind == "none" then
@@ -909,9 +909,9 @@ function RegionMapPanel.Create(options)
     }
     banners = gui.Panel { classes = { "regionMapBanners" }, floating = true, interactable = false }
 
-    toastText = gui.Label { classes = { "regionMapToastText" }, text = "", interactable = false }
+    toastText = gui.Label { classes = { "regionMapToastText", "sizeS" }, text = "", interactable = false }
     toastUndo = gui.Label {
-        classes = { "regionMapToastButton" }, text = T("toast.undo"),
+        classes = { "regionMapToastButton", "sizeS" }, text = T("toast.undo"),
         click = function()
             local current = Undo.Current()
             if current ~= nil and current.entry ~= nil then
@@ -920,7 +920,7 @@ function RegionMapPanel.Create(options)
         end,
     }
     toastRetry = gui.Label {
-        classes = { "regionMapToastButton", "collapsed" }, text = T("toast.retry"),
+        classes = { "regionMapToastButton", "collapsed", "sizeS" }, text = T("toast.retry"),
         click = function()
             local current = Undo.Current()
             if current ~= nil and current.retry ~= nil then
@@ -930,7 +930,7 @@ function RegionMapPanel.Create(options)
         end,
     }
     toastAction = gui.Label {
-        classes = { "regionMapToastButton", "collapsed" }, text = "",
+        classes = { "regionMapToastButton", "collapsed", "sizeS" }, text = "",
         click = function()
             local current = Undo.Current()
             if current ~= nil and current.action ~= nil then
@@ -947,8 +947,8 @@ function RegionMapPanel.Create(options)
     }
 
     -- Built once and reused (see ctx.Confirm); the dim layer swallows clicks to the map below.
-    confirmTitle = gui.Label { classes = { "regionMapConfirmTitle" }, text = "", interactable = false }
-    confirmBody = gui.Label { classes = { "regionMapConfirmBody" }, text = "", interactable = false }
+    confirmTitle = gui.Label { classes = { "regionMapConfirmTitle", "sizeL" }, text = "", interactable = false }
+    confirmBody = gui.Label { classes = { "regionMapConfirmBody", "sizeS" }, text = "", interactable = false }
     confirmOk = gui.Button {
         id = "region-map-confirm-ok", classes = { "regionMapButton", "sizeS" }, text = "",
         click = function()
@@ -1105,4 +1105,172 @@ function RegionMapPanel.Create(options)
     }
     ctx.root = root
     return root
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapPanel.Styles()
+    return {
+        {
+            selectors = { "regionMapRoot" },
+            width = "100%",
+            height = "100%",
+            minWidth = 0,
+            minHeight = 0,
+            flow = "none",
+            bgimage = true,
+            bgcolor = "@bgAlt",
+        },
+        RegionMapStyles.Chrome("regionMapBreadcrumb", {
+            width = "auto",
+            height = C.breadcrumbHeight,
+            -- The toolbar's rendered width supplies the final clearance.
+            maxWidth = "35%",
+            flow = "horizontal",
+            halign = "left",
+            valign = "top",
+            lmargin = C.chromeInset,
+            tmargin = C.chromeInset,
+            hpad = 10,
+            borderBox = true,
+        }),
+        {
+            selectors = { "regionMapCrumb" },
+            width = "auto",
+            height = "auto",
+            maxWidth = 220,
+            valign = "center",
+            color = "@fg",
+            textWrap = false,
+            textOverflow = "ellipsis",
+        },
+        {
+            selectors = { "regionMapCrumb", "hover" },
+            color = "@fgStrong",
+            transitionTime = 0.1,
+        },
+        {
+            selectors = { "regionMapCrumb", "current" },
+            color = "@fgStrong",
+            bold = true,
+        },
+        {
+            selectors = { "regionMapCrumbSep" },
+            width = 10,
+            height = 10,
+            valign = "center",
+            hmargin = 6,
+            bgcolor = "@fgMuted",
+        },
+        RegionMapStyles.Chrome("regionMapToolbar", {
+            width = "auto",
+            height = C.chromeBarHeight,
+            flow = "horizontal",
+            halign = "right",
+            valign = "top",
+            rmargin = C.chromeInset,
+            tmargin = C.chromeInset,
+            hpad = 3,
+            borderBox = true,
+        }),
+        RegionMapStyles.Chrome("regionMapCameraControls", {
+            width = "auto",
+            height = C.chromeBarHeight,
+            flow = "horizontal",
+            halign = "left",
+            valign = "bottom",
+            lmargin = C.chromeInset,
+            bmargin = C.chromeInset,
+            hpad = 3,
+            borderBox = true,
+            opacity = 1,
+            transitionTime = 0.3,
+        }),
+        {
+            selectors = { "regionMapCameraControls", "faded" },
+            opacity = 0.55,
+            transitionTime = 0.6,
+        },
+        RegionMapStyles.Chrome("regionMapStatus", {
+            width = "auto",
+            height = "auto",
+            maxWidth = 360,
+            halign = "right",
+            valign = "bottom",
+            rmargin = 8,
+            bmargin = 8,
+            hpad = 10,
+            vpad = 6,
+            borderBox = true,
+            color = "@fgStrong",
+            textWrap = false,
+        }),
+        {
+            selectors = { "regionMapStatus", "link" },
+            color = "@accent",
+        },
+        {
+            selectors = { "regionMapStatus", "link", "hover" },
+            color = "@accentHover",
+        },
+        {
+            selectors = { "regionMapBanners" },
+            width = "auto",
+            height = "auto",
+            flow = "vertical",
+            halign = "left",
+            valign = "top",
+            lmargin = 8,
+            tmargin = 48,
+        },
+        RegionMapStyles.Chrome("regionMapBanner", {
+            width = "auto",
+            height = "auto",
+            maxWidth = 460,
+            halign = "left",
+            bmargin = 4,
+            hpad = 10,
+            vpad = 5,
+            borderBox = true,
+            borderColor = "@accent",
+            color = "@fgStrong",
+            textWrap = true,
+        }),
+        RegionMapStyles.Chrome("regionMapToast", {
+            width = "auto",
+            height = "auto",
+            minHeight = 38,
+            maxWidth = "80%",
+            flow = "horizontal",
+            halign = "center",
+            valign = "bottom",
+            bmargin = C.belowChromeBar,
+            hpad = 12,
+            vpad = 4,
+            borderBox = true,
+            borderColor = "@fgMuted",
+        }),
+        {
+            selectors = { "regionMapToastText" },
+            width = "auto",
+            height = "auto",
+            maxWidth = 420,
+            valign = "center",
+            color = "@fgStrong",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapToastButton" },
+            width = "auto",
+            height = "auto",
+            valign = "center",
+            lmargin = 14,
+            bold = true,
+            color = "@accent",
+        },
+        {
+            selectors = { "regionMapToastButton", "hover" },
+            color = "@accentHover",
+        },
+    }
 end

@@ -81,6 +81,7 @@ RegionMapConstants.importRowShare = 0.45            -- row gap / column gap, on 
 RegionMapConstants.importBatch = 10
 RegionMapConstants.importWait = 20
 RegionMapConstants.importTextLimit = 100000
+RegionMapConstants.importPreviewLimit = 100
 -- Leave encoding headroom: a native-limit truncation must still fail the character check.
 RegionMapConstants.importEditorLimit = 4 * (RegionMapConstants.importTextLimit + 1)
 RegionMapConstants.importCardWidth = 900
@@ -120,7 +121,7 @@ RegionMapConstants.pathCasing = 1.5                  -- px each side
 RegionMapConstants.pathHalo = 4                      -- px each side of the casing, selected path (Q5)
 RegionMapConstants.pathBadgeSize = 16                -- eye-slash on hidden paths (Q12)
 -- A hidden path's line fades to this; 0.6 keeps every colour at 3:1 or more against its
--- casing (measured, V21-18). The eye-slash badge, not the fade, says "hidden".
+-- casing (measured). The eye-slash badge, not the fade, says "hidden".
 RegionMapConstants.pathHiddenOpacity = 0.6
 -- Path labels (Q11). With Show names on, a label shows only where it fits: its line
 -- on screen is at least labelFit of its width, and it clears pins and other labels.
@@ -143,7 +144,7 @@ RegionMapConstants.starterPathTypes = {
 -- F4, measured 2026-10-10 with 250 pins and 315 segments: 1401 pieces at fit, 2329 three
 -- zoom steps in, the cap reached only at the deepest zoom. A re-place of ~2300 costs ~30 ms.
 RegionMapConstants.pathPieceLimit = 2500
--- Path editing (V21-11, V21-14).
+-- Path editing.
 RegionMapConstants.firstPathType = "road"            -- the first path of a game: Road, 1 day (Q8)
 RegionMapConstants.firstPathTime = RegionMapConstants.watchesPerDay -- watches: 1 day
 -- A second path between the same two pins bows out by this share of its length, per path (Q9).

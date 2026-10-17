@@ -38,7 +38,23 @@ The import:
 - shows a preview first, and imports nothing until you press Import;
 - adds new Locations each time, even if you import the same file twice. The preview lists
   names that are already on the map;
-- can be removed with one Undo.
+- creates one Undo entry for confirmed pins. Undo removes pins whose row, description and
+  Director note have not changed since import; edited pins remain.
+
+Preview shows at most 100 skipped reasons and 100 duplicate names, with exact totals and
+an omitted-count line. This bounds the number of UI rows; parsing and validation still
+visit the complete input. A chosen file is read once, then parsed from that same text.
+
+Import runs in batches of ten and disables the toolbar Import button until it finishes.
+It stops after a failed batch or a 20-second wait for uploads. Pins confirmed in a failed
+batch still receive their descriptions and notes when the map is available. If a text
+upload itself fails, the pin can be incomplete; inspect it before retrying the source,
+because another import appends new pins. The stopped-import toast provides Undo for
+confirmed pins. Uploads that time out without a receipt have an unknown server outcome.
+
+Undo hides each eligible Location. Its description and Director-note rows remain stored,
+but are inaccessible through the deleted pin, as for ordinary Location deletion. Import
+is not an atomic transaction across these tables.
 
 ## File shape
 
