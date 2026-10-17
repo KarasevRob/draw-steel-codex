@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- The path panel at the right edge of the window (V21-10, V21-12, V21-13):
+--- The path panel at the right edge of the window:
 --- what a selected point crawl path is, between which Locations, how long it
 --- takes each way and its description. The Director also gets the hide/reveal
 --- eye, the danger or requirement note (H5: players never see it), the "..."
@@ -45,7 +45,7 @@ function RegionMapPathPanel.CanConnect(ctx, location)
 end
 
 --- The "..." and right-click menu of a path: Director only (H3). Redraw line
---- joins it with the Path tool (V21-14).
+--- joins it with the Path tool.
 --- @param ctx RegionMapContext
 --- @param id string
 --- @return table[] gui.ContextMenu entries
@@ -102,7 +102,7 @@ end
 --- @return Panel section; section.data.bind(location) redraws it
 function RegionMapPathPanel.PathsSection(ctx)
     local rows = gui.Panel { width = "100%", height = "auto", flow = "vertical", tmargin = 4 }
-    local none = Label({ "regionMapHint" }, T("panel.paths.none"))
+    local none = Label({ "regionMapHint", "sizeXs" }, T("panel.paths.none"))
     local connect = Button(T("menu.connect"), function()
         if ctx.data.selectedId ~= nil then ctx.Select(ctx.data.selectedId, "pickPathEnd") end
     end)
@@ -110,14 +110,14 @@ function RegionMapPathPanel.PathsSection(ctx)
     local section = gui.Panel {
         width = "100%", height = "auto", flow = "vertical", data = { signature = nil },
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
-        Label({ "regionMapSectionLabel" }, T("panel.paths")),
+        Label({ "regionMapSectionLabel", "sizeS" }, T("panel.paths")),
         none,
         rows,
         connectRow,
     }
 
     local function Row(id, text, hidden)
-        local children = { Label({ "regionMapRowName", "regionMapPathRowName" }, text) } --- @type Panel[]
+        local children = { Label({ "regionMapRowName", "regionMapPathRowName", "sizeS" }, text) } --- @type Panel[]
         if hidden then
             children[#children + 1] = gui.Panel { classes = { "regionMapPathRowEye" }, bgimage = C.iconEyeSlash, interactable = false }
         end
@@ -267,7 +267,7 @@ function RegionMapPathPanel.Create(ctx)
     -- Header (read and edit) -----------------------------------------------------------------------
 
     local icon = gui.Panel { classes = { "regionMapSideIcon" }, bgimage = C.iconPath, interactable = false }
-    local title = gui.Label { classes = { "regionMapSideTitle" }, text = "" }
+    local title = gui.Label { classes = { "regionMapSideTitle", "sizeL" }, text = "" }
     local closeButton = Session.IconButton("region-map-path-close", C.iconClose, T("panel.close"), function()
         ctx.SelectPath(nil)
     end)
@@ -277,10 +277,10 @@ function RegionMapPathPanel.Create(ctx)
 
     -- The type, drawn the way the map draws it, so the chip is the legend (N1).
     local sample = RegionMapPathLayer.Sample(40)
-    local typeName = Label({ "regionMapChipText" })
+    local typeName = Label({ "regionMapChipText", "sizeS" })
     local typeChip = gui.Panel { classes = { "regionMapPathChip" }, interactable = false, sample, typeName }
 
-    local visibility = Label({ "regionMapMeta" })
+    local visibility = Label({ "regionMapMeta", "sizeXs" })
     local eyeButton = Session.IconButton("region-map-path-eye", C.iconEye, "", function()
         local path = Current()
         if path ~= nil then SetVisibility(ctx, path, path.visibility == "hidden" and "revealed" or "hidden") end
@@ -288,11 +288,11 @@ function RegionMapPathPanel.Create(ctx)
     local visibilityWaits = false
     local metaRow = gui.Panel { classes = { "regionMapSideRow" }, visibility, eyeButton }
 
-    local ends = Label({ "regionMapBody" })
-    local time = Label({ "regionMapBody", "regionMapPathTime" })
+    local ends = Label({ "regionMapBody", "sizeS" })
+    local time = Label({ "regionMapBody", "regionMapPathTime", "sizeS" })
     local readArtwork = RegionMapArtwork.Create(ctx, "path", false,
         function(id) return data.selectedPathId == id and data.panelMode == "path" end)
-    local description = Label({ "regionMapBody" })
+    local description = Label({ "regionMapBody", "sizeS" })
 
     local editButton = Button(T("panel.edit"), function()
         if data.selectedPathId ~= nil then ctx.SelectPath(data.selectedPathId, "pathEdit") end
@@ -315,12 +315,12 @@ function RegionMapPathPanel.Create(ctx)
     end)
     local buttons = gui.Panel { classes = { "regionMapButtonRow" }, editButton, moreButton }
 
-    local noteBody = Label({ "regionMapBody" })
+    local noteBody = Label({ "regionMapBody", "sizeS" })
     local noteSection = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
         gui.Panel { classes = { "regionMapRule" }, interactable = false },
-        Label({ "regionMapSectionLabel" }, T("path.note")),
-        Label({ "regionMapHint" }, T("path.note.sub")),
+        Label({ "regionMapSectionLabel", "sizeS" }, T("path.note")),
+        Label({ "regionMapHint", "sizeXs" }, T("path.note.sub")),
         noteBody,
     }
 
@@ -374,7 +374,7 @@ function RegionMapPathPanel.Create(ctx)
         if director then SetText(noteBody, path.note ~= "" and Copy.Literal(path.note) or T("path.note.placeholder")) end
     end
 
-    -- Edit view (V21-13) ---------------------------------------------------------------------------
+    -- Edit view ---------------------------------------------------------------------------
 
     local visibilitySegments = Segments(C.visibilities, "edit.visibility.", function(value)
         local path = Current()
@@ -410,7 +410,7 @@ function RegionMapPathPanel.Create(ctx)
                 end
             end,
             rowSample,
-            Label({ "regionMapRowName", "regionMapTypeName" }, Copy.Literal(item.name)),
+            Label({ "regionMapRowName", "regionMapTypeName", "sizeS" }, Copy.Literal(item.name)),
         }
     end
 
@@ -430,16 +430,16 @@ function RegionMapPathPanel.Create(ctx)
         }
     end
     local timeInput = TimeInput("time")
-    local timeUnit = Label({ "regionMapBody", "regionMapTimeUnit" })
-    local timeError = Label({ "regionMapHint", "danger" }, T("edit.path.timeRange"))
+    local timeUnit = Label({ "regionMapBody", "regionMapTimeUnit", "sizeS" })
+    local timeError = Label({ "regionMapHint", "danger", "sizeXs" }, T("edit.path.timeRange"))
     local backSegments = Segments(C.pathBacks, "edit.path.back.", function(value)
         local path = Current()
         if path ~= nil and path.back ~= value then Write({ back = value }, "Change path direction") end
     end)
-    local backTimeLabel = Label({ "regionMapFormLabel" })
+    local backTimeLabel = Label({ "regionMapFormLabel", "sizeXs" })
     local backTimeInput = TimeInput("backTime")
-    local backTimeUnit = Label({ "regionMapBody", "regionMapTimeUnit" })
-    local backTimeError = Label({ "regionMapHint", "danger" }, T("edit.path.timeRange"))
+    local backTimeUnit = Label({ "regionMapBody", "regionMapTimeUnit", "sizeS" })
+    local backTimeError = Label({ "regionMapHint", "danger", "sizeXs" }, T("edit.path.timeRange"))
     local backTimeFields = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
         backTimeLabel,
@@ -464,7 +464,7 @@ function RegionMapPathPanel.Create(ctx)
     local descriptionInput = TextArea("description", C.descriptionLimit, T("edit.desc.placeholder"))
     local noteInput = TextArea("note", C.noteLimit, T("path.note.placeholder"))
 
-    local stateLine = Label({ "regionMapStateLine" })
+    local stateLine = Label({ "regionMapStateLine", "sizeXs" })
     local retryButton = Button(T("edit.retry"), function()
         local id = data.selectedPathId
         if id == nil then return end
@@ -488,26 +488,26 @@ function RegionMapPathPanel.Create(ctx)
         function(id) return data.selectedPathId == id and data.panelMode == "pathEdit" end)
     editView = gui.Panel {
         width = "100%", height = "auto", flow = "vertical",
-        Label({ "regionMapFormLabel" }, T("edit.visibility")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.visibility")),
         visibilitySegments,
-        Label({ "regionMapFormLabel" }, T("edit.name")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.name")),
         nameInput,
-        Label({ "regionMapFormLabel" }, T("edit.path.type")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.path.type")),
         typesList,
-        Label({ "regionMapFormLabel" }, T("edit.path.time")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.path.time")),
         gui.Panel { classes = { "regionMapTimeRow" }, timeInput, timeUnit },
         timeError,
-        Label({ "regionMapHint" }, T("edit.path.unit.hint")),
-        Label({ "regionMapFormLabel" }, T("edit.path.back")),
+        Label({ "regionMapHint", "sizeXs" }, T("edit.path.unit.hint")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.path.back")),
         backSegments,
         backTimeFields,
         editArtwork,
-        Label({ "regionMapFormLabel" }, T("edit.desc")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.desc")),
         descriptionInput,
-        Label({ "regionMapFormLabel" }, T("path.note")),
-        Label({ "regionMapHint" }, T("path.note.sub")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("path.note")),
+        Label({ "regionMapHint", "sizeXs" }, T("path.note.sub")),
         noteInput,
-        Label({ "regionMapHint" }, T("edit.path.bends")),
+        Label({ "regionMapHint", "sizeXs" }, T("edit.path.bends")),
         gui.Panel { classes = { "regionMapSideRow" }, stateLine, retryButton },
         gui.Panel { classes = { "regionMapButtonRow" }, doneButton },
     }
@@ -572,10 +572,10 @@ function RegionMapPathPanel.Create(ctx)
         end
     end
 
-    -- Connect to... picker (V21-12, Q10) -----------------------------------------------------------
+    -- Connect to... picker (Q10) -----------------------------------------------------------
 
-    local pickTitle = gui.Label { classes = { "regionMapSideTitle", "noIcon" }, text = "" }
-    local pickNone = Label({ "regionMapHint" })
+    local pickTitle = gui.Label { classes = { "regionMapSideTitle", "noIcon", "sizeL" }, text = "" }
+    local pickNone = Label({ "regionMapHint", "sizeXs" })
     local pickList = gui.Panel { width = "100%", height = "auto", flow = "vertical", tmargin = 6 }
     local pickTop = nil --- @type nil|RegionMapLocationRecord the pin Enter picks
     local pickInput
@@ -623,7 +623,7 @@ function RegionMapPathPanel.Create(ctx)
             rows[#rows + 1] = gui.Panel {
                 classes = { "regionMapRow" },
                 click = function() if not mod.unloaded then Pick(target) end end,
-                gui.Label { classes = { "regionMapRowName" }, text = Copy.Literal(Model.DisplayName(target)), interactable = false },
+                gui.Label { classes = { "regionMapRowName", "sizeS" }, text = Copy.Literal(Model.DisplayName(target)), interactable = false },
             }
         end
         pickList.children = rows
@@ -729,4 +729,29 @@ function RegionMapPathPanel.Create(ctx)
         },
     }
     return panel
+end
+
+--- @return table[]
+function RegionMapPathPanel.Styles()
+    return {
+        {
+            selectors = { "regionMapPathRow" },
+            height = "auto",
+            vpad = 6,
+        },
+        {
+            selectors = { "regionMapPathRowName" },
+            width = "100%-22",
+            halign = "left",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapPathRowEye" },
+            width = 16,
+            height = 16,
+            halign = "right",
+            valign = "center",
+            bgcolor = "@fgMuted",
+        },
+    }
 end

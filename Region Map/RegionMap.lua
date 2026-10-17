@@ -457,7 +457,7 @@ OpenInApp = function(focus)
         id = "region-map-window-border", classes = { "regionMapWindowBorder", "collapsed" },
         floating = true, interactable = false,
     }
-    local grip = gui.Label { classes = { "regionMapResizeGrip" }, text = "//", floating = true, interactable = false }
+    local grip = gui.Label { classes = { "regionMapResizeGrip", "sizeS" }, text = "//", floating = true, interactable = false }
     host.frame, host.zoom, host.content, host.title, host.border, host.grip = frame, zoom, content, title, border, grip
     host.resizer, host.resizeOptions = resizer, resizeOptions
     host.resizeWidth, host.resizeHeight = C.panelWidth, C.panelHeight

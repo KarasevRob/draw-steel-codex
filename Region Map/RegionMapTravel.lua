@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- Party travel on point crawl maps (V21-15): which ways the Party can go
+--- Party travel on point crawl maps: which ways the Party can go
 --- now (G1, G5, G6), travelling one path (a "leg", logged as one entry, I1),
 --- and the Director's stop partway along a path (G3, Q13, Q14). The Party's
 --- spot on a path is worked out from the time spent, never stored as a point.
@@ -119,7 +119,7 @@ end
 local OtherEnd = Paths.OtherEnd
 
 local function DestName(option)
-    return Model.NameOf(option.toId)
+    return R.MapNameKey(Model.NameOf(option.toId))
 end
 
 --- The ways the viewer may move the Party now, sorted by destination. The

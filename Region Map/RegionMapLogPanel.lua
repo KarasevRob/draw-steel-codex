@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- The session log panel at the right edge of the window (V2-15), in the
+--- The session log panel at the right edge of the window, in the
 --- side panel's place: entries grouped under date headings, newest first;
 --- the Director can annotate and delete entries. Add note, Undo last change
 --- and the Show route switch sit below the title, above the entries.
@@ -162,22 +162,22 @@ function RegionMapLogPanel.Create(ctx)
             gui.Panel {
                 classes = { "regionMapSideRow" },
                 gui.Label {
-                    classes = { "regionMapLogText" }, text = text,
+                    classes = { "regionMapLogText", "sizeS" }, text = text,
                     -- Clicking an entry opens the map it happened on.
                     click = function()
                         if data.mapId ~= entry.mapId then ctx.OpenMap(entry.mapId, "restore") end
                     end,
                 },
-                director and Session.IconButton("region-map-log-more", C.iconMore, T("panel.more"), function(element)
+                director and Session.IconButton("region-map-log-more-" .. entry.id, C.iconMore, T("panel.more"), function(element)
                     EntryMenu(element, entry)
                 end) or nil,
             },
-            Label({ "regionMapMeta" }, meta),
+            Label({ "regionMapMeta", "sizeXs" }, meta),
         }
         if editingId == entry.id then
             children[#children + 1] = NoteEditor(entry)
         elseif entry.note ~= "" then
-            children[#children + 1] = Label({ "regionMapLogNote" }, Copy.Literal(entry.note))
+            children[#children + 1] = Label({ "regionMapLogNote", "sizeS" }, Copy.Literal(entry.note))
         end
         return gui.Panel { classes = { "regionMapLogEntry" }, children = children }
     end
@@ -216,7 +216,7 @@ function RegionMapLogPanel.Create(ctx)
                 local heading = DayHeading(ms)
                 local dayRow = dayRows[day]
                 if dayRow == nil or not dayRow.valid then
-                    dayRow = Label({ "regionMapLogDay" }, heading)
+                    dayRow = Label({ "regionMapLogDay", "sizeXs" }, heading)
                 elseif dayRow.text ~= heading then
                     dayRow.text = heading
                 end
@@ -234,7 +234,7 @@ function RegionMapLogPanel.Create(ctx)
     end
 
     list = gui.Panel { width = "100%", height = "auto", flow = "vertical" }
-    empty = Label({ "regionMapHint", "collapsed" }, T("log.empty"))
+    empty = Label({ "regionMapHint", "collapsed", "sizeXs" }, T("log.empty"))
     addNoteButton = Button(T("log.addNote"), function()
         local newest = Log.Entries()[1]
         if newest ~= nil then OpenEditor(newest.id) end
@@ -247,7 +247,7 @@ function RegionMapLogPanel.Create(ctx)
     local function EnsureRouteCheck()
         if routeCheck ~= nil then return end
         routeCheck = gui.Check {
-            classes = { "regionMapCheck" }, text = T("log.showRoute"), value = Session.ShowRoute(), fontSize = 14,
+            classes = { "regionMapCheck", "sizeS" }, text = T("log.showRoute"), value = Session.ShowRoute(),
             change = function(element)
                 Session.SetShowRoute(element.value == true)
                 ctx.RefreshAll()
@@ -314,7 +314,7 @@ function RegionMapLogPanel.Create(ctx)
                 classes = { "regionMapSideBody" },
                 gui.Panel {
                     classes = { "regionMapSideHeader" },
-                    gui.Label { classes = { "regionMapSideTitle", "noIcon" }, text = T("log.title") },
+                    gui.Label { classes = { "regionMapSideTitle", "noIcon", "sizeL" }, text = T("log.title") },
                     Session.IconButton("region-map-log-close", C.iconClose, T("panel.close"), function()
                         ctx.ToggleLog()
                     end),
@@ -328,4 +328,49 @@ function RegionMapLogPanel.Create(ctx)
         },
     }
     return panel
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapLogPanel.Styles()
+    return {
+        {
+            selectors = { "regionMapLogDay" },
+            width = "100%",
+            height = "auto",
+            tmargin = 12,
+            bmargin = 2,
+            bold = true,
+            color = "@fgMuted",
+        },
+        {
+            selectors = { "regionMapLogEntry" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            bmargin = 6,
+        },
+        {
+            selectors = { "regionMapLogText" },
+            width = "100%-40",
+            height = "auto",
+            valign = "center",
+            color = "@fgStrong",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapLogText", "hover" },
+            color = "@accent",
+        },
+        {
+            selectors = { "regionMapLogNote" },
+            width = "100%",
+            height = "auto",
+            tmargin = 3,
+            lmargin = 8,
+            italics = true,
+            color = "@fg",
+            textWrap = true,
+        },
+    }
 end

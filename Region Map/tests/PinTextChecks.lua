@@ -201,6 +201,19 @@ function checks.Run()
         f.env.dmhub.isDM = true; assert(f.M.SetVisibility(pin, "hidden")); f.env.dmhub.isDM = false
         assert(f.P.HoverText(pin) == nil)
     end)
+    Check("editing known leaves preserves future format keys", function(f)
+        f.R.LocationsTable()[f.map].pinNameFormat = { future = { mode = "keep" }, normalSize = 20 }
+        f.M.InvalidateIndex()
+        assert(f.P.Commit(f.map, { bold = false })); f.Advance(0)
+        assert(f.Row().pinNameFormat.future.mode == "keep" and f.Row().pinNameFormat.normalSize == 20)
+    end)
+    Check("rapid formatting shares one Undo and restores the original format", function(f)
+        for i = 1, 10 do
+            assert(f.P.Commit(f.map, { normalSize = 20 + i })); f.Advance(0.2)
+        end
+        assert(f.U.UndoLast()); f.Advance(0)
+        assert(f.Row().pinNameFormat == nil and not f.U.HasUndo())
+    end)
     print("PIN TEXT CHECKS: " .. passed .. " passed")
     return passed
 end

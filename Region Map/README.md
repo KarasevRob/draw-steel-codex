@@ -17,7 +17,8 @@ verification gaps. Development deployment and Git commits do not by themselves
 publish a new installable CodeMod package.
 
 The original [V2](docs/V2_BRIEF.md) and [V2.1](docs/V2_1_BRIEF.md) decision ledgers
-remain references for IDs used in source comments; later feature contracts supersede
+retain design decisions; the retired TECH_TASK task IDs have been removed from source
+comments. Later feature contracts supersede
 changed behavior. [V2_COPY.md](docs/V2_COPY.md) records agreed wording, while
 [RegionMapCopy.lua](RegionMapCopy.lua) is the runtime source of text.
 [Maintenance candidates](docs/CLEANUP_AUDIT.md) retain unresolved audit leads.
@@ -209,7 +210,11 @@ The helper is registered before both detail panels.
   Back preserves pasted text. Replacing or discarding a nonempty draft asks first; drafts
   are not saved across closing the card, app exit or Lua reload. Native OS close cannot prompt.
 - A preview lists the count, skipped entries with the reason for each, and names already on
-  the map. Entries without u/v go on a grid near the center. One Undo removes the whole import.
+  the map. Entries without u/v go on a grid near the center. One Undo removes confirmed
+  imported pins whose row, description and note have not changed since. Preview shows
+  at most 100 reasons and 100 duplicate names, with exact totals. Import is disabled
+  while a batch is running. See the [import contract](docs/IMPORT_FORMAT.md) for failure
+  handling and the retained description/note rows after Undo.
 
 ### Point crawl maps (V2.1)
 
@@ -318,13 +323,13 @@ Load order (31 runtime files; the CodeMod file list must match):
 | 4 | `RegionMapRecords.lua` | Record types, safe reads, validation, uploads |
 | 5 | `RegionMapModel.lua` | Location tree, permissions, visibility, writes, Party, settings, search, map kind and border, cascades |
 | 6 | `RegionMapUndo.lua` | Undo entries and the toast queue |
-| 7 | `RegionMapTextAppearance.lua` | Shared outline/image format, permissions, geometry, loaders and controls |
+| 7 | `RegionMapTextAppearance.lua` | Appearance validation, font fallback, contrast, image loading and geometry; no GUI constructors |
 | 8 | `RegionMapLabels.lua` | Label records, permissions, mixed search, immutable save queues and Undo |
 | 9 | `RegionMapLog.lua` | Session log entries, merging, route points, cap; legs and stops and their one wording (`LegCopy`) |
 | 10 | `RegionMapPaths.lua` | *V2.1.* Path index and viewer filter, path writes, types and time unit, time wording and time fields, path names, the other end |
 | 11 | `RegionMapTravel.lua` | *V2.1.* Travel options, travel, stop partway, the Party's spot on a path |
-| 12 | `RegionMapStyles.lua` | Style rules (ThemeEngine.MergeStyles) |
-| 13 | `RegionMapSession.lua` | Context type, local view state and preferences, the small controls every panel builds (label, button, segments, text area, icon button, focus) |
+| 12 | `RegionMapStyles.lua` | Shared control rules, component-style assembly and theme subscriptions |
+| 13 | `RegionMapSession.lua` | Context, view preferences, shared controls, appearance editor and image panels, host controls |
 | 14 | `RegionMapPinText.lua` | Map-wide pin typography, image/name composition, hover previews and save queue |
 | 15 | `RegionMapCanvasTools.lua` | Layout math, segment clipping, the panel pool, Add, Move, ruler and scale tools, route and ruler overlay, Soft fade |
 | 16 | `RegionMapPathLayer.lua` | *V2.1.* Path drawing (pooled pieces), labels, badges, hit test, draft line and bend handles |
@@ -399,6 +404,9 @@ each use is guarded.
 
 Recorded measurements are fixture-specific, not guarantees for larger maps or other
 clients. They are kept here because future rendering work needs a comparison point.
+All timings below precede the review fixes and the current pin-name composition. In
+particular, the 221 ms first draw has not been remeasured. Lazy image panels, targeted
+label updates and batched imports have offline regression coverage, not new app timings.
 
 | Fixture and date | Observed cost |
 |---|---|
@@ -431,11 +439,11 @@ and [text appearance checks](tests/TEXT_APPEARANCE.md) retain their rendering ev
 ## 6. Acceptance status
 
 See the [test index](tests/README.md) for commands and feature-specific evidence.
-The 2026-10-16 pre-commit run passed 78 isolated checks, syntax/ASCII checks for all
-38 runtime/test Lua files, and the available module type checker with zero problems.
-The 13 window-host checks also passed in the recorded window/position-lock work.
+The review follow-up adds offline import/failure checks, window input ownership checks,
+pin-format preservation and Undo checks, and CI for the offline suites. See the
+[review follow-up](docs/REVIEW_FIXES_2026-10-17.md) for current validation and merge notes.
 
-Live checks cover the creation tools, breadcrumb truncation, tooltip cleanup,
+Earlier live checks cover the creation tools, breadcrumb truncation, tooltip cleanup,
 window sizing, label/pin formatting, image backgrounds, import preview, paths and
 travel on the Director client. Model fixtures cover permissions, failure/Retry,
 remote rebasing and guarded Undo. These do not replace separate player-client tests.

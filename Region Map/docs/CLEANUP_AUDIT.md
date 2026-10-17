@@ -11,14 +11,17 @@ obsolete. Reproduce or recheck each against current code before changing behavio
 - Arrow-key panning during a camera animation: confirm the animation yields to input.
 - Import versus typed names: confirm whether internal line breaks should be rejected
   or folded consistently.
-- Travel list ordering: compare its name ordering with search and Location lists.
-- Repeated log-row menu IDs: check whether they affect focus or UI lookup.
 - Closing the whole window while typing a log note: confirm the draft is flushed.
 - Narrow layouts: compare selection keep-visible offsets with the actual panel inset.
-- Large imports: measure index rebuild cost before adding a batching optimization.
+- Large imports: measure the batch-create path and sidecar writes in the live app.
 
 These are inherited audit findings, not a claim that the current build reproduces
 every issue. Fixed route-dot attachment and preference-copy findings are omitted.
+
+Review follow-up on 2026-10-17 reproduced B4 (case-sensitive Travel sorting) and fixed
+it with the shared name key. B5's duplicate log-menu IDs now include the entry ID.
+Both are covered by the isolated import/maintenance suite. Import names reject controls,
+bidi marks and internal line breaks; the preview caps diagnostic rows.
 
 ## Possible consolidation
 
