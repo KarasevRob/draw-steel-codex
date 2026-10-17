@@ -7614,6 +7614,49 @@ local function CreateTopBar()
             end,
         },
 
+        --Every window on the table, checked while open; a player's also
+        --lists what the Director shared and has open, which they closed
+        --(Tabletop.WindowsMenuEntries).
+        CreateCodexMenuItem{
+            name = "Windows",
+            --a ping for a window this user has closed waits here: the dot
+            --shows, and the item rings as each ping arrives (Tabletop.lua,
+            --DefinePings).
+            data = {pingWaiting = false},
+            newContentCheck = function()
+                local tabletop = rawget(_G, "Tabletop")
+                return tabletop ~= nil and tabletop.HasWindowsMenuPing ~= nil and tabletop.HasWindowsMenuPing()
+            end,
+            calculateVisibility = function(element)
+                --only where there is a table (not the lobby). BarFitMenuDropped:
+                --this item owns its selfStyle.collapsed, as Developer below does.
+                --Audio.lua makes a bare Tabletop table before Tabletop.lua
+                --loads, so check for the function, not just the table.
+                local tabletop = rawget(_G, "Tabletop")
+                local active = tabletop ~= nil and tabletop.IsActive ~= nil and tabletop.IsActive()
+                element.selfStyle.collapsed = cond(active and not BarFitMenuDropped(element), 0, 1)
+                if active and tabletop.HasWindowsMenuPing ~= nil then
+                    tabletop.UpdateWindowsMenuPing(element)
+                    local waiting = tabletop.HasWindowsMenuPing()
+                    if waiting ~= element.data.pingWaiting then
+                        element.data.pingWaiting = waiting
+                        element:FireEventTree("refreshAlert")
+                    end
+                end
+            end,
+            menuItems = function()
+                local tabletop = rawget(_G, "Tabletop")
+                local items = {}
+                if tabletop ~= nil and tabletop.WindowsMenuEntries ~= nil then
+                    items = tabletop.WindowsMenuEntries()
+                end
+                if #items == 0 then
+                    items = {{text = "No windows on the table", disabled = true}}
+                end
+                return items
+            end,
+        },
+
         m_adventureDocumentsBar,
 
         CreateCodexMenuItem{

@@ -231,7 +231,7 @@ local function PlaceWhenReady(entryid, at, scale)
         if mod.unloaded then
             return
         end
-        Tabletop.OpenDocItem(entryid, {at = at, scale = scale})
+        Tabletop.OpenDocItem(entryid, {at = at, scale = scale, placed = true})
     end)
 end
 
@@ -899,7 +899,6 @@ function TableDropDialog.Show(paths, mx, my)
             hpad = OPTION_HPAD,
             vpad = 14,
             borderBox = true,
-            hoverCursor = "hand",
             press = function(element)
                 Select(option.id)
             end,
@@ -1427,7 +1426,6 @@ function TableDropDialog.Show(paths, mx, my)
                 height = 36,
                 halign = "right",
                 valign = "center",
-                hover = gui.Tooltip("Cancel"),
                 press = function(element)
                     gui.CloseModal()
                 end,
