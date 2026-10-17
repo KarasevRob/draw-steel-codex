@@ -8,19 +8,21 @@ LabelChecks provides the isolated model fixture used by several other suites.
 | Suite | Checks | Execution |
 |---|---:|---|
 | CanvasToolsChecks | 5 | Offline |
-| TextAppearanceChecks | 13 | Offline |
+| TextAppearanceChecks | 14 | Offline |
 | LabelChecks | 26 | Offline |
 | PinTextChecks | 17 | Offline |
 | ArtworkChecks | 27 | Offline |
-| WindowHostChecks | 15 | Offline; includes the core resize helper |
+| WindowHostChecks | 17 | Offline; includes the core resize helper |
 | ImportOfflineChecks | 12 | Offline; transport, preview, Undo, Travel sort and log IDs |
 | ImportChecks | Parser/editor checks | Connected Director app; no Import writes in the editor suite |
 
-The review follow-up passes 115 isolated checks across seven offline suites. It adds
+The review follow-up passes 118 isolated checks across seven offline suites. It adds
 bounded previews, single-read parsing, partial imports, sidecar-aware Undo, failure and
 timeout recovery, focus ownership and unknown pin-format fields. ImportOfflineChecks
 uses a stub JSON parser and transport: the live ImportChecks suite still owns actual
-engine parser/editor verification. All new live tests remain deferred.
+engine parser/editor verification. The [2026-10-17 live record](LIVE_REVIEW_2026-10-17.md)
+documents connected-app checks and three additional fixes. Concurrent-edit tests were
+explicitly skipped at the user's request.
 
 Run all offline suites from the repository root (also run by the Overland Map CI job):
 

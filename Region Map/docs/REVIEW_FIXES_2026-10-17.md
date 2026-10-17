@@ -1,7 +1,8 @@
 # Overland Map review follow-up
 
-Continues `9ec2ced9` and its type corrections in `98e625ea`. Live testing and cloud
-publication are deferred. Git commits and pushes do not publish the CodeMod.
+Continues `9ec2ced9` and its type corrections in `98e625ea`. This record describes the
+offline review follow-up. The subsequent [live validation and publication record](../tests/LIVE_REVIEW_2026-10-17.md)
+supersedes its deferred-live status. Git commits and pushes do not publish the CodeMod.
 
 ## Completed in the continuation
 
