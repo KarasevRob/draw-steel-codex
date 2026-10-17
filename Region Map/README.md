@@ -442,6 +442,9 @@ See the [test index](tests/README.md) for commands and feature-specific evidence
 The review follow-up adds offline import/failure checks, window input ownership checks,
 pin-format preservation and Undo checks, and CI for the offline suites. See the
 [review follow-up](docs/REVIEW_FIXES_2026-10-17.md) for current validation and merge notes.
+The [2026-10-17 live validation](tests/LIVE_REVIEW_2026-10-17.md) records the connected-app
+pass, three further interaction fixes, cleanup and publication. Concurrent-edit tests
+were skipped at the user's request.
 
 Earlier live checks cover the creation tools, breadcrumb truncation, tooltip cleanup,
 window sizing, label/pin formatting, image backgrounds, import preview, paths and

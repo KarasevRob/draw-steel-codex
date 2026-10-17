@@ -31,7 +31,8 @@ local function MockPanels(f)
         local p = { data = args.data or {}, selfStyle = {}, valid = true, children = {}, classes = {}, events = {} }
         for key, value in pairs(args) do
             if type(key) == "number" then p.children[#p.children + 1] = value
-            elseif type(value) == "function" then p.events[key] = value end
+            elseif type(value) == "function" then p.events[key] = value
+            elseif key ~= "classes" then p[key] = value end
         end
         function p:SetClass(key, value) self.classes[key] = value end
         function p:HasClass(key) return self.classes[key] == true end
@@ -45,6 +46,13 @@ local function MockPanels(f)
         function p:SetAsLastSibling() end
         function p:FireEvent(event, ...) if self.events[event] then self.events[event](self, ...) end end
         function p:DestroySelf() self:FireEvent("destroy"); self.valid = false end
+        function p:FindChildRecursive(predicate)
+            for _, child in ipairs(self.children) do
+                if predicate(child) then return child end
+                local found = child:FindChildRecursive(predicate)
+                if found then return found end
+            end
+        end
         return p
     end
     f.env.gui.Panel, f.env.gui.Label = Panel, Panel
@@ -214,6 +222,42 @@ function checks.Run()
         hit:FireEvent("hover"); hit:FireEvent("press"); assert(hit.tooltip == nil and owner.data.pressed)
         hit:FireEvent("hover"); hit:DestroySelf(); assert(hit.tooltip == nil)
         name.data.appearance.image.panel:DestroySelf()
+    end)
+    Check("a second editor cannot steal slider handles or cause drag saves", function(f)
+        local Panel = MockPanels(f)
+        for _, kind in ipairs({ "Input", "Dropdown", "Button", "ColorPicker", "ExpandoArrow" }) do f.env.gui[kind] = Panel end
+        local otherHandle, otherNotch = Panel { dragging = false }, Panel {}
+        f.env.gui.Slider = function(args)
+            local slider = Panel(args)
+            slider:AddChild(Panel { id = "slider-handle", dragging = false })
+            slider:AddChild(Panel { id = "slider-notch" })
+            slider.Get = function(_, id) return id == "slider-handle" and otherHandle or otherNotch end
+            return slider
+        end
+        local session = f.env.RegionMapSession
+        session.Label = function(classes, text) return Panel { classes = classes, text = text } end
+        session.Button = function(text, click) return Panel { text = text, click = click } end
+        local format = f.P.Format(f.M.GetLocation(f.map))
+        local commits = 0
+        local editor = session.AppearanceEditor({ IsAlive = function() return true end, RefreshAll = function() end }, true, {
+            Active = function() return true end, Format = function() return format end,
+            Commit = function(changes) commits = commits + 1; format.outlineWidth = changes.outlineWidth; return true end,
+        })
+        editor.data.bind(f.map, format)
+        local slider = editor:FindChildRecursive(function(p) return p.id == "region-map-pin-appearance-outlineWidth-slider" end)
+        local handle = slider:FindChildRecursive(function(p) return p.id == "slider-handle" end)
+        slider.value = 15; slider:FireEvent("change")
+        assert(commits == 0, "the first drag change can precede the native dragging flag")
+        handle.dragging = true
+        for _, value in ipairs({ 20, 30, 40 }) do
+            slider.value = value; slider:FireEvent("change")
+            editor.data.bind(f.map, format)
+            assert(slider.value == value and commits == 0)
+        end
+        handle.dragging = false
+        slider:FireEvent("confirm")
+        assert(commits == 1 and format.outlineWidth == 0.4)
+        assert(not otherNotch.classes.regionMapAppearanceTrack)
     end)
     print("APPEARANCE CHECKS: " .. passed .. " passed")
     return passed
