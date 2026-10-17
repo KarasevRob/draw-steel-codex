@@ -249,10 +249,10 @@ local cases = {
         local f = Fixture()
         local h = f.Window()
         assert(not h.draggable)
-        f.DragTo(h, 10000, -10000)
+        f.DragTo(h, f.layer.width - 101, f.layer.height - 21)
         assert(f.dragTarget == nil)
         assert(not h.draggable and not h.data.dragging)
-        Near(h.x + h.selfStyle.width, h.data.area.right); Near(h.y, h.data.area.upper)
+        Near(h.x + h.selfStyle.width, h.data.area.right); Near(h.y + h.selfStyle.height, h.data.area.lower)
         Near(f.S.ReadWindowGeometry().x, h.x)
     end },
     { "real resize helper integrates with switching and persistence", function()
@@ -386,13 +386,13 @@ local cases = {
         local f = Fixture()
         local h = f.Window()
         f.env.gui.SetFocus(nil)
-        h.data.hovered = false
+        h.mousePoint = { x = 0, y = 0 }
         h:FireEvent("think")
         assert(h.data.content.data.active == false)
-        h.data.hovered = true
+        h.mousePoint = { x = 0.5, y = 0.5 }
         h:FireEvent("think")
         assert(h.data.content.data.active == true)
-        h.data.hovered = false
+        h.mousePoint = { x = 0, y = 0 }
         f.env.gui.SetFocus(h.data.content)
         h:FireEvent("think")
         assert(h.data.content.data.active == true)
@@ -401,6 +401,30 @@ local cases = {
         h:FireEvent("think")
         assert(h.data.content.data.active == false)
     end },
+    { "child hover and stale host hover use current pointer coordinates", function()
+        local f = Fixture()
+        local h = f.Window()
+        f.env.gui.SetFocus(nil)
+        h.data.hovered = false
+        h.mousePoint = { x = 0.5, y = 0.5 }
+        h:FireEvent("think")
+        assert(h.data.content.data.active)
+        h.mousePoint = { x = 0, y = 0 }
+        h:FireEvent("think")
+        assert(not h.data.content.data.active)
+    end },
+    { "pointer overlap cannot raise the map through a covering window", function()
+        local f = Fixture()
+        local h = f.Window()
+        local other = f.Panel {}
+        f.layer:AddChild(other)
+        f.env.gui.SetFocus(other)
+        h.mousePoint = { x = 0.5, y = 0.5 }
+        h.data.hovered = false
+        f.keys[0] = true
+        h:FireEvent("think")
+        assert(not h.data:Foremost() and not h.data.content.data.active)
+    end },
     { "leaving the document layer during title drag keeps the last position", function()
         local f = Fixture()
         local h = f.Window()
@@ -408,9 +432,11 @@ local cases = {
         f.layer.mousePoint = { x = (h.x + 100) / f.layer.width, y = 1 - (h.y + 20) / f.layer.height }
         h.data.title:FireEvent("press")
         local x, y = h.x, h.y
-        f.layer.mousePoint = { x = 0, y = 0 }
-        h:FireEvent("think")
-        Near(h.x, x); Near(h.y, y)
+        for _, point in ipairs({ { x = 0, y = 0 }, { x = 0, y = 1.03 }, { x = -0.1, y = 0.5 } }) do
+            f.layer.mousePoint = point
+            h:FireEvent("think")
+            Near(h.x, x); Near(h.y, y)
+        end
         f.keys[0] = false
         h:FireEvent("think")
     end },

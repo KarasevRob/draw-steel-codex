@@ -243,14 +243,19 @@ function Host:FinishPlacement()
     self:SavePlacement()
 end
 
---- The pointer in documents-layer pixels. The engine reports (0,0) while the pointer is
---- outside the layer, so that reading keeps the last real position instead.
+local function HasPointer(point)
+    return point ~= nil and point.x >= 0 and point.x <= 1 and point.y >= 0 and point.y <= 1
+        and not (point.x == 0 and point.y == 0)
+end
+
+--- The pointer in documents-layer pixels. Outside readings can be zero or out of range;
+--- keep the last valid drag position until the pointer returns.
 --- @return nil|number x
 --- @return nil|number y
 function Host:PointerInLayer()
     local layer = self.panel.parent
     local point = layer ~= nil and layer.mousePoint or nil
-    if point ~= nil and not (point.x == 0 and point.y == 0) then
+    if layer ~= nil and point ~= nil and HasPointer(point) then
         self.pointer = { x = point.x * layer.renderedWidth, y = (1 - point.y) * layer.renderedHeight }
     end
     if self.pointer == nil then return nil, nil end
@@ -286,10 +291,11 @@ function Host:PollTitleDrag()
     panel.y = clamp(drag.y + y - drag.pointerY, self.area.upper, self.area.lower - panel.selfStyle.height)
 end
 
---- Fast polling only while it matters: dragging, or a hovered window that a click should raise.
+--- Poll quickly while dragging or while the foremost window contains the pointer.
 function Host:UpdateThink()
-    local fast = self.dragging or (self.mode == "window" and self.hovered)
-    self.panel.thinkTime = self.dragging and C.canvasThinkActive or fast and C.hostThinkHover or C.canvasThinkIdle
+    local fast = self.mode == "window" and self:Foremost() and self:PointerInside()
+    local interval = self.dragging and C.canvasThinkActive or fast and C.hostThinkHover or C.canvasThinkIdle
+    if self.panel.thinkTime ~= interval then self.panel.thinkTime = interval end
 end
 
 --- The window is the top one in its layer (fullscreen always counts as foremost).
@@ -306,9 +312,15 @@ end
 function Host:Engaged()
     if self.mode ~= "window" then return true end
     if not self:Foremost() then return false end
-    if self.hovered then return true end
+    if self:PointerInside() then return true end
     local focus = gui.GetFocus()
     return focus ~= nil and focus:IsDescendantOf(self.panel)
+end
+
+--- Child controls receive hover events themselves; the host's coordinates cover the whole window.
+--- @return boolean
+function Host:PointerInside()
+    return HasPointer(self.panel.mousePoint)
 end
 
 function Host:SyncEngaged()
@@ -336,8 +348,9 @@ end
 function Host:Think()
     local panel = self.panel
     self:PollTitleDrag()
+    self:UpdateThink()
     if self.mode == "fullscreen" and panel.siblingIndex ~= 1 then panel:SetAsFirstSibling() end
-    if self.mode == "window" and self.hovered then
+    if self.mode == "window" and self.hovered and self:PointerInside() then
         local pressed = panel:GetMouseButton(0) or panel:GetMouseButton(1) or panel:GetMouseButton(2)
         if pressed and not self.pressed then self:Raise() end
         self.pressed = pressed

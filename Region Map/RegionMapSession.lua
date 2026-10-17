@@ -775,15 +775,10 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
         inputs[key] = { panel = input, kind = "number", multiplier = multiplier }
         if not slider then return input end
         -- A drag fires change on every step: show the value then, save once on release (confirm).
-        local committed = nil
         local track
-        local function Dragging()
-            local handle = track:Get("slider-handle")
-            return handle ~= nil and handle.dragging == true
-        end
+        local handle --- @type nil|Panel
         local function Save(value)
-            if binding or not Active() or value == committed then return end
-            committed = value
+            if binding or not Active() then return end
             invalid[key] = nil
             Commit({ [key] = value / multiplier })
         end
@@ -791,14 +786,15 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
             rmargin = 8, minValue = low, maxValue = high, round = true,
             change = function(e)
                 if binding or not Active() then return end
-                if Dragging() then
-                    Session.SetText(input, string.format("%.5g", e.value))
-                    if options.Preview then options.Preview({ [key] = e.value / multiplier }) end
-                else Save(e.value) end
+                Session.SetText(input, string.format("%.5g", e.value))
+                if options.Preview then options.Preview({ [key] = e.value / multiplier }) end
             end,
             confirm = function(e) Save(e.value) end }
-        track:Get("slider-notch"):SetClass("regionMapAppearanceTrack", true)
-        sliders[key] = { panel = track, multiplier = multiplier, reset = function() committed = nil end }
+        -- Get searches the sheet's IDs; label and pin editors both contain core slider IDs.
+        handle = track:FindChildRecursive(function(e) return e.id == "slider-handle" end)
+        local notch = track:FindChildRecursive(function(e) return e.id == "slider-notch" end)
+        if notch ~= nil then notch:SetClass("regionMapAppearanceTrack", true) end
+        sliders[key] = { panel = track, handle = handle, multiplier = multiplier }
         return gui.Panel { width = "100%", height = "auto", flow = "horizontal", track, input }
     end
     local outline = Dropdown("outlineMode", { "default", "none", "custom" }, function(value)
@@ -908,7 +904,6 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
     local function Bind(id, value)
         if id ~= boundId then
             ClosePicker(); invalid = {}; imageError = nil
-            for _, slider in pairs(sliders) do slider.reset() end
         end
         boundId, format, binding = id, value, true
         if id == nil then binding = false; return end
@@ -917,14 +912,15 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
         for key, item in pairs(inputs) do
             local input, current = item.panel, value[key]
             if item.kind == "dropdown" then input.idChosen = current
-            elseif not input.hasFocus and not invalid[key] then
+            elseif not input.hasFocus and not invalid[key]
+                and not (sliders[key] and sliders[key].handle and sliders[key].handle.dragging) then
                 if item.kind == "number" then current = string.format("%.5g", current * item.multiplier)
                 elseif current == "" then current = A.Contrast(value.color) end
                 Session.SetText(input, current); input:SetClass("invalid", false)
             end
         end
         for key, slider in pairs(sliders) do
-            local handle = slider.panel:Get("slider-handle")
+            local handle = slider.handle
             if handle == nil or not handle.dragging then slider.panel.value = value[key] * slider.multiplier end
         end
         outlinePicker.value = value.outlineColor ~= "" and value.outlineColor or A.Contrast(value.color)
