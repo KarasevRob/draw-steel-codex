@@ -3857,7 +3857,7 @@ function GameHud.CreateEmbeddedRollDialog()
                     options = choiceOptions,
                     change = function(element)
                         ---@cast element Dropdown
-                        local chosen = element.idChosen
+                        local chosen = element.idChosen --[[@as string]]
                         local guid = mod.modifier:try_get("guid")
                         mod.modifier:SetAddTextChoice(chosen)
 
