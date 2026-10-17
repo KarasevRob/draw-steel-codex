@@ -105,6 +105,12 @@ function CharacterModifier:ResolveDamageMappingDestination(source, value)
     return dests[1]
 end
 
+--- Stores the roll-time pick for a modifier with addTextChoices (a method so the field is declared on the class).
+--- @param chosen string
+function CharacterModifier:SetAddTextChoice(chosen)
+    self._tmp_addTextChoice = chosen
+end
+
 --- The addText option currently picked for a modifier that has addTextChoices (first choice by default).
 --- @param modifier CharacterModifier
 --- @return string

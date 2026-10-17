@@ -3859,7 +3859,7 @@ function GameHud.CreateEmbeddedRollDialog()
                         ---@cast element Dropdown
                         local chosen = element.idChosen
                         local guid = mod.modifier:try_get("guid")
-                        mod.modifier._tmp_addTextChoice = chosen
+                        mod.modifier:SetAddTextChoice(chosen)
 
                         --Multi-target rolls keep a copy of the modifier per
                         --target; keep every copy on the same pick.
@@ -3867,7 +3867,7 @@ function GameHud.CreateEmbeddedRollDialog()
                             for _,target in ipairs(m_multitargets) do
                                 for _,entry in ipairs(target.modifiers or {}) do
                                     if entry.modifier ~= nil and entry.modifier ~= mod.modifier and entry.modifier:try_get("guid") == guid then
-                                        entry.modifier._tmp_addTextChoice = chosen
+                                        entry.modifier:SetAddTextChoice(chosen)
                                     end
                                 end
                             end
