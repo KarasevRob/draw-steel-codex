@@ -315,7 +315,7 @@ function RegionMapPinText.CreateSettings(ctx)
     end
     local function Field(copyId, child)
         return gui.Panel { classes = { "regionMapLabelField" },
-            Session.Label({ "regionMapFormLabel" }, T(copyId)), child }
+            Session.Label({ "regionMapFormLabel", "sizeXs" }, T(copyId)), child }
     end
     local options = {}
     for _, font in ipairs(gui.availableFonts or {}) do options[#options + 1] = { id = font, text = font } end
@@ -348,7 +348,7 @@ function RegionMapPinText.CreateSettings(ctx)
     local tiers = {}
     for _, importance in ipairs({ "major", "normal", "minor" }) do
         tiers[#tiers + 1] = gui.Panel { width = "33.333%", height = "auto", flow = "vertical", borderBox = true, rpad = 4,
-            Session.Label({ "regionMapHint" }, T("edit.importance." .. importance)),
+            Session.Label({ "regionMapHint", "sizeXs" }, T("edit.importance." .. importance)),
             Numeric(importance .. "Size", 1, 6, 72) }
     end
     local bold = gui.Check { classes = { "regionMapCheck" }, text = T("label.bold"), width = "50%", minWidth = 0, borderBox = true,
@@ -402,7 +402,7 @@ function RegionMapPinText.CreateSettings(ctx)
         Commit = function(changes) return PinText.Commit(boundId, changes) end,
     })
     local plateColor = ColorField("backgroundColor", "pinText.plateColor")
-    local previewHint = Session.Label({ "regionMapHint", "collapsed" })
+    local previewHint = Session.Label({ "regionMapHint", "collapsed", "sizeXs" })
     local appearance = gui.Panel { classes = { "regionMapLabelField", "collapsed" },
         Field("label.spacing", spacing), themeColor, color, previewHint, appearanceControls, plateColor }
     local arrow = gui.ExpandoArrow { halign = "left", valign = "center", interactable = false }
@@ -411,8 +411,8 @@ function RegionMapPinText.CreateSettings(ctx)
             local expand = appearance:HasClass("collapsed")
             appearance:SetClass("collapsed", not expand); arrow:SetClass("expanded", expand)
         end,
-        arrow, Session.Label({ "regionMapSectionLabel" }, T("pinText.appearance")) }
-    local status = Session.Label({ "regionMapHint" })
+        arrow, Session.Label({ "regionMapSectionLabel", "sizeS" }, T("pinText.appearance")) }
+    local status = Session.Label({ "regionMapHint", "sizeXs" })
     local retry = Session.Button(T("toast.retry"), function() if Active() then PinText.Retry(boundId) end end)
     local reset = Session.Button(T("pinText.reset"), function()
         if not Active() then return end
@@ -473,8 +473,8 @@ function RegionMapPinText.CreateSettings(ctx)
             PinText.Prune()
         end,
         regionMapThemeChanged = function() if Active() then Bind(ctx.CurrentMap()) end end,
-        Session.Label({ "regionMapFormLabel" }, T("pinText.title")),
-        Session.Label({ "regionMapHint" }, T("pinText.scope")),
+        Session.Label({ "regionMapFormLabel", "sizeXs" }, T("pinText.title")),
+        Session.Label({ "regionMapHint", "sizeXs" }, T("pinText.scope")),
         Field("label.font", font),
         Field("pinText.size", gui.Panel { width = "100%", height = "auto", flow = "horizontal", children = tiers }),
         gui.Panel { width = "100%", height = "auto", flow = "horizontal", bold, italics },

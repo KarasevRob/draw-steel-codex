@@ -48,7 +48,7 @@ function RegionMapLabelPanel.Create(ctx)
     end
     local function Field(key, child)
         return gui.Panel { classes = { "regionMapLabelField" },
-            Session.Label({ "regionMapFormLabel" }, T("label." .. key)), child }
+            Session.Label({ "regionMapFormLabel", "sizeXs" }, T("label." .. key)), child }
     end
     local textInput = Session.TextArea(C.labelTextLimit, {
         id = "region-map-label-text", minHeight = 72, maxHeight = 170,
@@ -64,9 +64,9 @@ function RegionMapLabelPanel.Create(ctx)
         width = "100%", minWidth = 0, borderBox = true,
         change = function(e) Changed("font", e.idChosen, false) end,
     }
-    local bold = gui.Check { classes = { "regionMapCheck" }, text = T("label.bold"), width = "50%", minWidth = 0, borderBox = true, fontSize = 14,
+    local bold = gui.Check { classes = { "regionMapCheck", "sizeS" }, text = T("label.bold"), width = "50%", minWidth = 0, borderBox = true,
         change = function(e) Changed("bold", e.value == true, false) end }
-    local italics = gui.Check { classes = { "regionMapCheck" }, text = T("label.italics"), width = "50%", minWidth = 0, borderBox = true, fontSize = 14,
+    local italics = gui.Check { classes = { "regionMapCheck", "sizeS" }, text = T("label.italics"), width = "50%", minWidth = 0, borderBox = true,
         change = function(e) Changed("italics", e.value == true, false) end }
     local alignment = Session.Segments({ "left", "center", "right" }, "label.", function(value) Changed("alignment", value, false) end)
     local function Number(key, multiplier, low, high)
@@ -131,15 +131,15 @@ function RegionMapLabelPanel.Create(ctx)
     local visibility = Session.Segments({ "hidden", "revealed" }, "edit.visibility.", function(value)
         Changed("visibility", value, true)
     end)
-    local visibleText = Session.Label({ "regionMapBody" }, T("edit.visibility.revealed"))
-    local status = Session.Label({ "regionMapHint" })
+    local visibleText = Session.Label({ "regionMapBody", "sizeS" }, T("edit.visibility.revealed"))
+    local status = Session.Label({ "regionMapHint", "sizeXs" })
     local retry = Session.Button(T("toast.retry"), function() if boundId then Labels.Retry(boundId) end end)
-    local title = Session.Label({ "regionMapSideTitle" }, T("label.title"))
+    local title = Session.Label({ "regionMapSideTitle", "sizeL" }, T("label.title"))
     local header = gui.Panel { classes = { "regionMapSideHeader" }, title,
         Session.IconButton("region-map-label-close", C.iconClose, T("panel.close"), function() ctx.SelectLabel(nil) end) }
     local body = gui.Panel { classes = { "regionMapSideBody" },
         header,
-        Session.Label({ "regionMapFormLabel" }, T("edit.visibility")), visibility, visibleText,
+        Session.Label({ "regionMapFormLabel", "sizeXs" }, T("edit.visibility")), visibility, visibleText,
         Field("text", textInput), Field("font", font),
         gui.Panel { width = "100%", height = "auto", flow = "horizontal", bold, italics },
         Field("alignment", alignment), size, angle, spacing, color, appearance, backgroundColor,
@@ -220,4 +220,41 @@ function RegionMapLabelPanel.Create(ctx)
         gui.Panel { classes = { "regionMapSideScroll" }, vscroll = true, rpad = 12, borderBox = true, body },
     }
     return panel
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapLabelPanel.Styles()
+    return {
+        {
+            selectors = { "regionMapLabelField" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            bmargin = 8,
+        },
+        {
+            selectors = { "regionMapLabelInput" },
+            width = "100%",
+            height = "auto",
+            minHeight = 28,
+        },
+        {
+            selectors = { "regionMapLabelInput", "invalid" },
+            borderColor = "@danger",
+        },
+        {
+            selectors = { "regionMapLabelColor" },
+            width = "100%",
+            height = "auto",
+            minHeight = 32,
+            flow = "horizontal",
+        },
+        {
+            selectors = { "regionMapLabelKind" },
+            color = "@fgMuted",
+            height = "auto",
+            width = "100%",
+        },
+    }
 end

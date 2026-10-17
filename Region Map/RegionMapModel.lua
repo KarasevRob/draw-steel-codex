@@ -60,6 +60,7 @@ end
 --- @field stateBeforeMutationId nil|string
 --- @field afterRevision integer
 --- @field afterMutationId string
+--- @field guards nil|{tableName: string, id: string, revision: integer, mutationId: nil|string}[] related rows that must remain unchanged
 
 --- What one user action changed, for RegionMapUndo.
 --- @class RegionMapUndoEntry
@@ -115,7 +116,7 @@ local function CompanionFor(tableName)
     return nil
 end
 
--- View as player (V2-19): the Director's client answers every visibility
+-- View as player: the Director's client answers every visibility
 -- question as a player who owns nothing, and refuses writes while it is on.
 local viewAsPlayer = false
 
@@ -1319,6 +1320,11 @@ end
 local function StepMatches(step, entry)
     local revision, mutationId = StepCurrent(step)
     if revision ~= step.afterRevision or mutationId ~= step.afterMutationId then return false end
+    for _, guard in ipairs(step.guards or {}) do
+        if PendingWrite(guard.tableName, guard.id) then return false end
+        local row = (dmhub.GetTable(guard.tableName) or {})[guard.id]
+        if R.RecordRevision(row) ~= guard.revision or Field(row, "mutationId", nil) ~= guard.mutationId then return false end
+    end
     local companion = step.tableName and CompanionFor(step.tableName)
     if companion and companion.canRevertStep and not companion.canRevertStep(step, entry) then return false end
     if not IsDirector() and step.before ~= nil
@@ -1329,6 +1335,21 @@ local function StepMatches(step, entry)
             and not dmhub.DeepEqual(Field(current, "pinNameFormat", false), Field(step.before, "pinNameFormat", false)) then return false end
     end
     return true
+end
+
+--- Protect descriptions and notes edited after import, even though Undo only hides the pin.
+--- @param step RegionMapUndoStep
+function RegionMapModel.GuardLocationUndo(step)
+    if step.id == nil then return end
+    step.guards = {}
+    for _, tableName in ipairs({ C.detailsTableName, C.notesTableName }) do
+        local operation = LastWrite(tableName, step.id)
+        local row = operation and operation.record or nil
+        step.guards[#step.guards + 1] = {
+            tableName = tableName, id = step.id,
+            revision = R.RecordRevision(row), mutationId = Field(row, "mutationId", nil),
+        }
+    end
 end
 
 --- Whether every step of an entry is still exactly as this client left it.
@@ -1359,7 +1380,7 @@ end
 --- @field toMutationId string
 
 --- Undo an entry: restore each step's earlier row (a created row is hidden)
---- with a new revision. All or nothing: refused when any step moved on.
+--- with a new revision. Partial imports skip changed pins; other entries require every step.
 --- Reverts are not themselves undoable.
 --- @param entry RegionMapUndoEntry
 --- @return boolean ok

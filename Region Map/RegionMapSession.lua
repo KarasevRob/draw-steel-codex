@@ -46,8 +46,8 @@ local Model = RegionMapModel
 --- @field v2 nil|number
 --- @field unit nil|"mi"|"km" scale drafts only: the unit picked before the distance
 
---- A path being drawn (V21-11). The Path tool fills startId with the first pin
---- clicked; Redraw line (V21-14) starts with both ends fixed.
+--- A path being drawn. The Path tool fills startId with the first pin
+--- clicked; Redraw line starts with both ends fixed.
 --- @class RegionMapPathDraft
 --- @field mapId string
 --- @field startId nil|string the a end, once picked
@@ -436,13 +436,13 @@ function RegionMapSession.ModeChoice(onPick)
         return gui.Panel {
             classes = { "regionMapModeButton" },
             click = function() if not mod.unloaded then onPick(mode) end end,
-            gui.Label { classes = { "regionMapModeName" }, text = T("mode." .. mode), interactable = false },
-            gui.Label { classes = { "regionMapModeDesc" }, text = T("mode." .. mode .. ".desc"), interactable = false },
+            gui.Label { classes = { "regionMapModeName", "sizeS" }, text = T("mode." .. mode), interactable = false },
+            gui.Label { classes = { "regionMapModeDesc", "sizeXs" }, text = T("mode." .. mode .. ".desc"), interactable = false },
         }
     end
     local children = {}
     for _, mode in ipairs(C.modes) do children[#children + 1] = ModeButton(mode) end
-    children[#children + 1] = gui.Label { classes = { "regionMapModeNote" }, text = T("mode.permanent"), interactable = false }
+    children[#children + 1] = gui.Label { classes = { "regionMapModeNote", "sizeXs" }, text = T("mode.permanent"), interactable = false }
     return gui.Panel { classes = { "regionMapModeChoice" }, children = children }
 end
 
@@ -498,7 +498,7 @@ function RegionMapSession.Segments(values, copyPrefix, onPick)
     local row = gui.Panel { classes = { "regionMapSegments" }, data = {} }
     for _, value in ipairs(values) do
         buttons[#buttons + 1] = gui.Label {
-            classes = { "regionMapSegment" }, text = T(copyPrefix .. value),
+            classes = { "regionMapSegment", "sizeS" }, text = T(copyPrefix .. value),
             width = string.format("%.4f%%", 100 / #values),
             data = { value = value },
             click = function(element) onPick(element.data.value) end,
@@ -696,7 +696,7 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
     end
     local function Field(key, child)
         return gui.Panel { classes = { "regionMapLabelField" },
-            Session.Label({ "regionMapFormLabel" }, T(key)), child }
+            Session.Label({ "regionMapFormLabel", "sizeXs" }, T(key)), child }
     end
     local function ClosePicker()
         generation = generation + 1
@@ -807,7 +807,7 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
         if value == "custom" and current.outlineColor == "" then changes.outlineColor = A.Contrast(current.color) end
         Commit(changes)
     end)
-    local outlineHint = Session.Label({ "regionMapHint" })
+    local outlineHint = Session.Label({ "regionMapHint", "sizeXs" })
     local hex = gui.Input { id = prefix .. "outlineColor", classes = { "input", "bordered", "regionMapLabelInput" },
         width = "100%-44", minWidth = 0, characterLimit = 9, borderBox = true,
         change = function(e)
@@ -833,7 +833,7 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
     local customOutline = gui.Panel { classes = { "regionMapLabelField" },
         Field("appearance.outlineColor", gui.Panel { classes = { "regionMapLabelColor" }, hex, outlinePicker }),
         Field("appearance.outlineWidth", Numeric("outlineWidth", 100, 0, 100, true)),
-        Session.Label({ "regionMapHint" }, T("appearance.thicknessHint")) }
+        Session.Label({ "regionMapHint", "sizeXs" }, T("appearance.thicknessHint")) }
     local background = gui.Dropdown { id = prefix .. "background", classes = { "regionMapLabelInput" },
         width = "100%", minWidth = 0, options = {},
         change = function(e)
@@ -845,7 +845,7 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
                 Commit({ background = value })
             end
         end }
-    local managed = Session.Label({ "regionMapHint" }, T("appearance.managed"))
+    local managed = Session.Label({ "regionMapHint", "sizeXs" }, T("appearance.managed"))
     local choose = Session.Button(T("appearance.choose"), Choose)
     local remove = Session.Button(T("appearance.remove"), function()
         local changes = A.RemoveImagePatch(pins)
@@ -855,9 +855,9 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
     local function Pair(title, first, second, multiplier, low, high)
         return Field(title, gui.Panel { width = "100%", height = "auto", flow = "horizontal",
             gui.Panel { width = "50%", height = "auto", flow = "vertical", rpad = 4, borderBox = true,
-                Session.Label({ "regionMapHint" }, T("appearance." .. first)), Numeric(first, multiplier, low, high) },
+                Session.Label({ "regionMapHint", "sizeXs" }, T("appearance." .. first)), Numeric(first, multiplier, low, high) },
             gui.Panel { width = "50%", height = "auto", flow = "vertical", lpad = 4, borderBox = true,
-                Session.Label({ "regionMapHint" }, T("appearance." .. second)), Numeric(second, multiplier, low, high) } })
+                Session.Label({ "regionMapHint", "sizeXs" }, T("appearance." .. second)), Numeric(second, multiplier, low, high) } })
     end
     local fit = Dropdown("backgroundFit", { "fit", "fill", "stretch" })
     local sizing = Dropdown("backgroundSizing", { "auto", "manual" }, function(value)
@@ -882,11 +882,11 @@ function RegionMapSession.AppearanceEditor(ctx, pins, options)
     local arrow = gui.ExpandoArrow { halign = "left", valign = "center", interactable = false }
     local disclosure = gui.Panel { classes = { "regionMapSectionHeader" },
         click = function() expanded = not expanded; more:SetClass("collapsed", not expanded); arrow:SetClass("expanded", expanded) end,
-        arrow, Session.Label({ "regionMapSectionLabel" }, T("appearance.more")) }
+        arrow, Session.Label({ "regionMapSectionLabel", "sizeS" }, T("appearance.more")) }
     local imageSettings = gui.Panel { classes = { "regionMapLabelField" },
-        Field("appearance.backgroundFit", fit), Session.Label({ "regionMapHint" }, T("appearance.fitHint")),
+        Field("appearance.backgroundFit", fit), Session.Label({ "regionMapHint", "sizeXs" }, T("appearance.fitHint")),
         Field("appearance.backgroundSizing", sizing), padding, dimensions, disclosure, more }
-    local imageStatus = Session.Label({ "regionMapHint" })
+    local imageStatus = Session.Label({ "regionMapHint", "sizeXs" })
     local retry = Session.Button(T("toast.retry"), function()
         if Active() then Session.RetryAppearanceImage(Current().backgroundImageId) end
     end)
@@ -976,4 +976,117 @@ function RegionMapSession.ScaleColorPopup(ctx, picker, allow)
             e.popup.selfStyle.scale = math.min(1, (ctx.root.renderedWidth - 16) / 512, (ctx.root.renderedHeight - 16) / 280)
         end
     end
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapSession.Styles()
+    return {
+        {
+            selectors = { "regionMapTextImage" },
+            bgcolor = "white",
+        },
+        {
+            selectors = { "regionMapAppearanceTrack" },
+            bgcolor = "@border",
+        },
+        {
+            selectors = { "regionMapModeChoice" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            tmargin = 4,
+        },
+        {
+            selectors = { "regionMapModeButton" },
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            bmargin = 4,
+            hpad = 6,
+            vpad = 4,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@border",
+            borderWidth = 1,
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapModeButton", "hover" },
+            bgcolor = "@bgAlt",
+            borderColor = "@accent",
+            transitionTime = 0.1,
+        },
+        {
+            selectors = { "regionMapModeName" },
+            width = "100%",
+            height = "auto",
+            bold = true,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapModeDesc" },
+            width = "100%",
+            height = "auto",
+            color = "@fg",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapModeNote" },
+            width = "100%",
+            height = "auto",
+            color = "@fgMuted",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapImageHit" },
+            bgimage = true,
+            bgcolor = "clear",
+        },
+    }
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapSession.HostStyles()
+    return {
+        {
+            selectors = { "regionMapWindowBorder" },
+            width = "100%",
+            height = "100%",
+            bgimage = true,
+            bgcolor = "clear",
+            borderColor = "@borderSolid",
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapWindowTitle" },
+            bgimage = true,
+            bgcolor = "@bg",
+            width = "100%",
+            height = C.panelTitleHeight,
+            flow = "horizontal",
+            halign = "left",
+            valign = "top",
+        },
+        {
+            selectors = { "regionMapResizeGrip" },
+            width = 16,
+            height = 16,
+            halign = "right",
+            valign = "bottom",
+            color = "@fgMuted",
+        },
+        {
+            selectors = { "regionMapHostControl", "focus" },
+            borderWidth = 2,
+            borderColor = "@accent",
+        },
+        {
+            selectors = { "buttonIcon", "parent:regionMapHostControl" },
+            width = 18,
+            height = 18,
+        },
+    }
 end

@@ -97,9 +97,7 @@ restored afterward. This was not a complete size/font/theme cross-product.
   native content measured approximately 999.68x718.97 with four labels and 292-pixel
   fields inside 292-pixel parents. The color picker stayed inside the native window.
   Return to app succeeded. A full native size/font matrix was not run.
-- The successful native desktop capture is the temporary file
-  `C:/Users/ElderHex/AppData/Local/Temp/codex-shot-2026-10-14_23-52-40.png`.
-  It is supporting local evidence, not a durable repository artifact.
+- The successful native desktop capture was temporary local evidence and is not retained in the repository.
 
 ### Rendering and performance
 
@@ -107,7 +105,7 @@ The rendering probe measured natural text dimensions independently of scale at 1
 2x and 20x and at 45-degree rotation. Explicit newlines increased natural height.
 The implementation caches those dimensions and applies inverse rotation for hit tests.
 
-The [benchmark fixture](../../output/labels-live-benchmark.lua) temporarily supplied
+The historical benchmark fixture (no longer retained) temporarily supplied
 250 pins, 150 paths and 0/50/200 labels through in-memory model overrides. Those overrides
 were restored. Recorded mean synchronous Lua layout times were:
 

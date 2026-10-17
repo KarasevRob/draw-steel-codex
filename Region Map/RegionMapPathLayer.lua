@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- Draws point crawl paths on the canvas (V21-09) and finds the path under the
+--- Draws point crawl paths on the canvas and finds the path under the
 --- pointer. Every line is a run of thin rotated panels (the ruler technique):
 --- a casing in the opposite tone under each mark (Q1), the coloured mark on top,
 --- with patterns sized in screen pixels so they read the same at every zoom (Q2).
@@ -37,7 +37,7 @@ local Pool = Tools.Pool
 --- @field aName string the end pins' names, kept clear of labels
 --- @field bName string
 
---- A bend handle drag in progress (V21-14): bend `index` moved to (u, v), or with
+--- A bend handle drag in progress: bend `index` moved to (u, v), or with
 --- insert, a new bend put in at `index` (on segment `index` of the line).
 --- @class RegionMapBendPreview
 --- @field index integer
@@ -763,4 +763,60 @@ function RegionMapPathLayer.Sample(width)
         pieces.Finish()
     end
     return panel
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapPathLayer.Styles()
+    return {
+        {
+            selectors = { "regionMapPathPiece" },
+            bgimage = true,
+        },
+        {
+            selectors = { "regionMapPathHalo" },
+            bgimage = true,
+            bgcolor = "@accent",
+            opacity = 0.55,
+        },
+        {
+            selectors = { "regionMapPathBadge" },
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@fgStrong",
+            borderWidth = 1,
+        },
+        {
+            selectors = { "regionMapPathHandle" },
+            bgimage = true,
+            bgcolor = C.pathCasingLight,
+            borderColor = C.pathCasingDark,
+            borderWidth = 2,
+        },
+        {
+            selectors = { "regionMapPathPlus" },
+            bgimage = true,
+            bgcolor = "@bg",
+            borderColor = "@accent",
+            borderWidth = 1,
+        },
+        {
+            selectors = { "regionMapPathPlusGlyph" },
+            width = "70%",
+            height = "70%",
+            halign = "center",
+            valign = "center",
+            bgcolor = "@accent",
+        },
+        RegionMapStyles.Chrome("regionMapPathLabel", {
+            width = "auto",
+            height = "auto",
+            hpad = 8,
+            vpad = 2,
+            borderBox = true,
+            cornerRadius = 4,
+            color = "@fgStrong",
+            textWrap = false,
+        }),
+    }
 end

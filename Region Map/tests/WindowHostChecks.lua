@@ -382,6 +382,38 @@ local cases = {
         h:FireEvent("regionMapCheckFocus")
         assert(f.focus.enabled and f.focus.id == "fixture-view")
     end },
+    { "Esc belongs to the window only with focus or pointer inside", function()
+        local f = Fixture()
+        local h = f.Window()
+        f.env.gui.SetFocus(nil)
+        h.data.hovered = false
+        h:FireEvent("think")
+        assert(h.data.content.data.active == false)
+        h.data.hovered = true
+        h:FireEvent("think")
+        assert(h.data.content.data.active == true)
+        h.data.hovered = false
+        f.env.gui.SetFocus(h.data.content)
+        h:FireEvent("think")
+        assert(h.data.content.data.active == true)
+        local other = f.Panel {}
+        f.layer:AddChild(other)
+        h:FireEvent("think")
+        assert(h.data.content.data.active == false)
+    end },
+    { "leaving the document layer during title drag keeps the last position", function()
+        local f = Fixture()
+        local h = f.Window()
+        f.keys[0] = true
+        f.layer.mousePoint = { x = (h.x + 100) / f.layer.width, y = 1 - (h.y + 20) / f.layer.height }
+        h.data.title:FireEvent("press")
+        local x, y = h.x, h.y
+        f.layer.mousePoint = { x = 0, y = 0 }
+        h:FireEvent("think")
+        Near(h.x, x); Near(h.y, y)
+        f.keys[0] = false
+        h:FireEvent("think")
+    end },
     { "reload cleanup restores the action bar", function()
         local f = Fixture()
         local h = f.Open()

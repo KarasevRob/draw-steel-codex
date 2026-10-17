@@ -1,6 +1,6 @@
 # Artwork attachment checks
 
-Machine-readable results: [2026-10-14 verification](../../output/artwork-verification-2026-10-14.json).
+Historical verification is summarized below. Temporary machine-readable artifacts were removed from the repository; the runnable suite is [ArtworkChecks.lua](ArtworkChecks.lua).
 
 `ArtworkChecks.lua` loads the production model and component into a separate Lua
 environment with disposable in-memory tables, timers, image responses and panel events.
@@ -79,8 +79,8 @@ and one landscape Journal image, then remove the disposable map when finished.
   `register_lua_file` using `Overland Map/RegionMapArtwork.lua`: index 16, immediately
   before the detail panels. The app's console contains both the successful `/CodeMod/`
   write and `Verified RegionMapArtwork in cloud.`
-- The live directory is `C:/Users/ElderHex/codex-dev-mods/Overland Map`, while the source
-  directory is `Region Map`. The repository deploy script's dry run failed because its
+- The development module directory was named `Overland Map`, while the source
+  directory is `Region Map`. Read the current CodeMod git-folder setting before deploying. The repository deploy script's dry run failed because its
   configured git folder was empty and its fallback belongs to another machine. The
   feature files were copied together to the confirmed live folder, checked against
   `localContents`, and reloaded. Concurrent import/log changes were preserved.
@@ -102,8 +102,7 @@ and one landscape Journal image, then remove the disposable map when finished.
 - At both window sizes, all six Default/Warm Gold and 80/100/140 combinations kept the
   preview at 160 logical pixels and retained aspect ratio within its frame. A landscape
   preview was also measured and the fullscreen portrait/landscape views inspected.
-  A usable native preview capture is
-  `C:/Users/ElderHex/AppData/Local/Temp/codex-shot-2026-10-14_03-45-18.png`.
+  A native preview was captured locally; that temporary screenshot is not retained.
   Later OS captures were uniformly blank; the final native viewer fit is backed by engine
   geometry, not a usable final screenshot. Targeted native OS key injection could not find
   the window, so native physical Escape remains a manual check.
@@ -128,7 +127,7 @@ match the repository after line-ending normalization; no deployed changes remain
 Successful server write responses contain both changelists and the expected file hashes.
 The development checkout remains open. Syntax, all 27 artwork checks, 15 live parser
 inputs and the available module type check passed again before publication.
-See the [cloud publication record](../../output/overland-cloud-publish-2026-10-14.json).
+The temporary publication export is no longer retained; these IDs describe that historical publication, not the current branch.
 
 Runtime feature files: `RegionMapRecords.lua`, `RegionMapModel.lua`, `RegionMapPaths.lua`,
 `RegionMapConstants.lua`, `RegionMapCopy.lua`, `RegionMapArtwork.lua`,

@@ -394,12 +394,12 @@ New glossary rows:
 | import.summary | Import {count} locations into {map}? | `.one`: "Import 1 location into {map}?" |
 | import.skipped | {count} entries will be skipped: | `.one`: "1 entry will be skipped:" |
 | import.skip.noName | Entry {n}: it has no name. | |
-| import.skip.name | Entry {n}: its name is over {limit} characters or has a line break. | `limit` is the shared name limit, now 256 |
+| import.skip.name | Entry {n}: its name is over {limit} characters or contains a line break, control character or bidi mark. | `limit` is the shared name limit, now 256 |
 | import.skip.position | Entry {n}: u and v must both be between 0 and 1, or both left out. | |
 | import.skip.field | Entry {n}: {field} is not a valid value. | pinStyle, importance, visibility, icon |
 | import.skip.tooLong | Entry {n}: {field} is too long. | description over 4000, note over 8000 |
 | import.duplicates | {count} names are already on this map; they will be added again: | `.one`: "1 name is already on this map; it will be added again:" |
-| import.placement | Locations without a position are set out in rows near the center of the map. Unlock pins to place them exactly. One Undo removes the whole import. | Q24 |
+| import.placement | Locations without a position are set out in rows near the center of the map. Unlock pins to place them exactly. Undo removes imported locations that have not been edited since. | Q24 |
 | import.ok | Import {count} locations | `.one`: "Import 1 location" |
 | import.error.json | This file isn't valid JSON, so nothing was imported. | Error card |
 | import.error.empty | This file has no locations in it. | Error card |
@@ -417,7 +417,7 @@ New glossary rows:
 | import.fill | Fill with example | Asks before replacing a nonempty draft |
 | import.preview | Preview | Validate pasted JSON; no writes |
 | import.back | Back | Return to the editor |
-| import.count | {count} / 100,000 characters | Unicode code points |
+| import.count | {count} / {limit} characters | Unicode code points |
 | import.draftHint | Drafts are not saved. Use Choose file... for larger imports. | Under editor |
 | import.discard | Discard pasted JSON? | Cancel, Esc and mod-owned host closing |
 | import.discard.ok | Discard | Confirmation action; Cancel keeps editing |
@@ -428,7 +428,7 @@ New glossary rows:
 | import.text.json | This text isn't valid JSON. Nothing was imported. | Draft remains editable |
 | import.text.empty | This JSON has no locations in it. | Pasted empty input/list |
 | import.text.allSkipped | None of the entries in this JSON can be imported: | Then existing skip reasons |
-| import.text.tooLong | This text exceeds 100,000 characters. Shorten it or choose a JSON file. | Reject before parsing |
+| import.text.tooLong | This text exceeds {limit} characters. Shorten it or choose a JSON file. | Reject before parsing |
 | import.unavailable | This map is no longer available for import. | Preserve draft |
 | import.permission | Only the Director can import locations. | Rechecked before preview and commit |
 | import.help | JSON contract | Swagger-style field reference beside editor, below it when narrow |

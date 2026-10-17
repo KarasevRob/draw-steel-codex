@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- Making and reshaping point crawl paths (V21-11, V21-12, V21-14): the Path
+--- Making and reshaping point crawl paths: the Path
 --- tool's steps, Connect to..., Redraw line and the bend handle edits. The
 --- canvas reports clicks, right-clicks and Backspace here; the line being drawn
 --- lives in ctx.data.pathDraft and the path layer draws it.

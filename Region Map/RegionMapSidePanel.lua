@@ -344,11 +344,11 @@ function RegionMapSidePanel.Create(ctx)
     -- Read view ------------------------------------------------------------------------------------
 
     local readIcon = gui.Panel { classes = { "regionMapSideIcon" }, interactable = false }
-    local readTitle = gui.Label { classes = { "regionMapSideTitle" }, text = "" }
+    local readTitle = gui.Label { classes = { "regionMapSideTitle", "sizeL" }, text = "" }
     local closeButton = Session.IconButton("region-map-panel-close", C.iconClose, T("panel.close"), function()
         ctx.Select(nil, nil)
     end)
-    local metaLabel = Label({ "regionMapMeta" })
+    local metaLabel = Label({ "regionMapMeta", "sizeXs" })
     local eyeButton = Session.IconButton("region-map-panel-eye", C.iconEye, "", function()
         local location = Current()
         if location ~= nil then
@@ -361,19 +361,19 @@ function RegionMapSidePanel.Create(ctx)
     end)
     local metaRow = gui.Panel { classes = { "regionMapSideRow" }, metaLabel, eyeButton, mapButton }
     -- Every viewer sees a map's kind (A2).
-    local modeChip = gui.Label { classes = { "regionMapChip", "regionMapSideChip" }, text = T("chip.pointcrawl"), interactable = false }
+    local modeChip = gui.Label { classes = { "regionMapChip", "regionMapSideChip", "sizeXs" }, text = T("chip.pointcrawl"), interactable = false }
     local readArtwork = RegionMapArtwork.Create(ctx, "location", false,
         function(id) return data.selectedId == id and data.panelMode == "read" end)
-    local description = Label({ "regionMapBody" })
+    local description = Label({ "regionMapBody", "sizeS" })
     local journalLink = gui.Label {
-        classes = { "regionMapLink" }, text = T("panel.journal"),
+        classes = { "regionMapLink", "sizeS" }, text = T("panel.journal"),
         click = function()
             local details = Model.Details(data.selectedId or "")
             if details ~= nil and details.journal.id ~= nil then Journal.Open(details.journal.id) end
         end,
     }
-    local author = Label({ "regionMapMeta" })
-    local partyHere = Label({ "regionMapBody" })
+    local author = Label({ "regionMapMeta", "sizeXs" })
+    local partyHere = Label({ "regionMapBody", "sizeS" })
     local movePartyButton = Button(T("panel.moveParty"), function()
         local location = Current()
         if location == nil then return end
@@ -398,8 +398,8 @@ function RegionMapSidePanel.Create(ctx)
     local moreButton = Session.IconButton("region-map-panel-more", C.iconMore, T("panel.more"), function(element)
         if data.selectedId ~= nil then ctx.ShowMenu(element, data.selectedId) end
     end)
-    local notesBody = Label({ "regionMapBody", "collapsed" })
-    local notesSub = Label({ "regionMapHint", "collapsed" }, T("panel.notes.sub"))
+    local notesBody = Label({ "regionMapBody", "collapsed", "sizeS" })
+    local notesSub = Label({ "regionMapHint", "collapsed", "sizeXs" }, T("panel.notes.sub"))
     local notesExpanded = false
     local notesArrow
     notesArrow = gui.ExpandoArrow {
@@ -417,7 +417,7 @@ function RegionMapSidePanel.Create(ctx)
         gui.Panel {
             classes = { "regionMapSectionHeader" },
             notesArrow,
-            Label({ "regionMapSectionLabel" }, T("panel.notes")),
+            Label({ "regionMapSectionLabel", "sizeS" }, T("panel.notes")),
         },
         notesSub,
         notesBody,
@@ -523,7 +523,7 @@ function RegionMapSidePanel.Create(ctx)
         end
     end
 
-    local visibilityLabel = Label({ "regionMapFormLabel" }, T("edit.visibility"))
+    local visibilityLabel = Label({ "regionMapFormLabel", "sizeXs" }, T("edit.visibility"))
     local visibilitySegments = Segments(C.visibilities, "edit.visibility.", function(value)
         local location = Current()
         if location ~= nil and location.visibility ~= value then SetVisibility(ctx, location, value) end
@@ -571,7 +571,7 @@ function RegionMapSidePanel.Create(ctx)
     local iconGrid = gui.Panel { classes = { "regionMapIconGrid" }, children = iconChoices }
     local iconPicker = gui.Panel {
         width = "100%", height = "auto", flow = "vertical", classes = { "collapsed" },
-        Label({ "regionMapFormLabel" }, T("edit.icon.picker")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.icon.picker")),
         iconTabs,
         iconGrid,
         iconLibrary,
@@ -587,12 +587,12 @@ function RegionMapSidePanel.Create(ctx)
         UpdateField({ importance = value }, "Change location importance")
     end)
     pinFields.children = {
-        Label({ "regionMapFormLabel" }, T("edit.icon")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.icon")),
         gui.Panel { classes = { "regionMapButtonRow" }, iconButton },
         iconPicker,
-        Label({ "regionMapFormLabel" }, T("edit.style")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.style")),
         styleSegments,
-        Label({ "regionMapFormLabel" }, T("edit.importance")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.importance")),
         importanceSegments,
     }
 
@@ -611,8 +611,8 @@ function RegionMapSidePanel.Create(ctx)
         })
     end
     local descriptionInput = TextArea("description", C.descriptionLimit, T("edit.desc.placeholder"))
-    local journalLabel = Label({ "regionMapFormLabel" }, T("edit.journal"))
-    local journalTitle = Label({ "regionMapBody" })
+    local journalLabel = Label({ "regionMapFormLabel", "sizeXs" }, T("edit.journal"))
+    local journalTitle = Label({ "regionMapBody", "sizeS" })
     local journalButton = Button(T("menu.linkJournal"), function()
         if data.selectedId ~= nil then ctx.Select(data.selectedId, "pickJournal") end
     end)
@@ -620,9 +620,9 @@ function RegionMapSidePanel.Create(ctx)
         width = "100%", height = "auto", flow = "vertical",
         journalLabel, journalTitle, gui.Panel { classes = { "regionMapButtonRow" }, journalButton },
     }
-    local notesLabel = Label({ "regionMapFormLabel" }, T("edit.notes"))
+    local notesLabel = Label({ "regionMapFormLabel", "sizeXs" }, T("edit.notes"))
     local notesInput = TextArea("note", C.noteLimit, T("edit.notes.placeholder"))
-    local stateLine = Label({ "regionMapStateLine" })
+    local stateLine = Label({ "regionMapStateLine", "sizeXs" })
     local retryButton = Button(T("edit.retry"), function()
         local id = data.selectedId
         if id == nil then return end
@@ -644,11 +644,11 @@ function RegionMapSidePanel.Create(ctx)
         classes = { "regionMapSideBody", "collapsed" },
         visibilityLabel,
         visibilitySegments,
-        Label({ "regionMapFormLabel" }, T("edit.name")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.name")),
         nameInput,
         pinFields,
         editArtwork,
-        Label({ "regionMapFormLabel" }, T("edit.desc")),
+        Label({ "regionMapFormLabel", "sizeXs" }, T("edit.desc")),
         descriptionInput,
         journalRow,
         notesLabel,
@@ -722,11 +722,11 @@ function RegionMapSidePanel.Create(ctx)
 
     -- Pickers (map image, target map, journal entry) ----------------------------------------------
 
-    local pickTitle = gui.Label { classes = { "regionMapSideTitle" }, text = "" }
-    local pickHint = Label({ "regionMapHint" })
+    local pickTitle = gui.Label { classes = { "regionMapSideTitle", "sizeL" }, text = "" }
+    local pickHint = Label({ "regionMapHint", "sizeXs" })
     local pickHiddenNotice = gui.Label {
         id = "region-map-add-map-hidden-notice",
-        classes = { "regionMapModeDesc", "bold", "collapsed" }, tmargin = 4, bmargin = 6,
+        classes = { "regionMapModeDesc", "bold", "collapsed", "sizeXs" }, tmargin = 4, bmargin = 6,
         text = T("map.new.hidden"), interactable = false,
     }
     local pickImage = gui.IconEditor {
@@ -764,16 +764,16 @@ function RegionMapSidePanel.Create(ctx)
         },
     }
     -- Always visible while choosing an image, so the guidance is read before the pick (J2).
-    local pickSizeHint = Label({ "regionMapHint" })
+    local pickSizeHint = Label({ "regionMapHint", "sizeXs" })
     local pickList = gui.Panel { width = "100%", height = "auto", flow = "vertical", tmargin = 6 }
     -- Add map: the kind first (A1), then the image; Back returns to the kind.
-    local pickModeLabel = Label({ "regionMapFormLabel" }, T("mode.title"))
+    local pickModeLabel = Label({ "regionMapFormLabel", "sizeXs" }, T("mode.title"))
     local pickModeChoice = Session.ModeChoice(function(mode)
         if data.selectedId == nil then return end
         data.newMapMode = mode
         ctx.Select(data.selectedId, "pickImage")
     end)
-    local pickModeName = Label({ "regionMapFormLabel" })
+    local pickModeName = Label({ "regionMapFormLabel", "sizeXs" })
     local pickBack = Button(T("mode.back"), function()
         if data.selectedId ~= nil then ctx.Select(data.selectedId, "pickMode") end
     end)
@@ -806,7 +806,7 @@ function RegionMapSidePanel.Create(ctx)
         return gui.Panel {
             classes = { "regionMapRow" },
             click = function() action() end,
-            gui.Label { classes = { "regionMapRowName" }, text = text, interactable = false },
+            gui.Label { classes = { "regionMapRowName", "sizeS" }, text = text, interactable = false },
         }
     end
 

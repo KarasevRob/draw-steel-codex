@@ -205,7 +205,7 @@ local function RulerClick(ctx, map, u, v)
     end
 end
 
--- Set scale (V2-14): two clicks pick the points, then Settings asks for the distance.
+-- Set scale: two clicks pick the points, then Settings asks for the distance.
 local function ScaleClick(ctx, map, u, v)
     local draft = ctx.data.scaleDraft
     if draft == nil or draft.mapId ~= map.id or draft.u2 ~= nil then
@@ -550,7 +550,7 @@ function RegionMapCanvasTools.CreateOverlay(ctx)
         line, startDot, endDot,
     }
     local label = gui.Label {
-        classes = { "regionMapRulerLabel", "collapsed" }, floating = true, halign = "center", valign = "center",
+        classes = { "regionMapRulerLabel", "collapsed", "sizeS" }, floating = true, halign = "center", valign = "center",
         text = "",
         hover = function(element)
             if labelTooltip ~= nil then gui.Tooltip(labelTooltip)(element) end
@@ -742,4 +742,57 @@ function RegionMapCanvasTools.MapMenu(ctx, u, v, snapId)
         }
     end
     return entries
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapCanvasTools.Styles()
+    return {
+        {
+            selectors = { "regionMapOverlay" },
+            width = "100%",
+            height = "100%",
+            flow = "none",
+        },
+        {
+            selectors = { "regionMapRouteDot" },
+            width = C.routeDotSize,
+            height = C.routeDotSize,
+            bgimage = true,
+            bgcolor = "@accent",
+            -- A ring in the theme's background colour keeps the route readable where it runs
+            -- along a path of the same colour (Default's accent is parchment, like Road).
+            borderColor = "@bg",
+            borderWidth = 1.5,
+            cornerRadius = C.routeDotSize / 2,
+            opacity = 0.85,
+        },
+        {
+            selectors = { "regionMapRulerLine" },
+            height = C.rulerWidth,
+            bgimage = true,
+            bgcolor = "@accent",
+        },
+        {
+            selectors = { "regionMapRulerEnd" },
+            width = C.rulerEndSize,
+            height = C.rulerEndSize,
+            bgimage = true,
+            bgcolor = "@accent",
+            borderColor = "@bg",
+            borderWidth = 2,
+            cornerRadius = C.rulerEndSize / 2,
+        },
+        RegionMapStyles.Chrome("regionMapRulerLabel", {
+            width = "auto",
+            height = "auto",
+            hpad = 8,
+            vpad = 3,
+            borderBox = true,
+            borderColor = "@accent",
+            bold = true,
+            color = "@fgStrong",
+            textWrap = false,
+        }),
+    }
 end

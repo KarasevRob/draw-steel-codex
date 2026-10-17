@@ -74,18 +74,18 @@ function RegionMapAtlas.Create(ctx)
             Session.IconButton("region-map-atlas-more-" .. id, C.iconMore, T("panel.more"), ShowActions),
         }
         local pointcrawl = gui.Label {
-            classes = { "regionMapChip", "regionMapThumbChip", "collapsed" }, text = T("chip.pointcrawl"), interactable = false,
+            classes = { "regionMapChip", "regionMapThumbChip", "collapsed", "sizeXs" }, text = T("chip.pointcrawl"), interactable = false,
         }
         local sharing = gui.Label {
             id = "region-map-atlas-sharing-" .. id,
-            classes = { "regionMapChip", "regionMapThumbChip", "collapsed" },
+            classes = { "regionMapChip", "regionMapThumbChip", "collapsed", "sizeXs" },
             floating = true, valign = "bottom", tmargin = 0, bmargin = 4,
             text = "", interactable = false,
         }
         local thumb = gui.Panel { classes = { "regionMapCardThumb" }, interactable = false, pointcrawl, sharing }
-        local name = gui.Label { classes = { "regionMapCardName" }, text = "", interactable = false }
-        local count = gui.Label { classes = { "regionMapCardText" }, text = "", interactable = false }
-        local party = gui.Label { classes = { "regionMapChip", "collapsed" }, text = T("atlas.card.party"), interactable = false }
+        local name = gui.Label { classes = { "regionMapCardName", "sizeS" }, text = "", interactable = false }
+        local count = gui.Label { classes = { "regionMapCardText", "sizeXs" }, text = "", interactable = false }
+        local party = gui.Label { classes = { "regionMapChip", "collapsed", "sizeXs" }, text = T("atlas.card.party"), interactable = false }
         return gui.Panel {
             id = "region-map-atlas-card-" .. id,
             classes = { "regionMapCard" },
@@ -176,11 +176,11 @@ function RegionMapAtlas.Create(ctx)
     newPicker.selfStyle.bgcolor = "#ffffff14"
     newModeStep = gui.Panel {
         width = "100%", height = "auto", flow = "vertical", valign = "top",
-        gui.Label { classes = { "regionMapCardName" }, text = T("mode.title"), interactable = false },
+        gui.Label { classes = { "regionMapCardName", "sizeS" }, text = T("mode.title"), interactable = false },
         Session.ModeChoice(function(mode) ShowNewStep("image", mode) end),
     }
     newModeName = gui.Label {
-        classes = { "regionMapCardName" }, width = "auto", halign = "left", text = "", interactable = false,
+        classes = { "regionMapCardName", "sizeS" }, width = "auto", halign = "left", text = "", interactable = false,
     }
     newImageStep = gui.Panel {
         classes = { "collapsed" }, width = "100%", height = "auto", flow = "vertical", valign = "top",
@@ -199,7 +199,7 @@ function RegionMapAtlas.Create(ctx)
             classes = { "regionMapCardMeta" },
             newModeName,
             gui.Label {
-                classes = { "regionMapLink", "regionMapCardBack" }, text = T("mode.back"),
+                classes = { "regionMapLink", "regionMapCardBack", "sizeXs" }, text = T("mode.back"),
                 click = function() ShowNewStep("mode", nil) end,
             },
         },
@@ -210,15 +210,15 @@ function RegionMapAtlas.Create(ctx)
         data = { step = "mode", mode = nil },
         gui.Label {
             id = "region-map-atlas-hidden-notice",
-            classes = { "regionMapModeDesc", "bold" }, tmargin = 4, bmargin = 6,
+            classes = { "regionMapModeDesc", "bold", "sizeXs" }, tmargin = 4, bmargin = 6,
             text = T("map.new.hidden"), interactable = false,
         },
         newModeStep,
         newImageStep,
     }
 
-    emptyTitle = gui.Label { classes = { "regionMapEmptyTitle" }, text = "" }
-    emptyBody = gui.Label { classes = { "regionMapEmptyBody" }, text = "" }
+    emptyTitle = gui.Label { classes = { "regionMapEmptyTitle", "sizeM" }, text = "" }
+    emptyBody = gui.Label { classes = { "regionMapEmptyBody", "sizeS" }, text = "" }
     emptyBox = gui.Panel { classes = { "regionMapEmpty", "collapsed" }, emptyTitle, emptyBody }
     -- The New map card starts as a static child: a panel built here but only
     -- attached later through .children never picked up the root's styles.
@@ -242,4 +242,140 @@ function RegionMapAtlas.Create(ctx)
         body,
     }
     return panel
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapAtlas.Styles()
+    return {
+        {
+            selectors = { "regionMapAtlas" },
+            width = "100%",
+            height = "100%",
+            bgimage = true,
+            bgcolor = "@bgAlt",
+        },
+        {
+            selectors = { "regionMapAtlasBody" },
+            width = "100%",
+            height = "auto",
+            valign = "top",
+            flow = "vertical",
+            hpad = 16,
+            vpad = 16,
+            borderBox = true,
+        },
+        {
+            selectors = { "regionMapAtlasGrid" },
+            width = "100%",
+            height = "auto",
+            flow = "horizontal",
+            wrap = true,
+        },
+        RegionMapStyles.Chrome("regionMapCard", {
+            width = C.atlasCardWidth,
+            height = C.atlasCardHeight,
+            halign = "left",
+            valign = "top",
+            flow = "vertical",
+            rmargin = 12,
+            bmargin = 12,
+            pad = 6,
+            borderBox = true,
+        }),
+        {
+            selectors = { "regionMapCard", "hover" },
+            borderColor = "@accent",
+            transitionTime = 0.1,
+        },
+        {
+            selectors = { "regionMapCard", "notShared" },
+            opacity = 0.75,
+        },
+        {
+            selectors = { "regionMapCardThumb" },
+            width = "100%",
+            height = C.atlasThumbHeight,
+            bgcolor = "white",
+            cornerRadius = 4,
+        },
+        {
+            selectors = { "regionMapCardName" },
+            width = "100%",
+            height = "auto",
+            tmargin = 6,
+            bold = true,
+            color = "@fgStrong",
+            textWrap = false,
+            textOverflow = "ellipsis",
+        },
+        RegionMapStyles.Chrome("regionMapCardActions", {
+            width = 34,
+            height = 34,
+            halign = "right",
+            valign = "top",
+            flow = "none",
+            margin = 4,
+        }),
+        {
+            selectors = { "regionMapCardMeta" },
+            width = "100%",
+            height = "auto",
+            tmargin = 2,
+            flow = "horizontal",
+        },
+        {
+            selectors = { "regionMapCardText" },
+            width = "auto",
+            height = "auto",
+            rmargin = 6,
+            color = "@fgMuted",
+            textWrap = false,
+        },
+        {
+            selectors = { "regionMapChip" },
+            width = "auto",
+            height = "auto",
+            rmargin = 4,
+            hpad = 5,
+            borderBox = true,
+            bgimage = true,
+            bgcolor = "@bgAlt",
+            cornerRadius = 3,
+            color = "@fg",
+        },
+        RegionMapStyles.Chrome("regionMapEmpty", {
+            width = "90%",
+            maxWidth = 460,
+            height = "auto",
+            halign = "center",
+            valign = "center",
+            bmargin = 16,
+            flow = "vertical",
+            pad = 18,
+            borderBox = true,
+        }),
+        {
+            selectors = { "regionMapEmptyTitle" },
+            width = "100%",
+            height = "auto",
+            textAlignment = "center",
+            bold = true,
+            color = "@fgStrong",
+        },
+        {
+            selectors = { "regionMapEmptyBody" },
+            width = "100%",
+            height = "auto",
+            tmargin = 6,
+            textAlignment = "center",
+            color = "@fgMuted",
+            textWrap = true,
+        },
+        {
+            selectors = { "regionMapCardBack" },
+            halign = "right",
+            tmargin = 0,
+        },
+    }
 end

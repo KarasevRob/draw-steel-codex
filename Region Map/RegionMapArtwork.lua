@@ -355,8 +355,8 @@ function RegionMapArtwork.Create(ctx, kind, editing, isActive)
         end
     end
 
-    heading = Session.Label({ "regionMapFormLabel" }, T("artwork.section"))
-    message = Session.Label({ "regionMapArtworkMessage" })
+    heading = Session.Label({ "regionMapFormLabel", "sizeXs" }, T("artwork.section"))
+    message = Session.Label({ "regionMapArtworkMessage", "sizeS" })
     retryButton = Session.Button(T("artwork.retry"), function()
         local row = Current()
         if row == nil then return end
@@ -382,7 +382,7 @@ function RegionMapArtwork.Create(ctx, kind, editing, isActive)
     end)
     controls = gui.Panel { classes = { "regionMapButtonRow" }, chooseButton, removeButton }
     pickerSlot = gui.Panel { width = "100%", height = "auto", classes = { "collapsed" } }
-    saveLine = Session.Label({ "regionMapStateLine" })
+    saveLine = Session.Label({ "regionMapStateLine", "sizeXs" })
     saveRetry = Session.Button(T("artwork.retry"), function()
         if state.operation ~= nil then Write(state.operation, 1) end
     end)
@@ -422,4 +422,40 @@ function RegionMapArtwork.Create(ctx, kind, editing, isActive)
     }
     if not editing then readers[panel] = { ctx = ctx, Active = Active } end
     return panel
+end
+
+--- Component rules, resolved by the shell against the active theme.
+--- @return table[]
+function RegionMapArtwork.Styles()
+    return {
+        {
+            selectors = { "regionMapArtworkFrame" },
+            width = "100%",
+            height = C.artworkHeight,
+            flow = "none",
+            tmargin = 8,
+            bgimage = true,
+            bgcolor = "@bgAlt",
+            borderWidth = 1,
+            borderColor = "@border",
+        },
+        {
+            selectors = { "regionMapArtworkFrame", "ready", "hover" },
+            borderColor = "@accentHover",
+        },
+        {
+            selectors = { "regionMapArtworkFrame", "ready", "press" },
+            borderColor = "@accent",
+        },
+        {
+            selectors = { "regionMapArtworkMessage" },
+            width = "100%-16",
+            height = "auto",
+            halign = "center",
+            valign = "center",
+            textAlignment = "center",
+            textWrap = true,
+            color = "@fgMuted",
+        },
+    }
 end
