@@ -199,17 +199,17 @@ received its table receipt after navigation. Minimum-window layout was inspected
 80%/Void and 140%/High Contrast; reset placement retained the content and selection;
 Reduce motion made Fit immediate and prevented idle control fading.
 
-The user assigned the remaining physical keyboard/overlap/host matrix to manual human
-testing. Virtual input cannot establish OS click thresholds, pointer capture beyond
-the app window or native Submit behavior. Every theme/artwork combination and all
-permission-change timing combinations have not been exercised live. Retained suites
-cover their specified simulated cases; they do not substitute for unperformed cases.
-Native-popout wheel routing remains the recorded engine limitation. Comparative
-performance and manual acceptance remain open; this follow-up does not mark the
-rewrite fully accepted. Two-client tests are excluded.
+The user assigned physical input to manual human testing and reported "All tests good."
+on 2026-10-19 after the simple nine-step single-client checklist. This records a
+user-reported manual pass; no per-item trace for the extended matrix was supplied.
+Virtual input still does not establish OS click thresholds, pointer capture beyond
+the app window or native Submit behavior. Existing engine limitations, including
+native-popout wheel routing, retain their recorded status; this general confirmation
+does not establish an engine fix. Comparative performance remains deferred and full
+acceptance is open. Two-client tests are excluded.
 
 All development clients must use the rewritten version; mixed old/new sessions are
 unsupported. Old development maps, Party state, logs and preferences remain untouched
 and are not loaded. The rewrite was published on 2026-10-18 under the original CodeMod
-ID after the user's separate authorization. Manual testing and comparative performance
-remain open as recorded above.
+ID after the user's separate authorization. Manual testing has the user confirmation
+above; comparative performance remains deferred.

@@ -21,9 +21,9 @@ LabelChecks provides the isolated model fixture used by several other suites.
 The rewrite passes 185 checks across nine offline suites. The original baseline was
 146 checks across eight suites. [Rewrite evidence](LIVE_REWRITE_2026-10-18.md) records
 the live checks and the native input/renderer decisions.
-The remaining physical-input checks are assigned to human testing in the
-[single-client manual checklist](MANUAL_REWRITE_ACCEPTANCE.md). Comparative performance
-is deferred by the user; neither item is recorded as passed.
+On 2026-10-19 the user reported that the single-client manual tests passed; see the
+[manual checklist](MANUAL_REWRITE_ACCEPTANCE.md) for the scope of that confirmation.
+Comparative performance remains deferred and is not recorded as passed.
 See [map aids verification](MAP_AIDS.md) for the live record and scope of the checks.
 
 The earlier review follow-up passed 118 isolated checks across seven offline suites. It added
