@@ -284,3 +284,16 @@ architecture, interaction fixes, 185 offline checks and the deferred physical-in
 and comparative-performance work. Publication does not mark those acceptance items
 complete. The development checkout remains open. Unrelated working-tree changes and
 raw local scratch/evidence files were not included in the Git commit.
+
+## User manual acceptance, 2026-10-19
+
+After publication and the simple nine-step single-client checklist, the user reported:
+"All tests good." This is recorded as a user-reported manual pass. The supplied steps
+covered a temporary point-crawl map, pin drag/Undo, Escape cancellation, double-click
+editing, an overlapping path bend, saving a name during navigation, host switching,
+keyboard controls and Font Size 80/100/140%.
+
+No per-item trace for the extended checklist or new automated run was supplied.
+The confirmation does not establish a fix for previously documented engine limitations.
+Multi-client tests remain excluded and comparative performance remains deferred.
+This update changes documentation only; the published runtime is unchanged.

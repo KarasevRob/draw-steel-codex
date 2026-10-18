@@ -1,6 +1,10 @@
 # Overland Map manual acceptance
 
-Status: pending human testing, by user direction on 2026-10-18. Use one client only.
+Status: user-reported manual pass on 2026-10-19: "All tests good."
+The confirmation followed the simple nine-step single-client checklist supplied in
+the conversation. It is human-reported evidence, not another automated run. The
+extended checklist below remains a reusable procedure; no per-item trace was supplied.
+Use one client only.
 The automated and bridge-driven evidence is in [the live record](LIVE_REWRITE_2026-10-18.md).
 The comparison with pre-rewrite performance is separately deferred; it is not a
 prerequisite for recording these manual results.

@@ -505,12 +505,11 @@ remains historical and does not establish a result for the rewritten rendering c
 
 Two-client live tests remain excluded by request. Offline fixtures simulate busy rows,
 remote changes, failed uploads and stale Undo; they do not establish server atomicity.
-The user deferred the comparative performance benchmark and assigned remaining physical
-input checks to [manual human testing](tests/MANUAL_REWRITE_ACCEPTANCE.md). Full acceptance
-remains open for those items.
+The user reported that the [single-client manual tests](tests/MANUAL_REWRITE_ACCEPTANCE.md)
+passed on 2026-10-19. The comparative performance benchmark remains deferred, so full
+acceptance is still open.
 The native-popout wheel limitation remains documented in the
-[engine handoff](docs/POPOUT_WHEEL_ENGINE_HANDOFF.md). Publication does not close those
-acceptance items.
+[engine handoff](docs/POPOUT_WHEEL_ENGINE_HANDOFF.md).
 
 ## 7. Development
 
