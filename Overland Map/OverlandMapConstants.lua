@@ -43,7 +43,7 @@ OverlandMapConstants.noteByteLimit = 32768
 OverlandMapConstants.journalIdLimit = 512
 OverlandMapConstants.maxRevision = 9007199254740991    -- largest integer a double holds exactly
 OverlandMapConstants.maxDepth = 16                     -- deepest Location nesting; also stops cycle walks
-OverlandMapConstants.logCap = 500                      -- newest session log entries kept per game (decision 8.1)
+OverlandMapConstants.logCap = 500                      -- newest session log entries kept per game (R15)
 OverlandMapConstants.logRowsPerFrame = 40              -- log rows built per frame; a full log builds over several frames
 OverlandMapConstants.undoDepth = 20                    -- undo entries kept per session
 
@@ -201,11 +201,13 @@ OverlandMapConstants.partySnapRadius = 32              -- a dropped Party snaps 
 OverlandMapConstants.declutterZoom = { minor = 1.5, normal = 1.0 } -- below this zoom, names of that importance hide
 OverlandMapConstants.routeDotSpacing = 14
 OverlandMapConstants.routeDotSize = 5
-OverlandMapConstants.routeDotLimit = 600               -- most route dots drawn at once (only the visible part is drawn)
+-- Most route dots drawn at once (only the visible part is drawn); also the most points
+-- one merged "traveling" log entry collects before a new entry starts.
+OverlandMapConstants.routeDotLimit = 600
 OverlandMapConstants.rulerWidth = 3                    -- ruler line thickness, screen px
 OverlandMapConstants.rulerEndSize = 10                 -- ruler end dots
 
--- Popovers (Search, Settings) under the toolbar
+-- Popovers (Search, Settings, Map aids) under the toolbar
 OverlandMapConstants.popoverWidth = 340
 OverlandMapConstants.searchResultLimit = 30
 
@@ -232,13 +234,13 @@ OverlandMapConstants.hostThinkHover = 0.03             -- a hovered in-app windo
 OverlandMapConstants.rootThink = 0.1
 OverlandMapConstants.refreshDelay = 0.05               -- coalesces bursts of table/document changes
 OverlandMapConstants.cameraSaveDelay = 0.5
-OverlandMapConstants.saveRecheckDelay = 0.5            -- an edit form still showing Saving... checks again after this
+OverlandMapConstants.saveRecheckDelay = 0.5            -- an image attachment still saving checks its upload again after this
 OverlandMapConstants.undoTick = 0.25                   -- the undo toast's timer, and polls while an undo waits for its writes
 OverlandMapConstants.undoSettleSeconds = 5             -- an undo gives up waiting for its writes after this
 OverlandMapConstants.presentTtl = 10
 OverlandMapConstants.autosaveDelay = 1.5               -- side panel saves after this long without typing
-OverlandMapConstants.busyRetryDelay = 0.3              -- Delete / Remove map wait this long while a save of the row is in flight
-OverlandMapConstants.busyRetries = 10                  -- then report Not saved
+OverlandMapConstants.busyRetryDelay = 0.3              -- a write waits this long while a save of the same row is in flight
+OverlandMapConstants.busyRetries = 10                  -- most retries for one-off writes (save queues retry until the row is free)
 OverlandMapConstants.undoMergeSeconds = 5             -- saves of one label or map's text this close together share one Undo
 OverlandMapConstants.afterLayoutDelay = 0.05           -- a panel just shown has laid out: focus its input, scroll it
 OverlandMapConstants.toastSeconds = 10                 -- paused while hovered (R9)

@@ -343,7 +343,7 @@ end
 
 local capChecked = false
 
---- Director, once per session: keep the newest C.logCap rows (decision 8.1).
+--- Director, once per session: keep the newest C.logCap rows (R15).
 --- Deleted rows go first, then the oldest entries.
 function OverlandMapLog.EnforceCap()
     if capChecked or not dmhub.isDM or mod.unloaded then return end

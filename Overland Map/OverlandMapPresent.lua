@@ -50,7 +50,7 @@ function OverlandMapPresent.Create(ctx)
     end
 
     -- Replacing another feature's live presentation (a Negotiation, a Respite)
-    -- would take it off every screen, so the engine's own dialog asks first.
+    -- would take it off every screen, so the map's confirm dialog asks first.
     local function SendWithConfirm(map)
         local foreign = ForeignPresentation()
         if foreign == nil then

@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- Independent map lettering; visibility never participates in structural validation.
+--- Independent map lettering. Valid checks a row's fields only; who may see it is CanSee's job.
 --- @class OverlandMapLabelRecord: GameType, OverlandMapAudit, OverlandMapTextAppearanceFormat
 --- @field new fun(o?: table): OverlandMapLabelRecord
 --- @field id string

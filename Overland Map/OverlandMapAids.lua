@@ -1,6 +1,7 @@
 local mod = dmhub.GetModLoading()
 
---- Map-relative aids, their local previews and the Director's settings editor.
+--- Map aids (compass, scale bar): permission, the save queue and the local preview of
+--- unconfirmed edits. The settings editor is OverlandMapAidEditor.
 --- @class OverlandMapAids: GameType
 --- @field new fun(o?: table): OverlandMapAids
 OverlandMapAids = RegisterGameType("OverlandMapAids")

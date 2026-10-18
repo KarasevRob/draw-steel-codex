@@ -1,7 +1,7 @@
 local mod = dmhub.GetModLoading()
 
 --- Search, Settings and the Director's Map aids editor share the toolbar popover host.
---- The shell closes them with Esc or a press away from the selected aid.
+--- The shell closes them with Esc or any press on the map canvas.
 ---
 --- Events on the returned panel:
 ---   bind()   redraw for ctx.data.popover and the current map

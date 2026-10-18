@@ -11,11 +11,6 @@ local Session = OverlandMapControls
 
 -- Overlay: the drawn route and the ruler --------------------------------------------------------
 
---- Puts a center-aligned panel's middle at canvas point (x, y). The engine's
---- pivot does not move a panel, so offsets are measured from the canvas center.
---- Positions on the map go through panel.x/y, never selfStyle: a selfStyle write
---- re-matches the panel, and a layer's whole subtree, against every style rule
---- (544 on the map), which made a pan at close zoom run near 10 fps.
 -- Where each piece was last placed (its offset from the canvas center), so a zoom
 -- in motion can move it from there; weak keys let destroyed panels go.
 local placedX = setmetatable({}, { __mode = "k" }) --- @type table<Panel, number>

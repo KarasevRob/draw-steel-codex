@@ -43,8 +43,8 @@ local cachedRevision = nil --- @type nil|integer
 local cachedLocations = nil --- @type nil|OverlandMapLocationIndex
 
 --- The validated paths, rebuilt only when the data changed (Model.Revision; this
---- client's own path writes call Model.InvalidateIndex). A path whose end was
---- deleted or moved away is skipped, not removed: undoing the delete brings it back.
+--- client's own path writes call Model.InvalidateIndex). Deleting or moving a pin
+--- hides its paths too (B5); a path whose end is gone anyway is skipped here.
 --- @return OverlandMapPathIndex
 function OverlandMapPaths.Index()
     local locations = Model.Index()
@@ -136,15 +136,6 @@ function OverlandMapPaths.CountJoining(aId, bId)
         if (path.aId == aId and path.bId == bId) or (path.aId == bId and path.bId == aId) then count = count + 1 end
     end
     return count
-end
-
---- The state of this client's last write of a path, for the edit form's
---- Saving / Saved / Not saved line.
---- @param id string
---- @return nil|"pending"|"confirmed"|"failed"
-function OverlandMapPaths.SaveStatus(id)
-    local operation = R.LastWrite(C.pathTableName, id)
-    return operation ~= nil and operation.status or nil
 end
 
 --- The path's line from a through its bends to b, in image units. Not filtered:

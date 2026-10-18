@@ -1720,23 +1720,6 @@ function OverlandMapModel.SaveDirectorNote(id, note, callbacks, retry)
     return SaveSidecar(id, { note = normalized }, true, callbacks, retry)
 end
 
---- How this client's latest writes of one Location (row, details, notes)
---- stand, for the side panel's Saving / Saved / Not saved line.
---- @param id string
---- @return nil|"pending"|"confirmed"|"failed" nil when nothing was written
-function OverlandMapModel.SaveStatus(id)
-    local result = nil
-    for _, tableName in ipairs({ C.locationTableName, C.detailsTableName, C.notesTableName }) do
-        local operation = LastWrite(tableName, id)
-        if operation ~= nil then
-            if operation.status == "pending" then return "pending" end
-            if operation.status == "failed" then result = "failed"
-            elseif result == nil then result = "confirmed" end
-        end
-    end
-    return result
-end
-
 --- A name to show for a Location: its own, edit.name.fallback while unnamed,
 --- or "" for no Location (a missing end, a deleted map).
 --- @param location nil|OverlandMapLocationRecord

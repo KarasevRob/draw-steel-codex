@@ -456,7 +456,8 @@ function OverlandMapPanel.Create(options)
 
     --- Ask before a destructive or outward-facing act. A compact dialog inside
     --- this window (the engine's ModalMessage fills most of the screen);
-    --- Cancel, Esc or a second Confirm call closes it without running onConfirm.
+    --- Cancel or Esc closes it without running onConfirm; a second Confirm call
+    --- replaces the open question, whose onConfirm then never runs.
     --- Opening it flushes valid editor fields and cancels the pointer preview.
     function ctx.Confirm(args)
         ctx.Transition("dialog")
@@ -1074,7 +1075,7 @@ function OverlandMapPanel.Create(options)
             element.data.recordsSubscription = OverlandMapRecords.Observe(function()
                 if ctx.IsAlive() then ctx.Transition("reconcile"); QueueRefresh(nil, "records") end
             end)
-            -- Players open on their last map (D13c); otherwise the first map, else the Atlas.
+            -- Every viewer opens on their last map (D13c); otherwise the first map, else the Atlas.
             local last = Model.GetLocation(OverlandMapPreferences.LastMapId())
             if last == nil or not Model.CanOpenMap(last) then last = Model.TopLevel()[1] end
             if last ~= nil then

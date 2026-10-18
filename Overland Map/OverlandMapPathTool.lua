@@ -30,8 +30,8 @@ function OverlandMapPathTool.Draft(ctx)
 end
 local Draft = OverlandMapPathTool.Draft
 
--- A new row can answer success a moment before this client's index has it
--- (see the P3 build notes), so wait for it before opening it.
+-- A new row can answer success a moment before this client's index has it,
+-- so wait for it before opening it.
 local function WhenReadable(ctx, id, valid, action, attempt)
     attempt = attempt or 1
     if not valid() or not Model.IsDirector() then return end

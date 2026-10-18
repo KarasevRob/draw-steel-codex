@@ -114,7 +114,7 @@ local function EntriesOf(data)
 end
 
 --- Check a parsed file against a map.
---- @param data any what dmhub.ParseJsonFile returned
+--- @param data any what ReadFile or ReadText returned
 --- @param mapId string
 --- @return OverlandMapImportPlan
 function OverlandMapImport.Check(data, mapId)
