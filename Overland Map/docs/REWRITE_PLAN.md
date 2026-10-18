@@ -2,7 +2,8 @@
 
 Implementation and verification record, 2026-10-18. The approved plan supplied with
 the task is the acceptance contract. Remaining acceptance gaps below are explicit;
-they are not successful checks. Publication is separate.
+they are not successful checks. The user subsequently authorized publication;
+the [release record](../tests/LIVE_REWRITE_2026-10-18.md#publication) records that action.
 
 ## Boundaries
 
@@ -209,4 +210,6 @@ rewrite fully accepted. Two-client tests are excluded.
 
 All development clients must use the rewritten version; mixed old/new sessions are
 unsupported. Old development maps, Party state, logs and preferences remain untouched
-and are not loaded. This task does not publish an installable package.
+and are not loaded. The rewrite was published on 2026-10-18 under the original CodeMod
+ID after the user's separate authorization. Manual testing and comparative performance
+remain open as recorded above.

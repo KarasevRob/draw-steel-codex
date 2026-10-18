@@ -15,6 +15,8 @@ This README describes current behavior and the runtime file order.
 [Tests](tests/README.md) lists runnable checks, recorded live evidence and remaining
 verification gaps. Development deployment and Git commits do not by themselves
 publish a new installable CodeMod package.
+The rewrite was published on 2026-10-18; see the
+[publication record](tests/LIVE_REWRITE_2026-10-18.md#publication).
 
 The original [V2](docs/V2_BRIEF.md) and [V2.1](docs/V2_1_BRIEF.md) decision ledgers
 retain design decisions; the retired TECH_TASK task IDs have been removed from source
@@ -507,7 +509,8 @@ The user deferred the comparative performance benchmark and assigned remaining p
 input checks to [manual human testing](tests/MANUAL_REWRITE_ACCEPTANCE.md). Full acceptance
 remains open for those items.
 The native-popout wheel limitation remains documented in the
-[engine handoff](docs/POPOUT_WHEEL_ENGINE_HANDOFF.md). Publication is separate.
+[engine handoff](docs/POPOUT_WHEEL_ENGINE_HANDOFF.md). Publication does not close those
+acceptance items.
 
 ## 7. Development
 
