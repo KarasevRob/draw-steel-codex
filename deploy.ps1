@@ -84,8 +84,6 @@ foreach ($rel in $files) {
 
     $src = Join-Path $repo ($rel -replace '/', '\')
     $moduleName = ($rel -split '/')[0]
-    # The cloud module was renamed; its repository directory remains stable.
-    if ($moduleName -eq "Region Map") { $moduleName = "Overland Map" }
     $remainder = ($rel -split '/', 2)[1]
 
     $moduleDir = Join-Path $gitFolder $moduleName
