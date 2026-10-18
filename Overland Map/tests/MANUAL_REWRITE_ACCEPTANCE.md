@@ -86,4 +86,5 @@ opened a reader or editor. Do not count a bridge event as a physical-input resul
 
 Remove only the disposable records, restore theme/font/window preferences, and record
 the completed matrix in the live verification record. Report engine limitations and
-unperformed cases explicitly. Do not introduce a second client or publish the mod.
+unperformed cases explicitly. Do not introduce a second client. These checks do not
+require republishing the mod.

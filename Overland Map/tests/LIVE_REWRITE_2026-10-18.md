@@ -1,9 +1,10 @@
 # Overland rewrite verification, 2026-10-18
 
 Target: Draw Steel Codex build 10, version 0.0.857, one Director client.
-CodeMod `ec447c62-03db-4416-a5a2-0b013c0f3893`; local developer deployment only.
-Two-client tests were excluded by request. This record does not claim server-side
-transactions, player-client behavior or unpublished package distribution.
+CodeMod `ec447c62-03db-4416-a5a2-0b013c0f3893`; checks used the local developer deployment.
+Publication was subsequently authorized and is recorded below. Two-client tests were
+excluded by request. This record does not claim server-side transactions or
+player-client behavior.
 
 ## Automated checks
 
@@ -127,7 +128,7 @@ The test map and its pins/path/label/logs were created only in the new Overland 
 Cleanup is restricted to those exact fixture identities. Historical storage metadata is
 compared with the captured baseline; no legacy data is migrated or changed. Cloud
 file names and ordering are persisted, with original file IDs/history retained.
-Publication remains separate from this developer checkout.
+The publication step is separate from this developer-checkout verification.
 
 Cleanup removed exactly seven temporary rows (three Locations, one path, one label and
 two log rows), the test Party and the new test camera/host preferences. All six new
@@ -252,5 +253,34 @@ Final follow-up validation:
 Raw follow-up evidence is under `output/overland-rewrite`: `acceptance-single-client.json`,
 `acceptance-live-isolated.json`, `acceptance-reload-verified.json`,
 `acceptance-old-storage.json`, `acceptance-cleanup.json`, `acceptance-final-offline.txt`
-and `recovered-baseline.json`. Nothing was published. Full acceptance remains open for
-the deferred benchmark and manual checks.
+and `recovered-baseline.json`. Nothing had been published at the end of that follow-up.
+Full acceptance remains open for the deferred benchmark and manual checks.
+
+## Publication
+
+The user explicitly authorized commit, push and publication after the acceptance
+follow-up. On 2026-10-18:
+
+- Implementation commit `6fea99a43dbe6efb381eefb22a98930571ed2cd8` was pushed to
+  `origin/region-map-v2` in `KarasevRob/draw-steel-codex`.
+- CodeMod `ec447c62-03db-4416-a5a2-0b013c0f3893` was published through the supported
+  `CodeModLua:CommitChanges` workflow.
+- Changelist: `62412c6a-1e8f-4726-855a-a39929537786`; required engine version: `0.0.857`.
+- The completion callback reported success. All 49 registered files received a new
+  revision, preserving their file IDs, previous history and dependency order.
+  Every published revision body fetched through `code.GetCodeFromMD5` matched the
+  repository's normalized source checksum. `hasLocalChanges` was false afterward.
+- The wrapper still exposed an unresolved timestamp sentinel, so this record does
+  not assert an exact server timestamp. The successful completion callback and all
+  published source bodies are recorded in `output/overland-rewrite/publication-verified.json`.
+- Seven extra blank lines at EOF were removed before committing; there was no logic
+  change. Syntax and staged whitespace checks passed and all 185 offline checks passed
+  again. The existing whole-repository LuaLS result remains nine baseline diagnostics,
+  none in Overland Map. GitHub Actions status could not be retrieved because the
+  GitHub API returned its rate-limit response; no CI pass is claimed.
+
+The release note states the fresh-storage cutover with no migration, retained-layer
+architecture, interaction fixes, 185 offline checks and the deferred physical-input
+and comparative-performance work. Publication does not mark those acceptance items
+complete. The development checkout remains open. Unrelated working-tree changes and
+raw local scratch/evidence files were not included in the Git commit.
