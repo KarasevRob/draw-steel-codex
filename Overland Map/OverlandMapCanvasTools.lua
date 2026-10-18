@@ -1,6 +1,6 @@
---- Canvas geometry and placement tools: image/screen coordinate math, the Add
---- and Move tools (a click on the map places), and the map's right-click menu.
---- The canvas calls these; they report through the context.
+--- Canvas tools: the Soft fade border, what a click places for the active tool
+--- (Add, Move, ruler, scale, label, map aid), the ruler's text and the map's
+--- right-click menu. The canvas calls these; they report through the context.
 --- @class OverlandMapCanvasTools: GameType
 --- @field new fun(o?: table): OverlandMapCanvasTools
 OverlandMapCanvasTools = RegisterGameType("OverlandMapCanvasTools")

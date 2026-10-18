@@ -37,7 +37,6 @@ local function Fixture()
     env.OverlandMapJournal.ResolveForViewer = function() return { status = "empty" } end
     env.gui.TryGetImageDimensions = function() return { width = 900, height = 600 } end
     env.dmhub.ReadTextFile = function() f.reads = f.reads + 1; return f.text or "fixture JSON" end
-    env.dmhub.ParseJsonFile = function() f.reads = f.reads + 1; return f.input end
     env.dmhub.FromJson = function(text)
         f.parses = f.parses + 1; f.parsedText = text
         return { success = f.parseSuccess ~= false, result = f.input }

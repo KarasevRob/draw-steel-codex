@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
---- Shared controls and theme subscription for the map. Each component supplies
+--- Shared style helpers and theme subscription for the map. Each component supplies
 --- its own Styles() rules; Build merges them once at the shell root.
 --- @class OverlandMapStyles: GameType
 --- @field new fun(o?: table): OverlandMapStyles

@@ -30,8 +30,8 @@ local queue = OverlandMapSaveQueue.Create {
         return OverlandMapCommands.SetPinNameFormat(id, batch.changes, batch.kind == "reset", callbacks, batch.retry)
     end,
     mergeKinds = { edit = true },
-    -- Changes queued behind a write in flight go out as one write; a failed batch takes them
-    -- too, before submission. A failed batch retains its exact values for Retry.
+    -- Changes queued behind a write in flight go out as one write. A failed batch is never
+    -- merged: Retry resends exactly its values, and later changes follow it.
     coalesce = function(first, later)
         if later.kind == "reset" then return { changes = DeepCopy(later.changes), kind = "reset", retry = first.retry } end
         local changes = DeepCopy(first.changes)

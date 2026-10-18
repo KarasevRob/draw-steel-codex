@@ -194,7 +194,7 @@ function OverlandMapPinLayer.Create(ctx, state, input)
                 changed = true
             end
         end
-        -- The Party is drawn above pins (D11a), so it goes last.
+        -- Assigning children costs engine work, so it happens only when the pin list changed.
         local same = #children == #pinChildren
         for i = 1, #children do
             if not same then break end

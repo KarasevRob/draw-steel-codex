@@ -17,7 +17,8 @@ local Lifetime = OverlandMapLifetime
 --- @field retry nil|OverlandMapRetry
 --- @field repaired nil|boolean the owner already repaired it once
 
---- How a save queue reaches its rows. The owner (labels, map pin text) supplies these.
+--- How a save queue reaches its rows. The owner (labels, pin text, map aids, or an
+--- OverlandMapEditors lane) supplies these.
 --- @class OverlandMapSaveQueueSpec
 --- @field canEdit fun(id: string): boolean checked before every send; false drops unsent work
 --- @field busy fun(id: string): boolean the row has a write in flight
@@ -32,7 +33,8 @@ local Lifetime = OverlandMapLifetime
 
 --- Per row: typed changes wait (Stage) and go out as batches, one write at a time.
 --- status: "saved" | "pending" (waiting to send) | "saving" | "failed" (Retry offered)
---- | "invalid" (a batch was refused as invalid and dropped) | "denied" (permission lost; unsent work dropped).
+--- | "invalid" (a batch was refused and dropped, or hold keeps typed changes unsent)
+--- | "denied" (permission lost; unsent work dropped).
 --- @class OverlandMapSaveQueueState
 --- @field pending table
 --- @field items OverlandMapSaveBatch[]

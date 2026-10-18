@@ -1,8 +1,8 @@
 local mod = dmhub.GetModLoading()
 
 --- Overland Map storage: record types, safe reads of untrusted rows, validation
---- and table uploads. Only the model and undo call this; the UI goes through
---- the model.
+--- and table uploads. Only the data modules (Model, Paths, Labels, Log) upload rows,
+--- through WriteRow (UploadRecord for Undo); UI files use only its read helpers.
 --- @class OverlandMapRecords: GameType
 --- @field new fun(o?: table): OverlandMapRecords
 OverlandMapRecords = RegisterGameType("OverlandMapRecords")
@@ -56,8 +56,8 @@ OverlandMapLocationDirectorNoteRecord.tableName = C.notesTableName
 
 --- One place in the Overland Map tree. A Location may have a pin on its
 --- parent's map and/or its own map image. Top-level Locations (parentId == "")
---- are the Atlas and always have an image. Description and journal link live in
---- separate details and Director notes tables, keyed by this id.
+--- are the Atlas and always have an image. The description and journal link live in
+--- the details table and the Director note in the notes table, both keyed by this id.
 --- @class OverlandMapLocationRecord: GameType, OverlandMapAudit
 --- @field new fun(o?: table): OverlandMapLocationRecord
 --- @field id string GUID
@@ -940,7 +940,8 @@ function OverlandMapRecords.IsValidPathFields(path)
     return true
 end
 
---- The shared Overland Map document (Party and its permission).
+--- The shared Overland Map document: the Party, player permissions and game-wide
+--- settings (path types, time unit, last border), with stateMeta revisions for Undo.
 --- @return LuaCodeModDocumentSnapshot
 function OverlandMapRecords.StateDocument()
     return mod:GetDocumentSnapshot(C.stateDocumentId)

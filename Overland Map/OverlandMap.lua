@@ -1,6 +1,6 @@
 local mod = dmhub.GetModLoading()
 
--- Overland Map bootstrap: checks the host once, registers the panel and the
+-- Overland Map bootstrap: registers the panel and the
 -- presentable dialog, and hosts the map fullscreen, in-app or in a native popout. Overland Map
 -- is an opt-in CodeMod; it depends only on public DMHub UI and game services.
 local C = OverlandMapConstants

@@ -10,6 +10,10 @@ local mod = dmhub.GetModLoading()
 ---   animateInto(id, onDone)   zoom into a pin, then call onDone (before "Open map")
 ---   keepVisible(id, inset)    pan just enough that a pin is not under the side panel
 ---   centerOn(id)              center the camera on a pin (Search)
+---   centerOnLabel(id)         center the camera on map lettering (Search)
+---   centerOnAid(kind)         center the camera on a compass or scale bar (Find)
+---   keepAidVisible(kind, area) pan just enough that an aid's edit handles are in area
+---   centerOnParty()           ease the camera onto the Party (status chip)
 ---   cancelGesture()           drop a drag or pan in progress
 ---   relayout()                redraw the ruler and route after a tool click
 --- The native input gate failed right-button dragging; one controller polls all gestures.

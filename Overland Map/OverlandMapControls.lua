@@ -26,7 +26,7 @@ function OverlandMapControls.ContextMenu(owner, args)
     return menu
 end
 
--- Preferences (per viewer and game) ------------------------------------------------------------
+-- Hover text ------------------------------------------------------------------------------------
 
 local hoverTextOwners = setmetatable({}, { __mode = "k" })
 
