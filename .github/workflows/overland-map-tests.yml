@@ -3,9 +3,9 @@ name: Overland Map checks
 on:
   push:
     branches: [main, region-map-v2]
-    paths: ['Region Map/**', 'DMHub Core UI/DialogResize.lua', '.github/workflows/overland-map-tests.yml']
+    paths: ['Overland Map/**', 'DMHub Core UI/DialogResize.lua', '.github/workflows/overland-map-tests.yml']
   pull_request:
-    paths: ['Region Map/**', 'DMHub Core UI/DialogResize.lua', '.github/workflows/overland-map-tests.yml']
+    paths: ['Overland Map/**', 'DMHub Core UI/DialogResize.lua', '.github/workflows/overland-map-tests.yml']
   workflow_dispatch:
 
 permissions:
@@ -24,9 +24,9 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
-          for path in Path('Region Map').rglob('*.lua'):
+          for path in Path('Overland Map').rglob('*.lua'):
               path.read_bytes().decode('ascii')
               subprocess.run(['luac5.4', '-p', str(path)], check=True)
           PY
       - name: Run isolated suites
-        run: lua5.4 'Region Map/tests/RunOffline.lua'
+        run: lua5.4 'Overland Map/tests/RunOffline.lua'
