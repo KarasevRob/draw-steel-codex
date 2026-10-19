@@ -293,10 +293,8 @@ local function BuildDirectorSettings(ctx)
         pace,
     }
 
-    -- Border tiles (K1, K6): a small preview of the open map in each look. Torn edge
-    -- and Frame stay disabled until their art is in Constants (K3).
+    -- Border tiles (K1, K6): a small preview of the open map in each look.
     local borderTiles = {} --- @type Panel[]
-    local borderArt = { none = true, fade = true, torn = C.borderTornMask ~= "", frame = C.borderFrameImage ~= "" }
     for _, border in ipairs(C.borders) do
         local look = {} --- @type Panel[]
         if border == "fade" then
@@ -308,17 +306,12 @@ local function BuildDirectorSettings(ctx)
             look[1] = fade
         end
         local preview = gui.Panel { classes = { "overlandMapBorderPreview" }, interactable = false, children = look }
-        local available = borderArt[border] == true
         borderTiles[#borderTiles + 1] = gui.Panel {
-            -- Not "disabled": the theme styles that class and would draw the tile as active.
-            classes = { "overlandMapBorderTile", available and "available" or "needsArt" },
+            classes = { "overlandMapBorderTile" },
             data = { border = border, preview = preview, imageId = nil },
-            hover = function(element)
-                if not available then gui.Tooltip(T("set.border.needsArt"))(element) end
-            end,
             click = function(element)
                 local map = ctx.CurrentMap()
-                if mod.unloaded or not available or map == nil or Model.Border(map) == element.data.border then return end
+                if mod.unloaded or map == nil or Model.Border(map) == element.data.border then return end
                 local result = OverlandMapCommands.SetBorder(map.id, element.data.border)
                 ctx.Report(OverlandMapCommands.Accepted(result), result.reason)
                 ctx.RefreshAll()
@@ -882,17 +875,9 @@ function OverlandMapPopovers.Styles()
             cornerRadius = 4,
         },
         {
-            selectors = { "overlandMapBorderTile", "available", "hover" },
+            selectors = { "overlandMapBorderTile", "hover" },
             bgcolor = "@bgAlt",
             transitionTime = 0.1,
-        },
-        {
-            selectors = { "overlandMapBorderPreview", "parent:needsArt" },
-            opacity = 0.35,
-        },
-        {
-            selectors = { "overlandMapBorderName", "parent:needsArt" },
-            opacity = 0.6,
         },
         {
             selectors = { "overlandMapBorderPreview" },

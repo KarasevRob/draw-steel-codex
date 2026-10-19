@@ -76,7 +76,7 @@ OverlandMapLocationDirectorNoteRecord.tableName = C.notesTableName
 --- @field mapShared boolean players may open this Location's map
 --- @field scale nil|OverlandMapScale
 --- @field pace nil|number travel distance per day in the scale's unit
---- @field border nil|"none"|"fade"|"torn"|"frame" how the map image's edge draws; nil (older maps) is none
+--- @field border nil|"none"|"fade" how the map image's edge draws; nil (older maps) is none
 --- @field mode nil|"free"|"pointcrawl" set when the map is made, never changed (A4); nil (older maps) is free
 --- @field pinNameFormat nil|OverlandMapPinNameFormat optional style for direct pins on this map
 --- @field mapAids nil|table optional compass and scaleBar; malformed aids never invalidate the map

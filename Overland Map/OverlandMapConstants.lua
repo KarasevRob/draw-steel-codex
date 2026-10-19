@@ -64,11 +64,10 @@ OverlandMapConstants.artworkTimeout = 10
 
 -- Map borders (V2.1 K1), in the order of the Settings tiles. A new map takes the
 -- border the Director picked last, Soft fade before any pick (K5, K8).
-OverlandMapConstants.borders = { "none", "fade", "torn", "frame" }
+-- TODO: Torn edge and Frame were removed until we have proper art and a way to render
+-- them (a mask over the image, a 9-slice outside it); see docs/BORDER_ART.md.
+OverlandMapConstants.borders = { "none", "fade" }
 OverlandMapConstants.defaultBorder = "fade"
--- Library image ids of the border art (docs/BORDER_ART.md). While "" the tile is disabled.
-OverlandMapConstants.borderTornMask = ""
-OverlandMapConstants.borderFrameImage = ""
 -- JSON import (V2.1 idea 9). Locations without a position are set out in a grid with
 -- columns this far apart (share of the map's width) and rows closer, since a pin with its
 -- name is wider than tall. Rows are created importBatch at a time, each batch waiting
