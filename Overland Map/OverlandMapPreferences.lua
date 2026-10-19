@@ -118,11 +118,50 @@ function OverlandMapPreferences.LastMapId()
     return type(id) == "string" and id or nil
 end
 
+--- Nil preserves the legacy first-map fallback until the viewer chooses explicitly.
+--- @return nil|"atlas"|"map"
+function OverlandMapPreferences.SelectionKind()
+    local kind = Preferences().selectionKind
+    if kind == "atlas" or kind == "map" then return kind end
+end
+
+--- @return nil|"closed"|"open"|"minimized"|"native"
+function OverlandMapPreferences.HostState()
+    local state = Preferences().hostState
+    if state == "closed" or state == "open" or state == "minimized" or state == "native" then return state end
+end
+
+--- @param state "closed"|"open"|"minimized"|"native"
+function OverlandMapPreferences.SaveHostState(state)
+    local prefs = ReadPreferences()
+    if prefs.hostState == state then return end
+    prefs.hostState = state
+    WritePreferences(prefs)
+end
+
+--- @return nil|{x: number, y: number}
+function OverlandMapPreferences.MinimizedPosition()
+    local value = Preferences().minimizedPosition
+    if type(value) == "table" and Model.IsFinite(value.x) and Model.IsFinite(value.y) then
+        return { x = value.x, y = value.y }
+    end
+end
+
+function OverlandMapPreferences.SaveMinimizedPosition(x, y)
+    if not Model.IsFinite(x) or not Model.IsFinite(y) then return end
+    local prefs = ReadPreferences()
+    local old = prefs.minimizedPosition
+    if type(old) == "table" and old.x == x and old.y == y then return end
+    prefs.minimizedPosition = { x = x, y = y }
+    WritePreferences(prefs)
+end
+
 --- @param id nil|string nil when the viewer left for the Atlas
 function OverlandMapPreferences.SaveLastMap(id)
     local prefs = ReadPreferences()
-    if prefs.selectedMapId == id then return end
-    prefs.selectedMapId = id
+    local kind = id == nil and "atlas" or "map"
+    if prefs.selectedMapId == id and prefs.selectionKind == kind then return end
+    prefs.selectedMapId, prefs.selectionKind = id, kind
     WritePreferences(prefs)
 end
 

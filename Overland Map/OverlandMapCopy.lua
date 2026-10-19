@@ -146,6 +146,9 @@ OverlandMapCopy.strings = {
     ["artwork.changed"] = "Image changed. Choose again.",
     -- 3. Window and toolbar
     ["window.title"] = "Overland Map",
+    ["window.minimize"] = "Minimize",
+    ["window.restore"] = "Restore",
+    ["atlas.card.tabletop"] = "Open {map} on tabletop",
     ["tb.search"] = "Search locations",
     ["tb.add"] = "Add location",
     ["tb.import"] = "Import locations",
@@ -220,7 +223,7 @@ OverlandMapCopy.strings = {
     ["panel.map.off"] = "Not shared - click to share this map",
     ["panel.map.on"] = "Map shared - click to stop sharing",
     ["panel.desc.empty"] = "No description yet.",
-    ["panel.journal"] = "Read in journal",
+    ["panel.journal"] = "Open in journal",
     ["panel.author"] = "Added by {player}",
     ["panel.partyHere"] = "{party} is here",
     ["panel.moveParty"] = "Move Party here",
@@ -352,9 +355,6 @@ OverlandMapCopy.strings = {
     ["set.map.border.hint"] = "New maps start with the border you picked last.",
     ["set.border.none"] = "None",
     ["set.border.fade"] = "Soft fade",
-    ["set.border.torn"] = "Torn edge",
-    ["set.border.frame"] = "Frame",
-    ["set.border.needsArt"] = "Not available yet: this border needs its art.",
     ["set.game"] = "Whole game",
 
     -- Import (V2.1 manifest section 20)

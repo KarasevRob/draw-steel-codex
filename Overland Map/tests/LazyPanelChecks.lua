@@ -45,6 +45,10 @@ local function Fixture()
         SetText = function(p, text) p.text = text end, UIScale = function() return 1 end,
         IconButton = function(id, _, text, click) return Panel { id = id, text = text, click = click } end,
         SetIconButton = function() end, CloseContextMenu = function() end,
+        CanFocus = function(p)
+            local allowed = f.root and f.root.data.overlandMapCanFocus
+            return p.valid and (allowed == nil or allowed())
+        end,
     }
     env.OverlandMapArtwork = { ActiveReader = function() end }
     env.OverlandMapPathTool = { Hint = function() end, Escape = function() return false end }
@@ -100,8 +104,8 @@ local function Fixture()
     env.OverlandMapPartyPanel.CreateStopCard = function() return Panel { classes = { "collapsed" } } end
     env.OverlandMapImport.IsRunning = function() return f.importRunning == true end
     assert(loadfile("Overland Map/OverlandMapPanel.lua", "t", env))()
-    function f.Open()
-        f.root = env.OverlandMapPanel.Create { close = function() f.closed = true end, mode = "window" }
+    function f.Open(options)
+        f.root = env.OverlandMapPanel.Create(options or { close = function() f.closed = true end, mode = "window" })
         f.root:FireEvent("create")
         return f.root
     end
@@ -247,4 +251,5 @@ function checks.Run()
     return true
 end
 
+checks.Fixture = Fixture
 return checks

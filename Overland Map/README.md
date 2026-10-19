@@ -32,6 +32,17 @@ are research, not approved feature designs.
 
 ### Fullscreen, in-app window, and popout
 
+- On a Tabletop-capable build, drag a card out of the windowed Atlas onto bare table
+  space, or use its focusable **Open on tabletop** control from either in-app view.
+  This opens the map in the existing window and keeps placement personal.
+  **Minimize** retains the content and drafts in a movable table button; the button can
+  dock to either rail. Restore from that button, the launcher, Ctrl+Tab, the Windows menu,
+  or a presentation. See [Tabletop placement](docs/TABLETOP_PLACEMENT.md) for the contract
+  and current verification limits.
+- Open and minimized in-app layouts restore on rejoin and Lua reload without taking
+  focus. Explicitly closed windows stay closed. Atlas selection, window geometry and
+  minimized-button position are remembered per viewer/game. Native windows retain the
+  existing same-session restoration policy; a full app restart does not recreate them.
 - One registered panel, `Overland Map` (game menu and icon rail), opens in the viewer's
   last in-app view; the initial view is fullscreen. Fullscreen covers the board behind
   other windows and the rails, hiding the action bar until the viewer leaves fullscreen.
@@ -188,6 +199,9 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   here, Open map, Edit, "..." (Move, Move to map, Show/Hide, Add map, Replace image, Remove
   map, Link journal, Delete) and the Director note (Director only). Edit turns the panel into
   a form that autosaves after 1.5 s without typing or on leaving a field.
+- **Journal link.** A Location links one journal entry of any kind: document, negotiation,
+  PDF, image or PDF bookmark. The picker shows each entry's kind icon. Open in journal opens
+  it the way the journal does; a viewer who cannot browse the entry in the journal sees no link.
 - **Create**: toolbar Add > Add location then click the map (sticky until Esc), or right-click > Add
   location here. The new Location is Hidden, opens in edit mode with the name focused and
   copies the last pin style used.
@@ -239,8 +253,8 @@ The helper is registered before both detail panels.
   is blocked. Existing maps are never checked.
 - **Border** (Settings > This map): None or Soft fade, which fades the image's edges into
   the canvas colour. Pins, paths, the route and the Party draw above it. New maps start with
-  the border picked last. Torn edge and Frame show as dimmed tiles ("this border needs its
-  art") until the art exists ([docs/BORDER_ART.md](docs/BORDER_ART.md)).
+  the border picked last. Torn edge and Frame are removed until they have proper art and a
+  rendering method ([docs/BORDER_ART.md](docs/BORDER_ART.md)).
 
 ### Import (V2.1)
 
@@ -361,7 +375,7 @@ Load order (49 runtime files; persisted in the CodeMod file list):
 |---|---|---|
 | 1 | `OverlandMapConstants.lua` | Storage identities, limits and metrics |
 | 2 | `OverlandMapCopy.lua` | Interface wording |
-| 3 | `OverlandMapJournal.lua` | Viewer-aware journal access |
+| 3 | `OverlandMapJournal.lua` | Viewer-aware journal access for every entry kind |
 | 4 | `OverlandMapLifetime.lua` | Game generations, owners and guarded timers |
 | 5 | `OverlandMapImages.lua` | Scoped requests, dimensions, readiness and Retry |
 | 6 | `OverlandMapRecords.lua` | Fresh schemas, validation, row uploads and receipts |
@@ -407,7 +421,9 @@ Load order (49 runtime files; persisted in the CodeMod file list):
 | 46 | `OverlandMapLogPanel.lua` | Session log and save-on-close notes |
 | 47 | `OverlandMapPresent.lua` | Map presentation |
 | 48 | `OverlandMapPanel.lua` | Toolbar, navigation, selection, focus and scoped refresh |
-| 49 | `OverlandMap.lua` | Bootstrap and fullscreen, window and native hosts |
+| 49 | `OverlandMapHost.lua` | In-app window chrome, geometry and the window state machine |
+| 50 | `OverlandMapTabletop.lua` | Every Tabletop call, per-feature availability, minimized button, window lists, Atlas placement |
+| 51 | `OverlandMap.lua` | Bootstrap, native popout and lifecycle reconciliation |
 
 Original cloud file IDs and revision histories are preserved. New files were registered
 through the live bridge, with the bootstrap last. `main.lua` is informational only.

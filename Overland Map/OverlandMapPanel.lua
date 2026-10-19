@@ -51,6 +51,16 @@ end
 --- @field popIn nil|fun() bring a popped-out map back into the app
 --- @field toggleView nil|fun() switch the existing in-app host's size
 --- @field mode nil|"fullscreen"|"window"|"native" the view it starts in
+--- @field visible boolean|nil
+--- @field minimize nil|fun()
+--- @field canTabletop nil|fun(): boolean
+--- @field canFocus nil|fun(): boolean
+--- @field userAction nil|fun()
+--- @field selectionChanged nil|fun(id: string?)
+--- @field openOnTabletop nil|fun(id: string, atPointer: boolean?)
+--- @field atlasDragging nil|fun(card: Panel, id: string)
+--- @field cancelAtlasDrag nil|fun(): boolean
+--- @field preparePresentation nil|fun()
 
 --- @param options nil|OverlandMapHostOptions
 --- @return Panel
@@ -59,10 +69,12 @@ function OverlandMapPanel.Create(options)
     -- What the host last told this content; kept here, not in the host's options table.
     local hostMode = options.mode or (options.close ~= nil and "fullscreen" or "native")
     local hostEngaged = true
+    local hostVisible = options.visible ~= false
     local data = OverlandMapSession.ViewState()
     -- The service functions are attached below, before any component is built.
     ---@diagnostic disable-next-line: missing-fields
     local ctx = { data = data } --[[@as OverlandMapContext]]
+    ctx.PreparePresentation = options.preparePresentation
     local owner = OverlandMapLifetime.Owner("view")
     local ownerValid = owner:Guard()
 
@@ -88,6 +100,7 @@ function OverlandMapPanel.Create(options)
     local popInButton
     local viewButton
     local closeButton
+    local minimizeButton
     local statusChip
     local banners
     local toast
@@ -161,7 +174,33 @@ function OverlandMapPanel.Create(options)
     end
 
     function ctx.Transition(reason)
+        if not shell.automaticNavigation and reason ~= "flush" and reason ~= "resize" and reason ~= "reconcile"
+            and reason ~= "permission" and reason ~= "game" and reason ~= "minimize" and options.userAction ~= nil then
+            options.userAction()
+        end
         OverlandMapSession.Transition(reason, ctx)
+    end
+
+    function ctx.TabletopAvailable(drag)
+        return hostVisible and options.canTabletop ~= nil and options.canTabletop()
+            and (not drag or hostMode == "window")
+    end
+    function ctx.OpenOnTabletop(id, atPointer)
+        if ctx.IsAlive() and options.openOnTabletop ~= nil then options.openOnTabletop(id, atPointer) end
+    end
+    function ctx.AtlasDragging(card, id)
+        if ctx.IsAlive() and options.atlasDragging ~= nil then options.atlasDragging(card, id) end
+    end
+    function ctx.CancelAtlasDrag()
+        return options.cancelAtlasDrag ~= nil and options.cancelAtlasDrag() == true
+    end
+
+    local function SelectionChanged()
+        if options.selectionChanged ~= nil then options.selectionChanged(data.mapId) end
+    end
+
+    local function FocusCanvas()
+        if hostVisible and Session.CanFocus(canvas) then gui.SetFocus(canvas) end
     end
 
     function ctx.ClearAid()
@@ -228,9 +267,10 @@ function OverlandMapPanel.Create(options)
         if data.panelMode ~= "log" then data.selectedId, data.panelMode = nil, "none" end
         data.selectedPathId = nil
         OverlandMapPreferences.SaveLastMap(map.id)
+        SelectionChanged()
         canvas:FireEvent("showMap", how)
         RefreshAll()
-        gui.SetFocus(canvas)
+        FocusCanvas()
     end
 
     --- Open a map. "down" (Open map) first zooms into the pin (D8c).
@@ -259,6 +299,8 @@ function OverlandMapPanel.Create(options)
         LeaveLabel()
         shell.transition = nil
         data.mapId = nil
+        OverlandMapPreferences.SaveLastMap(nil)
+        SelectionChanged()
         data.tool, data.toolTargetId, data.pathDraft = "none", nil, nil
         data.ruler, data.scaleDraft = nil, nil
         -- The log panel stays open on the Atlas; a Location panel has nothing to show there.
@@ -393,7 +435,7 @@ function OverlandMapPanel.Create(options)
         data.tool = tool
         data.toolTargetId = (tool == "move" or tool == "redraw") and targetId or nil
         RefreshAll("selection")
-        gui.SetFocus(canvas)
+        FocusCanvas()
     end
 
     function ctx.SetPopover(popover)
@@ -752,7 +794,7 @@ function OverlandMapPanel.Create(options)
     -- Esc goes to the map's own layers first; with none open, only the host can take it (close).
     -- A window that is not engaged (focus and pointer elsewhere) leaves Esc to the rest of Codex.
     local function SyncEscape()
-        root.captureEscape = (hostMode ~= "window" or hostEngaged)
+        root.captureEscape = hostVisible and (hostMode ~= "window" or hostEngaged)
             and (EscapeLayer() ~= nil or options.close ~= nil)
     end
 
@@ -787,6 +829,7 @@ function OverlandMapPanel.Create(options)
             if data.mapId ~= nil and map == nil then
                 dirty.permissions = true
                 data.mapId = nil
+                SelectionChanged()
                 canvas:FireEvent("showMap", "restore")
             end
             if data.selectedId ~= nil and Model.GetLocation(data.selectedId) == nil then
@@ -964,6 +1007,10 @@ function OverlandMapPanel.Create(options)
         RunHostHook(options.close)
     end, { "overlandMapHostControl" })
     closeButton:SetClass("collapsed", options.close == nil or hostMode == "window")
+    minimizeButton = Session.IconButton("overland-map-minimize", "phosphor/minus.png", T("window.minimize"), function()
+        if ctx.IsAlive() and options.minimize ~= nil then options.minimize() end
+    end, { "overlandMapHostControl" })
+    minimizeButton:SetClass("collapsed", options.minimize == nil or hostMode == "window" or not ctx.TabletopAvailable())
     viewButton = Session.IconButton("overland-map-view", C.iconWindow, T("tb.window"), function()
         if ctx.IsAlive() and options.toggleView ~= nil then options.toggleView() end
     end, { "overlandMapHostControl" })
@@ -996,7 +1043,7 @@ function OverlandMapPanel.Create(options)
                 breadcrumb.selfStyle.maxWidth = string.format("100%%-%d", math.ceil(width + C.chromeInset * 3))
             end
         end,
-        aidsButton, settingsButton, viewButton, popOutButton, popInButton, closeButton,
+        aidsButton, settingsButton, viewButton, popOutButton, popInButton, minimizeButton, closeButton,
     }
 
     statusChip = gui.Label {
@@ -1112,8 +1159,9 @@ function OverlandMapPanel.Create(options)
         monitorAssets = MonitoredTables(C.locationTableName, C.labelTableName, C.detailsTableName, C.notesTableName, C.logTableName,
             C.pathTableName),
         monitorGame = { Model.StatePath(), GameHud.PresentDialogPath() },
-        data = {},
+        data = { overlandMapCanFocus = options.canFocus },
         press = function(element)
+            if options.userAction ~= nil then options.userAction() end
             if element:GetMouseButton(0) then Session.CloseContextMenu() end
         end,
         create = function(element)
@@ -1122,22 +1170,62 @@ function OverlandMapPanel.Create(options)
                 if ctx.IsAlive() then ctx.Transition("reconcile"); QueueRefresh(nil, "records") end
             end)
             -- Every viewer opens on their last map (D13c); otherwise the first map, else the Atlas.
-            local last = Model.GetLocation(OverlandMapPreferences.LastMapId())
-            if last == nil or not Model.CanOpenMap(last) then last = Model.TopLevel()[1] end
+            local kind = OverlandMapPreferences.SelectionKind()
+            local last = kind ~= "atlas" and Model.GetLocation(OverlandMapPreferences.LastMapId()) or nil
+            if last ~= nil and not Model.CanOpenMap(last) then last = nil end
+            if kind == nil and last == nil then last = Model.TopLevel()[1] end
             if last ~= nil then
                 data.mapId = last.id
                 canvas:FireEvent("showMap", "restore")
             end
+            SelectionChanged()
             RefreshAll()
             present.Receive()
             OverlandMapLog.EnforceCap()
         end,
         requestClose = function(_, continue) RunHostHook(continue) end,
+        overlandMapNavigate = function(_, id, automatic, accepted)
+            shell.automaticNavigation = automatic == true
+            canvas:FireEvent("settleNavigation")
+            ctx.OpenMap(id, "restore")
+            shell.automaticNavigation = false
+            if data.mapId == id and accepted ~= nil then accepted() end
+        end,
+        overlandMapSuspend = function()
+            ctx.Transition("minimize")
+            canvas:FireEvent("settleNavigation")
+        end,
+        overlandMapHostVisibility = function(_, visible)
+            hostVisible = visible
+            if not visible then hostEngaged = false end
+            SyncEscape()
+        end,
+        overlandMapReconcile = function()
+            if not ctx.IsAlive() then return end
+            if shell.director ~= dmhub.isDM then
+                shell.director = dmhub.isDM
+                Model.SetViewAsPlayer(false)
+                changes.Mark("permissions")
+            end
+            ctx.Transition("reconcile")
+            RefreshAll(false)
+            SelectionChanged()
+        end,
+        overlandMapReceivePresentation = function() present.Receive() end,
+        overlandMapIntegrationChanged = function()
+            local available = ctx.TabletopAvailable()
+            if shell.tabletopAvailable == available then return end
+            shell.tabletopAvailable = available
+            minimizeButton:SetClass("collapsed", options.minimize == nil or hostMode == "window" or not available)
+            atlas:FireEvent("bind")
+        end,
         overlandMapHostMode = function(element, mode)
             ctx.Transition("resize")
             hostMode = mode
             element.escapePriority = mode == "fullscreen" and FULLSCREEN_PRIORITY or WINDOW_PRIORITY
             closeButton:SetClass("collapsed", options.close == nil or mode == "window")
+            minimizeButton:SetClass("collapsed", options.minimize == nil or mode == "window" or not ctx.TabletopAvailable())
+            atlas:FireEvent("bind")
             Session.SetIconButton(viewButton, T(mode == "window" and "tb.fullscreen" or "tb.window"),
                 mode == "window" and C.iconFullscreen or C.iconWindow)
             QueueRefresh(0.01, "layout")
@@ -1189,6 +1277,7 @@ function OverlandMapPanel.Create(options)
         -- Esc order (R2): stop the tool -> leave edit mode -> close the panel -> go up a level,
         -- and at the Atlas close the fullscreen map (a window closes itself there instead).
         escape = function()
+            if ctx.CancelAtlasDrag() then return end
             local layer = EscapeLayer()
             if layer == "gesture" then
                 canvas:FireEvent("cancelGesture")

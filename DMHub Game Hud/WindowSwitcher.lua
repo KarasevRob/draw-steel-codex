@@ -15,7 +15,7 @@ local mod = dmhub.GetModLoading()
 --- Tabletop.SwitcherSceneWindows make them for map and scene windows).
 --- @class SwitcherWindow
 --- @field key string unique among the windows
---- @field kind "map"|"scene"|"journal"
+--- @field kind "map"|"scene"|"journal"|"external"
 --- @field name string
 --- @field panel Panel|nil the window's root panel; nil while it is unbuilt
 --- @field image string|nil its picture
@@ -45,12 +45,14 @@ local KIND_ICONS = {
     map = "phosphor/map-trifold.png",
     scene = "phosphor/film-slate.png",
     journal = "phosphor/book-open-text.png",
+    external = "phosphor/app-window.png",
 }
 
 local KIND_NAMES = {
     map = "Map",
     scene = "Scene",
     journal = "Journal",
+    external = "Window",
 }
 
 --{layer, entries, index, openedAt, popup}: entries is nil while closed.
@@ -272,6 +274,7 @@ local function CollectWindows()
     add(Tabletop.SwitcherMapWindows())
     add(Tabletop.SwitcherSceneWindows())
     add(JournalWindows())
+    add(Tabletop.ExternalWindows())
     table.sort(list, function(a, b)
         if a.minimized ~= b.minimized then
             return not a.minimized
@@ -404,7 +407,7 @@ local function BuildCard(entry, i)
                     height = 16,
                     valign = "center",
                     rmargin = 7,
-                    bgimage = KIND_ICONS[entry.kind],
+                    bgimage = entry.icon or KIND_ICONS[entry.kind],
                 },
                 gui.Label{
                     classes = {"switcherName"},

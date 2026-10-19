@@ -74,6 +74,13 @@ function OverlandMapAtlas.Create(ctx)
             classes = { "overlandMapCardActions" }, floating = true, swallowPress = true,
             Session.IconButton("overland-map-atlas-more-" .. id, C.iconMore, T("panel.more"), ShowActions),
         }
+        local openOnTabletop = Session.IconButton("overland-map-atlas-tabletop-" .. id, C.iconWindow, "", function()
+            ctx.OpenOnTabletop(id)
+        end, { "overlandMapHostControl" })
+        local placementControl = gui.Panel {
+            classes = { "overlandMapCardActions" }, floating = true, swallowPress = true,
+            openOnTabletop,
+        }
         local pointcrawl = gui.Label {
             classes = { "overlandMapChip", "overlandMapThumbChip", "collapsed", "sizeXs" }, text = T("chip.pointcrawl"), interactable = false,
         }
@@ -113,19 +120,37 @@ function OverlandMapAtlas.Create(ctx)
             data = {
                 id = id, thumb = thumb, name = name, count = count, party = party, sharing = sharing,
                 pointcrawl = pointcrawl, imageId = nil, actions = actions,
+                placementControl = placementControl, openOnTabletop = openOnTabletop,
             },
+            draggable = ctx.TabletopAvailable(true),
+            canDragOnto = function() return false end,
+            press = function(element)
+                ctx.CancelAtlasDrag()
+                element.data.placementDragged, element.data.placementCancelled = false, false
+            end,
+            dragging = function(element)
+                element.data.placementDragged = true
+                if not element.data.placementCancelled then ctx.AtlasDragging(element, id) end
+            end,
+            drag = function(element)
+                element.data.placementDragged = true
+                if not element.data.placementCancelled then ctx.OpenOnTabletop(id, true) end
+                ctx.CancelAtlasDrag()
+            end,
+            destroy = function() ctx.CancelAtlasDrag() end,
             hover = function(element)
                 local location = Model.GetLocation(element.data.id)
                 if location ~= nil then Session.HoverText(element, T("atlas.card.open", { map = Model.DisplayName(location) })) end
             end,
             click = function(element)
-                if not mod.unloaded then ctx.OpenMap(element.data.id, "restore") end
+                if not mod.unloaded and not element.data.placementDragged then ctx.OpenMap(element.data.id, "restore") end
             end,
             rightClick = ShowActions,
             thumb,
             name,
             gui.Panel { classes = { "overlandMapCardMeta" }, count, party },
             actions,
+            placementControl,
         }
     end
 
@@ -155,6 +180,10 @@ function OverlandMapAtlas.Create(ctx)
             card.data.sharing:SetClass("collapsed", not director)
             card.data.pointcrawl:SetClass("collapsed", not Model.IsPointCrawl(map))
             card.data.actions:SetClass("collapsed", not director)
+            card.draggable = ctx.TabletopAvailable(true)
+            card.data.placementControl:SetClass("collapsed", not ctx.TabletopAvailable())
+            card.data.placementControl.x = director and -38 or 0
+            Session.SetIconButton(card.data.openOnTabletop, T("atlas.card.tabletop", { map = Model.DisplayName(map) }))
             card:SetClass("notShared", director and not map.mapShared)
             children[#children + 1] = card
         end

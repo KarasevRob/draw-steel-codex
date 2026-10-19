@@ -398,8 +398,17 @@ function OverlandMapStyles.Styles()
             transitionTime = 0.1,
         },
         {
+            selectors = { "overlandMapRowIcon" },
+            width = 16,
+            height = 16,
+            valign = "center",
+            rmargin = 6,
+            bgcolor = "@fgMuted",
+        },
+        {
             selectors = { "overlandMapRowName" },
-            width = "100%",
+            -- "available" leaves room for an optional leading icon.
+            width = "100% available",
             height = "auto",
             valign = "center",
             color = "@fg",

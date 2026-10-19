@@ -2,7 +2,7 @@
 
 ## Test helpers
 
-The ten Lua suites and the offline runner are not registered CodeMod files.
+The Lua suites and the offline runner are not registered CodeMod files.
 LabelChecks provides the isolated model fixture used by several other suites.
 
 | Suite | Checks | Execution |
@@ -17,6 +17,9 @@ LabelChecks provides the isolated model fixture used by several other suites.
 | MapAidsChecks | 28 | Offline; geometry, validation, permissions, queues, recovery, preferences and rendering |
 | LifetimeChecks | 38 | Offline; game/owner lifetimes, saves, transitions, receipts, partial results and input arbitration |
 | LazyPanelChecks | 23 | Offline; production shell, first use, reuse, closing binds, guards and teardown |
+| TabletopIntegrationChecks | 25 | Offline; shared Tabletop contracts, window state machine and per-feature availability |
+| TabletopContentChecks | 11 | Offline; real shell, Atlas controls, preferences and presentation |
+| JournalChecks | 6 | Offline; every journal entry kind, viewer access and older builds |
 | ImportChecks | Parser/editor checks | Connected Director app; no Import writes in the editor suite |
 
 The current checkout passes 212 checks across ten offline suites. The original baseline was
@@ -43,6 +46,16 @@ uses a stub JSON parser and transport: the live ImportChecks suite still owns ac
 engine parser/editor verification. The [2026-10-17 live record](LIVE_REVIEW_2026-10-17.md)
 documents connected-app checks and three additional fixes. Concurrent-edit tests were
 explicitly skipped at the user's request.
+
+The Tabletop integration adds production-host/shared-contract and real-content checks in
+`TabletopIntegrationChecks.lua` and `TabletopContentChecks.lua`. They cover placement,
+minimization, personal restoration, window discovery and presentation routing. The
+[behavior and acceptance checklist](../docs/TABLETOP_PLACEMENT.md) distinguishes offline
+coverage from the live checks that require Tabletop runtime support.
+The [2026-10-19 validation record](TABLETOP_2026-10-19.md) records 245 passing offline
+checks, zero diagnostics in the final task scope, deployment and live compatibility checks.
+On 2026-10-20 the host split, window state machine and journal entry kinds raised this to
+254 passing checks across thirteen offline suites.
 
 Run all offline suites from the repository root (also run by the Overland Map CI job):
 

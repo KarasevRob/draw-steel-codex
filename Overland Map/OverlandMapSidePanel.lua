@@ -741,12 +741,14 @@ function OverlandMapSidePanel.Create(ctx)
         },
     }
 
-    local function Row(text, action)
-        return gui.Panel {
-            classes = { "overlandMapRow" },
-            click = function() action() end,
-            gui.Label { classes = { "overlandMapRowName", "sizeS" }, text = text, interactable = false },
-        }
+    --- @param icon nil|string a leading glyph, such as the journal entry's kind
+    local function Row(text, action, icon)
+        local children = {} --- @type Panel[]
+        if icon ~= nil then
+            children[1] = gui.Panel { classes = { "overlandMapRowIcon" }, bgimage = icon, interactable = false }
+        end
+        children[#children + 1] = gui.Label { classes = { "overlandMapRowName", "sizeS" }, text = text, interactable = false }
+        return gui.Panel { classes = { "overlandMapRow" }, click = function() action() end, children = children }
     end
 
     local function BindPick(location)
@@ -807,7 +809,7 @@ function OverlandMapSidePanel.Create(ctx)
                     if ctx.Report(OverlandMapCommands.Accepted(result), result.reason) then
                         ctx.Select(location.id, "read")
                     end
-                end)
+                end, entry.icon)
             end
         end
         pickList.children = rows
