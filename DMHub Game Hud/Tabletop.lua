@@ -21,64 +21,6 @@ end
 --loads first creates the table itself.
 Tabletop.itemKinds = Tabletop.itemKinds or {}
 
--- Providers survive HUD rebuilds; their owners decide which personal windows exist.
-Tabletop.windowProviders = Tabletop.windowProviders or {}
-
---- @param id string
---- @param ownerMod any
---- @param collect fun(): SwitcherWindow[]
---- @return fun() unsubscribe
-function Tabletop.RegisterWindowProvider(id, ownerMod, collect)
-    local registration = {owner = ownerMod, collect = collect}
-    Tabletop.windowProviders[id] = registration
-    return function()
-        if Tabletop.windowProviders[id] == registration then Tabletop.windowProviders[id] = nil end
-    end
-end
-
---- A snapshot with activation guarded against reloads and game changes.
---- @return SwitcherWindow[]
-function Tabletop.ExternalWindows()
-    local result, seen, ids = {}, {}, {}
-    local gameId = dmhub.gameid
-    for id in pairs(Tabletop.windowProviders) do ids[#ids+1] = id end
-    table.sort(ids)
-    for _, id in ipairs(ids) do
-        local provider = Tabletop.windowProviders[id]
-        if provider.owner.unloaded then
-            Tabletop.windowProviders[id] = nil
-        else
-            local ok, entries = pcall(provider.collect)
-            if ok and type(entries) == "table" then
-                for _, entry in ipairs(entries) do
-                    local readable, valid = pcall(function()
-                        return type(entry) == "table" and type(entry.key) == "string" and type(entry.name) == "string"
-                            and type(entry.activate) == "function" and entry.panel ~= nil and entry.panel.valid and not seen[entry.key]
-                    end)
-                    if readable and valid then
-                        seen[entry.key] = true
-                        local snapshot = {}
-                        for key, value in pairs(entry) do snapshot[key] = value end
-                        snapshot.kind, snapshot.minimized = "external", entry.minimized == true
-                        local panel, activate = entry.panel, entry.activate
-                        snapshot.activate = function()
-                            if Tabletop.windowProviders[id] == provider and not provider.owner.unloaded
-                                and dmhub.gameid == gameId and panel.valid then
-                                local success, err = pcall(activate)
-                                if not success then print("TABLETOP: external activation failed: " .. tostring(err)) end
-                            end
-                        end
-                        result[#result+1] = snapshot
-                    end
-                end
-            elseif not ok then
-                print("TABLETOP: window provider " .. id .. " failed: " .. tostring(entries))
-            end
-        end
-    end
-    return result
-end
-
 --This user's window layout for this game, as JSON (see SaveLayout).
 local g_layoutSetting = setting{
     id = "tabletop:layout",
@@ -2454,9 +2396,9 @@ end
 
 --A window-shaped stand-in that flies between two rectangles, showing what
 --the window shows, then calls done. Ease in-out cubic.
-local function AnimateGhost(rec, from, to, done, options)
+local function AnimateGhost(rec, from, to, done)
     local layer = g_buttonLayer
-    if layer == nil or not layer.valid or from == nil or to == nil or (options ~= nil and options.animate == false) then
+    if layer == nil or not layer.valid or from == nil or to == nil then
         done()
         return
     end
@@ -2505,7 +2447,6 @@ local function AnimateGhost(rec, from, to, done, options)
         end,
     }
     layer:AddChild(ghost)
-    return ghost
 end
 
 --A card's name: its map's or its scene's.
@@ -2726,12 +2667,7 @@ end
 --restore(rec), close(rec), closeText, hover(rec, element), chatItems(rec)
 --(links for a drop on the chat), badge {icon, color} and badgeShown(rec).
 local function UpdateTableButton(rec)
-    local docked = IsDocked(rec)
-    if rec.railKey ~= nil and docked then
-        local railButton = RailButton(rec)
-        docked = railButton ~= nil and railButton.valid
-    end
-    local want = rec.minimized == true and (rec.card or not docked) and g_buttonLayer ~= nil and g_buttonLayer.valid
+    local want = rec.minimized == true and (rec.card or not IsDocked(rec)) and g_buttonLayer ~= nil and g_buttonLayer.valid
     if not want then
         if rec.button ~= nil and rec.button.valid then
             rec.button:DestroySelf()
@@ -2806,7 +2742,6 @@ local function UpdateTableButton(rec)
             if target ~= nil and target.valid and (target:HasClass("iconRail") or target:HasClass("iconRailButton")) then
                 if IconRailKeyDrop(RailKey(rec), target) then
                     UpdateTableButton(rec)
-                    if ops.placementChanged then ops.placementChanged(rec) end
                     SaveSoon()
                     return
                 end
@@ -2817,7 +2752,6 @@ local function UpdateTableButton(rec)
             rec.iconY = math.max(0, math.min(element.ydrag, h - size))
             element.x = rec.iconX
             element.y = rec.iconY
-            if ops.placementChanged then ops.placementChanged(rec) end
             SaveSoon()
             --the button stands for its window on the Director's Screen too.
             DirectorScreen.ItemDropped(g_sharing.ScreenKey(rec))
@@ -2842,13 +2776,11 @@ local function UpdateTableButton(rec)
                         element.popup = nil
                         IconRailKeyAdd(RailKey(rec), "left")
                         UpdateTableButton(rec)
-                        if ops.placementChanged then ops.placementChanged(rec) end
                     end),
                     GuardedEntry("Dock to Right Rail", function()
                         element.popup = nil
                         IconRailKeyAdd(RailKey(rec), "right")
                         UpdateTableButton(rec)
-                        if ops.placementChanged then ops.placementChanged(rec) end
                     end),
                     GuardedEntry(ops.closeText, function()
                         element.popup = nil
@@ -3012,76 +2944,14 @@ end
 --- @param rec table
 --- @return boolean
 function Tabletop.IsExternalDocked(rec)
-    local button = IsDocked(rec) and RailButton(rec) or nil
-    return button ~= nil and button.valid
-end
-
-function g_chrome.CancelExternalAnimation(rec)
-    rec.externalGeneration = (rec.externalGeneration or 0) + 1
-    if rec.externalGhost ~= nil and rec.externalGhost.valid then rec.externalGhost:DestroySelf() end
-    rec.externalGhost, rec.externalAnimating = nil, false
-end
-
-function g_chrome.AnimateExternal(rec, from, to, done, options)
-    g_chrome.CancelExternalAnimation(rec)
-    local generation, gameId = rec.externalGeneration, dmhub.gameid
-    rec.externalAnimating, rec.externalOwner = true, mod
-    rec.externalGhost = AnimateGhost(rec, from, to, function()
-        if mod.unloaded or rec.closed or rec.externalGeneration ~= generation or dmhub.gameid ~= gameId then return end
-        rec.externalGhost, rec.externalAnimating = nil, false
-        done()
-    end, options)
-end
-
---- Reconcile placement after a HUD, viewport, scale or rail change.
---- @param rec table
-function Tabletop.RefreshExternal(rec)
-    if rec.closed then return end
-    if rec.externalAnimating and (rec.externalOwner.unloaded or rec.externalGhost == nil
-        or not rec.externalGhost.valid or rec.externalGhost.parent ~= g_buttonLayer) then
-        g_chrome.CancelExternalAnimation(rec)
-    end
-    local w, h = LayerSize()
-    if w <= 0 or h <= 0 then return end
-    local scale = ButtonScale()
-    local size = BUTTON_SIZE * scale
-    local x = math.max(0, math.min(rec.iconX or 80, math.max(0, w - size)))
-    local y = math.max(0, math.min(rec.iconY or 120, math.max(0, h - size)))
-    local changed = x ~= rec.iconX or y ~= rec.iconY
-    rec.iconX, rec.iconY = x, y
-    if rec.button ~= nil and rec.button.valid and rec.button.parent ~= g_buttonLayer then
-        rec.button:DestroySelf()
-        rec.button = nil
-    end
-    if not rec.externalAnimating then UpdateTableButton(rec) end
-    if rec.button ~= nil and rec.button.valid then
-        rec.button.x, rec.button.y = x, y
-        rec.button.selfStyle.pivot = {x = 0, y = 1}
-        rec.button.selfStyle.uiscale = scale
-    end
-    local docked = Tabletop.IsExternalDocked(rec)
-    changed = changed or rec.externalDocked ~= docked
-    rec.externalDocked = docked
-    if changed and rec.buttonOps.placementChanged then rec.buttonOps.placementChanged(rec) end
-end
-
---- Teardown preserves the rail slot; deliberate close uses CloseExternal.
---- @param rec table
-function Tabletop.ReleaseExternal(rec)
-    g_chrome.CancelExternalAnimation(rec)
-    rec.closed = true
-    if rec.button ~= nil and rec.button.valid then rec.button:DestroySelf() end
-    rec.button = nil
+    return IsDocked(rec)
 end
 
 --- Collapses an external window into its button, flying a ghost from
 --- `from` (the window's rect). The owner hides its own window.
---- options: animate (false lands at once) and done, called when the button has
---- landed; it is skipped if the window is restored or closed first.
 --- @param rec table
 --- @param from nil|{x: number, y: number, w: number, h: number}
---- @param options nil|{animate: nil|boolean, done: nil|fun()}
-function Tabletop.MinimizeExternal(rec, from, options)
+function Tabletop.MinimizeExternal(rec, from)
     if rec.minimized then
         return
     end
@@ -3092,15 +2962,14 @@ function Tabletop.MinimizeExternal(rec, from, options)
     end
     rec.minimized = true
     rec.closed = nil
-    g_chrome.AnimateExternal(rec, from, ButtonRect(rec), function()
+    AnimateGhost(rec, from, ButtonRect(rec), function()
         if rec.minimized and not rec.closed then
-            Tabletop.RefreshExternal(rec)
+            UpdateTableButton(rec)
             if rec.button ~= nil and rec.button.valid then
                 rec.button:PulseClass("justDropped")
             end
-            if options ~= nil and options.done ~= nil then options.done() end
         end
-    end, options)
+    end)
 end
 
 --- Grows an external window back out of its button towards `to`, then
@@ -3108,23 +2977,21 @@ end
 --- @param rec table
 --- @param to {x: number, y: number, w: number, h: number}
 --- @param done function
-function Tabletop.RestoreExternal(rec, to, done, options)
+function Tabletop.RestoreExternal(rec, to, done)
     if not rec.minimized then
-        g_chrome.CancelExternalAnimation(rec)
         done()
         return
     end
     local from = ButtonRect(rec)
     rec.minimized = false
     UpdateTableButton(rec)
-    rec.closed = nil
-    g_chrome.AnimateExternal(rec, from, to, done, options)
+    AnimateGhost(rec, from, to, done)
 end
 
 --- The external window closed: its button goes, and so does its rail entry.
 --- @param rec table
 function Tabletop.CloseExternal(rec)
-    Tabletop.ReleaseExternal(rec)
+    rec.closed = true
     rec.minimized = false
     UpdateTableButton(rec)
     if rec.railKey ~= nil and rawget(_G, "IconRailKeySlot") ~= nil and IconRailKeySlot(rec.railKey) ~= nil then
@@ -3139,8 +3006,12 @@ function Tabletop.UndockExternal(rec)
     if rec.closed then
         return
     end
-    Tabletop.RefreshExternal(rec)
-    if rec.buttonOps.placementChanged then rec.buttonOps.placementChanged(rec) end
+    if rec.minimized then
+        local w = LayerSize()
+        rec.iconX = math.min(rec.iconX or 80, w - 80)
+        rec.iconY = rec.iconY or 120
+    end
+    UpdateTableButton(rec)
 end
 
 --Takes the live map status back from whichever window holds it.
@@ -5176,19 +5047,6 @@ local function ScreenToLayer(px, py)
     end
     local scale = layer.renderedHeight / below.y
     return px * scale, (py - (screen.y - below.y)) * scale
-end
-
---- Screen pixels with a top-left origin to the laid-out documents layer.
---- @param screenX number
---- @param screenY number
---- @return number? x
---- @return number? y
-function Tabletop.ScreenToLayer(screenX, screenY)
-    local layer = DocumentsLayer()
-    local screen, below = dmhub.screenDimensions, dmhub.screenDimensionsBelowTitlebar
-    if layer == nil or not layer.valid or layer.renderedWidth <= 0 or layer.renderedHeight <= 0
-        or screen == nil or below == nil or screen.x <= 0 or screen.y <= 0 or below.x <= 0 or below.y <= 0 then return nil, nil end
-    return ScreenToLayer(screenX, screenY)
 end
 
 local function IsHeroToken(tok)
@@ -10456,7 +10314,7 @@ g_sharing.DefineWindowsMenu = function()
         card = "phosphor/user.png",
     }
     --the menu's sections, top to bottom; a divider goes between them.
-    local GROUP_ORDER = {"map", "scene", "journal", "external", "doc", "card"}
+    local GROUP_ORDER = {"map", "scene", "journal", "doc", "card"}
 
     local state = {signature = nil, nextCheck = 0}
 
@@ -10556,7 +10414,7 @@ g_sharing.DefineWindowsMenu = function()
         --ping): their rows ping as the menu opens. Opening the menu uses them up.
         local pinged = g_sharing.TakePendingPings()
 
-        local function Add(group, key, name, open, activate, icon)
+        local function Add(group, key, name, open, activate)
             if key ~= nil then
                 listed[key] = true
             end
@@ -10564,7 +10422,7 @@ g_sharing.DefineWindowsMenu = function()
             local list = groups[group]
             list[#list+1] = {
                 text = name,
-                icon = icon or ICONS[group],
+                icon = ICONS[group],
                 check = open,
                 group = group,
                 create = ping ~= nil and function(element)
@@ -10639,9 +10497,6 @@ g_sharing.DefineWindowsMenu = function()
             for _, entry in ipairs(switcher.JournalWindows()) do
                 Add("journal", nil, entry.name, not entry.minimized, entry.activate)
             end
-        end
-        for _, entry in ipairs(Tabletop.ExternalWindows()) do
-            Add("external", entry.key, entry.name, not entry.minimized, entry.activate, entry.icon)
         end
         for _, entryid in ipairs(g_sharing.DocItemEntryIds()) do
             local entry = CustomDocument.FindJournalEntry(entryid)
