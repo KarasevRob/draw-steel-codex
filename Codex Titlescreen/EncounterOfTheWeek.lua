@@ -34,12 +34,24 @@ local function EotwProf(fmt, ...)
     end)
 end
 
---Dev gate. No editor entry, so it never appears in the settings UI;
---toggle from chat with: /toggle dev:encounteroftheweek
+--Opt-in gate, shown as "Encounter of the Week Beta" in General Settings
+--(chat also works: /toggle dev:encounteroftheweek). The id keeps its old
+--dev: name so existing opt-ins carry over. The titlescreen card monitors
+--this id, so ticking it at the titlescreen shows the card straight away.
 EncounterOfTheWeek.enabledSetting = setting{
     id = "dev:encounteroftheweek",
+    description = "Encounter of the Week Beta",
+    help = "Opt in to the Encounter of the Week beta: adds the Encounter of the Week card to the title screen.",
+    editor = "check",
+    section = "general",
     default = false,
     storage = "preference",
+    onchange = function()
+        --Warm the pregen cache now rather than on the first open.
+        if EncounterOfTheWeek.Enabled() then
+            EncounterOfTheWeek.CachePregens()
+        end
+    end,
 }
 
 --Fast launch: members enter the game on "launched", loading alongside the
@@ -113,6 +125,17 @@ setting{
 --codemod's declaration.
 setting{
     id = "eotw:pendingDebrief",
+    default = "",
+    storage = "preference",
+}
+
+--Set by the game-side EotW codemod after a finished game while EotW is in
+--beta: the survey invitation this player has waiting, { [userid] = {gameid,
+--encounter, kind, outcome, minutes, players, heroes} } as JSON. The town
+--invites them (ShowSurveyDialog) and clears it, answered or declined. Same
+--id as the game codemod's declaration.
+setting{
+    id = "eotw:pendingSurvey",
     default = "",
     storage = "preference",
 }
@@ -523,7 +546,7 @@ end
 --EncounterOfTheWeek.md). Its parts are keyed off the map's key: part 1 is the
 --bare key, a later part adds "#<n>" ("Encounter: The Crypt#2"). Map names
 --can never hold "#". The bare key also names the whole series: the schedule,
---the Danger Rooms rows, votes and nominations all use it.
+--the Danger Rooms rows and votes all use it.
 --key -> the series' key (the bare key), part number (1 when none).
 function EncounterOfTheWeek.SplitPartKey(key)
     if type(key) ~= "string" then
@@ -2196,9 +2219,9 @@ function EncounterOfTheWeek.ShowPoolDialog()
 end
 
 --Admin: the weekly assessment and the rotation. Lists every encounter in the
---pool that is not this week's, Danger Room votes, plays, nominations and
---feedback beside each, most nominated first, each with "Make Encounter of the
---Week" (a second click confirms). Mounted over the town screen.
+--pool that is not this week's, Danger Room votes, plays and feedback beside
+--each, best net vote first, each with "Make Encounter of the Week" (a second
+--click confirms). Mounted over the town screen.
 function EncounterOfTheWeek.ShowWeekDialog()
     if m_screen == nil or not m_screen.valid then
         return
@@ -2252,11 +2275,6 @@ function EncounterOfTheWeek.ShowWeekDialog()
         for _,e in ipairs(report ~= nil and report.encounters or {}) do
             byKey[e.encounter] = e
         end
-        local nominated = {}
-        for _,n in ipairs(report ~= nil and report.nominations or {}) do
-            nominated[n.encounter] = n.count or 0
-        end
-
         local entries = {}
         for _,entry in ipairs(EncounterOfTheWeek.GetEncounters() or {}) do
             if entry.key ~= current then
@@ -2264,10 +2282,6 @@ function EncounterOfTheWeek.ShowWeekDialog()
             end
         end
         table.sort(entries, function(a, b)
-            local na, nb = nominated[a.key] or 0, nominated[b.key] or 0
-            if na ~= nb then
-                return na > nb
-            end
             local ea, eb = byKey[a.key], byKey[b.key]
             local va = ea ~= nil and ((ea.up or 0) - (ea.down or 0)) or 0
             local vb = eb ~= nil and ((eb.up or 0) - (eb.down or 0)) or 0
@@ -2297,10 +2311,9 @@ function EncounterOfTheWeek.ShowWeekDialog()
                 },
                 Small(string.format("%s -- %s%s", kind, entry.moduleName or entry.moduleid,
                     cond(entry.author ~= nil and entry.author ~= "", " by " .. tostring(entry.author), ""))),
-                Small(string.format("%d up, %d down, %d play%s, %d nomination%s",
+                Small(string.format("%d up, %d down, %d play%s",
                     stats ~= nil and stats.up or 0, stats ~= nil and stats.down or 0,
-                    stats ~= nil and stats.plays or 0, cond(stats ~= nil and stats.plays == 1, "", "s"),
-                    nominated[entry.key] or 0, cond(nominated[entry.key] == 1, "", "s")), "#e6dcc6"),
+                    stats ~= nil and stats.plays or 0, cond(stats ~= nil and stats.plays == 1, "", "s")), "#e6dcc6"),
             }
             for _,f in ipairs(stats ~= nil and stats.feedback or {}) do
                 if f.feedback ~= nil and f.feedback ~= "" or (f.vote or 0) ~= 0 then
@@ -2522,9 +2535,8 @@ CreateScreen = function(args)
     ---@type fun()
     local ShowCreatorFeedbackDialog = nil
     --Danger Room votes from the city's danger-stats, { [key] = {up, down,
-    --plays} }, and this account's nomination this week (a key or nil).
+    --plays} }.
     local m_dangerStats = {}
-    local m_myNomination = nil
 
     --When set, the games area shows this game's lobby view (slots + your
     --heroes) instead of the games list, and the chat column switches to
@@ -2926,7 +2938,7 @@ CreateScreen = function(args)
     end
 
     --What the Danger Rooms mean for the heroes, wherever a party forms there.
-    local PRACTICE_TEXT = "The Danger Rooms are practice. Heroes earn no Victories, keep no treasure and carry nothing else home. Afterwards you can vote on the encounter, leave feedback for its creator and nominate next week's Encounter of the Week."
+    local PRACTICE_TEXT = "The Danger Rooms are practice. Heroes earn no Victories, keep no treasure and carry nothing else home. Afterwards you can vote on the encounter and leave feedback for its creator."
 
     local PracticeNote = function(width)
         return gui.Label{
@@ -4397,9 +4409,6 @@ CreateScreen = function(args)
             statsText = string.format("%d up, %d down -- played %d time%s", stats.up or 0, stats.down or 0,
                 stats.plays or 0, cond(stats.plays == 1, "", "s"))
         end
-        if m_myNomination == entry.key then
-            statsText = statsText .. " -- your nomination this week"
-        end
         local byline = entry.moduleName or entry.moduleid
         if entry.author ~= nil and entry.author ~= "" then
             byline = string.format("%s by %s", byline, entry.author)
@@ -5535,7 +5544,7 @@ CreateScreen = function(args)
         }
     end
 
-    --The Danger Rooms' votes so far (and our nomination), for the board.
+    --The Danger Rooms' votes so far, for the board.
     local FetchDangerStats = function()
         if m_conn == nil or not m_conn.connected then
             return
@@ -5547,7 +5556,6 @@ CreateScreen = function(args)
                     return
                 end
                 m_dangerStats = result.stats or {}
-                m_myNomination = result.nomination
                 RefreshGames()
             end,
             error = function(message)
@@ -5558,8 +5566,8 @@ CreateScreen = function(args)
 
     --- the Danger Rooms debrief -------------------------------------------
     --After a Danger Rooms game the game side leaves eotw:pendingDebrief; back
-    --in town the player is asked to vote, give the creator feedback and
-    --nominate next week's Encounter of the Week. Sending or skipping clears it.
+    --in town the player is asked to vote and give the creator feedback.
+    --Sending or skipping clears it.
 
     local ReadPendingDebrief = function()
         local text = dmhub.GetSettingValue("eotw:pendingDebrief")
@@ -5600,7 +5608,6 @@ CreateScreen = function(args)
     local ShowDebriefDialog = function(entry)
         local m_vote = 0
         local m_feedback = ""
-        local m_nominate = ""
         local m_sending = false
         local voteButtons = {}
         ---@type Label
@@ -5683,14 +5690,6 @@ CreateScreen = function(args)
             return button
         end
 
-        --next week's candidates: every Danger Room encounter (this one too).
-        local options = { { id = "", text = "No nomination" } }
-        for _,e in ipairs(EncounterOfTheWeek.GetDangerRoomEncounters()) do
-            options[#options+1] = { id = e.key, text = EncounterOfTheWeek.EncounterDisplayName(e.key) }
-        end
-        ---@type Dropdown
-        local nominateDropdown = nil
-
         local resultText = cond(entry.result == "victory", "Your party survived the Danger Room.",
             cond(entry.result == "defeat", "The Danger Room got the better of your party.", "Your party left the Danger Room."))
 
@@ -5751,28 +5750,6 @@ CreateScreen = function(args)
                         m_feedback = element.text or ""
                     end,
                 },
-                Label("Your pick for next week's Encounter of the Week", 18),
-                gui.Dropdown{
-                    width = 520,
-                    height = 36,
-                    fontSize = 18,
-                    halign = "center",
-                    --The open list (dropdownBorder/dropdownMenu/dropdownOption)
-                    --inherits the host's cascade, and the titlescreen's
-                    --legacy Styles.Default does not style it: without the
-                    --themed sheet it renders as bare labels over the dialog.
-                    styles = ThemeEngine.GetStyles(),
-                    options = options,
-                    idChosen = "",
-                    create = function(element)
-                        ---@cast element Dropdown
-                        nominateDropdown = element
-                    end,
-                    change = function(element)
-                        ---@cast element Dropdown
-                        m_nominate = tostring(element.idChosen or "")
-                    end,
-                },
                 gui.Label{
                     text = "",
                     fontSize = 16,
@@ -5809,7 +5786,6 @@ CreateScreen = function(args)
                                 gameid = entry.gameid,
                                 vote = m_vote,
                                 feedback = m_feedback,
-                                nominate = cond(m_nominate ~= "", m_nominate, nil),
                             },
                             success = function()
                                 ClearPendingDebrief(entry.gameid)
@@ -5836,31 +5812,13 @@ CreateScreen = function(args)
                 },
             },
         }
-        if dlg == nil or m_conn == nil then
-            m_debriefOpen = dlg ~= nil
-            return
+        if dlg == nil then
+            m_debriefOpen = false
         end
-
-        --pre-select this week's nomination, if the player already made one.
-        m_conn:Request{
-            action = "danger-stats",
-            args = { encounters = {} },
-            success = function(result)
-                if nominateDropdown == nil or not nominateDropdown.valid or type(result.nomination) ~= "string" then
-                    return
-                end
-                for _,option in ipairs(options) do
-                    if option.id == result.nomination and m_nominate == "" then
-                        m_nominate = result.nomination
-                        nominateDropdown.idChosen = result.nomination
-                    end
-                end
-            end,
-        }
     end
 
     --Ask for a Danger Rooms debrief owed from the last game, once the town is
-    --connected and the pool (the nomination choices) has loaded.
+    --connected and the pool (which names the encounter) has loaded.
     local MaybeShowDebrief = function()
         if m_debriefOpen or m_conn == nil or not m_conn.connected then
             return
@@ -6092,6 +6050,469 @@ CreateScreen = function(args)
                 printf("EotW town: could not list results left while away: %s", tostring(err))
             end,
         }
+    end
+
+    --- the beta survey -----------------------------------------------------
+    --After a finished game of ten minutes or more the game side leaves
+    --eotw:pendingSurvey; back in town, once nothing else is asking, the
+    --player is invited to a short survey. Sending it or declining it ("No
+    --thanks", or Escape) is recorded in the city (eotw-survey) and clears the
+    --invitation. The questions live here; the city stores choice ids and
+    --text and tallies them for the admins (survey-report).
+
+    --Bump when the questions change, so the report keeps the sets apart.
+    local SURVEY_ID = "eotw-beta-1"
+
+    --Each question: an id, a prompt, choices ({id, text}) and optionally a
+    --comment box, shown once a choice other than `hideFor` is picked.
+    local SURVEY_LEAVE_QUESTION = {
+        id = "leave",
+        prompt = "What made you leave?",
+        choices = {
+            { id = "time", text = "Ran out of time" },
+            { id = "not_fun", text = "Wasn't enjoying it" },
+            { id = "bugs", text = "Bugs or problems" },
+            { id = "doomed", text = "I saw the writing on the wall, I knew I was going to lose :)" },
+            { id = "other", text = "Something else" },
+        },
+        comment = { placeholder = "Anything to add? (optional)" },
+    }
+    local SURVEY_QUESTIONS = {
+        {
+            id = "length",
+            prompt = "How did the length of the session feel?",
+            choices = {
+                { id = "too_short", text = "Too short" },
+                { id = "about_right", text = "About right" },
+                { id = "too_long", text = "Too long" },
+            },
+        },
+        {
+            id = "difficulty",
+            prompt = "Were you satisfied with the difficulty?",
+            choices = {
+                { id = "too_easy", text = "No, too easy" },
+                { id = "satisfied", text = "Yes, it felt right" },
+                { id = "too_hard", text = "No, too hard" },
+            },
+        },
+        {
+            id = "bugs",
+            prompt = "Did you run into any bugs?",
+            choices = {
+                { id = "none", text = "No bugs" },
+                { id = "minor", text = "Minor annoyances" },
+                { id = "disruptive", text = "They got in the way" },
+                { id = "ruined", text = "They ruined the session" },
+            },
+            comment = { hideFor = "none", placeholder = "What went wrong? (optional)" },
+        },
+        {
+            id = "ui",
+            prompt = "Was the interface clear?",
+            choices = {
+                { id = "clear", text = "Clear" },
+                { id = "mostly", text = "Mostly clear" },
+                { id = "confusing", text = "Often confusing" },
+            },
+            comment = { hideFor = "clear", placeholder = "What was confusing? (optional)" },
+        },
+        {
+            id = "again",
+            prompt = "Do you want to keep playing Encounter of the Week?",
+            choices = {
+                { id = "yes", text = "Yes" },
+                { id = "maybe", text = "Maybe" },
+                { id = "no", text = "No" },
+            },
+        },
+    }
+
+    local ReadPendingSurvey = function()
+        local text = dmhub.GetSettingValue("eotw:pendingSurvey")
+        if type(text) ~= "string" or text == "" then
+            return nil
+        end
+        --FromJson answers {success, result}, not the decoded value.
+        local parsed = dmhub.FromJson(text)
+        if type(parsed) ~= "table" or not parsed.success or type(parsed.result) ~= "table" then
+            return nil
+        end
+        local entry = parsed.result[dmhub.loginUserid]
+        if type(entry) ~= "table" or type(entry.gameid) ~= "string" or type(entry.outcome) ~= "string" then
+            return nil
+        end
+        return entry
+    end
+
+    local ClearPendingSurvey = function(gameid)
+        local text = dmhub.GetSettingValue("eotw:pendingSurvey")
+        local parsed = type(text) == "string" and text ~= "" and dmhub.FromJson(text) or nil
+        if type(parsed) ~= "table" or not parsed.success or type(parsed.result) ~= "table" then
+            dmhub.SetSettingValue("eotw:pendingSurvey", "")
+            return
+        end
+        local all = parsed.result
+        local entry = all[dmhub.loginUserid]
+        if type(entry) == "table" and entry.gameid == gameid then
+            all[dmhub.loginUserid] = nil
+            dmhub.SetSettingValue("eotw:pendingSurvey", dmhub.ToJson(all))
+        end
+    end
+
+    local m_surveyOpen = false
+
+    local SURVEY_CHOICE_STYLES = {
+        {
+            selectors = { "surveyChoice" },
+            bgcolor = "#ffffff0e",
+            borderWidth = 2,
+            borderColor = "#8f8a7f88",
+            cornerRadius = 8,
+            transitionTime = 0.12,
+        },
+        {
+            selectors = { "surveyChoice", "hover" },
+            borderColor = "#e6dcc6",
+        },
+        {
+            selectors = { "surveyChoice", "selected" },
+            bgcolor = "#38386ecc",
+            borderColor = "#f6ead0",
+        },
+    }
+
+    --nil for an empty table: an empty Lua table can go out as a JSON array,
+    --which the city refuses where it wants an object.
+    local NonEmpty = function(t)
+        if t == nil or next(t) == nil then
+            return nil
+        end
+        return t
+    end
+
+    --The eotw-survey request for this invitation: answers/comments, or a decline.
+    local SurveyArgs = function(entry, declined, answers, comments)
+        return {
+            survey = SURVEY_ID,
+            gameid = entry.gameid,
+            kind = cond(entry.kind == "danger", "danger", "week"),
+            outcome = entry.outcome,
+            encounter = entry.encounter or "",
+            declined = declined,
+            answers = NonEmpty(answers),
+            comments = NonEmpty(comments),
+            context = {
+                minutes = tonumber(entry.minutes) or 0,
+                players = tonumber(entry.players) or 0,
+                heroes = tonumber(entry.heroes) or 0,
+                version = dmhub.version,
+            },
+        }
+    end
+
+    local ShowSurveyDialog = function(entry)
+        local m_answers = {}
+        local m_comments = {}
+        local m_sending = false
+        ---@type Label
+        local surveyStatus = nil
+        local dlg = nil
+
+        local SetSurveyStatus = function(text, isError)
+            if surveyStatus ~= nil and surveyStatus.valid then
+                surveyStatus.text = text or ""
+                surveyStatus.selfStyle.color = cond(isError, "#ff8888", Styles.textColor)
+            end
+        end
+
+        local Close = function()
+            m_surveyOpen = false
+            if dlg ~= nil and dlg.valid then
+                dlg:DestroySelf()
+            end
+        end
+
+        --Declining is recorded too (best-effort: the invitation goes either way).
+        local Decline = function()
+            if m_sending then
+                return
+            end
+            ClearPendingSurvey(entry.gameid)
+            Close()
+            if m_conn ~= nil then
+                m_conn:Request{
+                    action = "eotw-survey",
+                    args = SurveyArgs(entry, true),
+                    error = function(message)
+                        printf("EotW: could not record the declined survey: %s", tostring(message))
+                    end,
+                }
+            end
+        end
+
+        --One question: its prompt, a row of choices and (optionally) a comment box.
+        local Question = function(q)
+            local choicePanels = {}
+            local commentInput = nil
+            if q.comment ~= nil then
+                commentInput = gui.Input{
+                    classes = { cond(q.comment.hideFor ~= nil, "collapsed", nil) },
+                    width = "96%",
+                    height = 64,
+                    halign = "center",
+                    fontSize = 16,
+                    multiline = true,
+                    textAlignment = "topleft",
+                    characterLimit = 2000,
+                    placeholderText = q.comment.placeholder,
+                    vmargin = 4,
+                    change = function(element)
+                        m_comments[q.id] = element.text or ""
+                    end,
+                }
+            end
+            for _,choice in ipairs(q.choices) do
+                local panel
+                panel = gui.Panel{
+                    classes = { "surveyChoice" },
+                    width = "auto",
+                    height = "auto",
+                    hpad = 14,
+                    vpad = 8,
+                    borderBox = true,
+                    margin = 4,
+                    bgimage = "panels/square.png",
+                    styles = SURVEY_CHOICE_STYLES,
+                    press = function(element)
+                        audio.FireSoundEvent("Mouse.Click")
+                        if m_answers[q.id] == choice.id then
+                            m_answers[q.id] = nil
+                        else
+                            m_answers[q.id] = choice.id
+                        end
+                        for id,p in pairs(choicePanels) do
+                            if p.valid then
+                                p:SetClass("selected", m_answers[q.id] == id)
+                            end
+                        end
+                        if commentInput ~= nil and q.comment.hideFor ~= nil then
+                            local picked = m_answers[q.id]
+                            commentInput:SetClass("collapsed", picked == nil or picked == q.comment.hideFor)
+                        end
+                    end,
+                    gui.Label{
+                        interactable = false,
+                        text = choice.text,
+                        fontSize = 17,
+                        color = "#f6ead0",
+                        width = "auto",
+                        height = "auto",
+                    },
+                }
+                choicePanels[choice.id] = panel
+            end
+            local choiceRow = gui.Panel{
+                width = "100%",
+                height = "auto",
+                flow = "horizontal",
+                wrap = true,
+                halign = "center",
+                children = (function()
+                    local list = {}
+                    for _,choice in ipairs(q.choices) do
+                        list[#list+1] = choicePanels[choice.id]
+                    end
+                    return list
+                end)(),
+            }
+            return gui.Panel{
+                width = "100%",
+                height = "auto",
+                flow = "vertical",
+                vmargin = 6,
+                gui.Label{
+                    text = q.prompt,
+                    fontSize = 19,
+                    bold = true,
+                    color = Styles.textColor,
+                    width = "100%",
+                    height = "auto",
+                    textWrap = true,
+                },
+                choiceRow,
+                commentInput,
+            }
+        end
+
+        local questions = {}
+        if entry.outcome == "abandoned" then
+            questions[#questions+1] = SURVEY_LEAVE_QUESTION
+        end
+        for _,q in ipairs(SURVEY_QUESTIONS) do
+            questions[#questions+1] = q
+        end
+
+        local resultText = cond(entry.outcome == "victory", "Your party won.",
+            cond(entry.outcome == "defeat", "Your party was defeated.", "You left the encounter."))
+        local encounterTitle = ""
+        if type(entry.encounter) == "string" and entry.encounter ~= "" then
+            encounterTitle = EncounterOfTheWeek.EncounterTitle(entry.encounter)
+        end
+
+        ---@type Panel[]
+        local children = {
+            gui.Label{
+                classes = { cond(encounterTitle == "", "collapsed", nil) },
+                text = encounterTitle,
+                fontFace = "display",
+                fontSize = 30,
+                color = "#f6ead0",
+                width = "100%",
+                height = "auto",
+                textAlignment = "center",
+            },
+            gui.Label{
+                text = string.format("%s Encounter of the Week is in beta, and a minute of your time helps us make it better. Every question is optional.", resultText),
+                fontSize = 17,
+                color = "#ffcf8a",
+                width = "100%",
+                height = "auto",
+                textAlignment = "center",
+                textWrap = true,
+                vmargin = 6,
+            },
+        }
+        for _,q in ipairs(questions) do
+            children[#children+1] = Question(q)
+        end
+        children[#children+1] = gui.Panel{
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            vmargin = 6,
+            gui.Label{
+                text = "Anything else you'd like to tell us?",
+                fontSize = 19,
+                bold = true,
+                color = Styles.textColor,
+                width = "100%",
+                height = "auto",
+            },
+            gui.Input{
+                width = "96%",
+                height = 80,
+                halign = "center",
+                fontSize = 16,
+                multiline = true,
+                textAlignment = "topleft",
+                characterLimit = 2000,
+                placeholderText = "Optional",
+                vmargin = 4,
+                change = function(element)
+                    m_comments.comments = element.text or ""
+                end,
+            },
+        }
+        children[#children+1] = gui.Label{
+            text = "",
+            fontSize = 16,
+            color = Styles.textColor,
+            width = "100%",
+            height = "auto",
+            minHeight = 22,
+            textAlignment = "center",
+            vmargin = 4,
+            create = function(element)
+                ---@cast element Label
+                surveyStatus = element
+            end,
+        }
+
+        dlg = ModalDialog{
+            title = "Encounter of the Week Survey",
+            width = 780,
+            maxBodyHeight = 680,
+            --closing with Escape counts as No thanks.
+            escape = function(element)
+                Decline()
+            end,
+            children = children,
+            buttons = {
+                gui.Button{
+                    text = "Send",
+                    fontSize = 20,
+                    width = 160,
+                    height = 44,
+                    hmargin = 8,
+                    click = function(element)
+                        if m_sending or m_conn == nil then
+                            return
+                        end
+                        m_sending = true
+                        SetSurveyStatus("Sending...")
+                        m_conn:Request{
+                            action = "eotw-survey",
+                            args = SurveyArgs(entry, false, m_answers, m_comments),
+                            success = function()
+                                ClearPendingSurvey(entry.gameid)
+                                Close()
+                            end,
+                            error = function(message)
+                                m_sending = false
+                                SetSurveyStatus("Could not send: " .. tostring(message), true)
+                            end,
+                        }
+                    end,
+                },
+                gui.Button{
+                    text = "No thanks",
+                    fontSize = 20,
+                    width = 160,
+                    height = 44,
+                    hmargin = 8,
+                    click = function(element)
+                        Decline()
+                    end,
+                },
+            },
+        }
+        if dlg == nil then
+            m_surveyOpen = false
+        end
+    end
+
+    --Invite the player to a survey owed from the last game, once the town is
+    --connected and nothing else (a debrief, results left while away, another
+    --dialog) is asking. Polled by the town's watcher.
+    local MaybeShowSurvey = function()
+        if m_surveyOpen or m_debriefOpen or m_offersOpen or m_conn == nil or not m_conn.connected then
+            return
+        end
+        if m_modalDialog ~= nil and m_modalDialog.valid then
+            return
+        end
+        --a Danger Rooms debrief goes first.
+        if ReadPendingDebrief() ~= nil then
+            return
+        end
+        local entry = ReadPendingSurvey()
+        if entry == nil then
+            return
+        end
+        m_surveyOpen = true
+        --the pool names the encounter in the dialog's title.
+        EncounterOfTheWeek.RefreshPool(function()
+            if mod.unloaded or resultPanel == nil or not resultPanel.valid then
+                m_surveyOpen = false
+                return
+            end
+            if m_modalDialog ~= nil and m_modalDialog.valid then
+                m_surveyOpen = false
+                return
+            end
+            ShowSurveyDialog(entry)
+        end)
     end
 
     --── the town ──────────────────────────────────────────────────────────
@@ -7829,6 +8250,10 @@ CreateScreen = function(args)
             think = function(element)
                 MaybePlayInnReveal()
                 RevealFoundLocations()
+                --the beta survey waits for the inn's reveal to finish.
+                if not m_innRevealActive then
+                    MaybeShowSurvey()
+                end
             end,
         },
     }

@@ -258,8 +258,10 @@ rules, and the authoring STANDARD are in `EncounterOfTheWeek/KNACKS_REFERENCE.md
 - **`Allow` makes the option SECRET**: a hero who does not meet it never sees
   it (nor does anyone watching that hero). It is not shown locked.
 - **`#### If <requirement>`** under an option is a KNACK VERSION of it for a
-  hero who meets the requirement: `|` clauses with no roll (the knack makes the
-  problem moot) or its own `|Name: Characteristic` roll (a better table).
+  hero who meets the requirement, normally with its own `|Name: Characteristic`
+  roll: a Better or Spicy table (KNACKS_REFERENCE.md section 4). `|` clauses
+  with no roll are allowed, but only for flavour: a knack never skips the
+  roll to win something.
   First knack met wins. Also `#### Instead, if ...:` / `#### Knack: ...`.
 - **Requirements** are INTENT, joined by `or`: `you can teleport` (a speed OR
   an ability such as Black Ash Teleport), `you can speak with animals`,
@@ -273,14 +275,9 @@ rules, and the authoring STANDARD are in `EncounterOfTheWeek/KNACKS_REFERENCE.md
 - The validator's **Knack coverage** section checks the standard: every test
   has a knack, opportunities have secret options, each pregen meets 3+.
 
-**Companions and assists** need no authoring. When a hero approaches an
-entry, other heroes may go along (once a round each). Their knack versions,
-secret options and languages count for the turn; edge and bane riders read
-only the hero making the test, so if a companion's language should help,
-write it as a knack version or a secret option, not as `Edge: you speak X`.
-Before a test is rolled, each companion may assist with a listed skill
-nobody has used (never the hero's last), adding an edge or bane. So list two
-or more skills on a test if you want it assistable.
+**Heroes act alone.** A hero approaches an entry by themselves: there are
+no companions and no assists, so every knack, secret option, language and
+rider reads only the hero making the test.
 
 **Party-size scaling.** Lines directly under `## Round N`:
 `<range> Players: -<n> Opportunity, -<n> Threat`, where range is `4`, `4-5`
@@ -354,8 +351,7 @@ PC turns back toward the light.
 Exhausted, PC staggers out.
 ```
 
-The whole delve is that hero's one turn; their companions go in with them
-(each may assist one obstacle test in the whole delve). They meet random
+The whole delve is that hero's one turn, and they go in alone. They meet random
 obstacles (shaped exactly like opportunities); a chest comes due every 1-2
 obstacles (dice table rows are clauses; unfound rows read `???`). Then "Press
 deeper (lose 1 Recovery)" or "Turn back" (`## Leave` or `## Turn Back`); at 0
@@ -564,8 +560,8 @@ game (the map starts fresh each time).
   encounter has no region.
 - **Testing**: Test Encounter has a **Part** dropdown on a series map. The test
   bounds the map like a real game and puts the bounds back at End Test.
-- **In town**: the series is one entry (it is scheduled, voted on and nominated
-  as a whole). Form a Party opens on the next part the player has to play, with
+- **In town**: the series is one entry (it is scheduled and voted on as a
+  whole). Form a Party opens on the next part the player has to play, with
   a chip per part: won parts are ticked, locked ones greyed. At the Town Gate a
   part unlocks when any of the account's heroes has won the part before it;
   in the Danger Rooms, when the account has won it there. Danger Room wins do
