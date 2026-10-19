@@ -69,12 +69,7 @@ function OverlandMapPanel.Create(options)
     local root
     local canvas
     local atlas
-    local sidePanel
-    local pathPanel
-    local labelPanel
-    local partyPanel
     local stopCard
-    local logPanel
     local popovers
     local present
     local breadcrumb
@@ -101,7 +96,6 @@ function OverlandMapPanel.Create(options)
     local toastRetry
     local toastAction
     local confirmLayer
-    local importLayer
     local confirmTitle
     local confirmBody
     local confirmOk
@@ -118,7 +112,42 @@ function OverlandMapPanel.Create(options)
     local changes = OverlandMapSession.Changes()
 
     function ctx.IsAlive()
-        return ownerValid() and root ~= nil and root.valid
+        return ownerValid() and not shell.destroying and root ~= nil and root.valid
+    end
+
+    local components = {} --- @type table<string, {slot: Panel, panel: Panel?, attempted: boolean?, factory: fun(): Panel}>
+    local function Existing(key)
+        local entry = key and components[key]
+        return entry and entry.panel or nil
+    end
+
+    local function Ensure(key)
+        local entry = key and components[key]
+        if entry == nil or not ctx.IsAlive() then return nil end
+        if entry.panel ~= nil then return entry.panel end
+        -- A failed or re-entrant constructor must not start another subtree on refresh.
+        if entry.attempted then return nil end
+        entry.attempted = true
+        local panel = entry.factory()
+        if not ctx.IsAlive() then panel:DestroySelf(); return nil end
+        entry.slot:AddChild(panel)
+        entry.panel = panel
+        return panel, true
+    end
+
+    local function ActiveSideKey(mode)
+        if mode == "log" then return "log" end
+        if mode == "party" then return "party" end
+        if mode == "labelEdit" then return "label" end
+        if mode == "path" or mode == "pathEdit" or mode == "pickPathEnd" then return "path" end
+        if mode == "read" or mode == "edit" or mode == "pickMode" or mode == "pickImage"
+            or mode == "pickMap" or mode == "pickJournal" then return "location" end
+        return nil
+    end
+
+    local function BindExisting(key)
+        local panel = Existing(key)
+        if panel ~= nil then panel:FireEvent("bind") end
     end
 
     function ctx.CurrentMap()
@@ -420,11 +449,13 @@ function OverlandMapPanel.Create(options)
     -- Leaving the map runs a host hook that destroys this panel; edits are saved first.
     local function RunHostHook(hook)
         if hook == nil or not ctx.IsAlive() then return end
-        importLayer.data.requestClose(function()
+        local function Continue()
             if not ctx.IsAlive() then return end
             ctx.FlushEdits()
             hook()
-        end)
+        end
+        local importLayer = Existing("import")
+        if importLayer ~= nil then importLayer.data.requestClose(Continue) else Continue() end
     end
 
     function ctx.ShowMenu(element, id)
@@ -474,7 +505,11 @@ function OverlandMapPanel.Create(options)
     end
 
     function ctx.ImportLocations()
-        importLayer.data.start()
+        if not ctx.IsAlive() or OverlandMapImport.IsRunning() or not Model.IsDirector() then return end
+        local map = ctx.CurrentMap()
+        if map == nil or not Model.CanAdd(map.id) then return end
+        local importLayer = Ensure("import")
+        if importLayer ~= nil then importLayer.data.start() end
     end
 
     function ctx.ShowToPlayers()
@@ -575,7 +610,8 @@ function OverlandMapPanel.Create(options)
         Session.SetIconButton(addButton, T(canLabel and (canAdd and "label.addMenu" or "label.add") or "tb.add"))
         importButton:SetClass("collapsed", not hasMap or not director)
         importButton:SetClass("disabled", not canAdd or OverlandMapImport.IsRunning())
-        importButton:SetClass("on", not importLayer:HasClass("collapsed"))
+        local importLayer = Existing("import")
+        importButton:SetClass("on", importLayer ~= nil and not importLayer:HasClass("collapsed"))
         -- The Path tool: Director, point crawl maps only; it needs two pins to join (Q7).
         local crawl = hasMap and director and Model.IsPointCrawl(map)
         local enoughPins = crawl and #Model.Children(map.id) >= 2
@@ -630,17 +666,15 @@ function OverlandMapPanel.Create(options)
         statusChip:SetClass("link", kind ~= "none")
         -- The chip moves left of the side panel while the panel is open.
         local inset = 8
-        local rightPanel = sidePanel
-        if data.panelMode == "log" then
-            rightPanel = logPanel
-        elseif data.panelMode == "party" then
-            rightPanel = partyPanel
-        elseif data.panelMode == "labelEdit" then
-            rightPanel = labelPanel
-        elseif data.panelMode == "path" or data.panelMode == "pathEdit" or data.panelMode == "pickPathEnd" then
-            rightPanel = pathPanel
+        local key = ActiveSideKey(data.panelMode)
+        local rightPanel = Existing(key)
+        if key ~= nil then
+            -- Bind sets the intended width before the engine's first layout (initially 100).
+            local width = rightPanel and rightPanel.data.width or C.sidePanelWidth * Session.UIScale()
+            local rootWidth = root.renderedWidth or 0
+            if rootWidth > 0 and rootWidth < C.narrowWidth then width = rootWidth end
+            inset = inset + width
         end
-        if data.panelMode ~= "none" and rightPanel.renderedWidth ~= nil then inset = inset + rightPanel.renderedWidth end
         -- Reading an unset selfStyle field raises, so the last value is kept in data.
         if statusChip.data.inset ~= inset then
             statusChip.data.inset = inset
@@ -698,6 +732,7 @@ function OverlandMapPanel.Create(options)
     end
 
     local function EscapeLayer()
+        local importLayer, logPanel = Existing("import"), Existing("log")
         if confirmLayer ~= nil and not confirmLayer:HasClass("collapsed") then return "confirm" end
         if stopCard ~= nil and not stopCard:HasClass("collapsed") then return "stop" end
         if importLayer ~= nil and not importLayer:HasClass("collapsed") then return "import" end
@@ -758,6 +793,7 @@ function OverlandMapPanel.Create(options)
                 dirty.permissions = true
                 data.selectedId, data.panelMode = nil, "none"
             end
+            if ActiveSideKey(data.panelMode) == "location" and data.selectedId == nil then data.panelMode = "none" end
             if data.selectedLabelId ~= nil then
                 local row = OverlandMapLabels.Snapshot(data.selectedLabelId)
                 if row == nil or map == nil or row.mapId ~= map.id then
@@ -771,6 +807,7 @@ function OverlandMapPanel.Create(options)
                     canvas:FireEvent("cancelGesture")
                 end
             end
+            if data.panelMode == "labelEdit" and data.selectedLabelId == nil then data.panelMode = "none" end
             -- A path that was deleted, hidden from this viewer, or left behind on another map.
             if data.panelMode == "path" or data.panelMode == "pathEdit" then
                 local path = OverlandMapPaths.Get(data.selectedPathId)
@@ -804,6 +841,9 @@ function OverlandMapPanel.Create(options)
             if data.selectedAid and (map == nil or data.aidMapId ~= map.id or not Model.IsDirector()
                 or OverlandMapAids.Snapshot(map, data.selectedAid) == nil) then ctx.ClearAid() end
 
+            local _, created = Ensure(ActiveSideKey(data.panelMode))
+            if created then dirty.selection = true end
+
             -- An open panel covers the map's right edge; the camera may pan that far further,
             -- so a pin under it can be reached even at fit. A narrow window's panel covers all.
             local inset = 0
@@ -822,9 +862,9 @@ function OverlandMapPanel.Create(options)
                 if Needs("records", "party", "assets", "layout", "preferences") then atlas:FireEvent("bind") end
             elseif Needs("records", "party", "assets", "selection", "preferences", "layout") then canvas:FireEvent("bind") end
             if Needs("records", "selection", "assets", "layout", "party") then
-                sidePanel:FireEvent("bind")
-                pathPanel:FireEvent("bind")
-                labelPanel:FireEvent("bind")
+                BindExisting("location")
+                BindExisting("path")
+                BindExisting("label")
             end
             local artworkReader = OverlandMapArtwork.ActiveReader(ctx)
             local labelTool = data.tool == "labelAdd" or data.tool == "aidPlace"
@@ -833,10 +873,10 @@ function OverlandMapPanel.Create(options)
                 canvas.data.labelTool = labelTool
                 canvas.inputEvents = (artworkReader ~= nil or labelTool) and { "enter" } or {}
             end
-            if Needs("records", "selection", "party", "layout") then partyPanel:FireEvent("bind") end
-            if Needs("records", "selection", "party", "layout", "preferences") then logPanel:FireEvent("bind") end
+            if Needs("records", "selection", "party", "layout") then BindExisting("party") end
+            if Needs("records", "selection", "party", "layout", "preferences") then BindExisting("log") end
             if Needs("records", "selection", "preferences", "assets", "layout") then popovers:FireEvent("bind") end
-            if Needs("records", "selection", "layout") then importLayer:FireEvent("bind") end
+            if Needs("records", "selection", "layout") then BindExisting("import") end
             if Needs("records", "selection", "layout") then RefreshBreadcrumb(map) end
             RefreshToolbar(map)
             RefreshStatus(map)
@@ -868,13 +908,19 @@ function OverlandMapPanel.Create(options)
     end
     canvas = OverlandMapCanvas.Create(ctx)
     atlas = OverlandMapAtlas.Create(ctx)
-    sidePanel = OverlandMapSidePanel.Create(ctx)
-    pathPanel = OverlandMapPathPanel.Create(ctx)
-    labelPanel = OverlandMapLabelPanel.Create(ctx)
-    partyPanel = OverlandMapPartyPanel.Create(ctx)
-    logPanel = OverlandMapLogPanel.Create(ctx)
+    OverlandMapLabels.SetSavedListener(OverlandMapPreferences.RememberLabelFormat)
+    local function Slot(key, factory)
+        local slot = gui.Panel { width = "100%", height = "100%", flow = "none", floating = true, interactable = false }
+        components[key] = { factory = function() return factory(ctx) end, slot = slot }
+        return slot
+    end
+    local locationSlot = Slot("location", OverlandMapSidePanel.Create)
+    local pathSlot = Slot("path", OverlandMapPathPanel.Create)
+    local labelSlot = Slot("label", OverlandMapLabelPanel.Create)
+    local partySlot = Slot("party", OverlandMapPartyPanel.Create)
+    local logSlot = Slot("log", OverlandMapLogPanel.Create)
     popovers = OverlandMapPopovers.Create(ctx)
-    importLayer = OverlandMapImport.Create(ctx)
+    local importSlot = Slot("import", OverlandMapImport.Create)
     stopCard = OverlandMapPartyPanel.CreateStopCard(ctx)
 
     breadcrumb = gui.Panel { id = "overland-map-breadcrumb", classes = { "overlandMapBreadcrumb" }, floating = true }
@@ -1104,6 +1150,7 @@ function OverlandMapPanel.Create(options)
         end,
         rendered = function() ctx.Transition("resize"); QueueRefresh(0.01, "layout") end,
         destroy = function(element)
+            shell.destroying = true
             ctx.FlushEdits()
             if element.data.recordsSubscription then element.data.recordsSubscription() end
             owner:Destroy()
@@ -1150,7 +1197,8 @@ function OverlandMapPanel.Create(options)
             elseif layer == "stop" then
                 stopCard.data.close()
             elseif layer == "import" then
-                importLayer.data.close()
+                local importLayer = Existing("import")
+                if importLayer ~= nil then importLayer.data.close() end
             elseif layer == "popover" then
                 ctx.SetPopover(nil)
             elseif layer == "aid" then
@@ -1161,7 +1209,8 @@ function OverlandMapPanel.Create(options)
                 -- The Path tool's first Esc drops the line being drawn and keeps the tool (Q7).
                 if not OverlandMapPathTool.Escape(ctx) then ctx.SetTool("none") end
             elseif layer == "edit" and data.panelMode == "log" then
-                logPanel:FireEvent("closeEditor")
+                local logPanel = Existing("log")
+                if logPanel ~= nil then logPanel:FireEvent("closeEditor") end
             elseif layer == "edit" and data.panelMode == "pathEdit" then
                 ctx.SelectPath(data.selectedPathId, "path")
             elseif layer == "edit" and data.panelMode == "labelEdit" then
@@ -1184,8 +1233,8 @@ function OverlandMapPanel.Create(options)
             end
         end,
 
-        canvas, atlas, breadcrumb, toolbar, banners, statusChip, sidePanel, pathPanel, labelPanel, partyPanel, logPanel, popovers,
-        toast, importLayer, stopCard, confirmLayer,
+        canvas, atlas, breadcrumb, toolbar, banners, statusChip, locationSlot, pathSlot, labelSlot, partySlot, logSlot, popovers,
+        toast, importSlot, stopCard, confirmLayer,
     }
     ctx.root = root
     return root

@@ -99,7 +99,7 @@ OverlandMapConstants.pathTypeIdLimit = 64
 OverlandMapConstants.watchesPerDay = 6
 OverlandMapConstants.pathTimeMax = OverlandMapConstants.watchesPerDay * 999 -- watches; a typo guard, not a game rule
 OverlandMapConstants.defaultTimeUnit = "days"
-OverlandMapConstants.pathTimeUnits = { "days", "watches" }
+OverlandMapConstants.pathTimeUnits = { "days", "watches", "custom" }
 OverlandMapConstants.pathBacks = { "same", "different", "none" } -- the other way: same time, its own time, not possible
 -- Line looks (N1, Q3). Patterns and widths are drawn in screen pixels, the same at every zoom (Q2).
 OverlandMapConstants.pathPatterns = { "solid", "dashed", "dotted", "double", "dashDot", "longDash" }

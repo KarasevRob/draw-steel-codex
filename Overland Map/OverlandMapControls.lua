@@ -603,7 +603,7 @@ function OverlandMapControls.AppearanceEditor(ctx, pins, options)
     local more = gui.Panel { classes = { "overlandMapLabelField", "collapsed" }, offsets,
         Field("appearance.backgroundOpacity", Numeric("backgroundOpacity", 100, 0, 100, true)) }
     local arrow = gui.ExpandoArrow { halign = "left", valign = "center", interactable = false }
-    local disclosure = gui.Panel { classes = { "overlandMapSectionHeader" },
+    local disclosure = gui.Panel { classes = { "overlandMapSectionHeader" }, bgimage = true,
         click = function() expanded = not expanded; more:SetClass("collapsed", not expanded); arrow:SetClass("expanded", expanded) end,
         arrow, Session.Label({ "overlandMapSectionLabel", "sizeS" }, T("appearance.more")) }
     local imageSettings = gui.Panel { classes = { "overlandMapLabelField" },

@@ -422,6 +422,12 @@ The production renderer uses pooled panels and the input controller uses central
 polling. See [the rewrite record](docs/REWRITE_PLAN.md) for adoption-gate evidence and
 the architecture contracts.
 
+The shell constructs Location, Path, Label, Party, Log and Import on first eligible use,
+then retains each component in its original layer slot. Closing binds and game-scoped
+saves keep their existing lifetimes. The user accepted performance for this phase on
+2026-10-19; the measured limitations remain recorded. The [lazy-editor record](tests/LAZY_EDITORS_2026-10-19.md)
+also documents the rejected bordered-path primitive; the production path renderer remains unchanged.
+
 ## 3. Data
 
 | Storage | Contents |
@@ -464,9 +470,9 @@ independent import rows retain their existing partial Undo behavior.
 
 Recorded measurements are fixture-specific, not guarantees for larger maps or other
 clients. They are kept here because future rendering work needs a comparison point.
-All timings below precede the review fixes and the current pin-name composition. In
-particular, the 221 ms first draw has not been remeasured. Lazy image panels, targeted
-label updates and batched imports have offline regression coverage, not new app timings.
+The historical table below precedes the review fixes and current pin-name composition.
+The [2026-10-19 benchmark](tests/PERFORMANCE_2026-10-19.md) measures the current development
+version separately, including cached full-content opening and distinct interaction phases.
 
 | Fixture and date | Observed cost |
 |---|---|
@@ -475,6 +481,16 @@ label updates and batched imports have offline regression coverage, not new app 
 | Large session log, 2026-10-11 | First batch 54 ms, then 40 rows/frame; unchanged open-log refresh about 1 ms |
 | Focused PC test map, 2026-10-13: about 760 path pieces, 600 route dots and 33 pins | Pan improved from over 100 ms/frame to 16.7 ms after position writes stopped using selfStyle; animated Fit measured 16.7 ms/frame |
 | Same zoom work with stable per-segment pooling, unfocused app at 30 Hz | Four wheel notches dropped from five frames over 33 ms to one; this is not a focused FPS benchmark |
+
+On 2026-10-19, five normal/dense interaction runs measured median pan p95 of about
+37/103 ms and animated-zoom p95 of 95/193 ms. Synchronous renderer construction was
+709/2,369 ms, compared with 725/2,073 ms in the October 18 observations. Cached
+full-content opening was about 7.4 seconds normal and 22-24 seconds dense; the dense
+opening sample and foreground limitations are explicit in the report. Large settled
+zoom jumps caused multi-second stalls. The engine caps frame percentiles at 2 seconds
+and omits frames lasting 10 seconds or more, so those limits must accompany the results.
+Historical workloads/session context differ; these results do not establish a rewrite
+regression or a passing comparative acceptance result.
 
 Current rendering constraints:
 
@@ -500,14 +516,15 @@ and [text appearance checks](tests/TEXT_APPEARANCE.md) retain their rendering ev
 
 The [rewrite record](docs/REWRITE_PLAN.md) and [2026-10-18 live record](tests/LIVE_REWRITE_2026-10-18.md)
 distinguish current evidence from remaining checks. The full offline runner passes
-185 checks across nine suites. [Earlier live evidence](tests/LIVE_REVIEW_2026-10-17.md)
+212 checks across ten suites. [Earlier live evidence](tests/LIVE_REVIEW_2026-10-17.md)
 remains historical and does not establish a result for the rewritten rendering code.
 
 Two-client live tests remain excluded by request. Offline fixtures simulate busy rows,
 remote changes, failed uploads and stale Undo; they do not establish server atomicity.
 The user reported that the [single-client manual tests](tests/MANUAL_REWRITE_ACCEPTANCE.md)
-passed on 2026-10-19. The comparative performance benchmark remains deferred, so full
-acceptance is still open.
+passed on 2026-10-19. The [current-version benchmark](tests/PERFORMANCE_2026-10-19.md)
+is complete with recorded limits and substantial opening/zoom stalls. A matched
+pre-rewrite comparison remains unavailable, so full comparative acceptance is still open.
 The native-popout wheel limitation remains documented in the
 [engine handoff](docs/POPOUT_WHEEL_ENGINE_HANDOFF.md).
 

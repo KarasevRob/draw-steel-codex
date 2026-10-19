@@ -440,7 +440,7 @@ function OverlandMapPathLayer.Create()
 
     local inputs = "" -- what the last Bind was built from
     local function Bind(mapId)
-        local parts = { tostring(Model.IsDirector()), Paths.TimeUnit() }
+        local parts = { tostring(Model.IsDirector()), Paths.TimeFormatKey() }
         for _, item in ipairs(Paths.Types()) do
             parts[#parts + 1] = table.concat({ item.id, item.name, item.pattern, item.color, item.width }, "|")
         end

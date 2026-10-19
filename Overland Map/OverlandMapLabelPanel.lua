@@ -30,7 +30,6 @@ function OverlandMapLabelPanel.Create(ctx)
     local invalid = {}
     local discards = 0
     local refreshScheduled = false
-    Labels.SetSavedListener(OverlandMapPreferences.RememberLabelFormat)
     -- Every keystroke changes the label's queue; refresh the window once per burst, not per key.
     local function QueueRefresh()
         if refreshScheduled then return end

@@ -356,6 +356,30 @@ local function BuildDirectorSettings(ctx)
         if binding then return end
         Kept(OverlandMapCommands.SetTimeUnit(unit))
     end)
+    local unitInputs, invalidUnits = {}, {}
+    local unitError = Label({ "overlandMapHint", "collapsed", "sizeXs" }, T("set.timeUnit.invalid", { limit = C.textLimit }))
+    local function UnitInput(key)
+        local input = gui.Input {
+            id = "overland-map-time-unit-" .. key, classes = { "input", "bordered", "overlandMapInput" }, characterLimit = C.textLimit,
+            change = function(element)
+                if binding or not ctx.IsAlive() or data.popover ~= "settings" then return end
+                local value = Model.TrimSingleLine(element.text)
+                local valid = OverlandMapRecords.ValidText(value)
+                invalidUnits[key] = not valid or nil
+                element:SetClass("invalid", not valid)
+                unitError:SetClass("collapsed", next(invalidUnits) == nil)
+                if valid then Kept(OverlandMapCommands.SetCustomTimeUnit({ [key] = value })) end
+            end,
+        }
+        unitInputs[key] = input
+        return input
+    end
+    local unitHint = Label({ "overlandMapHint", "sizeXs" }, T("set.timeUnit.hint"))
+    local customUnits = gui.Panel {
+        width = "100%", height = "auto", flow = "vertical",
+        Label({ "overlandMapFormLabel", "sizeXs" }, T("set.timeUnit.singular")), UnitInput("singular"),
+        Label({ "overlandMapFormLabel", "sizeXs" }, T("set.timeUnit.plural")), UnitInput("plural"), unitError,
+    }
 
     local editingTypeId = nil --- @type nil|string the one type whose editor is open (Q22)
     local typeRows = {} --- @type table<string, Panel>
@@ -462,7 +486,14 @@ local function BuildDirectorSettings(ctx)
     end)
 
     local function BindTypes()
-        unitSegments.data.select(OverlandMapPaths.TimeUnit())
+        local unit = OverlandMapPaths.TimeUnit()
+        unitSegments.data.select(unit)
+        customUnits:SetClass("collapsed", unit ~= "custom")
+        SetText(unitHint, T(unit == "custom" and "set.timeUnit.customHint" or "set.timeUnit.hint"))
+        local forms = OverlandMapPaths.CustomTimeUnit()
+        for key, input in pairs(unitInputs) do
+            if not invalidUnits[key] then SetInput(input, forms[key]) end
+        end
         local types = OverlandMapPaths.Types()
         local wanted, shape, children = {}, { tostring(editingTypeId) }, {} --- @type table<string, boolean>, string[], Panel[]
         local editing = nil --- @type nil|OverlandMapPathType
@@ -517,7 +548,8 @@ local function BuildDirectorSettings(ctx)
         playersLabels,
         Label({ "overlandMapFormLabel", "sizeXs" }, T("set.timeUnit")),
         unitSegments,
-        Label({ "overlandMapHint", "sizeXs" }, T("set.timeUnit.hint")),
+        unitHint,
+        customUnits,
         Label({ "overlandMapFormLabel", "sizeXs" }, T("set.pathTypes")),
         Label({ "overlandMapHint", "sizeXs" }, T("set.pathTypes.hint")),
         typesList,
@@ -582,8 +614,7 @@ local function BuildDirectorSettings(ctx)
                 SetInput(distance, OverlandMapCanvasTools.FormatNumber(scale.distance))
                 units.data.select(scale.unit)
             end
-            -- Pace is in the scale's unit, so it shows once a scale exists.
-            paceFields:SetClass("collapsed", scale == nil)
+            paceFields:SetClass("collapsed", scale == nil or Model.IsPointCrawl(map))
             local paceValue = Model.Field(map, "pace", nil)
             SetInput(pace, Model.IsFinite(paceValue) and OverlandMapCanvasTools.FormatNumber(paceValue) or "")
             local border = Model.Border(map)

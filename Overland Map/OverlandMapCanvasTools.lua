@@ -179,7 +179,7 @@ function OverlandMapCanvasTools.MeasureText(map, imageWidth, imageHeight, m)
     local distance = pixels / reference * scale.distance
     local args = { distance = FormatNumber(distance), unitShort = T("ruler.unitShort." .. scale.unit) }
     local pace = Model.Field(map, "pace", nil)
-    if not IsFinite(pace) or pace <= 0 then return T("ruler.distance", args), true end
+    if Model.IsPointCrawl(map) or not IsFinite(pace) or pace <= 0 then return T("ruler.distance", args), true end
     local days = distance / pace
     if days < 0.5 then
         args.time = T("ruler.time.under")

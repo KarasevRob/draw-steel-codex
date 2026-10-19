@@ -198,6 +198,53 @@ function checks.Run()
         pcall(f.Start, { f.Entry(1) })
         assert(not f.I.IsRunning(), "Import stayed locked")
     end)
+    Check("custom travel units preserve counts, choose word forms and restore built-in conversion", function(f)
+        local paths = f.env.OverlandMapPaths
+        assert(paths.ParseTime("2") == 12 and paths.FormatTime(8) == "1 day and 2 watches")
+        assert(paths.SetCustomTimeUnit({ singular = "  march  ", plural = "marches" }))
+        assert(paths.SetTimeUnit("custom"))
+        assert(paths.FormatTime(1) == "1 march" and paths.FormatTime(2) == "2 marches")
+        assert(paths.FormatTime(1.5) == "1.5 marches" and paths.FormatTime(0) == "no time")
+        assert(paths.ParseTime("2,3") == 2.3 and paths.TimeInputText(2.3) == "2.3")
+        assert(paths.ParseTime("-1") == nil and paths.ParseTime("6000") == nil)
+        local before = paths.TimeFormatKey()
+        assert(paths.SetCustomTimeUnit({ plural = "long marches" }))
+        assert(paths.TimeFormatKey() ~= before and paths.FormatTime(1) == "1 march")
+        assert(paths.FormatTime(12) == "12 long marches")
+        assert(paths.SetTimeUnit("days"))
+        assert(paths.FormatTime(12) == "2 days" and paths.TimeInputText(12) == "2")
+        assert(paths.SetTimeUnit("watches"))
+        assert(paths.FormatTime(12) == "12 watches")
+        assert(paths.SetTimeUnit("custom") and paths.FormatTime(12) == "12 long marches")
+    end)
+    Check("custom travel unit edits validate, respect permissions and support Undo", function(f)
+        local paths = f.env.OverlandMapPaths
+        local ok, _, entry = paths.SetCustomTimeUnit({ singular = "turn", plural = "turns" })
+        assert(ok and entry and f.R.StateData().customTimeUnit.singular == "turn")
+        assert(f.M.Revert(entry) and f.R.StateData().customTimeUnit == nil)
+        for _, changes in ipairs({ { singular = "" }, { plural = " \t" }, { singular = 1 },
+            { plural = string.rep("x", 257) }, { plural = "bad\0name" }, { unknown = "unit" } }) do
+            assert(not paths.SetCustomTimeUnit(changes))
+            assert(f.R.StateData().customTimeUnit == nil)
+        end
+        f.env.dmhub.isDM = false
+        assert(not paths.SetTimeUnit("custom") and not paths.SetCustomTimeUnit({ singular = "turn" }))
+        f.env.dmhub.isDM = true; f.M.SetViewAsPlayer(true)
+        assert(not paths.SetCustomTimeUnit({ plural = "turns" }))
+        f.M.SetViewAsPlayer(false)
+        f.R.StateData().customTimeUnit = { singular = "turn", plural = false }
+        assert(paths.CustomTimeUnit().singular == "turn" and paths.CustomTimeUnit().plural == "units")
+    end)
+    Check("custom travel names keep Unicode and escape markup once in displayed copy", function(f)
+        local paths, copy = f.env.OverlandMapPaths, f.env.OverlandMapCopy
+        local word = utf8.char(0x0445, 0x043E, 0x0434)
+        assert(paths.SetCustomTimeUnit({ singular = word, plural = "<b>turns</b>" }))
+        assert(paths.SetTimeUnit("custom"))
+        assert(paths.FormatTime(1) == "1 " .. word)
+        local raw = paths.FormatTime(2)
+        assert(raw == "2 <b>turns</b>")
+        assert(copy.T("dlg.stop.of", { time = raw }) == "of " .. copy.Literal(raw))
+    end)
     Check("Travel uses case-insensitive destination order and stable ties", function(f)
         local names = { a = "alpha", b = "Zulu", c = "ALPHA" }
         f.M.Party = function() return { mapId = f.map, locationId = "origin" } end

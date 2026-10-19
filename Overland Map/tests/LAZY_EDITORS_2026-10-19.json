@@ -1,0 +1,1628 @@
+{
+  "decision": {
+    "lazyEditors": "implemented; performance accepted by user for this phase on 2026-10-19",
+    "pathCombination": "rejected at primitive visual gate"
+  },
+  "validation": {
+    "offlineChecks": 212,
+    "offlineSuites": 10,
+    "liveLifecycleChecks": 8,
+    "asciiAndSyntaxFiles": 67,
+    "luaLSVersion": "3.19.2",
+    "luaLSDiagnostics": 9,
+    "luaLSDiagnosticsUnchanged": true,
+    "overlandDiagnostics": 0,
+    "deployedRuntimeFilesMatched": 49,
+    "logRuntimeReadPathsMatched": 49,
+    "exactLoadedSourceTextAccessible": false,
+    "postReloadAllModsLoaded": true,
+    "deployedHeavyFactoryCallsOnOpening": 0
+  },
+  "focus": {
+    "normalEngineInteractionCoverage": "complete",
+    "normalForeignWindowEvents": 0,
+    "ghostWindowsDuringStalls": true,
+    "firstForeignWindowUTC": "2026-10-18T23:33:09.3412357Z",
+    "dense": "incomplete and rejected; focus lost before cancellation"
+  },
+  "limitations": [
+    "Normal batches ran baseline then lazy; time-order effects are unresolved.",
+    "Several normal interaction and reopen p95 results exceed the 5% gate.",
+    "Dense comparison stopped when the user needed the computer; no accepted dense measurements.",
+    "Native appearance and physical keyboard/Tab routing require human verification.",
+    "Readiness interval includes fixture/module preparation; constructor timing is separate."
+  ],
+  "timings": {
+    "timing-baseline-normal": {
+      "variant": "baseline",
+      "dense": false,
+      "constructionMs": [
+        440,
+        335,
+        302,
+        314,
+        265
+      ],
+      "readyMs": [
+        9886,
+        9856,
+        10125,
+        10457,
+        10674
+      ],
+      "constructionMedianMs": 314,
+      "readyMedianMs": 10125,
+      "openingPanels": [
+        4779,
+        4779,
+        4779,
+        4779,
+        4779
+      ],
+      "openingPathPanels": [
+        2457,
+        2457,
+        2457,
+        2457,
+        2457
+      ],
+      "openingActivePathPanels": [
+        2453,
+        2453,
+        2453,
+        2453,
+        2453
+      ],
+      "peakPathPanels": [
+        4590,
+        4590,
+        4590,
+        4590,
+        4590
+      ],
+      "cleanupLive": [
+        6462,
+        6462,
+        6462,
+        6462,
+        6462
+      ],
+      "cleanupPanels": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "constructionFactoryCalls": [
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "PartyPanel": 1,
+          "Import": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "PartyPanel": 1,
+          "Import": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "PartyPanel": 1,
+          "Import": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "PartyPanel": 1,
+          "Import": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "PartyPanel": 1,
+          "Import": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        }
+      ],
+      "finalFactoryCalls": [
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        }
+      ],
+      "zeroWrites": true,
+      "phases": {
+        "longPan": {
+          "p95Ms": 43,
+          "perRunP95Ms": [
+            41,
+            40,
+            47,
+            42,
+            38
+          ],
+          "medianRunP95Ms": 41,
+          "medianRunP50Ms": 34,
+          "maxMs": 83,
+          "samples": 305,
+          "luaMedianMs": 0,
+          "focusCovered": true
+        },
+        "shortPan": {
+          "p95Ms": 44,
+          "perRunP95Ms": [
+            43,
+            43,
+            46,
+            47,
+            35
+          ],
+          "medianRunP95Ms": 43,
+          "medianRunP50Ms": 34,
+          "maxMs": 50,
+          "samples": 305,
+          "luaMedianMs": 0,
+          "focusCovered": true
+        },
+        "idle": {
+          "p95Ms": 42,
+          "perRunP95Ms": [
+            48,
+            42,
+            40,
+            40,
+            37
+          ],
+          "medianRunP95Ms": 40,
+          "medianRunP50Ms": 34,
+          "maxMs": 72,
+          "samples": 305,
+          "luaMedianMs": 0,
+          "focusCovered": true
+        },
+        "bend": {
+          "p95Ms": 64,
+          "perRunP95Ms": [
+            67,
+            50,
+            53,
+            81,
+            50
+          ],
+          "medianRunP95Ms": 53,
+          "medianRunP50Ms": 40,
+          "maxMs": 487,
+          "samples": 305,
+          "luaMedianMs": 0.0833333333333333,
+          "focusCovered": true
+        },
+        "zoom": {
+          "p95Ms": 152,
+          "perRunP95Ms": [
+            166,
+            134,
+            173,
+            168,
+            153
+          ],
+          "medianRunP95Ms": 166,
+          "medianRunP50Ms": 97,
+          "maxMs": 299,
+          "samples": 365,
+          "luaMedianMs": 4.98611111111111,
+          "focusCovered": true
+        },
+        "settledZoom": {
+          "p95Ms": 5818,
+          "perRunP95Ms": [
+            6293,
+            5045,
+            5814,
+            5509,
+            5818
+          ],
+          "medianRunP95Ms": 5814,
+          "medianRunP50Ms": 49,
+          "maxMs": 7117,
+          "samples": 125,
+          "luaMedianMs": 26.7916666666667,
+          "focusCovered": true
+        },
+        "refresh": {
+          "p95Ms": 43,
+          "perRunP95Ms": [
+            47,
+            42,
+            43,
+            38,
+            49
+          ],
+          "medianRunP95Ms": 43,
+          "medianRunP50Ms": 34,
+          "maxMs": 60,
+          "samples": 155,
+          "luaMedianMs": 1,
+          "focusCovered": true
+        }
+      },
+      "editors": {
+        "LogPanel": {
+          "first": {
+            "synchronousMedianMs": 10,
+            "readyMedianMs": 267,
+            "p95Ms": 83,
+            "perRunP95Ms": [
+              77,
+              92,
+              82,
+              83,
+              71
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 1,
+            "readyMedianMs": 283,
+            "p95Ms": 78,
+            "perRunP95Ms": [
+              73,
+              69,
+              78,
+              68,
+              84
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 3,
+          "factoryPanels": [
+            14,
+            14,
+            14,
+            14,
+            14
+          ]
+        },
+        "LabelPanel": {
+          "first": {
+            "synchronousMedianMs": 8,
+            "readyMedianMs": 401,
+            "p95Ms": 143,
+            "perRunP95Ms": [
+              139,
+              136,
+              152,
+              129,
+              135
+            ],
+            "panels": [
+              157,
+              157,
+              157,
+              157,
+              157
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 10,
+            "readyMedianMs": 349,
+            "p95Ms": 92,
+            "perRunP95Ms": [
+              91,
+              83,
+              91,
+              85,
+              100
+            ],
+            "panels": [
+              157,
+              157,
+              157,
+              157,
+              157
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 107,
+          "factoryPanels": [
+            157,
+            157,
+            157,
+            157,
+            157
+          ]
+        },
+        "Import": {
+          "first": {
+            "synchronousMedianMs": 2,
+            "readyMedianMs": 502,
+            "p95Ms": 137,
+            "perRunP95Ms": [
+              137,
+              129,
+              136,
+              135,
+              141
+            ],
+            "panels": [
+              87,
+              87,
+              87,
+              87,
+              87
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 1,
+            "readyMedianMs": 304,
+            "p95Ms": 95,
+            "perRunP95Ms": [
+              100,
+              78,
+              95,
+              77,
+              81
+            ],
+            "panels": [
+              87,
+              87,
+              87,
+              87,
+              87
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 27,
+          "factoryPanels": [
+            87,
+            87,
+            87,
+            87,
+            87
+          ]
+        },
+        "PartyPanel": {
+          "first": {
+            "synchronousMedianMs": 5,
+            "readyMedianMs": 269,
+            "p95Ms": 83,
+            "perRunP95Ms": [
+              77,
+              72,
+              75,
+              111,
+              74
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 4,
+            "readyMedianMs": 268,
+            "p95Ms": 84,
+            "perRunP95Ms": [
+              84,
+              80,
+              94,
+              83,
+              84
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 3,
+          "factoryPanels": [
+            14,
+            14,
+            14,
+            14,
+            14
+          ]
+        },
+        "SidePanel": {
+          "first": {
+            "synchronousMedianMs": 4,
+            "readyMedianMs": 294,
+            "p95Ms": 153,
+            "perRunP95Ms": [
+              153,
+              104,
+              107,
+              162,
+              110
+            ],
+            "panels": [
+              174,
+              174,
+              174,
+              174,
+              174
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 5,
+            "readyMedianMs": 314,
+            "p95Ms": 82,
+            "perRunP95Ms": [
+              82,
+              69,
+              77,
+              87,
+              81
+            ],
+            "panels": [
+              174,
+              174,
+              174,
+              174,
+              174
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 50,
+          "factoryPanels": [
+            174,
+            174,
+            174,
+            174,
+            174
+          ]
+        },
+        "PathPanel": {
+          "first": {
+            "synchronousMedianMs": 17,
+            "readyMedianMs": 465,
+            "p95Ms": 201,
+            "perRunP95Ms": [
+              201,
+              266,
+              186,
+              184,
+              184
+            ],
+            "panels": [
+              154,
+              154,
+              154,
+              154,
+              154
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 4,
+            "readyMedianMs": 321,
+            "p95Ms": 96,
+            "perRunP95Ms": [
+              93,
+              94,
+              96,
+              94,
+              104
+            ],
+            "panels": [
+              154,
+              154,
+              154,
+              154,
+              154
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 34,
+          "factoryPanels": [
+            107,
+            107,
+            107,
+            107,
+            107
+          ]
+        }
+      }
+    },
+    "timing-lazy-dense-incomplete": {
+      "rejected": "incomplete five-run batch"
+    },
+    "timing-lazy-normal": {
+      "variant": "lazy",
+      "dense": false,
+      "constructionMs": [
+        55,
+        53,
+        51,
+        52,
+        58
+      ],
+      "readyMs": [
+        10688,
+        11025,
+        11438,
+        11574,
+        12241
+      ],
+      "constructionMedianMs": 53,
+      "readyMedianMs": 11438,
+      "openingPanels": [
+        4232,
+        4232,
+        4232,
+        4232,
+        4232
+      ],
+      "openingPathPanels": [
+        2457,
+        2457,
+        2457,
+        2457,
+        2457
+      ],
+      "openingActivePathPanels": [
+        2453,
+        2453,
+        2453,
+        2453,
+        2453
+      ],
+      "peakPathPanels": [
+        4590,
+        4590,
+        4590,
+        4590,
+        4590
+      ],
+      "cleanupLive": [
+        6462,
+        6462,
+        6462,
+        6462,
+        6462
+      ],
+      "cleanupPanels": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "constructionFactoryCalls": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "finalFactoryCalls": [
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        },
+        {
+          "LogPanel": 1,
+          "LabelPanel": 1,
+          "Import": 1,
+          "PartyPanel": 1,
+          "SidePanel": 1,
+          "PathPanel": 1
+        }
+      ],
+      "zeroWrites": true,
+      "phases": {
+        "longPan": {
+          "p95Ms": 36,
+          "perRunP95Ms": [
+            36,
+            36,
+            38,
+            35,
+            35
+          ],
+          "medianRunP95Ms": 36,
+          "medianRunP50Ms": 33,
+          "maxMs": 49,
+          "samples": 305,
+          "luaMedianMs": 0,
+          "focusCovered": true
+        },
+        "shortPan": {
+          "p95Ms": 43,
+          "perRunP95Ms": [
+            44,
+            43,
+            38,
+            38,
+            35
+          ],
+          "medianRunP95Ms": 38,
+          "medianRunP50Ms": 34,
+          "maxMs": 50,
+          "samples": 305,
+          "luaMedianMs": 0,
+          "focusCovered": true
+        },
+        "idle": {
+          "p95Ms": 37,
+          "perRunP95Ms": [
+            38,
+            39,
+            36,
+            36,
+            36
+          ],
+          "medianRunP95Ms": 36,
+          "medianRunP50Ms": 33,
+          "maxMs": 50,
+          "samples": 305,
+          "luaMedianMs": 0,
+          "focusCovered": true
+        },
+        "bend": {
+          "p95Ms": 51,
+          "perRunP95Ms": [
+            51,
+            51,
+            66,
+            49,
+            50
+          ],
+          "medianRunP95Ms": 51,
+          "medianRunP50Ms": 40,
+          "maxMs": 110,
+          "samples": 305,
+          "luaMedianMs": 0.0666666666666667,
+          "focusCovered": true
+        },
+        "zoom": {
+          "p95Ms": 160,
+          "perRunP95Ms": [
+            149,
+            204,
+            151,
+            133,
+            189
+          ],
+          "medianRunP95Ms": 151,
+          "medianRunP50Ms": 111,
+          "maxMs": 273,
+          "samples": 365,
+          "luaMedianMs": 5.27777777777778,
+          "focusCovered": true
+        },
+        "settledZoom": {
+          "p95Ms": 7035,
+          "perRunP95Ms": [
+            6432,
+            6595,
+            6909,
+            7035,
+            7332
+          ],
+          "medianRunP95Ms": 6909,
+          "medianRunP50Ms": 50,
+          "maxMs": 9197,
+          "samples": 125,
+          "luaMedianMs": 26.1666666666667,
+          "focusCovered": true
+        },
+        "refresh": {
+          "p95Ms": 44,
+          "perRunP95Ms": [
+            38,
+            47,
+            47,
+            37,
+            35
+          ],
+          "medianRunP95Ms": 38,
+          "medianRunP50Ms": 33,
+          "maxMs": 50,
+          "samples": 155,
+          "luaMedianMs": 1,
+          "focusCovered": true
+        }
+      },
+      "editors": {
+        "LogPanel": {
+          "first": {
+            "synchronousMedianMs": 23,
+            "readyMedianMs": 332,
+            "p95Ms": 115,
+            "perRunP95Ms": [
+              105,
+              115,
+              106,
+              107,
+              126
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 1,
+            "readyMedianMs": 221,
+            "p95Ms": 69,
+            "perRunP95Ms": [
+              56,
+              84,
+              58,
+              67,
+              61
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 3,
+          "factoryPanels": [
+            14,
+            14,
+            14,
+            14,
+            14
+          ]
+        },
+        "LabelPanel": {
+          "first": {
+            "synchronousMedianMs": 135,
+            "readyMedianMs": 650,
+            "p95Ms": 472,
+            "perRunP95Ms": [
+              492,
+              445,
+              454,
+              472,
+              439
+            ],
+            "panels": [
+              157,
+              157,
+              157,
+              157,
+              157
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 6,
+            "readyMedianMs": 367,
+            "p95Ms": 101,
+            "perRunP95Ms": [
+              102,
+              101,
+              85,
+              100,
+              95
+            ],
+            "panels": [
+              157,
+              157,
+              157,
+              157,
+              157
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 104,
+          "factoryPanels": [
+            157,
+            157,
+            157,
+            157,
+            157
+          ]
+        },
+        "Import": {
+          "first": {
+            "synchronousMedianMs": 46,
+            "readyMedianMs": 513,
+            "p95Ms": 285,
+            "perRunP95Ms": [
+              271,
+              260,
+              268,
+              285,
+              320
+            ],
+            "panels": [
+              87,
+              87,
+              87,
+              87,
+              87
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 2,
+            "readyMedianMs": 318,
+            "p95Ms": 88,
+            "perRunP95Ms": [
+              88,
+              83,
+              86,
+              91,
+              86
+            ],
+            "panels": [
+              87,
+              87,
+              87,
+              87,
+              87
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 25,
+          "factoryPanels": [
+            87,
+            87,
+            87,
+            87,
+            87
+          ]
+        },
+        "PartyPanel": {
+          "first": {
+            "synchronousMedianMs": 15,
+            "readyMedianMs": 295,
+            "p95Ms": 112,
+            "perRunP95Ms": [
+              103,
+              94,
+              108,
+              112,
+              120
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 5,
+            "readyMedianMs": 238,
+            "p95Ms": 82,
+            "perRunP95Ms": [
+              82,
+              68,
+              70,
+              65,
+              84
+            ],
+            "panels": [
+              18,
+              18,
+              18,
+              18,
+              18
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 4,
+          "factoryPanels": [
+            14,
+            14,
+            14,
+            14,
+            14
+          ]
+        },
+        "SidePanel": {
+          "first": {
+            "synchronousMedianMs": 59,
+            "readyMedianMs": 558,
+            "p95Ms": 376,
+            "perRunP95Ms": [
+              348,
+              362,
+              364,
+              376,
+              378
+            ],
+            "panels": [
+              174,
+              174,
+              174,
+              174,
+              174
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 5,
+            "readyMedianMs": 283,
+            "p95Ms": 91,
+            "perRunP95Ms": [
+              75,
+              83,
+              83,
+              78,
+              94
+            ],
+            "panels": [
+              174,
+              174,
+              174,
+              174,
+              174
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 45,
+          "factoryPanels": [
+            174,
+            174,
+            174,
+            174,
+            174
+          ]
+        },
+        "PathPanel": {
+          "first": {
+            "synchronousMedianMs": 59,
+            "readyMedianMs": 663,
+            "p95Ms": 448,
+            "perRunP95Ms": [
+              436,
+              390,
+              448,
+              464,
+              448
+            ],
+            "panels": [
+              154,
+              154,
+              154,
+              154,
+              154
+            ],
+            "focusCovered": true
+          },
+          "repeat": {
+            "synchronousMedianMs": 4,
+            "readyMedianMs": 367,
+            "p95Ms": 124,
+            "perRunP95Ms": [
+              149,
+              124,
+              110,
+              108,
+              107
+            ],
+            "panels": [
+              154,
+              154,
+              154,
+              154,
+              154
+            ],
+            "focusCovered": true
+          },
+          "factoryMedianMs": 35,
+          "factoryPanels": [
+            107,
+            107,
+            107,
+            107,
+            107
+          ]
+        }
+      }
+    }
+  },
+  "candidateRuntimeManifest": {
+    "OverlandMap": {
+      "sha256": "3cdd9e51307803b93c8381807f41c9fc2a225116ec571f1bcb28f6cb0bacf357",
+      "length": 22517,
+      "checksum": 1803943794
+    },
+    "OverlandMapAidEditor": {
+      "sha256": "7ab55677d5429983165a6444618b8c9192df095208157366abe59e4549f51c44",
+      "length": 17631,
+      "checksum": 1131518885
+    },
+    "OverlandMapAidLayer": {
+      "sha256": "ffd62f3b7c83f61445acda6a9ba08a4c886d2b628af97ccd70d55e9b0c72607f",
+      "length": 23088,
+      "checksum": 3810356205
+    },
+    "OverlandMapAids": {
+      "sha256": "72775e3c3da35a421fec8143ec2f9641e441f6ad17b62662ac3d35f29c04f137",
+      "length": 3093,
+      "checksum": 3011358465
+    },
+    "OverlandMapArtwork": {
+      "sha256": "08952da857dfd82d8d20ac06ae2cbb576c696c1139e0269fb99bbb349a8692bd",
+      "length": 29277,
+      "checksum": 3891306636
+    },
+    "OverlandMapAtlas": {
+      "sha256": "8dad0228a88dfb625c1fce9d634013bc7e02afa84da57af64e642d3060094216",
+      "length": 15789,
+      "checksum": 611704438
+    },
+    "OverlandMapCamera": {
+      "sha256": "6b2856de94034493ccc673376e1d06a9499c9ed46eff8fe031f89b28c0d1a7c9",
+      "length": 5615,
+      "checksum": 679992244
+    },
+    "OverlandMapCanvas": {
+      "sha256": "ce01c5a6feb02e233cf15ece5c8cad7b8fb243f5bc2ba48bbf4d91fa081eba5b",
+      "length": 39943,
+      "checksum": 3353207835
+    },
+    "OverlandMapCanvasTools": {
+      "sha256": "7dba369b91f41f1296421cb904d4ed869ffa04edf0cddc7aa315f1dd8c523cf3",
+      "length": 11317,
+      "checksum": 553928685
+    },
+    "OverlandMapCommands": {
+      "sha256": "1233ead29809c6e7e959d8051933255dcaaae73facdfd9dd36aa5c7ed85d43c6",
+      "length": 10660,
+      "checksum": 522600252
+    },
+    "OverlandMapConstants": {
+      "sha256": "8c977c4a1071da04e5fc37a52c8cb95e008acff9aaea61cffebad0532ab8d61c",
+      "length": 18836,
+      "checksum": 168926206
+    },
+    "OverlandMapControls": {
+      "sha256": "f28bb9891f8bdf4300711ecd9ae80aae056a81997e94b5ced87381c327c026a9",
+      "length": 39063,
+      "checksum": 4202208403
+    },
+    "OverlandMapCopy": {
+      "sha256": "a04424e6de96fdaf088dfa6f27a0bbda242e0bbd9cf5014d8c7dac6de83350d3",
+      "length": 33076,
+      "checksum": 3696444923
+    },
+    "OverlandMapDrawing": {
+      "sha256": "25b29e9f50c4d06c0383c539054427f17500c32d74560c9e9a39c8717becd24e",
+      "length": 8432,
+      "checksum": 3281936222
+    },
+    "OverlandMapEditors": {
+      "sha256": "fbc8ad1e28b458f7029044e45f799da348f21ebb4cd3b031e0a3758a9b0baab7",
+      "length": 6523,
+      "checksum": 3269277844
+    },
+    "OverlandMapGeometry": {
+      "sha256": "802caa81b074d2abdf5e0751ace2b1661b73cf3ba7c6cf7229522c38a4e9eba8",
+      "length": 9826,
+      "checksum": 548056087
+    },
+    "OverlandMapGestures": {
+      "sha256": "fd62c3c83ec6ae70f7b5b3ef0b496c61360d805f8db81a409c1e137a764c72d9",
+      "length": 26098,
+      "checksum": 1704664597
+    },
+    "OverlandMapGuideLayer": {
+      "sha256": "b874070255107383c634b395a44270a0fa7162c3eee07d28785153b7ffec9289",
+      "length": 10017,
+      "checksum": 2548864658
+    },
+    "OverlandMapImages": {
+      "sha256": "fe3c2bf776bcfebd689c1edf4ed939e1ca9932bb1c9b684bb62bc83c457ddfb3",
+      "length": 3625,
+      "checksum": 1948544560
+    },
+    "OverlandMapImport": {
+      "sha256": "6aac559a6a27bc541fd5fe625953dd191e839c088f051dab1748f83918fe7c88",
+      "length": 45753,
+      "checksum": 1778848495
+    },
+    "OverlandMapJournal": {
+      "sha256": "1b9196ded36cf0b222db67468e6b695b877791936cb91694c75747b04856dda5",
+      "length": 3841,
+      "checksum": 3181709043
+    },
+    "OverlandMapLabelLayer": {
+      "sha256": "a59f66b60436e9ff7159f982891c596a4e069f1ae536cfc7a0ffbe4ea13bd99e",
+      "length": 17867,
+      "checksum": 3172945991
+    },
+    "OverlandMapLabelPanel": {
+      "sha256": "d1e6b55be436151bc002f49c47fa5d4ba9c51f2f828d8c9a5abf5ef6a470cd25",
+      "length": 13672,
+      "checksum": 2555977669
+    },
+    "OverlandMapLabels": {
+      "sha256": "51ac4df40761386ce9d680432d00cc15373443203b1c83d8e391d6142410ec87",
+      "length": 24677,
+      "checksum": 3055778976
+    },
+    "OverlandMapLifetime": {
+      "sha256": "bd3f80c01001699bca098a4bfe6b920897aad2a2ac23a28a342344a5667d0f4d",
+      "length": 2778,
+      "checksum": 2822337308
+    },
+    "OverlandMapLog": {
+      "sha256": "e253b67e118a677be816dcad2c4e5ae40e690fa3cd915e5e9e482e607b9cd332",
+      "length": 15777,
+      "checksum": 2185671814
+    },
+    "OverlandMapLogPanel": {
+      "sha256": "ba2779b49ebf16ce8eb4b0e058ac87781451029c13175dfe1562a168b7411a6c",
+      "length": 16682,
+      "checksum": 2060312148
+    },
+    "OverlandMapModel": {
+      "sha256": "3889cea1596d5c556b2f5d496f220764ea8dbf78c01bead2132fcf8f77a9d9b7",
+      "length": 80862,
+      "checksum": 198543589
+    },
+    "OverlandMapPanel": {
+      "sha256": "12e42ae5a9f5b9511c89596684c7d854cd17fa712e056e3ab55d2085ae5f5f40",
+      "length": 63461,
+      "checksum": 1600379639
+    },
+    "OverlandMapPartyLayer": {
+      "sha256": "af15d5f0a600ae57242c95ff900142b925d5c3ec1459dd76842b5e7a146575b9",
+      "length": 11605,
+      "checksum": 759931920
+    },
+    "OverlandMapPartyPanel": {
+      "sha256": "302bf98f85ac9e2ffd41cea1273d649a869642aea58cef808cfbdc9562eb9632",
+      "length": 16176,
+      "checksum": 1376517148
+    },
+    "OverlandMapPathLayer": {
+      "sha256": "42d5f83f18316ab4a99546ad528c9ef400150d4d710e8e390738de724d6b54d9",
+      "length": 39047,
+      "checksum": 3247305365
+    },
+    "OverlandMapPathPanel": {
+      "sha256": "e8aad994b7bfe99c081374b56aa9ad80ee483f34cfb5ad0cb341c8681afb0940",
+      "length": 31816,
+      "checksum": 3034725801
+    },
+    "OverlandMapPaths": {
+      "sha256": "be7fe40e40cc087c2f3b0c5a48fb34126df70ef838f1a7a77446f3a3cd916041",
+      "length": 29901,
+      "checksum": 3443773369
+    },
+    "OverlandMapPathTool": {
+      "sha256": "1fc91a745e939cef21900f7aa0958f7b63254125b973fdd40ab693048db5b694",
+      "length": 11304,
+      "checksum": 1365796863
+    },
+    "OverlandMapPinLayer": {
+      "sha256": "ce71a760e17b412203a5fed7033c46e50fb8cbde31094677f81d12e730ce4d0d",
+      "length": 12598,
+      "checksum": 1089330282
+    },
+    "OverlandMapPinText": {
+      "sha256": "d73601c3ccf12b139fe035a160fb3e0a8a38330f1bbfcd61c3257ebfbe9393c3",
+      "length": 24816,
+      "checksum": 3183602819
+    },
+    "OverlandMapPopovers": {
+      "sha256": "272330bfd350cbad60e000593d5edddf56c474bc0d020033e17563e4db4f10cd",
+      "length": 43549,
+      "checksum": 4251274868
+    },
+    "OverlandMapPreferences": {
+      "sha256": "29964dcc5a5695a5280648038fa31529cf89d3562fe498849e2333df88d71501",
+      "length": 9195,
+      "checksum": 3914035599
+    },
+    "OverlandMapPresent": {
+      "sha256": "d6690e2a5a8e4f1e4874a301442234eab9f073f1ef6d6b8d219f9d08d7ede691",
+      "length": 5306,
+      "checksum": 768377964
+    },
+    "OverlandMapReaders": {
+      "sha256": "577fda85245fe01e2cc667da6a2e286ab1fdace4a9c7c6e28fa40300c5e56f9b",
+      "length": 1546,
+      "checksum": 3385162942
+    },
+    "OverlandMapRecords": {
+      "sha256": "c7175df028d81af546e78f4340e373723087902567fad2a1c20f361b117649ef",
+      "length": 45845,
+      "checksum": 54108558
+    },
+    "OverlandMapSaveQueue": {
+      "sha256": "b981f10fe696941a382a07bd6d574133ce938666a1103a37714a9ae8febd5a21",
+      "length": 13088,
+      "checksum": 4090725532
+    },
+    "OverlandMapSession": {
+      "sha256": "32185c34db9c09f41df22ee7090b47e01c6e8c9d8ec433dc2df2e676b2cc7447",
+      "length": 10887,
+      "checksum": 3639568470
+    },
+    "OverlandMapSidePanel": {
+      "sha256": "15f70c0880e31abbf9a6322a002867be961a6eb2d14475d469fb054b4a0c0b60",
+      "length": 41411,
+      "checksum": 3546414131
+    },
+    "OverlandMapStyles": {
+      "sha256": "676dd9804ad63bbd98d4684259736654dcb1ebddb639a9ef0a49bd6aa67364f7",
+      "length": 16088,
+      "checksum": 2417891541
+    },
+    "OverlandMapTextAppearance": {
+      "sha256": "243d83f8195aa39b5832b915346dbd6a48f4e6eb0852ae365bb0ddde706848d4",
+      "length": 17551,
+      "checksum": 1127654575
+    },
+    "OverlandMapTravel": {
+      "sha256": "bfaa9a387a97b5ff27e389a8fa4573b62857cc52f1d7886bcb3e037a136843c3",
+      "length": 14162,
+      "checksum": 2040282507
+    },
+    "OverlandMapUndo": {
+      "sha256": "cb688dd3088d0d1a7c574917fcc8a6132b3cc7656cab03d21012e16cb2bfcfcd",
+      "length": 10691,
+      "checksum": 2405362981
+    }
+  },
+  "baselineManifest": {
+    "head": "06b3888f06c339b227218e84b71b863cb14b14e3",
+    "files": {
+      "OverlandMap": {
+        "sha256": "3cdd9e51307803b93c8381807f41c9fc2a225116ec571f1bcb28f6cb0bacf357",
+        "length": 22517,
+        "checksum": 1803943794
+      },
+      "OverlandMapAidEditor": {
+        "sha256": "7ab55677d5429983165a6444618b8c9192df095208157366abe59e4549f51c44",
+        "length": 17631,
+        "checksum": 1131518885
+      },
+      "OverlandMapAidLayer": {
+        "sha256": "ffd62f3b7c83f61445acda6a9ba08a4c886d2b628af97ccd70d55e9b0c72607f",
+        "length": 23088,
+        "checksum": 3810356205
+      },
+      "OverlandMapAids": {
+        "sha256": "72775e3c3da35a421fec8143ec2f9641e441f6ad17b62662ac3d35f29c04f137",
+        "length": 3093,
+        "checksum": 3011358465
+      },
+      "OverlandMapArtwork": {
+        "sha256": "08952da857dfd82d8d20ac06ae2cbb576c696c1139e0269fb99bbb349a8692bd",
+        "length": 29277,
+        "checksum": 3891306636
+      },
+      "OverlandMapAtlas": {
+        "sha256": "8dad0228a88dfb625c1fce9d634013bc7e02afa84da57af64e642d3060094216",
+        "length": 15789,
+        "checksum": 611704438
+      },
+      "OverlandMapCamera": {
+        "sha256": "6b2856de94034493ccc673376e1d06a9499c9ed46eff8fe031f89b28c0d1a7c9",
+        "length": 5615,
+        "checksum": 679992244
+      },
+      "OverlandMapCanvas": {
+        "sha256": "ce01c5a6feb02e233cf15ece5c8cad7b8fb243f5bc2ba48bbf4d91fa081eba5b",
+        "length": 39943,
+        "checksum": 3353207835
+      },
+      "OverlandMapCanvasTools": {
+        "sha256": "7dba369b91f41f1296421cb904d4ed869ffa04edf0cddc7aa315f1dd8c523cf3",
+        "length": 11317,
+        "checksum": 553928685
+      },
+      "OverlandMapCommands": {
+        "sha256": "1233ead29809c6e7e959d8051933255dcaaae73facdfd9dd36aa5c7ed85d43c6",
+        "length": 10660,
+        "checksum": 522600252
+      },
+      "OverlandMapConstants": {
+        "sha256": "8c977c4a1071da04e5fc37a52c8cb95e008acff9aaea61cffebad0532ab8d61c",
+        "length": 18836,
+        "checksum": 168926206
+      },
+      "OverlandMapControls": {
+        "sha256": "f28bb9891f8bdf4300711ecd9ae80aae056a81997e94b5ced87381c327c026a9",
+        "length": 39063,
+        "checksum": 4202208403
+      },
+      "OverlandMapCopy": {
+        "sha256": "a04424e6de96fdaf088dfa6f27a0bbda242e0bbd9cf5014d8c7dac6de83350d3",
+        "length": 33076,
+        "checksum": 3696444923
+      },
+      "OverlandMapDrawing": {
+        "sha256": "25b29e9f50c4d06c0383c539054427f17500c32d74560c9e9a39c8717becd24e",
+        "length": 8432,
+        "checksum": 3281936222
+      },
+      "OverlandMapEditors": {
+        "sha256": "fbc8ad1e28b458f7029044e45f799da348f21ebb4cd3b031e0a3758a9b0baab7",
+        "length": 6523,
+        "checksum": 3269277844
+      },
+      "OverlandMapGeometry": {
+        "sha256": "802caa81b074d2abdf5e0751ace2b1661b73cf3ba7c6cf7229522c38a4e9eba8",
+        "length": 9826,
+        "checksum": 548056087
+      },
+      "OverlandMapGestures": {
+        "sha256": "fd62c3c83ec6ae70f7b5b3ef0b496c61360d805f8db81a409c1e137a764c72d9",
+        "length": 26098,
+        "checksum": 1704664597
+      },
+      "OverlandMapGuideLayer": {
+        "sha256": "b874070255107383c634b395a44270a0fa7162c3eee07d28785153b7ffec9289",
+        "length": 10017,
+        "checksum": 2548864658
+      },
+      "OverlandMapImages": {
+        "sha256": "fe3c2bf776bcfebd689c1edf4ed939e1ca9932bb1c9b684bb62bc83c457ddfb3",
+        "length": 3625,
+        "checksum": 1948544560
+      },
+      "OverlandMapImport": {
+        "sha256": "6aac559a6a27bc541fd5fe625953dd191e839c088f051dab1748f83918fe7c88",
+        "length": 45753,
+        "checksum": 1778848495
+      },
+      "OverlandMapJournal": {
+        "sha256": "1b9196ded36cf0b222db67468e6b695b877791936cb91694c75747b04856dda5",
+        "length": 3841,
+        "checksum": 3181709043
+      },
+      "OverlandMapLabelLayer": {
+        "sha256": "a59f66b60436e9ff7159f982891c596a4e069f1ae536cfc7a0ffbe4ea13bd99e",
+        "length": 17867,
+        "checksum": 3172945991
+      },
+      "OverlandMapLabelPanel": {
+        "sha256": "c66b691b987d9c7f277810ed55688b0e517980690708dbe1f0ce06a23ba6f1aa",
+        "length": 13744,
+        "checksum": 1044512727
+      },
+      "OverlandMapLabels": {
+        "sha256": "51ac4df40761386ce9d680432d00cc15373443203b1c83d8e391d6142410ec87",
+        "length": 24677,
+        "checksum": 3055778976
+      },
+      "OverlandMapLifetime": {
+        "sha256": "bd3f80c01001699bca098a4bfe6b920897aad2a2ac23a28a342344a5667d0f4d",
+        "length": 2778,
+        "checksum": 2822337308
+      },
+      "OverlandMapLog": {
+        "sha256": "e253b67e118a677be816dcad2c4e5ae40e690fa3cd915e5e9e482e607b9cd332",
+        "length": 15777,
+        "checksum": 2185671814
+      },
+      "OverlandMapLogPanel": {
+        "sha256": "ba2779b49ebf16ce8eb4b0e058ac87781451029c13175dfe1562a168b7411a6c",
+        "length": 16682,
+        "checksum": 2060312148
+      },
+      "OverlandMapModel": {
+        "sha256": "3889cea1596d5c556b2f5d496f220764ea8dbf78c01bead2132fcf8f77a9d9b7",
+        "length": 80862,
+        "checksum": 198543589
+      },
+      "OverlandMapPanel": {
+        "sha256": "d292453eb87d546d20ca2bb09503198635e20b96366300d455ed025755a829c8",
+        "length": 60640,
+        "checksum": 1380003486
+      },
+      "OverlandMapPartyLayer": {
+        "sha256": "af15d5f0a600ae57242c95ff900142b925d5c3ec1459dd76842b5e7a146575b9",
+        "length": 11605,
+        "checksum": 759931920
+      },
+      "OverlandMapPartyPanel": {
+        "sha256": "302bf98f85ac9e2ffd41cea1273d649a869642aea58cef808cfbdc9562eb9632",
+        "length": 16176,
+        "checksum": 1376517148
+      },
+      "OverlandMapPathLayer": {
+        "sha256": "42d5f83f18316ab4a99546ad528c9ef400150d4d710e8e390738de724d6b54d9",
+        "length": 39047,
+        "checksum": 3247305365
+      },
+      "OverlandMapPathPanel": {
+        "sha256": "e8aad994b7bfe99c081374b56aa9ad80ee483f34cfb5ad0cb341c8681afb0940",
+        "length": 31816,
+        "checksum": 3034725801
+      },
+      "OverlandMapPaths": {
+        "sha256": "be7fe40e40cc087c2f3b0c5a48fb34126df70ef838f1a7a77446f3a3cd916041",
+        "length": 29901,
+        "checksum": 3443773369
+      },
+      "OverlandMapPathTool": {
+        "sha256": "1fc91a745e939cef21900f7aa0958f7b63254125b973fdd40ab693048db5b694",
+        "length": 11304,
+        "checksum": 1365796863
+      },
+      "OverlandMapPinLayer": {
+        "sha256": "ce71a760e17b412203a5fed7033c46e50fb8cbde31094677f81d12e730ce4d0d",
+        "length": 12598,
+        "checksum": 1089330282
+      },
+      "OverlandMapPinText": {
+        "sha256": "d73601c3ccf12b139fe035a160fb3e0a8a38330f1bbfcd61c3257ebfbe9393c3",
+        "length": 24816,
+        "checksum": 3183602819
+      },
+      "OverlandMapPopovers": {
+        "sha256": "272330bfd350cbad60e000593d5edddf56c474bc0d020033e17563e4db4f10cd",
+        "length": 43549,
+        "checksum": 4251274868
+      },
+      "OverlandMapPreferences": {
+        "sha256": "29964dcc5a5695a5280648038fa31529cf89d3562fe498849e2333df88d71501",
+        "length": 9195,
+        "checksum": 3914035599
+      },
+      "OverlandMapPresent": {
+        "sha256": "d6690e2a5a8e4f1e4874a301442234eab9f073f1ef6d6b8d219f9d08d7ede691",
+        "length": 5306,
+        "checksum": 768377964
+      },
+      "OverlandMapReaders": {
+        "sha256": "577fda85245fe01e2cc667da6a2e286ab1fdace4a9c7c6e28fa40300c5e56f9b",
+        "length": 1546,
+        "checksum": 3385162942
+      },
+      "OverlandMapRecords": {
+        "sha256": "c7175df028d81af546e78f4340e373723087902567fad2a1c20f361b117649ef",
+        "length": 45845,
+        "checksum": 54108558
+      },
+      "OverlandMapSaveQueue": {
+        "sha256": "b981f10fe696941a382a07bd6d574133ce938666a1103a37714a9ae8febd5a21",
+        "length": 13088,
+        "checksum": 4090725532
+      },
+      "OverlandMapSession": {
+        "sha256": "32185c34db9c09f41df22ee7090b47e01c6e8c9d8ec433dc2df2e676b2cc7447",
+        "length": 10887,
+        "checksum": 3639568470
+      },
+      "OverlandMapSidePanel": {
+        "sha256": "15f70c0880e31abbf9a6322a002867be961a6eb2d14475d469fb054b4a0c0b60",
+        "length": 41411,
+        "checksum": 3546414131
+      },
+      "OverlandMapStyles": {
+        "sha256": "676dd9804ad63bbd98d4684259736654dcb1ebddb639a9ef0a49bd6aa67364f7",
+        "length": 16088,
+        "checksum": 2417891541
+      },
+      "OverlandMapTextAppearance": {
+        "sha256": "243d83f8195aa39b5832b915346dbd6a48f4e6eb0852ae365bb0ddde706848d4",
+        "length": 17551,
+        "checksum": 1127654575
+      },
+      "OverlandMapTravel": {
+        "sha256": "bfaa9a387a97b5ff27e389a8fa4573b62857cc52f1d7886bcb3e037a136843c3",
+        "length": 14162,
+        "checksum": 2040282507
+      },
+      "OverlandMapUndo": {
+        "sha256": "cb688dd3088d0d1a7c574917fcc8a6132b3cc7656cab03d21012e16cb2bfcfcd",
+        "length": 10691,
+        "checksum": 2405362981
+      }
+    }
+  }
+}
