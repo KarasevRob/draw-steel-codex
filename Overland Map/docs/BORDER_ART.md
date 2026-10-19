@@ -1,7 +1,8 @@
 # Overland Map - Border art format (V2.1, K3)
 
 Soft fade needs no art. The other two looks, **Torn edge** and **Frame**, use art the user
-supplies. Their Settings tiles are disabled; rendering is not implemented yet.
+supplies. They were removed from Settings on 2026-10-19 (TODO in `OverlandMapConstants.lua`);
+rendering is not implemented yet.
 Supplying the artwork IDs alone will not finish these borders. Items marked *check*
 need live verification when implementation resumes.
 

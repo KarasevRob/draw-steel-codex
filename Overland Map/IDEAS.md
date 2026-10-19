@@ -15,7 +15,7 @@ below remain outside this rewrite.
 
 | ID | Idea | Remaining scope |
 |---|---|---|
-| 10 | Torn edge and Frame borders | None and Soft fade exist. The remaining borders need the user's [art](docs/BORDER_ART.md), rendering, and fit/camera integration. |
+| 10 | Torn edge and Frame borders | None and Soft fade exist. Torn edge and Frame were removed from Settings (2026-10-19); restoring them needs the user's [art](docs/BORDER_ART.md), rendering, and fit/camera integration. |
 | 13 | Further path editing | Bend editing and Redraw line already exist. Clarify whether the requested addition is changing endpoint pins while preserving the path's details, or improving the existing reshaping controls. |
 | 14 | Curved paths | Smooth routes that follow the artwork. Sampling, hit tests, labels, travel and historical routes must agree. [Current research](docs/CURVED_PATHS_RESEARCH.md) includes a live native-path probe and its limitations. |
 | 21 | Player edit settings per map | Group player edit permissions in one settings section and configure them separately for each map. |

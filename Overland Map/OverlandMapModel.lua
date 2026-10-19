@@ -900,26 +900,26 @@ end
 
 --- How a map's image edge draws (K1). Maps from before borders have none.
 --- @param location OverlandMapLocationRecord
---- @return "none"|"fade"|"torn"|"frame"
+--- @return "none"|"fade"
 function OverlandMapModel.Border(location)
     local border = Field(location, "border", nil)
-    if R.borders[border] then return border --[[@as "none"|"fade"|"torn"|"frame"]] end
+    if R.borders[border] then return border --[[@as "none"|"fade"]] end
     return "none"
 end
 
 --- Game-wide: the border the Director picked last, which new maps start with (K5, K8).
---- @return "none"|"fade"|"torn"|"frame"
+--- @return "none"|"fade"
 function OverlandMapModel.LastBorder()
     local data = StateData()
     local border = data and data.lastBorder
-    if R.borders[border] then return border --[[@as "none"|"fade"|"torn"|"frame"]] end
-    return C.defaultBorder --[[@as "none"|"fade"|"torn"|"frame"]]
+    if R.borders[border] then return border --[[@as "none"|"fade"]] end
+    return C.defaultBorder --[[@as "none"|"fade"]]
 end
 
 --- Set a map's border and remember it for the next new map. The returned undo
 --- entry covers the border only; the remembered pick just seeds new maps.
 --- @param id string
---- @param border "none"|"fade"|"torn"|"frame"
+--- @param border "none"|"fade"
 --- @return boolean ok
 --- @return nil|OverlandMapWriteReason reason
 --- @return nil|OverlandMapUndoEntry undo
