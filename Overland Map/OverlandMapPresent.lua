@@ -118,6 +118,7 @@ function OverlandMapPresent.Create(ctx)
             local ttl = math.min(Model.IsFinite(args.ttl) and args.ttl or 0, C.presentTtl)
             lastNonce = args.nonce
             if args.nonce ~= ignoreNonce and ageOk and Model.IsFinite(age) and age >= 0 and age < ttl then
+                if ctx.PreparePresentation ~= nil then ctx.PreparePresentation() end
                 waiting = { nonce = args.nonce, id = args.overlandMapLocationId, expiresAt = dmhub.Time() + ttl - age }
             end
         end

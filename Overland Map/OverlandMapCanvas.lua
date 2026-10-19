@@ -116,7 +116,7 @@ local ImageToPanel = OverlandMapGeometry.ImageToPanel
 --- @field imageSizeH nil|number
 --- @field layerX number the pin layer's offset from pinRef (the pan since then)
 --- @field layerY number
---- @field border "none"|"fade"|"torn"|"frame" the open map's border
+--- @field border "none"|"fade" the open map's border
 --- @field fadeShown nil|boolean whether the Soft fade was last shown (nil forces an update)
 --- @field hoverPathId nil|string the path under the pointer, which shows its label (F3)
 --- @field hoverX nil|number the pointer position the hover was last worked out for
@@ -650,6 +650,7 @@ function OverlandMapCanvas.Create(ctx)
             StartAnimation(target, nil)
         end,
         relayout = function() Layout() end,
+        settleNavigation = function() camera.Stop() end,
         cancelGesture = function()
             local drag = gestures.current
             gestures.Cancel()

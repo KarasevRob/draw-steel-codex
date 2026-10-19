@@ -163,6 +163,11 @@ end)
 --- @field CurrentMap fun(): nil|OverlandMapLocationRecord
 --- @field OpenMap fun(id: string, how: nil|"down"|"up"|"jump"|"fit"|"restore")
 --- @field GoAtlas fun()
+--- @field TabletopAvailable fun(drag?: boolean): boolean
+--- @field OpenOnTabletop fun(id: string, atPointer?: boolean)
+--- @field AtlasDragging fun(card: Panel, id: string)
+--- @field CancelAtlasDrag fun(): boolean
+--- @field PreparePresentation nil|fun()
 --- @field GoUp fun()
 --- @field Select fun(id: nil|string, mode: nil|string)
 --- @field SelectPath fun(id: nil|string, mode: nil|"path"|"pathEdit") show a path in the path panel; nil closes it

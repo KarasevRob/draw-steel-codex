@@ -132,7 +132,7 @@ The approved map-aids and personal hover-control wording is recorded in
 | panel.map.off | Not shared - click to share this map | Map icon tooltip |
 | panel.map.on | Map shared - click to stop sharing | Map icon tooltip |
 | panel.desc.empty | No description yet. | Director only; players see nothing |
-| panel.journal | Read in journal | Link |
+| panel.journal | Open in journal | Link |
 | panel.author | Added by {player} | Player-made locations only (R11) |
 | panel.partyHere | {party} is here | |
 | panel.moveParty | Move Party here | Button |
@@ -166,7 +166,7 @@ The approved map-aids and personal hover-control wording is recorded in
 Players see Move, Move to map..., and Delete on their own locations only.
 
 Top-level maps use the same complete menu in the Atlas and the Location side panel
-(2026-10-14). It also reuses Open map, Edit, Import locations, Read in journal (when
+(2026-10-14). It also reuses Open map, Edit, Import locations, Open in journal (when
 available) and Show this map to players. Import, Settings and Show to players open the
 selected card's map first. Related entries are separated; Delete is last. Add location,
 Path tool, Ruler and View as player stay in the map toolbar, outside the Atlas menu.

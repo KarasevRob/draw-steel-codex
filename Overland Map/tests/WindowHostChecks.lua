@@ -16,29 +16,39 @@ local function Near(actual, expected)
     assert(math.abs(actual - expected) < 0.00001, string.format("expected %s, got %s", expected, actual))
 end
 
-local function Fixture()
+local function Fixture(options)
+    options = options or {}
     --- @type table<string, any>
     local f = { settings = { hideactionbar = false }, keys = {}, scale = 1, rail = true, builds = 0, raises = 0 }
     local env = setmetatable({}, { __index = _G }) --[[@as table<string, any>]]
     env._G = env
     local mod = { unloaded = false, images = {}, enterGameHandlers = {}, unloadHandlers = {} }
     f.mod = mod
+    f.scheduled, f.events, f.maps = {}, {}, {}
+    if options.preferences then f.settings["overlandmap:preferences"] = Copy(options.preferences) end
     env.print = function() end
     env.RegisterGameType = function() return {} end
     env.DeepCopy = Copy
     env.dmhub = {
         GetModLoading = function() return mod end,
+        gameid = "fixture-game",
+        Schedule = function(_, callback) f.scheduled[#f.scheduled + 1] = callback end,
         GetSettingValue = function(key) return f.settings[key] end,
+        GetTable = function() return f.maps end,
         SetSettingValue = function(key, value) f.settings[key] = Copy(value) end,
         KeyPressed = function(key) return f.keys[key] == true end,
         -- Each call is a second later, so every think also runs the idle-rate refit.
         Time = function() f.clock = (f.clock or 0) + 1; return f.clock end,
         cursorIds = {}, screenDimensionsBelowTitlebar = { x = 1600, y = 1000 },
+        screenDimensions = { x = 1600, y = 1030 }, mouseScreenPosition = { x = 1200, y = 700 },
     }
     env.RailModeActive = function() return f.rail end
     env.OverlandMapModel = {
         Clamp = function(value, lo, hi) return math.max(lo, math.min(hi, value)) end,
         IsFinite = function(value) return type(value) == "number" and value == value and math.abs(value) < math.huge end,
+        GetLocation = function(id) return f.maps[id] end,
+        CanOpenMap = function(map) return map ~= nil and map.permitted ~= false end,
+        DisplayName = function(map) return map.name end,
     }
     local methods = {}
     local function IsEnabled(panel)
@@ -70,7 +80,15 @@ local function Fixture()
         local parent = self.parent
         while parent do parent:FireEvent(name, ...); parent = parent.parent end
     end
-    function methods:ScheduleEvent() end
+    function methods:ScheduleEvent(event, _, ...)
+        local args = table.pack(...)
+        f.events[#f.events + 1] = function() if self.valid then self:FireEvent(event, table.unpack(args, 1, args.n)) end end
+    end
+    function methods:MakeNonInteractiveRecursive()
+        self.interactable = false
+        for _, child in ipairs(self.children) do child:MakeNonInteractiveRecursive() end
+    end
+    function methods:PulseClass() end
     function methods:GetMouseButton(button) return f.keys[button] == true end
     function methods:transferDragTo(target) f.dragTarget = target end
     function methods:IsDescendantOf(other)
@@ -113,6 +131,13 @@ local function Fixture()
         end
         if key == "renderedWidth" then return panel.selfStyle.width or panel.width or 0 end
         if key == "renderedHeight" then return panel.selfStyle.height or panel.height or 0 end
+        if key == "positionInScreenSpace" then
+            local w, h = panel.renderedWidth, panel.renderedHeight
+            if panel.parent == nil then return { x = w / 2, y = h / 2 } end
+            local p = panel.parent
+            return { x = p.positionInScreenSpace.x - p.renderedWidth / 2 + panel.x + w / 2,
+                y = p.positionInScreenSpace.y + p.renderedHeight / 2 - panel.y - h / 2 }
+        end
     end }
     local function Panel(args)
         local p = setmetatable({ valid = true, selfStyle = {}, data = args.data or {}, classSet = {},
@@ -149,7 +174,8 @@ local function Fixture()
         GetPresentDialogDocRaw = function() end,
         RegisterPresentableDialog = function(args) f.presentation = args end,
     }
-    env.ThemeEngine = { MergeStyles = function(value) return value end }
+    env.ThemeEngine = { MergeStyles = function(value) return value end, GetStyles = function() return {} end }
+    env.EscapePriority = { DMHUB_POPUP = 100 }
     env.OverlandMapStyles = { Build = function() return {} end, Subscribe = function() end, Unsubscribe = function() end }
     env.DockablePanel = {
         Register = function(args) f.registration = args end,
@@ -187,10 +213,40 @@ local function Fixture()
             end,
             overlandMapHostMode = function(panel, mode) panel.data.mode = mode end,
             overlandMapHostActive = function(panel, active) panel.data.active = active end,
+            overlandMapNavigate = function(panel, id, automatic, accepted)
+                if not env.OverlandMapModel.CanOpenMap(f.maps[id]) then return end
+                if not automatic then options.userAction() end
+                panel.data.mapId = id
+                options.selectionChanged(id)
+                env.OverlandMapPreferences.SaveLastMap(id)
+                if accepted then accepted() end
+            end,
+            overlandMapSuspend = function() f.suspends = (f.suspends or 0) + 1 end,
+            overlandMapHostVisibility = function(panel, visible) panel.data.visible = visible end,
         }
     end }
-    Load("OverlandMap")
+    if options.setup then options.setup(f, env) end
+    Load("OverlandMapHost"); Load("OverlandMapTabletop"); Load("OverlandMap")
     f.env = env
+    function f.Tick()
+        local pending = f.scheduled
+        f.scheduled = {}
+        for _, callback in ipairs(pending) do callback() end
+    end
+    function f.Events()
+        local pending = f.events
+        f.events = {}
+        for _, callback in ipairs(pending) do callback() end
+    end
+    function f.ReloadHost()
+        mod.unloaded = true
+        for _, callback in ipairs(mod.unloadHandlers) do callback() end
+        mod = { unloaded = false, images = {}, enterGameHandlers = {}, unloadHandlers = {} }
+        f.mod = mod
+        Load("OverlandMapLifetime"); Load("OverlandMapControls")
+        f.S = env.OverlandMapControls
+        Load("OverlandMapHost"); Load("OverlandMapTabletop"); Load("OverlandMap")
+    end
     function f.Open() f.registration.launch(); return f.layer:Get("overland-map-fullscreen") end
     function f.Window()
         local h = f.Open()
@@ -450,6 +506,8 @@ local cases = {
         assert(not h.valid and not f.settings.hideactionbar)
     end },
 }
+
+checks.Fixture = Fixture
 
 function checks.Run()
     local failed = 0

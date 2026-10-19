@@ -142,7 +142,7 @@ function OverlandMapLogPanel.Create(ctx)
             end,
             create = function(element)
                 OverlandMapLifetime.Schedule(C.afterLayoutDelay, function()
-                    if mod.unloaded or not element.valid then return end
+                    if mod.unloaded or not Session.CanFocus(element) then return end
                     gui.SetFocus(element)
                     -- The caret goes after the existing note, so typing adds to it.
                     local text = element.text or ""

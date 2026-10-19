@@ -1,508 +1,80 @@
 local mod = dmhub.GetModLoading()
 
--- Overland Map bootstrap: registers the panel and the
--- presentable dialog, and hosts the map fullscreen, in-app or in a native popout. Overland Map
--- is an opt-in CodeMod; it depends only on public DMHub UI and game services.
+-- Overland Map bootstrap: registers the panel and the presentable dialog, and keeps the
+-- map's window in step with the game. The in-app window is OverlandMapHost; anything that
+-- needs the shared Tabletop goes through OverlandMapTabletop. Overland Map is an opt-in
+-- CodeMod; it depends only on public DMHub UI and game services.
 local C = OverlandMapConstants
-
--- In-app host -------------------------------------------------------------------------
--- One content tree changes size in place, so switching view keeps drafts and selection.
-local Session = OverlandMapControls
-local T = OverlandMapCopy.T
+local Hosts = OverlandMapHost
+local Adapter = OverlandMapTabletop
 local POPOUT_KEY = string.lower(C.panelName)
-local inAppHost = nil --- @type OverlandMapWindowHost|nil
-local actionBarRestore = nil --- @type boolean|nil
+-- The game the window state belongs to; entering another game starts over.
+local currentGameId = dmhub.gameid
 
-local function HideActionBar()
-    if actionBarRestore ~= nil then return end
-    actionBarRestore = dmhub.GetSettingValue("hideactionbar") == true
-    dmhub.SetSettingValue("hideactionbar", true)
-end
-
-local function RestoreActionBar()
-    if actionBarRestore == nil then return end
-    dmhub.SetSettingValue("hideactionbar", actionBarRestore)
-    actionBarRestore = nil
-end
-
-local function RailMode()
-    return RailModeActive()
-end
-
---- The in-app map window. It is also its panel's data, so the content and the checks
---- read the same fields. The host talks to the content only through events (see
---- OverlandMapHostOptions in OverlandMapPanel.lua): overlandMapHostMode, overlandMapHostActive and requestClose.
---- @class OverlandMapWindowHost
---- @field panel Panel
---- @field frame Panel
---- @field zoom Panel
---- @field content Panel
---- @field title Panel
---- @field border Panel
---- @field grip Panel
---- @field resizer Panel
---- @field resizeOptions table
---- @field resizeWidth number
---- @field resizeHeight number
---- @field requestedMode "fullscreen"|"window" the viewer's choice
---- @field mode nil|"fullscreen"|"window" what shows: window falls back to fullscreen when there is no room
---- @field scale number
---- @field area nil|table the documents layer's usable rectangle (WorkArea)
---- @field geometry nil|OverlandMapWindowGeometry
---- @field hovered boolean
---- @field pressed boolean
---- @field dragging boolean
---- @field titleDrag nil|{x: number, y: number, pointerX: number, pointerY: number}
---- @field pointer nil|{x: number, y: number} the last pointer position read inside the layer
---- @field openFocus nil|Panel
---- @field active nil|boolean last value sent with overlandMapHostActive
---- @field nextFit number time of the next idle refit check
-local Host = {}
-Host.__index = Host
-
---- @return boolean
-function Host:Valid()
-    return self.panel ~= nil and self.panel.valid
-end
-
---- Current placement in unscaled UI units (what the viewer's preferences store).
---- @return OverlandMapWindowGeometry
-function Host:CurrentGeometry()
-    local scale, panel = self.scale, self.panel
-    return { x = panel.x / scale, y = panel.y / scale,
-        width = panel.selfStyle.width / scale, height = panel.selfStyle.height / scale }
-end
-
-function Host:SavePlacement()
-    if self.mode ~= "window" then return end
-    self.geometry = self:CurrentGeometry()
-    OverlandMapPreferences.SaveWindowGeometry(self.geometry)
-end
-
--- Host coordinates use the documents layer; its content and title share one UI scale.
---- @return nil|table
-function Host:WorkArea()
-    local layer = self.panel.parent
-    if layer == nil then return nil end
-    local width, height = layer.renderedWidth, layer.renderedHeight
-    if type(width) ~= "number" or type(height) ~= "number" or width <= 0 or height <= 0 then return nil end
-    local scale = PanelDocument.WindowUIScale()
-    local side, top, bottom = 0, 0, 0
-    if RailMode() then
-        side = C.railInset + C.railButton * scale + C.railGap
-        top = math.max(C.railTopMin, (C.railButton + C.railStopGap) * scale + C.railStopGap)
-        bottom = C.railGap
-    end
-    local barHeight = 0
-    local hidden = dmhub.GetSettingValue("hideactionbar") == true
-    if actionBarRestore ~= nil then hidden = actionBarRestore end
-    if not hidden then
-        pcall(function()
-            local bar = GameHud.instance:try_get("actionBarPanel")
-            if bar ~= nil and bar.valid then barHeight = bar.renderedHeight or 0 end
-        end)
-    end
-    return {
-        scale = scale, width = width, height = height, side = side, top = top, bottom = bottom,
-        left = side + C.panelMargin, right = width - side - C.panelMargin,
-        upper = top + C.panelMargin, lower = height - math.max(bottom, barHeight) - C.panelMargin,
-    }
-end
-
-function Host:LayoutContent()
-    if self.mode == nil or self.area == nil then return end
-    local window = self.mode == "window"
-    local width, height = self.panel.selfStyle.width, self.panel.selfStyle.height
-    local left = window and 0 or self.area.side
-    local top = window and C.panelTitleHeight * self.scale or self.area.top
-    local bottom = window and 0 or self.area.bottom
-    local w, h = math.max(1, width - left * 2), math.max(1, height - top - bottom)
-    self.frame.selfStyle.lmargin, self.frame.selfStyle.tmargin = left, top
-    self.frame.selfStyle.width, self.frame.selfStyle.height = w, h
-    self.zoom.selfStyle.pivot = { x = 0, y = 1 }
-    self.zoom.selfStyle.uiscale = self.scale
-    self.zoom.selfStyle.width, self.zoom.selfStyle.height = w / self.scale, h / self.scale
-    self.title.selfStyle.pivot = { x = 0, y = 1 }
-    self.title.selfStyle.uiscale = self.scale
-    self.title.selfStyle.width = width / self.scale
-end
-
-function Host:SetSize(width, height)
-    self.panel.selfStyle.width, self.panel.selfStyle.height = width, height
-    if self.mode == "window" then
-        self.resizer:FireEventTree("resize", self.panel, { deltax = width - self.resizeWidth, deltay = height - self.resizeHeight })
-        self.resizeWidth, self.resizeHeight = width, height
-    end
-    self:LayoutContent()
-end
-
---- Clamp a placement into the work area; nil geometry centers the default size.
---- @param geometry nil|OverlandMapWindowGeometry
-function Host:Place(geometry)
-    local clamp = OverlandMapModel.Clamp
-    local a, scale = self.area, self.scale
-    if a == nil then return end
-    local width = clamp((geometry and geometry.width or C.panelWidth) * scale,
-        C.windowMinWidth * scale, math.min(C.windowMaxWidth * scale, a.right - a.left))
-    local height = clamp((geometry and geometry.height or C.panelHeight) * scale,
-        C.windowMinHeight * scale, math.min(C.windowMaxHeight * scale, a.lower - a.upper))
-    local x = geometry and geometry.x * scale or (a.left + a.right - width) / 2
-    local y = geometry and geometry.y * scale or (a.upper + a.lower - height) / 2
-    self.panel.x, self.panel.y = clamp(x, a.left, a.right - width), clamp(y, a.upper, a.lower - height)
-    self:SetSize(width, height)
-end
-
---- Whether a window fits in the work area at all.
---- @param a table
---- @return boolean
-local function WindowFits(a)
-    return a.right - a.left >= C.windowMinWidth * a.scale and a.lower - a.upper >= C.windowMinHeight * a.scale
-end
-
---- Recompute the view for the layer's size, scale, rails and action bar; cheap when nothing moved.
---- @param force nil|boolean
-function Host:Fit(force)
-    local a = self:WorkArea()
-    if a == nil or self.dragging then return end
-    local old = self.area
-    if not force and old ~= nil and self.fitMode == self.requestedMode and old.scale == a.scale and old.width == a.width
-        and old.height == a.height and old.side == a.side and old.top == a.top and old.lower == a.lower then return end
-    self.fitMode, self.area, self.scale = self.requestedMode, a, a.scale
-    local mode = self.requestedMode
-    if mode == "window" and not WindowFits(a) then mode = "fullscreen" end
-    local changed = self.mode ~= mode
-    self.mode = mode
-    local window = mode == "window"
-    local panel = self.panel
-    panel:SetClass("overlandMapWindowHost", window)
-    self.border:SetClass("collapsed", not window)
-    self.title:SetClass("collapsed", not window)
-    self.grip:SetClass("collapsed", not window)
-    self.resizer:SetClass("collapsed", not window)
-    self.resizeOptions.minWidth, self.resizeOptions.minHeight = C.windowMinWidth * a.scale, C.windowMinHeight * a.scale
-    self.resizeOptions.maxWidth = math.min(C.windowMaxWidth * a.scale, a.right - a.left)
-    self.resizeOptions.maxHeight = math.min(C.windowMaxHeight * a.scale, a.lower - a.upper)
-    if window then
-        RestoreActionBar()
-        self:Place(self.geometry)
-    else
-        HideActionBar()
-        panel.x, panel.y = 0, 0
-        self:SetSize(a.width, a.height)
-    end
-    if changed then
-        self.content:FireEvent("overlandMapHostMode", mode)
-        if window then panel:SetAsLastSibling() else panel:SetAsFirstSibling() end
-        panel:ScheduleEvent("overlandMapCheckFocus", 0.01)
-    end
-end
-
-function Host:FinishPlacement()
-    if self.mode ~= "window" then return end
-    self:Place(self:CurrentGeometry())
-    self:SavePlacement()
-end
-
-local function HasPointer(point)
-    return point ~= nil and point.x >= 0 and point.x <= 1 and point.y >= 0 and point.y <= 1
-        and not (point.x == 0 and point.y == 0)
-end
-
---- The pointer in documents-layer pixels. Outside readings can be zero or out of range;
---- keep the last valid drag position until the pointer returns.
---- @return nil|number x
---- @return nil|number y
-function Host:PointerInLayer()
-    local layer = self.panel.parent
-    local point = layer ~= nil and layer.mousePoint or nil
-    if layer ~= nil and point ~= nil and HasPointer(point) then
-        self.pointer = { x = point.x * layer.renderedWidth, y = (1 - point.y) * layer.renderedHeight }
-    end
-    if self.pointer == nil then return nil, nil end
-    return self.pointer.x, self.pointer.y
-end
-
---- Native drag transfer changes the grab offset between title and host pivots, so a title
---- drag tracks the pointer in the stationary documents layer instead.
-function Host:BeginTitleDrag()
-    if self.mode ~= "window" or not self.title:GetMouseButton(0) then return end
-    Session.CloseContextMenu()
-    self.pointer = nil
-    local x, y = self:PointerInLayer()
-    if x == nil or y == nil then return end
-    self.titleDrag = { x = self.panel.x, y = self.panel.y, pointerX = x, pointerY = y }
-    self.dragging = true
-    self:Raise()
-    self:UpdateThink()
-end
-
-function Host:PollTitleDrag()
-    local drag, clamp, panel = self.titleDrag, OverlandMapModel.Clamp, self.panel
-    if drag == nil then return end
-    if not panel:GetMouseButton(0) then
-        self.titleDrag, self.dragging = nil, false
-        self:FinishPlacement()
-        self:UpdateThink()
-        return
-    end
-    local x, y = self:PointerInLayer()
-    if x == nil or y == nil then return end
-    panel.x = clamp(drag.x + x - drag.pointerX, self.area.left, self.area.right - panel.selfStyle.width)
-    panel.y = clamp(drag.y + y - drag.pointerY, self.area.upper, self.area.lower - panel.selfStyle.height)
-end
-
---- Poll quickly while dragging or while the foremost window contains the pointer.
-function Host:UpdateThink()
-    local fast = self.mode == "window" and self:Foremost() and self:PointerInside()
-    local interval = self.dragging and C.canvasThinkActive or fast and C.hostThinkHover or C.canvasThinkIdle
-    if self.panel.thinkTime ~= interval then self.panel.thinkTime = interval end
-end
-
---- The window is the top one in its layer (fullscreen always counts as foremost).
---- @return boolean
-function Host:Foremost()
-    local panel = self.panel
-    return self.mode ~= "window" or (panel.parent ~= nil and panel.siblingIndex == #panel.parent.children)
-end
-
---- Whether this map takes Esc: fullscreen always; a window only while it is foremost and
---- the viewer is working in it (focus inside or the pointer over it), so Esc for the
---- action bar, character sheet or a menu elsewhere still reaches them.
---- @return boolean
-function Host:Engaged()
-    if self.mode ~= "window" then return true end
-    if not self:Foremost() then return false end
-    if self:PointerInside() then return true end
-    local focus = gui.GetFocus()
-    return focus ~= nil and focus:IsDescendantOf(self.panel)
-end
-
---- Child controls receive hover events themselves; the host's coordinates cover the whole window.
---- @return boolean
-function Host:PointerInside()
-    return HasPointer(self.panel.mousePoint)
-end
-
-function Host:SyncEngaged()
-    local engaged = self:Engaged()
-    if self.active ~= engaged then
-        self.active = engaged
-        self.content:FireEvent("overlandMapHostActive", engaged)
-    end
-end
-
-function Host:Raise()
-    if self.mode == "window" then self.panel:SetAsLastSibling() end
-    self:SyncEngaged()
-end
-
---- The viewer chose the map (rail button, menu): bring it forward and give it focus,
---- so Esc and Tab go to it next.
-function Host:Activate()
-    if self.mode == "window" then self.panel:SetAsLastSibling() end
-    local focus = gui.GetFocus()
-    if focus == nil or not focus:IsDescendantOf(self.panel) then Session.FocusHostControl(self.panel, nil, 1) end
-    self:SyncEngaged()
-end
-
-function Host:Think()
-    local panel = self.panel
-    self:PollTitleDrag()
-    self:UpdateThink()
-    if self.mode == "fullscreen" and panel.siblingIndex ~= 1 then panel:SetAsFirstSibling() end
-    if self.mode == "window" and self.hovered and self:PointerInside() then
-        local pressed = panel:GetMouseButton(0) or panel:GetMouseButton(1) or panel:GetMouseButton(2)
-        if pressed and not self.pressed then self:Raise() end
-        self.pressed = pressed
-    else
-        self.pressed = false
-    end
-    -- Layout inputs (scale, rails, action bar) change rarely; check them at the idle rate.
-    local now = dmhub.Time()
-    if now >= self.nextFit then
-        self.nextFit = now + C.canvasThinkIdle
-        self:Fit()
-    end
-    self:SyncEngaged()
-end
-
-function Host:Close()
-    if inAppHost == self then inAppHost = nil end
-    if not self:Valid() then return end
-    self:SavePlacement()
-    self.panel:DestroySelf()
-end
-
---- Ask the content to finish edits and imports first; it calls Close when that is done.
-function Host:RequestClose()
-    if self:Valid() then
-        self.content:FireEvent("requestClose", function() self:Close() end)
-    end
-end
-
-function Host:ToggleView()
-    if not self:Valid() then return end
-    self:SavePlacement()
-    -- A window that cannot fit stays fullscreen; say so instead of silently remembering the choice.
-    if self.mode == "fullscreen" and self.requestedMode == "window" then
-        OverlandMapUndo.Notify("window.tooSmall", { width = C.windowMinWidth, height = C.windowMinHeight })
-        return
-    end
-    self.requestedMode = self.mode == "window" and "fullscreen" or "window"
-    OverlandMapPreferences.SetInAppView(self.requestedMode)
-    self:Fit(true)
-end
-
-function Host:ResetPlacement()
-    if not self:Valid() or self.mode ~= "window" then return end
-    self.geometry = nil
-    self:Fit(true)
-    self:SavePlacement()
-end
-
-local function IsOpen()
-    return inAppHost ~= nil and inAppHost:Valid()
-end
-
-local function CloseInApp()
-    if inAppHost ~= nil then inAppHost:Close() end
-end
-
-local function RequestClose()
-    if inAppHost ~= nil then inAppHost:RequestClose() end
+--- @return OverlandMapWindowHost|nil
+local function ValidHost()
+    local host = Hosts.Current()
+    if host ~= nil and host:Valid() then return host end
+    return nil
 end
 
 local OpenInApp
 
 local function PopOut()
-    CloseInApp()
+    Hosts.UserIntent()
+    -- Release first: the popout builds its own content tree, and only one may exist.
+    local host = Hosts.Current()
+    if host ~= nil then host:SavePlacement() end
+    Hosts.SetOutside("native", true)
     PanelDocument.OpenPopout(C.panelName, { width = C.windowWidth, height = C.windowHeight, scale = 1 })
+    -- OpenPopout registers the window at once; none means this app cannot pop out.
+    if PanelDocument.PopoutHost(POPOUT_KEY) == nil then Hosts.SetOutside("closed", true) end
 end
 
 local function PopIn()
+    Hosts.UserIntent()
     PanelDocument.PopoutForgetWindow(POPOUT_KEY)
-    local host = PanelDocument.PopoutHost(POPOUT_KEY)
-    if host ~= nil then host:DestroySelf() end
+    local popout = PanelDocument.PopoutHost(POPOUT_KEY)
+    if popout ~= nil then popout:DestroySelf() end
     OpenInApp(true)
 end
 
-OpenInApp = function(focus)
-    if mod.unloaded or IsOpen() then return end
-    local layer = nil
-    pcall(function() layer = GameHud.instance.documentsPanel end)
-    if layer == nil or not layer.valid then return end
-    local host = setmetatable({}, Host) --[[@as OverlandMapWindowHost]]
-    local content = OverlandMapPanel.Create {
-        close = CloseInApp, popOut = PopOut, mode = "fullscreen",
-        toggleView = function() host:ToggleView() end,
-    }
-    local zoom = gui.Panel { width = "100%", height = "100%", halign = "left", valign = "top", content }
-    local frame = gui.Panel { floating = true, width = "100%", height = "100%", halign = "left", valign = "top", zoom }
-    local resizeOptions = {
-        onResized = function(element)
-            host.resizeWidth, host.resizeHeight = element.selfStyle.width, element.selfStyle.height
-            host:FinishPlacement()
-        end,
-    }
-    local placement = { try_get = function(self, key) return rawget(self, key) end }
-    local resizer = gui.WindowResizePanel(placement, C.panelWidth, C.panelHeight, resizeOptions)
-    local optionsButton = Session.IconButton("overland-map-window-options", C.iconMore, T("window.options"), function(element)
-        element.popupsInheritStyles = false
-        element.popup = Session.ContextMenu(element, { entries = {
-            { text = T("window.reset"), click = function()
-                element.popup = nil
-                host:ResetPlacement()
-            end },
-        } })
-    end, { "overlandMapHostControl" })
-    local close = Session.IconButton("overland-map-window-close", C.iconClose, T("tb.close"), RequestClose, { "overlandMapHostControl" })
-    local title = gui.Panel {
-        id = "overland-map-window-title", classes = { "overlandMapWindowTitle" }, floating = true,
-        swallowPress = true,
-        press = function() host:BeginTitleDrag() end,
-        wheel = function() return true end,
-        gui.Label { classes = { "label", "sizeM" }, text = T("window.title"),
-            width = "100% available", height = "auto", lmargin = 6, textAlignment = "left", valign = "center", interactable = false },
-        optionsButton, close,
-    }
-    -- Draw above the map and title, which cover a border painted on their parent.
-    local border = gui.Panel {
-        id = "overland-map-window-border", classes = { "overlandMapWindowBorder", "collapsed" },
-        floating = true, interactable = false,
-    }
-    local grip = gui.Label { classes = { "overlandMapResizeGrip", "sizeS" }, text = "//", floating = true, interactable = false }
-    host.frame, host.zoom, host.content, host.title, host.border, host.grip = frame, zoom, content, title, border, grip
-    host.resizer, host.resizeOptions = resizer, resizeOptions
-    host.resizeWidth, host.resizeHeight = C.panelWidth, C.panelHeight
-    host.requestedMode, host.mode, host.scale = OverlandMapPreferences.InAppView(), nil, 1
-    host.geometry = OverlandMapPreferences.ReadWindowGeometry()
-    host.hovered, host.pressed, host.dragging = false, false, false
-    host.openFocus, host.nextFit = gui.GetFocus(), 0
-    host.panel = gui.Panel {
-        id = "overland-map-fullscreen",
-        classes = { "overlandMapRoot" },
-        styles = ThemeEngine.MergeStyles(OverlandMapStyles.Build()),
-        halign = "left", valign = "top", x = 0, y = 0, floating = true,
-        swallowPress = true, thinkTime = C.canvasThinkIdle,
-        data = host,
-        multimonitor = { "fontsize", "iconrail", "hideactionbar" },
-        monitor = function() host:Fit() end,
-        create = function(element)
-            OverlandMapStyles.Subscribe(element)
-            host:Fit()
-        end,
-        rendered = function() host:LayoutContent() end,
-        hover = function() host.hovered = true; host:UpdateThink(); host:SyncEngaged() end,
-        dehover = function() host.hovered = false; host:UpdateThink(); host:SyncEngaged() end,
-        childfocus = function() host:Raise() end,
-        overlandMapInitialFocus = function(element)
-            if gui.GetFocus() == host.openFocus then Session.FocusHostControl(element, nil, 1) end
-            host.openFocus = nil
-        end,
-        overlandMapCheckFocus = function(element)
-            local focused = gui.GetFocus()
-            if focused ~= nil and focused:IsDescendantOf(element) and not focused.enabled then
-                Session.FocusHostControl(element, nil, 1)
-            end
-        end,
-        wheel = function() return true end,
-        think = function(element)
-            if mod.unloaded then element:DestroySelf(); return end
-            host:Think()
-        end,
-        destroy = function()
-            if inAppHost == host then inAppHost = nil end
-            OverlandMapStyles.Unsubscribe(host.panel)
-            RestoreActionBar()
-        end,
-        frame, title, border, grip, resizer,
-    }
-    inAppHost = host
-    layer:AddChild(host.panel)
-    host:Fit(true)
-    host:SyncEngaged()
-    if focus then host.panel:ScheduleEvent("overlandMapInitialFocus", 0.01) end
+--- @param focus nil|boolean
+--- @param savedState nil|"open"|"minimized"
+OpenInApp = function(focus, savedState)
+    if ValidHost() ~= nil then return end
+    Hosts.Create { focus = focus, savedState = savedState, popOut = PopOut }
+end
+
+-- The app restores a same-session popout on its own; opening an in-app copy would duplicate it.
+local function NativePending()
+    if PanelDocument.PopoutRestoreRecords == nil or PanelDocument.PopoutSessionId == nil then return false end
+    local record = PanelDocument.PopoutRestoreRecords()[POPOUT_KEY]
+    return record ~= nil and record.session == PanelDocument.PopoutSessionId()
 end
 
 -- A presented or rail-opened map comes to the front wherever it is.
 local function ShowMapHost(focus)
+    Hosts.UserIntent()
     local popout = PanelDocument.PopoutHost(POPOUT_KEY)
     if popout ~= nil then
         pcall(function() popout:RaiseNativeWindow() end)
         return
     end
-    local host = inAppHost
-    if host ~= nil and host:Valid() then
-        host:Raise()
+    if NativePending() then return end
+    local host = ValidHost()
+    if host ~= nil then
+        host:Restore(true, false)
         return
     end
     OpenInApp(focus)
 end
 
 local function ToggleInApp()
-    local host = inAppHost
-    if host ~= nil and host:Valid() then
-        if host.mode == "window" and not host:Foremost() then host:Activate() else RequestClose() end
+    Hosts.UserIntent()
+    local host = ValidHost()
+    if host ~= nil then
+        if host:State() ~= "open" or (host.mode == "window" and not host:Foremost()) then host:Activate() else host:RequestClose() end
     else
         ShowMapHost(true)
     end
@@ -541,9 +113,100 @@ GameHud.RegisterPresentableDialog {
     id = C.panelName,
     keeplocal = false,
     create = function()
-        ShowMapHost()
+        ShowMapHost(true)
+        local host = ValidHost()
+        if host ~= nil then host.content:FireEvent("overlandMapReceivePresentation") end
         return nil
     end,
 }
+
+-- Lifecycle reconciliation ---------------------------------------------------------------
+
+local function EnterGame()
+    currentGameId = dmhub.gameid
+    Hosts.Reset()
+end
+
+--- Reopen the window the viewer had (saved hostState) until they act themselves.
+local function RestoreSavedLayout()
+    local intent = Hosts.Intent()
+    if not intent.automatic or type(dmhub.GetSettingValue(C.preferencesSettingId)) ~= "table" then return end
+    local generation = intent.generation
+    if dmhub.GetTable(C.locationTableName) == nil then return end
+    local state = OverlandMapPreferences.HostState()
+    if Hosts.Current() == nil and (state == "open" or state == "minimized") then
+        OpenInApp(false, state --[[@as "open"|"minimized"]])
+    end
+    if generation ~= intent.generation or not intent.automatic then return end
+    local host = ValidHost()
+    if host == nil then return end
+    if state == "minimized" and host:State() == "open" then host:Minimize(true) end
+    if OverlandMapPreferences.SelectionKind() == "map" then
+        local id = OverlandMapPreferences.LastMapId()
+        local map = OverlandMapModel.GetLocation(id)
+        if map ~= nil and OverlandMapModel.CanOpenMap(map) and host.selectedMapId ~= id then
+            host.content:FireEvent("overlandMapNavigate", id, true)
+        end
+    end
+end
+
+-- This timer lives outside the host: collapsed panels do not think.
+local function ReconcileLifecycle()
+    if currentGameId ~= dmhub.gameid then EnterGame() end
+    Adapter.SyncProvider()
+    local layer = GameHud.instance and GameHud.instance.documentsPanel or nil
+    local stale = Hosts.Current()
+    if stale ~= nil and (not stale:Valid() or stale.panel.parent ~= layer) then
+        stale:Release()
+        Hosts.AllowAutomatic()
+    end
+    if PanelDocument.PopoutHost(POPOUT_KEY) ~= nil then
+        if Hosts.State() ~= "native" then Hosts.SetOutside("native", true) end
+        return
+    end
+    if NativePending() then return end
+    -- The popout closed: that was the viewer closing the map.
+    if Hosts.State() == "native" then
+        Hosts.UserIntent()
+        Hosts.SetOutside("closed", true)
+    end
+    if layer == nil or not layer.valid or layer.renderedWidth <= 100 or layer.renderedHeight <= 100
+        or dmhub.gameid == nil or dmhub.gameid == "" then return end
+    -- Wait for the table's button layer; restoring a minimized window needs it.
+    if Adapter.Has("minimize") and not Adapter.CanMinimize() then return end
+    RestoreSavedLayout()
+    local host = ValidHost()
+    if host == nil then return end
+    OverlandMapControls.SetClassIf(host.minimizeButton, "collapsed", not Adapter.Has("minimize"))
+    host.content:FireEvent("overlandMapIntegrationChanged")
+    if host:State() == "minimizing" and not Adapter.Animating(host.external) then host:FinishMinimize() end
+    local state = host:State()
+    if state == "minimizing" or state == "minimized" then
+        host.content:FireEvent("overlandMapReconcile")
+        -- Without Tabletop there is no button to restore from: show the window instead.
+        if Adapter.Has("minimize") then Adapter.Refresh(host.external) else host:Restore(false, false) end
+    elseif state == "restoring" and Adapter.Has("minimize") then
+        Adapter.Refresh(host.external)
+        if not Adapter.Animating(host.external) then host:Restore(host.restoreFocus, false) end
+    end
+    local drag = host.atlasDrag
+    if drag ~= nil then
+        if not drag.card.valid or not drag.card.dragging then host:CancelAtlasDrag()
+        else host:AtlasDragging(drag.card, drag.id) end
+    end
+end
+
+local function LifecycleTick()
+    if mod.unloaded then return end
+    local ok, err = pcall(ReconcileLifecycle)
+    if not ok then print("OVERLAND_MAP: layout reconciliation failed: " .. tostring(err)) end
+    dmhub.Schedule(C.canvasThinkIdle, LifecycleTick)
+end
+mod.enterGameHandlers[#mod.enterGameHandlers + 1] = EnterGame
+mod.unloadHandlers[#mod.unloadHandlers + 1] = function()
+    local host = Hosts.Current()
+    if host ~= nil then host:Release() end
+end
+dmhub.Schedule(C.canvasThinkIdle, LifecycleTick)
 
 print("OVERLAND_MAP: addon loaded")

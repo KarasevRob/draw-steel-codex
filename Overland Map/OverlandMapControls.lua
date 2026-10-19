@@ -104,10 +104,24 @@ function OverlandMapControls.IconButton(id, icon, tooltip, action, classes)
 end
 
 --- Tab between the visible host controls; called only from the canvas or a host button.
+--- @param element Panel
+--- @return boolean
+function OverlandMapControls.CanFocus(element)
+    if not element.valid or not element.enabled then return false end
+    local parent = element
+    while parent ~= nil do
+        local allowed = parent.data.overlandMapCanFocus
+        if allowed ~= nil and not allowed() then return false end
+        parent = parent.parent
+    end
+    return true
+end
+
 --- @param root Panel
 --- @param from nil|Panel
 --- @param direction number
 function OverlandMapControls.FocusHostControl(root, from, direction)
+    if not OverlandMapControls.CanFocus(root) then return end
     local controls = {}
     local index = direction > 0 and 0 or 1
     for _, button in ipairs(root:GetChildrenWithClassRecursive("overlandMapHostControl")) do
@@ -244,7 +258,7 @@ end
 --- @param stillWanted nil|fun(): boolean
 function OverlandMapControls.FocusSoon(element, stillWanted)
     OverlandMapLifetime.Schedule(C.afterLayoutDelay, function()
-        if mod.unloaded or not element.valid then return end
+        if mod.unloaded or not OverlandMapControls.CanFocus(element) then return end
         if stillWanted ~= nil and not stillWanted() then return end
         gui.SetFocus(element)
     end)
