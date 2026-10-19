@@ -4,6 +4,11 @@ The single existing Overland host can be placed and minimized on the personal Ta
 It keeps its content tree through window/fullscreen switches and minimization. It does
 not create tactical maps, share placement, follow the Director, or create a second host.
 
+**Status (2026-10-20): dormant.** These features need Tabletop functions that core does not
+provide (see [Required Tabletop functions](#required-tabletop-functions)). Overland Map
+makes no changes outside its own folder, so every feature below stays hidden until core
+offers them; the plain in-app window is unaffected.
+
 ## Placement and activation
 
 Windowed Atlas cards use the engine's native drag threshold. The preview is drawn only
@@ -37,10 +42,10 @@ cancelling leaves it visible.
 `minimized` or `restoring`. Every change goes through one transition function, which
 refuses moves that are not allowed, refuses moves by a replaced host, and saves `hostState`
 only for viewer choices. The state itself guards late animation callbacks: a restore
-finishes only while the host is still `restoring`. `minimizing` lasts until Tabletop
-reports that the button has landed (`MinimizeExternal` option `done`); if Tabletop drops
-that callback, reconciliation settles it once no flight is running. Automatic
-restoration is tracked separately as viewer intent, not as a window state.
+finishes only while the host is still `restoring`. `minimizing` lasts while Tabletop flies
+the window into its button; lifecycle reconciliation settles it to `minimized` once no
+flight is running. Automatic restoration is tracked separately as viewer intent, not as
+a window state.
 
 `OverlandMapTabletop` is the only file that calls `Tabletop`. It checks each feature on
 its own: `provider` (Ctrl+Tab and the Windows menu), `minimize` and `place` (Atlas drops).
@@ -77,42 +82,38 @@ Without the shared Tabletop capabilities, new affordances are hidden. An automat
 restored minimized layout falls back to a visible in-app host, retaining its preference
 until the viewer acts or integration becomes available.
 
-## Shared contracts
+## Required Tabletop functions
 
-- `Tabletop.RegisterWindowProvider(id, ownerMod, collect)` replaces registrations by ID
-  and returns an identity-safe unsubscribe. `ExternalWindows()` returns a deduplicated
-  snapshot, isolates provider failures and guards activation against replacement,
-  unloaded owners, invalid panels and changed game identity. Both the switcher and
-  Windows menu consume these records; Overland registers `external:overland-map`.
-- `Tabletop.ScreenToLayer(x, y)` requires valid screen dimensions and a laid-out layer.
-  It returns nil when unavailable. The existing internal coordinate helper is retained
-  for legacy Tabletop callers.
-- `RefreshExternal(rec)` reconciles both button coordinates, scale, layer and rail
-  presence. `buttonOps.placementChanged(rec)` lets the owner persist completed placement.
-- `ReleaseExternal(rec)` cancels animations and removes transient buttons while retaining
-  rail placement. `CloseExternal(rec)` also purges the rail slot.
-- `MinimizeExternal(rec, from, options)` and `RestoreExternal(rec, to, done, options)`
-  accept trailing `{animate = false}` and complete through the normal path immediately.
-  Callers without options, including PDF viewers, retain animation behavior.
+`OverlandMapTabletop` feature-detects these; it never patches or replaces core code.
+Core `DMHub Game Hud/Tabletop.lua` currently has only the older minimize/restore set, so
+all three features are off:
+
+| Feature | Functions | In core today |
+| --- | --- | --- |
+| `provider` (Ctrl+Tab, Windows menu) | `RegisterWindowProvider` | No |
+| `minimize` | `IsActive`, `CanMinimizeExternal`, `PanelRect`, `MinimizeExternal`, `RestoreExternal`, `RefreshExternal`, `ReleaseExternal`, `CloseExternal`, `UndockExternal` | Missing `RefreshExternal`, `ReleaseExternal` |
+| `place` (Atlas drops) | `IsActive`, `ScreenToLayer` | Missing `ScreenToLayer` |
+
+Overland passes `{animate = ...}` as a trailing option to `MinimizeExternal` and
+`RestoreExternal`; a Tabletop that ignores it simply animates. Adding any of these to core
+is a decision for the core owners, not part of this mod.
 
 ## Verification
 
-Run `Overland Map/tests/RunOffline.lua` with the bundled Lua interpreter. The added
-`TabletopIntegrationChecks` execute the production host and complete shared-interface
-sections with isolated GUI/engine services. `TabletopContentChecks` exercise the real
-shell, Atlas controls, preferences and presentation controller. These checks do not
-simulate native input routing or prove rendered layout.
+Run `Overland Map/tests/RunOffline.lua` with the bundled Lua interpreter.
+`TabletopIntegrationChecks` run the production host against a Tabletop stand-in defined
+in the test, which models the contract above; it does not load core code.
+`TabletopContentChecks` exercise the real shell, Atlas controls, preferences and
+presentation controller. These checks do not simulate native input routing or prove
+rendered layout.
 
 Coverage includes valid/invalid/cancelled drops, exact preview placement at 80/100/140%
-scale, release-click suppression, player controls, Atlas/legacy/unavailable selections,
-delayed data, drafts, minimized close cancellation, stale transitions, reload and game
-changes, provider replacement/unload, switcher ordering, button movement, rails, layer
-replacement, legacy PDF calls, startup focus and presentation retries.
+scale, Atlas/legacy/unavailable selections, delayed data, drafts, minimized close
+cancellation, stale transitions, reload and game changes, window-list entries, the saved
+button position, per-feature availability, native popout state, startup focus and
+presentation retries.
 
-Live integration remains gated by the connected build: `Tabletop` and `WindowSwitcher`
-are not initialized, and the shared HUD CodeMod is not checked out. Registered file
-names alone do not establish that these runtime capabilities are present. Required live
-acceptance on a compatible build:
+Required live acceptance, once a build provides the functions above:
 
 - Director/player access, no accidental sharing, native mouse drag and keyboard control
   activation, Ctrl+Tab/Shift+Ctrl+Tab, Windows menu and theme changes.
@@ -120,7 +121,7 @@ acceptance on a compatible build:
   action-bar restoration and input reaching other windows.
 - Present while minimized, including delayed sharing; rail docking/undocking and toggles.
 - Rejoin, Lua reload and full restart with open/minimized/closed/native preferences;
-  PDF minimize/restore and tactical map/scene switching.
+  tactical map/scene switching.
 
 The standard parent `tools/lua-typing/check.ps1` is absent. Validation uses the documented
 LuaLS CLI with the repository configuration. See the

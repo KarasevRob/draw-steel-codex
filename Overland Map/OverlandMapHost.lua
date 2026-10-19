@@ -568,13 +568,12 @@ function Host:Minimize(automatic)
     self.panel:SetClass("collapsed", true)
     RestoreActionBar()
     self:SyncEngaged()
-    OverlandMapTabletop.Minimize(self.external, from, not automatic and not Prefs.ReduceMotion(), function()
-        self:FinishMinimize()
-    end)
+    OverlandMapTabletop.Minimize(self.external, from, not automatic and not Prefs.ReduceMotion())
+    -- An unanimated minimize has already landed; otherwise reconciliation settles it.
+    if not OverlandMapTabletop.Animating(self.external) then self:FinishMinimize() end
 end
 
---- The button has landed. Reconciliation also calls this when Tabletop dropped the
---- flight's callback (its own reload or a game change mid-flight).
+--- The button has landed: lifecycle reconciliation calls this once Tabletop's flight is over.
 function Host:FinishMinimize()
     if self:Valid() and self:State() == "minimizing" then Enter(self, "minimized") end
 end

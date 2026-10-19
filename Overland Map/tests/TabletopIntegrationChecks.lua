@@ -1,77 +1,91 @@
--- Production Tabletop contracts and Overland host in an isolated GUI, without a live game.
+-- Overland's Tabletop integration in an isolated GUI, without a live game. Core Tabletop
+-- does not provide these functions today, so a stand-in models the contract the adapter
+-- (OverlandMapTabletop) feature-detects; nothing here loads or tests core code.
 local checks = {}
 local Base = dofile("Overland Map/tests/WindowHostChecks.lua")
 
-local function Read(path)
-    local file = assert(io.open(path, "rb"))
-    local text = file:read("a")
-    file:close()
-    return text
-end
-
-local function Between(source, first, last)
-    local start = assert(source:find(first, 1, true))
-    local finish = assert(source:find(last, start + #first, true))
-    return source:sub(start, finish - 1)
-end
-
--- Extract complete production sections: the rest of Tabletop requires tactical-map engine services.
-local function Shared(f, env)
-    local source = Read("DMHub Game Hud/Tabletop.lua")
-    env.Tabletop = { windowProviders = {}, IsActive = function() return f.tabletop ~= false end }
-    env.g_chrome, env.g_sharing = {}, {}
-    env.cond = function(test, yes, no) if test then return yes else return no end end
-    f.slots, f.purged = {}, {}
-    env.IconRailKeySlot = function(key) return f.slots[key] end
-    env.IconRailKeyPurge = function(key) f.slots[key] = nil; f.purged[key] = true end
-    env.IconRailKeyAdd = function(key, side) f.slots[key] = side end
-    env.IconRailKeyDrop = function(key) f.slots[key] = "left"; return true end
-    env.IconRailDocDragging = function() end
-    env.ChatItemLinks = { Dragging = function() end, Dropped = function() return false end }
-    env.DirectorScreen = { ItemDragging = function() end, ItemDropped = function() end }
-    env.g_sharing.ScreenKey = function() end
-    env.SaveSoon = function() end
-    -- Tabletop is another CodeMod: reloading Overland must not mark it unloaded.
-    local prefix = [[
-local mod = { unloaded = false }
-local function DocumentsLayer() return GameHud.instance and GameHud.instance.documentsPanel end
-local function LayerSize() local p = DocumentsLayer(); return p.renderedWidth, p.renderedHeight end
-]]
-    local registry = Between(source, "-- Providers survive", "--This user's window layout")
-    local rail = Between(source, "local function RailKey(rec)", "--A caption control")
-    local guards = Between(source, "local g_controlClickTime", "local function WindowControl")
-    local buttons = Between(source, "local BUTTON_SIZE = 40", "--Takes the live map status")
-    local coordinates = Between(source, "local function ScreenToLayer", "local function IsHeroToken")
-    assert(load(prefix .. registry .. rail .. guards .. buttons .. coordinates .. [[
-Tabletop.TestSetLayer = function(panel) g_buttonLayer = panel end
-]], "Tabletop shared contracts", "t", env))()
-    f.buttonLayer = f.Panel { width = 1600, height = 1000 }
-    env.Tabletop.TestSetLayer(f.buttonLayer)
-    env.Tabletop.SwitcherMapWindows = function() return {} end
-    env.Tabletop.SwitcherSceneWindows = function() return {} end
-    env.Tabletop.LiveWindowState = function() end
-    env.CustomDocument = { tableName = "docs", JournalViewers = function() return {} end }
-    env.dmhub.GetTable = function() return {} end
-    env.dmhub.modKeys = { ctrl = true }
-    assert(loadfile("DMHub Game Hud/WindowSwitcher.lua", "t", env))()
-    env.g_sharing.TakePendingPings = function() return {} end
-    env.g_sharing.SceneWindowStates = function() return {} end
-    env.g_sharing.DocItemEntryIds = function() return {} end
-    env.g_windows, env.g_cards = {}, {}
-    env.dmhub.isDM = true
-    assert(load("local mod = dmhub.GetModLoading()\nlocal function GuardClicks() end\n" ..
-        Between(source, "g_sharing.DefineWindowsMenu = function()", "g_sharing.DefineWindowsMenu()") ..
-        "g_sharing.DefineWindowsMenu()", "Tabletop Windows menu", "t", env))()
+--- Minimal Tabletop: window lists, minimize/restore with a flight that finishes on its
+--- think event (or at once with animate = false), and table placement coordinates.
+local function FakeTabletop(f, env)
+    local api = { providers = {} }
+    f.purged = {}
+    api.IsActive = function() return f.tabletop ~= false end
+    api.CanMinimizeExternal = function() return api.IsActive() end
+    api.PanelRect = function(panel)
+        return { x = panel.x, y = panel.y, w = panel.selfStyle.width, h = panel.selfStyle.height }
+    end
+    -- The screen is 30 pixels taller than the documents layer (the title bar).
+    api.ScreenToLayer = function(x, y)
+        if f.layer.renderedWidth <= 0 or f.layer.renderedHeight <= 0 then return nil, nil end
+        return x, y - 30
+    end
+    api.RegisterWindowProvider = function(id, owner, collect)
+        local registration = { owner = owner, collect = collect }
+        api.providers[id] = registration
+        return function() if api.providers[id] == registration then api.providers[id] = nil end end
+    end
+    api.ExternalWindows = function()
+        local result = {}
+        for _, registration in pairs(api.providers) do
+            if not registration.owner.unloaded then
+                for _, entry in ipairs(registration.collect()) do result[#result + 1] = entry end
+            end
+        end
+        return result
+    end
+    local function Cancel(rec)
+        if rec.externalGhost ~= nil then rec.externalGhost.valid = false end
+        rec.externalGhost, rec.externalAnimating = nil, false
+    end
+    local function Animate(rec, done, options)
+        Cancel(rec)
+        if options ~= nil and options.animate == false then done(); return end
+        local ghost = { valid = true }
+        function ghost:FireEvent(name)
+            if name ~= "think" or not self.valid then return end
+            self.valid = false
+            rec.externalGhost, rec.externalAnimating = nil, false
+            if not rec.closed then done() end
+        end
+        rec.externalGhost, rec.externalAnimating = ghost, true
+    end
+    local function ShowButton(rec)
+        if rec.minimized and not rec.closed and not rec.externalAnimating and rec.button == nil then
+            rec.button = f.Panel { click = function() rec.buttonOps.restore(rec) end }
+        end
+    end
+    api.MinimizeExternal = function(rec, _, options)
+        if rec.minimized then return end
+        rec.minimized, rec.closed = true, nil
+        Animate(rec, function() ShowButton(rec) end, options)
+    end
+    api.RestoreExternal = function(rec, _, done, options)
+        if not rec.minimized then Cancel(rec); done(); return end
+        rec.minimized, rec.button, rec.closed = false, nil, nil
+        Animate(rec, done, options)
+    end
+    api.RefreshExternal = function(rec) if not rec.closed then ShowButton(rec) end end
+    api.ReleaseExternal = function(rec) Cancel(rec); rec.closed, rec.button = true, nil end
+    api.CloseExternal = function(rec)
+        api.ReleaseExternal(rec)
+        rec.minimized = false
+        f.purged[rec.railKey] = true
+    end
+    api.UndockExternal = api.RefreshExternal
+    env.Tabletop = api
 end
 
 local function Fixture(preferences, setup)
     return Base.Fixture { preferences = preferences, setup = function(f, env)
-        Shared(f, env)
+        FakeTabletop(f, env)
         f.maps.a = { id = "a", name = "Alpha", imageId = "alpha-image" }
         f.maps.b = { id = "b", name = "Beta", imageId = "beta-image" }
         f.errors = {}
         env.print = function(message)
-            if tostring(message):find("reconciliation failed", 1, true) then f.errors[#f.errors + 1] = message end
+            local text = tostring(message)
+            if text:find("reconciliation failed", 1, true) or text:find("ignored window transition", 1, true) then
+                f.errors[#f.errors + 1] = text
+            end
         end
         f.pendingNative = {}
         env.PanelDocument.PopoutSessionId = function() return "session" end
@@ -83,8 +97,10 @@ end
 
 local function CheckNoErrors(f) assert(#f.errors == 0, table.concat(f.errors, "\n")) end
 local function Near(a, b) assert(math.abs(a - b) < 0.00001, tostring(a) .. " ~= " .. tostring(b)) end
+-- Land the flight, then run one lifecycle tick: that is when the host notices it landed.
 local function FinishAnimation(f, rec)
     if rec.externalGhost and rec.externalGhost.valid then rec.externalGhost:FireEvent("think") end
+    f.Tick()
 end
 
 function checks.Run()
@@ -92,82 +108,19 @@ function checks.Run()
     local function Check(name, run)
         run(); count = count + 1; print("TABLETOP PASS: " .. name)
     end
-    Check("screen coordinates wait for layout and remove the title bar", function()
-        local f = Fixture()
-        local api = f.env.Tabletop
-        local x, y = api.ScreenToLayer(800, 530)
-        Near(x, 800); Near(y, 500)
-        f.layer.height = 0; assert(api.ScreenToLayer(800, 530) == nil)
-        f.layer.height = 1000; f.env.dmhub.screenDimensions.x = 0
-        assert(api.ScreenToLayer(800, 530) == nil)
-    end)
-    Check("provider snapshots deduplicate, isolate errors and reject obsolete activations", function()
-        local f = Fixture()
-        local api, panel, calls = f.env.Tabletop, f.Panel {}, 0
-        local owner = { unloaded = false }
-        local entry = { key = "external:test", name = "Test", panel = panel, activate = function() calls = calls + 1 end }
-        local old = api.RegisterWindowProvider("test", owner, function() return { entry, entry } end)
-        api.RegisterWindowProvider("bad", owner, function() error("fixture provider") end)
-        local snapshot = api.ExternalWindows()
-        assert(#snapshot == 1 and snapshot[1].kind == "external")
-        entry.name = "Changed"; assert(snapshot[1].name == "Test")
-        snapshot[1].activate(); assert(calls == 1)
-        api.RegisterWindowProvider("test", owner, function() return { entry } end)
-        old(); snapshot[1].activate(); assert(calls == 1 and #api.ExternalWindows() == 1)
-        snapshot = api.ExternalWindows(); f.env.dmhub.gameid = "other"
-        snapshot[1].activate(); assert(calls == 1)
-        snapshot = api.ExternalWindows(); panel.valid = false
-        snapshot[1].activate(); assert(calls == 1)
-        owner.unloaded = true; assert(#api.ExternalWindows() == 0 and api.windowProviders.test == nil)
-    end)
-    Check("Ctrl+Tab uses a stable snapshot and commits through the guarded provider", function()
-        local f = Fixture()
-        local h = f.Window()
-        local switcher = f.env.WindowSwitcher.CreateLayer()
-        switcher:FireEvent("switchwindow")
-        local activation = h.data.Activate
-        local calls = 0
-        h.data.Activate = function(self) calls = calls + 1; activation(self) end
-        f.env.dmhub.modKeys.ctrl = false; switcher:FireEvent("think")
-        assert(calls == 1)
-        f.env.dmhub.modKeys.ctrl = true; switcher:FireEvent("switchwindowback")
-        f.env.Tabletop.RegisterWindowProvider("overland-map", f.mod, function() return {} end)
-        f.env.dmhub.modKeys.ctrl = false; switcher:FireEvent("think")
-        assert(calls == 1)
-    end)
-    Check("Windows menu uses external icons, alphabetical names and minimized checks", function()
+    Check("window lists show the current map, its minimized state and activate it", function()
         local f = Fixture()
         local h = f.Window()
         h.data:OpenOnTabletop("b")
-        local menu = f.env.Tabletop.WindowsMenuEntries()
-        assert(#menu == 1 and menu[1].text == "Beta" and menu[1].check and menu[1].icon)
+        local entries = f.env.Tabletop.ExternalWindows()
+        assert(#entries == 1 and entries[1].name == "Beta" and not entries[1].minimized and entries[1].panel == h)
         h.data:Minimize(); FinishAnimation(f, h.data.external)
-        menu = f.env.Tabletop.WindowsMenuEntries(); assert(not menu[1].check)
-        menu[1].click(); FinishAnimation(f, h.data.external)
-        assert(h.data:State() == "open")
-        f.env.Tabletop.RegisterWindowProvider("second", f.mod, function()
-            return { { key = "external:second", name = "Alpha", panel = f.Panel {}, icon = "other", activate = function() end } }
-        end)
-        menu = f.env.Tabletop.WindowsMenuEntries()
-        assert(menu[1].text == "Alpha" and menu[1].icon == "other" and menu[2].text == "Beta")
-    end)
-    Check("switcher orders visible windows before minimized windows, then by activation", function()
-        local f = Fixture()
-        local chosen
-        f.env.Tabletop.RegisterWindowProvider("fixture", f.mod, function()
-            local entries = {}
-            for _, item in ipairs({ { "older", 3, false }, { "minimized", 100, true }, { "recent", 5, false } }) do
-                entries[#entries + 1] = { key = "external:" .. item[1], name = item[1],
-                    panel = f.Panel { activationOrder = item[2] }, minimized = item[3],
-                    activate = function() chosen = item[1] end }
-            end
-            return entries
-        end)
-        local switcher = f.env.WindowSwitcher.CreateLayer()
-        switcher:FireEvent("switchwindow"); f.env.dmhub.modKeys.ctrl = false; switcher:FireEvent("think")
-        assert(chosen == "older")
-        f.env.dmhub.modKeys.ctrl = true; switcher:FireEvent("switchwindowback")
-        f.env.dmhub.modKeys.ctrl = false; switcher:FireEvent("think"); assert(chosen == "minimized")
+        entries = f.env.Tabletop.ExternalWindows()
+        assert(entries[1].minimized)
+        entries[1].activate(); FinishAnimation(f, h.data.external)
+        assert(h.data:State() == "open" and h.enabled)
+        f.ReloadHost(); f.Tick(); CheckNoErrors(f)
+        assert(#f.env.Tabletop.ExternalWindows() <= 1)
     end)
     Check("minimize preserves drafts and restores fullscreen action-bar ownership", function()
         local f = Fixture()
@@ -188,6 +141,7 @@ function checks.Run()
         assert(h.enabled and h.data:State() == "open" and f.pendingClose)
         assert(not h.data.external.button and not h.data.external.externalGhost)
         f.pendingClose(); assert(not h.valid and f.env.OverlandMapPreferences.HostState() == "closed")
+        assert(f.purged[h.data.external.railKey])
     end)
     Check("restore completion cannot undo a newer minimize, close or game change", function()
         for _, action in ipairs({ "minimize", "close", "game", "unload" }) do
@@ -210,34 +164,15 @@ function checks.Run()
             CheckNoErrors(f)
         end
     end)
-    Check("button movement, scale, viewport and rail changes preserve personal placement", function()
+    Check("a moved button saves its position as a personal preference", function()
         local f = Fixture()
         local h = f.Window()
-        local rec, api = h.data.external, f.env.Tabletop
+        local rec = h.data.external
         h.data:Minimize(); FinishAnimation(f, rec)
-        rec.button.xdrag, rec.button.ydrag = 700, 550
-        rec.button:FireEvent("drag", nil)
+        rec.iconX, rec.iconY = 700, 550
+        rec.buttonOps.placementChanged(rec)
         local position = f.env.OverlandMapPreferences.MinimizedPosition()
         Near(position.x, 700); Near(position.y, 550)
-        f.layer.width, f.layer.height, f.scale = 400, 300, 1.4
-        api.RefreshExternal(rec); Near(rec.iconX, 344); Near(rec.iconY, 244); Near(rec.button.selfStyle.uiscale, 1.4)
-        f.slots[rec.railKey] = "left"
-        api.RefreshExternal(rec); assert(rec.button and rec.button.valid)
-        local rail = f.Panel { classes = { "iconRail" }, f.Panel { data = { key = rec.railKey }, width = 40, height = 40 } }
-        f.layer:AddChild(rail); api.RefreshExternal(rec); assert(rec.button == nil)
-        f.rail = false; api.RefreshExternal(rec); assert(rec.button and rec.button.valid)
-        f.rail = true; f.slots[rec.railKey] = nil; api.UndockExternal(rec); assert(rec.button)
-        f.slots[rec.railKey] = "left"; api.ReleaseExternal(rec)
-        assert(f.slots[rec.railKey] == "left" and not f.purged[rec.railKey])
-        api.CloseExternal(rec); assert(f.purged[rec.railKey])
-    end)
-    Check("button layer replacement rebuilds the button without losing its rail slot", function()
-        local f = Fixture()
-        local h = f.Window(); h.data:Minimize(); FinishAnimation(f, h.data.external)
-        local rec, old = h.data.external, h.data.external.button
-        local layer = f.Panel { width = 1000, height = 800 }
-        f.env.Tabletop.TestSetLayer(layer); f.env.Tabletop.RefreshExternal(rec)
-        assert(not old.valid and rec.button.parent == layer)
     end)
     Check("preview and final placement agree at all supported scales", function()
         for _, scale in ipairs({ 0.8, 1, 1.4 }) do
@@ -313,10 +248,9 @@ function checks.Run()
         assert(restored.data:State() == "open" and not h.valid)
         restored.data:Minimize(); FinishAnimation(f, restored.data.external)
         local key = restored.data.external.railKey
-        f.slots[key] = "right"
         restored:DestroySelf(); f.Tick(); CheckNoErrors(f)
         local minimized = assert(f.layer:Get("overland-map-fullscreen"))
-        assert(minimized.data:State() == "minimized" and f.slots[key] == "right" and not f.purged[key])
+        assert(minimized.data:State() == "minimized" and not f.purged[key])
     end)
     Check("restoration waits for readable preferences and map data", function()
         local f = Fixture()
@@ -364,30 +298,13 @@ function checks.Run()
         local h = assert(f.layer:Get("overland-map-fullscreen"))
         assert(h.enabled and h.data:State() == "open" and f.env.OverlandMapPreferences.HostState() == "minimized")
     end)
-    Check("legacy PDF callers still complete without options and stale restores cancel", function()
-        local f = Fixture()
-        local api = f.env.Tabletop
-        local calls = 0
-        local rec = { id = "pdf", railKey = "pdfwindow:fixture", buttonOps = {
-            icon = "pdf", image = function() return "cover", false end,
-            restore = function() end, close = function() end, hover = function() end,
-            chatItems = function() return {} end, badge = { icon = "pdf", color = "clear" }, badgeShown = function() return false end,
-        } }
-        local rect = { x = 100, y = 100, w = 600, h = 400 }
-        api.MinimizeExternal(rec, rect); FinishAnimation(f, rec); assert(rec.button)
-        api.RestoreExternal(rec, rect, function() calls = calls + 1 end); FinishAnimation(f, rec); assert(calls == 1)
-        api.MinimizeExternal(rec, rect, { animate = false }); assert(rec.button)
-        api.RestoreExternal(rec, rect, function() calls = calls + 1 end)
-        local old = rec.externalGhost; api.CloseExternal(rec); old:FireEvent("think")
-        assert(calls == 1)
-    end)
-    Check("a dropped landing callback still settles minimized, and stale hosts cannot move the state", function()
+    Check("minimizing settles once the flight is over, and stale hosts cannot move the state", function()
         local f = Fixture()
         local h = f.Window()
-        h.data:Minimize()
-        -- Tabletop cancels the flight without calling back (as on its own reload).
         local rec = h.data.external
-        rec.externalGhost:DestroySelf(); rec.externalGhost, rec.externalAnimating = nil, false
+        h.data:Minimize()
+        assert(h.data:State() == "minimizing")
+        rec.externalGhost:FireEvent("think")
         assert(h.data:State() == "minimizing")
         f.Tick(); CheckNoErrors(f)
         assert(h.data:State() == "minimized" and f.env.OverlandMapHost.State() == "minimized")
@@ -412,6 +329,8 @@ function checks.Run()
         h.data:OpenOnTabletop("b", true); assert(h.data.content.data.mapId == "b")
         f.env.Tabletop.ScreenToLayer = nil
         assert(not adapter.Has("place") and not h.data:CanPlace())
+        f.env.Tabletop.RegisterWindowProvider = nil
+        assert(not adapter.Has("provider"))
     end)
     Check("native popout and return move through the state machine", function()
         local f = Fixture()

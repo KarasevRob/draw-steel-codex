@@ -99,14 +99,14 @@ function OverlandMapTabletop.NewRecord(host)
     }
 end
 
---- Fly the window into its button; done runs when it lands (not if it is restored first).
+--- Fly the window into its button. Tabletop does not report the landing; lifecycle
+--- reconciliation notices when the flight is over (Animating) and settles the state.
 --- @param rec table
 --- @param from nil|{x: number, y: number, w: number, h: number}
 --- @param animate boolean
---- @param done fun()
-function OverlandMapTabletop.Minimize(rec, from, animate, done)
+function OverlandMapTabletop.Minimize(rec, from, animate)
     if not Adapter.Has("minimize") then return end
-    API().MinimizeExternal(rec, from, { animate = animate, done = done })
+    API().MinimizeExternal(rec, from, { animate = animate })
 end
 
 --- Grow the window back out of its button, then call done. Without Tabletop, done runs now.
