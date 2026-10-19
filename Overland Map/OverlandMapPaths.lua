@@ -314,16 +314,16 @@ function OverlandMapPaths.SameLook(item)
 end
 
 --- Game-wide: the unit travel times show in (C9).
---- @return "days"|"watches"
+--- @return "days"|"watches"|"custom"
 function OverlandMapPaths.TimeUnit()
     local data = R.StateData()
     local unit = data and data.timeUnit
-    if units[unit] then return unit --[[@as "days"|"watches"]] end
-    return C.defaultTimeUnit --[[@as "days"|"watches"]]
+    if units[unit] then return unit --[[@as "days"|"watches"|"custom"]] end
+    return C.defaultTimeUnit --[[@as "days"|"watches"|"custom"]]
 end
 local TimeUnit = OverlandMapPaths.TimeUnit
 
---- @param unit "days"|"watches"
+--- @param unit "days"|"watches"|"custom"
 --- @return boolean ok
 --- @return nil|OverlandMapWriteReason reason
 --- @return nil|OverlandMapUndoEntry undo
@@ -337,6 +337,58 @@ function OverlandMapPaths.SetTimeUnit(unit)
     return true, nil, Entry(description, { step })
 end
 
+--- @return table<string, string> forms plain text, with defaults for missing or invalid names
+function OverlandMapPaths.CustomTimeUnit()
+    local data = R.StateData()
+    local stored = data and data.customTimeUnit
+    local forms = {}
+    for _, key in ipairs({ "singular", "plural" }) do
+        local value = type(stored) == "table" and stored[key] or nil
+        forms[key] = R.ValidText(value) and value or T("time.custom." .. key)
+    end
+    return forms
+end
+
+--- @param changes table<string, string>
+--- @return boolean ok
+--- @return nil|OverlandMapWriteReason reason
+--- @return nil|OverlandMapUndoEntry undo
+function OverlandMapPaths.SetCustomTimeUnit(changes)
+    if not Model.IsDirector() then return false, "permission", nil end
+    if type(changes) ~= "table" then return false, "invalid", nil end
+    local forms, changed = OverlandMapPaths.CustomTimeUnit(), false
+    for key, value in pairs(changes) do
+        if (key ~= "singular" and key ~= "plural") or type(value) ~= "string" then return false, "invalid", nil end
+        value = R.TrimSingleLine(value)
+        if not R.ValidText(value) then return false, "invalid", nil end
+        changed = changed or forms[key] ~= value
+        forms[key] = value
+    end
+    if not changed then return true, nil, nil end
+    local description = "Change custom travel time unit"
+    local step = Model.WriteStateKey("customTimeUnit", forms, description)
+    if step == nil then return false, "unavailable", nil end
+    return true, nil, Entry(description, { step })
+end
+
+--- The plain unit name beside a numeric input; nil uses the plural.
+--- @param count nil|number
+--- @return string
+function OverlandMapPaths.TimeUnitName(count)
+    if TimeUnit() ~= "custom" then return T("set.timeUnit." .. TimeUnit()) end
+    local forms = OverlandMapPaths.CustomTimeUnit()
+    return count == 1 and forms.singular or forms.plural
+end
+
+--- Include editable names when a view caches travel-time wording.
+--- @return string
+function OverlandMapPaths.TimeFormatKey()
+    local unit = TimeUnit()
+    if unit ~= "custom" then return unit end
+    local forms = OverlandMapPaths.CustomTimeUnit()
+    return table.concat({ unit, forms.singular, forms.plural }, "\n")
+end
+
 -- Time wording (manifest section 22) ----------------------------------------------------------------
 
 -- A count for the copy: one decimal at most, and a whole number as an integer so it
@@ -347,11 +399,15 @@ local function Count(value)
     return rounded
 end
 
---- A stored time in the game's unit: "2 days", "1 day and 2 watches", "3 watches".
+--- A stored time in the game's unit, as plain text for copy arguments.
 --- @param watches number
 --- @return string
 function OverlandMapPaths.FormatTime(watches)
     if not IsFinite(watches) or watches <= 0 then return T("time.none") end
+    if TimeUnit() == "custom" then
+        local count = Count(watches)
+        return tostring(count) .. " " .. OverlandMapPaths.TimeUnitName(count)
+    end
     if TimeUnit() == "watches" then return T("time.watches", { count = Count(watches) }) end
     local days = math.floor(watches / C.watchesPerDay + 1e-9)
     local rest = watches - days * C.watchesPerDay

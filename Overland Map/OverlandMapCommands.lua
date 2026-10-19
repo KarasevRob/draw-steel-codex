@@ -152,6 +152,9 @@ end
 function OverlandMapCommands.SetTimeUnit(unit)
     return OverlandMapCommands.Result(OverlandMapPaths.SetTimeUnit(unit))
 end
+function OverlandMapCommands.SetCustomTimeUnit(changes)
+    return OverlandMapCommands.Result(OverlandMapPaths.SetCustomTimeUnit(changes))
+end
 function OverlandMapCommands.UpdateLabel(id, changes, callbacks, retry)
     return OverlandMapCommands.Result(OverlandMapLabels.Update(id, changes, callbacks, retry))
 end

@@ -1,5 +1,7 @@
 local fixture = {}
-local Base = dofile("Overland Map/tests/LabelChecks.lua")
+local source = debug.getinfo(1, "S").source:sub(2):gsub("\\", "/")
+local directory = source:match("^(.*)/[^/]+$") or "Overland Map/tests"
+local Base = dofile(directory .. "/LabelChecks.lua")
 
 --- Deterministic in-memory data; the transport never reaches a live game's tables.
 --- @param dense boolean

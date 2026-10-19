@@ -283,6 +283,7 @@ function OverlandMapLogPanel.Create(ctx)
         -- Rebuilding hundreds of rows on every refresh is wasteful; rebuild only when something shown changed.
         local key = table.concat({
             tostring(Model.Revision()), tostring(#entries),
+            OverlandMapPaths.TimeFormatKey(),
             tostring(editingId), tostring(Model.IsDirector()), tostring(DayHeading(dmhub.serverTimeMilliseconds)),
         }, ":")
         if key ~= signature then

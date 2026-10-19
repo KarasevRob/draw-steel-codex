@@ -405,7 +405,7 @@ function OverlandMapPinText.CreateSettings(ctx)
     local appearance = gui.Panel { classes = { "overlandMapLabelField", "collapsed" },
         Field("label.spacing", spacing), themeColor, color, previewHint, appearanceControls, plateColor }
     local arrow = gui.ExpandoArrow { halign = "left", valign = "center", interactable = false }
-    local disclosure = gui.Panel { classes = { "overlandMapSectionHeader" },
+    local disclosure = gui.Panel { id = "overland-map-pin-text-appearance", classes = { "overlandMapSectionHeader" }, bgimage = true,
         click = function()
             local expand = appearance:HasClass("collapsed")
             appearance:SetClass("collapsed", not expand); arrow:SetClass("expanded", expand)

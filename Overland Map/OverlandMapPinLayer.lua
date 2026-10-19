@@ -121,7 +121,8 @@ function OverlandMapPinLayer.Create(ctx, state, input)
         pin.data.disc:SetClass("collapsed", plateStyle)
         ShowPart(pin, "plate", plateStyle)
         local text = Model.DisplayName(location)
-        pin.data.anchor = plateStyle and format.anchor or "center"
+        local alignment = format.anchor == "left" and "right" or format.anchor == "right" and "left" or "center"
+        pin.data.anchor = plateStyle and alignment or "center"
         pin.selfStyle.halign = pin.data.anchor
         if plateStyle then
             pin.data.name:SetClass("collapsed", true)
@@ -136,8 +137,8 @@ function OverlandMapPinLayer.Create(ctx, state, input)
             if pin.data.glyph.bgimage ~= icon then pin.data.glyph.bgimage = icon end
             pin.data.glyph:SetClass("image", isImage)
             OverlandMapPinText.Apply(pin.data.name, text, format, location.importance, false, state.scale)
-            pin.data.name.selfStyle.halign = format.anchor
-            pin.data.name.selfStyle.x = format.anchor == "left" and hit / 2 or format.anchor == "right" and -hit / 2 or 0
+            pin.data.name.selfStyle.halign = alignment
+            pin.data.name.selfStyle.x = alignment == "left" and hit / 2 or alignment == "right" and -hit / 2 or 0
             pin.data.name.selfStyle.y = (hit + disc) / 2 + 2
             pin.data.showName = NameVisible(pin.data)
             pin.data.name:SetClass("collapsed", not pin.data.showName)

@@ -84,6 +84,13 @@ or offline evidence before the rewrite can be marked complete.
 
 ## Implemented boundaries
 
+- The [lazy-editor follow-up](../tests/LAZY_EDITORS_2026-10-19.md) defers six whole
+  components to first eligible use in shell-owned slots. Retained closing binds keep
+  observer, artwork and Log save behavior. The path-border experiment failed its
+  primitive appearance gate and made no production renderer changes. Lazy construction
+  and lifecycle checks pass. The user accepted performance for this phase on 2026-10-19,
+  closing further timing work while retaining the recorded measurement limitations.
+
 - Directory/files, namespaces/types, panel IDs, selectors, diagnostics, preferences,
   state document and tables now use Overland names. Labels use `OverlandMapLabels`.
   Sidecars use `locationId`, schema 1. Combat checkpoint registration was removed.
@@ -171,6 +178,10 @@ available instrumentation, so the experiment stops at its first gate and product
 retains the pooled renderer. Visual/performance gates were not used to justify adoption.
 There is no renderer selector. A future experiment would still need dense median
 p95 improvement >=15%, normal p95 regression <=5%, and cold-open regression <=10%.
+The [2026-10-19 cleanup follow-up](../tests/NATIVE_SHAPES_CLEANUP_2026-10-19.md)
+traced the missing path disposal request through the library's command-release
+logic and identified existing native mesh-pool counters. Engine cleanup review
+and access to those live counters remain prerequisites; the gate has not passed.
 
 ## Remaining acceptance work
 
@@ -182,9 +193,13 @@ and `tests/MapAidsChecks.lua` remain unavailable. The user confirmed that no bac
 is available and deferred resolving the comparative benchmark. Recovered files are
 stored as `.lua.txt` under `output/overland-rewrite/recovered-baseline` so they do not
 introduce old globals into repository type checking or runtime registration.
-The isolated live renderer fixture excludes texture download and shell construction;
-its construction timing is not end-to-end cold opening. Native mesh/camera disposal
-counts are unavailable. These limits prevent a complete comparative performance claim.
+The [2026-10-19 benchmark](../tests/PERFORMANCE_2026-10-19.md) now measures the current
+version's construction, cached full-content opening and separate interaction phases.
+It found substantial opening and settled-zoom stalls. Full-content opening excludes
+network download and host creation; dense opening has explicit sampling/focus limits.
+The engine caps frame percentiles at 2 seconds and omits frames of 10 seconds or more.
+Native mesh/camera disposal counts and a matched old implementation remain unavailable.
+Current measurement is complete with these limits; full comparative acceptance is open.
 
 The follow-up fixed Escape leaving the map during a pin drag, selected path handles
 losing to overlapping pins/Party, the second double-click release reopening the
@@ -205,11 +220,13 @@ user-reported manual pass; no per-item trace for the extended matrix was supplie
 Virtual input still does not establish OS click thresholds, pointer capture beyond
 the app window or native Submit behavior. Existing engine limitations, including
 native-popout wheel routing, retain their recorded status; this general confirmation
-does not establish an engine fix. Comparative performance remains deferred and full
-acceptance is open. Two-client tests are excluded.
+does not establish an engine fix. Current-version performance has been measured;
+matched comparative performance remains deferred and full acceptance is open.
+Two-client tests are excluded.
 
 All development clients must use the rewritten version; mixed old/new sessions are
 unsupported. Old development maps, Party state, logs and preferences remain untouched
 and are not loaded. The rewrite was published on 2026-10-18 under the original CodeMod
 ID after the user's separate authorization. Manual testing has the user confirmation
-above; comparative performance remains deferred.
+above; current-version performance evidence is linked above, and the matched
+pre-rewrite comparison remains deferred.

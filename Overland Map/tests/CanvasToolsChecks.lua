@@ -70,6 +70,15 @@ function checks.Run()
         f.T.PlaceAt(f.ctx, nil, nil)
         assert(#f.writes == before)
     end)
+    Check("pointcrawl ruler ignores a stored daily pace while free travel still uses it", function(f)
+        local map = { scale = { u1 = 0, v1 = 0, u2 = 1, v2 = 0, distance = 30, unit = "mi" }, pace = 30 }
+        local measure = { u1 = 0, v1 = 0, u2 = 1, v2 = 0 }
+        local text = f.T.MeasureText(map, 1000, 500, measure)
+        assert(text == "30 mi - 1 day")
+        map.mode = "pointcrawl"
+        text = f.T.MeasureText(map, 1000, 500, measure)
+        assert(text == "30 mi")
+    end)
     Check("panel positioning and centered placement remain independent", function(f)
         local panel = {}
         f.env.OverlandMapDrawing.PositionPanel(panel, 12, -7)

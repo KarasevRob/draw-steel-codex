@@ -114,6 +114,10 @@ dash into another native shape reduces the object-count advantage.
 
 ### Mesh cleanup concern
 
+The [2026-10-19 follow-up](../tests/NATIVE_SHAPES_CLEANUP_2026-10-19.md) traces the
+command-release behavior and identifies existing native mesh-pool counters for
+an engine diagnostic. Cleanup remains unverified at runtime.
+
 In the inspected build, `SheetShapes.RemoveDrawShape` only removes the dictionary entry.
 `SheetShapes.OnDestroy` releases the render texture, but neither inspected method calls
 `Dispose` on the retained path meshes. The underlying `Shapes.DisposableMesh.Dispose`

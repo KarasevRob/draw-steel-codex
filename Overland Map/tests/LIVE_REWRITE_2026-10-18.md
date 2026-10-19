@@ -90,6 +90,10 @@ or used to justify adoption. Production keeps the pooled backend, with no select
 
 ## Performance scope
 
+Follow-up: the [2026-10-19 benchmark](PERFORMANCE_2026-10-19.md) records separate
+opening/interaction measurements and corrects the interpretation of the engine's
+frame timer limits. The observations below remain the original mixed-window protocol.
+
 `PerformanceFixture.lua` builds 250 pins, 150 paths, 50 labels and both aids in a fake
 transport. Normal paths have three segments; dense paths have the supported maximum
 32 bends. `LiveRendererFixture.lua` renders that data through the actual engine GUI

@@ -487,16 +487,15 @@ function OverlandMapPathPanel.Create(ctx)
         end
         for _, row in ipairs(typesList.children) do row:SetClass("selected", row.data.id == path.typeId) end
 
-        local unit = T("set.timeUnit." .. Paths.TimeUnit())
         SetInput(timeInput, "time", TimeInputText(path.time))
-        SetText(timeUnit, unit)
+        SetText(timeUnit, Copy.Literal(Paths.TimeUnitName(tonumber(TimeInputText(path.time)))))
         timeError:SetClass("collapsed", not badTime.time)
         backSegments.data.select(path.back)
         backTimeFields:SetClass("collapsed", path.back ~= "different")
         local _, b = Paths.Ends(path)
         SetText(backTimeLabel, T("edit.path.backTime", { b = Model.DisplayName(b) }))
         SetInput(backTimeInput, "backTime", TimeInputText(path.backTime))
-        SetText(backTimeUnit, unit)
+        SetText(backTimeUnit, Copy.Literal(Paths.TimeUnitName(tonumber(TimeInputText(path.backTime)))))
         backTimeError:SetClass("collapsed", not badTime.backTime)
         SetInput(descriptionInput, "description", path.description)
         SetInput(noteInput, "note", path.note)

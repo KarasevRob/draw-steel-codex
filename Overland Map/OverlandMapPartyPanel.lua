@@ -76,7 +76,7 @@ function OverlandMapPartyPanel.MenuEntries(ctx)
             -- The core menu's shortcut slot hugs the text in the same colour, so the time goes in brackets.
             submenu[#submenu + 1] = {
                 text = T("party.travel.row", { dest = NameOf(option.toId), path = PathLabel(path) })
-                    .. " (" .. Paths.FormatTime(option.time) .. ")",
+                    .. " (" .. Copy.Literal(Paths.FormatTime(option.time)) .. ")",
                 click = function() OverlandMapPartyPanel.Travel(ctx, option) end,
             }
         end
@@ -127,7 +127,7 @@ function OverlandMapPartyPanel.Create(ctx)
             gui.Panel {
                 classes = { "overlandMapTravelText" }, interactable = false,
                 Label({ "overlandMapRowName", "sizeS" }, T("party.travel.row", { dest = NameOf(option.toId), path = PathLabel(path) })),
-                Label({ "overlandMapMeta", "sizeXs" }, Paths.FormatTime(option.time)),
+                Label({ "overlandMapMeta", "sizeXs" }, Copy.Literal(Paths.FormatTime(option.time))),
             },
         } --- @type Panel[]
         -- The Director sees which ways players don't know yet (W1).
@@ -187,7 +187,7 @@ function OverlandMapPartyPanel.Create(ctx)
         heading:SetClass("collapsed", #options == 0)
 
         -- Rebuilt only when a row changed, so a refresh does not relayout the list.
-        local parts = { Paths.TimeUnit() }
+        local parts = { Paths.TimeFormatKey() }
         local items = {} --- @type {option: OverlandMapTravelOption, path: OverlandMapPathRecord}[]
         for _, option in ipairs(options) do
             local path = Paths.Get(option.pathId)

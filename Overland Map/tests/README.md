@@ -2,28 +2,38 @@
 
 ## Test helpers
 
-The nine Lua suites and the offline runner are not registered CodeMod files.
+The ten Lua suites and the offline runner are not registered CodeMod files.
 LabelChecks provides the isolated model fixture used by several other suites.
 
 | Suite | Checks | Execution |
 |---|---:|---|
-| CanvasToolsChecks | 6 | Offline |
+| CanvasToolsChecks | 7 | Offline |
 | TextAppearanceChecks | 14 | Offline |
 | LabelChecks | 26 | Offline |
 | PinTextChecks | 17 | Offline |
 | ArtworkChecks | 27 | Offline |
 | WindowHostChecks | 17 | Offline; includes the core resize helper |
-| ImportOfflineChecks | 12 | Offline; transport, preview, Undo, Travel sort and log IDs |
+| ImportOfflineChecks | 15 | Offline; transport, preview, Undo, Travel sort and log IDs |
 | MapAidsChecks | 28 | Offline; geometry, validation, permissions, queues, recovery, preferences and rendering |
 | LifetimeChecks | 38 | Offline; game/owner lifetimes, saves, transitions, receipts, partial results and input arbitration |
+| LazyPanelChecks | 23 | Offline; production shell, first use, reuse, closing binds, guards and teardown |
 | ImportChecks | Parser/editor checks | Connected Director app; no Import writes in the editor suite |
 
-The rewrite passes 185 checks across nine offline suites. The original baseline was
+The current checkout passes 212 checks across ten offline suites. The original baseline was
 146 checks across eight suites. [Rewrite evidence](LIVE_REWRITE_2026-10-18.md) records
 the live checks and the native input/renderer decisions.
 On 2026-10-19 the user reported that the single-client manual tests passed; see the
 [manual checklist](MANUAL_REWRITE_ACCEPTANCE.md) for the scope of that confirmation.
-Comparative performance remains deferred and is not recorded as passed.
+The [2026-10-19 performance report](PERFORMANCE_2026-10-19.md) and
+[raw results](PERFORMANCE_2026-10-19.json) separate opening, panning, zoom and bend previews.
+It also documents the reproducible live helpers and engine timer limits. A matched
+pre-rewrite comparison remains unavailable; comparative performance is not recorded as passed.
+The [lazy-editor follow-up](LAZY_EDITORS_2026-10-19.md) records the matched eager/lazy
+comparison, eight real-control lifecycle checks and the rejected bordered-path primitive.
+The user accepted performance for this phase on 2026-10-19. Its native appearance/physical
+keyboard checks remain separate and are not covered by the earlier manual acceptance.
+The [native Shapes follow-up](NATIVE_SHAPES_CLEANUP_2026-10-19.md) records the installed
+wrapper's disposal gap, available native counters and the prerequisites for a renderer comparison.
 See [map aids verification](MAP_AIDS.md) for the live record and scope of the checks.
 
 The earlier review follow-up passed 118 isolated checks across seven offline suites. It added
@@ -56,7 +66,7 @@ Replace LabelChecks with the desired suite. Feature evidence:
 
 For canvas placement, run
 `& '..\dependencies\lua\bin\lua.exe' 'Overland Map/tests/CanvasToolsChecks.lua' run`.
-The five isolated checks load the complete production module and cover Location/label
+The seven isolated checks load the complete production module and cover Location/label
 creation, ruler/scale points, ignored clicks, and independent panel positioning.
 
 Verified live on 2026-10-16: Add location and Add label followed by map clicks create

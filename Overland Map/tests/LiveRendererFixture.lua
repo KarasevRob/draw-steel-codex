@@ -1,7 +1,8 @@
 -- Called with PerformanceFixture's isolated data and renderer modules loaded into that environment.
 local fixture = {}
 
-function fixture.Create(f, engineGui, engineDmhub, engineAssets, compassImage)
+function fixture.Create(f, engineGui, engineDmhub, engineAssets, compassImage, options)
+    options = options or {}
     local env = f.env
     env.gui, env.assets = engineGui, engineAssets
     setmetatable(env.dmhub, { __index = function(_, key) return engineDmhub[key] end })
@@ -9,7 +10,7 @@ function fixture.Create(f, engineGui, engineDmhub, engineAssets, compassImage)
     env.dmhub.Schedule = engineDmhub.Schedule
     local map = f.M.GetLocation(f.map)
     map.mapAids.compass.imageId = compassImage
-    f.mod.images = {}
+    f.mod.images = options.modImages or {}
     local alive, root = true, nil
     local data = env.OverlandMapSession.ViewState()
     data.mapId = f.map
@@ -35,13 +36,17 @@ function fixture.Create(f, engineGui, engineDmhub, engineAssets, compassImage)
         aids.Layout(layout)
     end
     local function Bind()
-        pins.Bind(); paths.Bind(f.map); labels.Bind(f.map); aids.Bind(map)
+        if options.pins ~= false then pins.Bind() end
+        if options.paths ~= false then paths.Bind(f.map) end
+        if options.labels ~= false then labels.Bind(f.map) end
+        if options.aids ~= false then aids.Bind(map) end
     end
     root = engineGui.Panel {
         id = "overland-map-renderer-fixture", width = 1200, height = 720, floating = true,
         bgimage = "panels/square.png", bgcolor = "#303f35ff", clip = true,
         styles = ThemeEngine.MergeStyles(OverlandMapStyles.Build()),
-        data = { fixture = f, Layout = Layout, Bind = Bind, paths = paths },
+        data = { fixture = f, Layout = Layout, Bind = Bind, paths = paths, pins = pins,
+            labels = labels, aids = aids, state = state },
         thinkTime = 0.001,
         think = function(element) if element.data.Step then element.data.Step() end end,
         destroy = function() alive = false end,
