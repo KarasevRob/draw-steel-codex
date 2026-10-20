@@ -84,8 +84,9 @@ function OverlandMapLabelLayer.Create(ctx)
             entry.text }
         entry.image.Mount(entry.panel)
         layer:AddChild(entry.panel)
-        entry.eye = gui.Panel { classes = { "overlandMapLabelEye", "collapsed" }, floating = true, interactable = false,
-            gui.Panel { classes = { "overlandMapIconGlyph" }, bgimage = C.iconEyeSlash, interactable = false } }
+        entry.eye = gui.Panel { classes = { "overlandMapPinBadge", "collapsed" }, floating = true, interactable = false,
+            halign = "center", valign = "center", data = { written = {} },
+            gui.Panel { classes = { "overlandMapPinBadgeGlyph" }, bgimage = C.iconEyeSlash, interactable = false } }
         layer:AddChild(entry.eye)
         return entry
     end
@@ -141,8 +142,11 @@ function OverlandMapLabelLayer.Create(ctx)
                 if not mod.unloaded and entry.look == captured then Measure(entry) end
             end)
         end
-        Session.SetClassIf(entry.panel, "hiddenForPlayers", row.visibility == "hidden")
-        Session.SetClassIf(entry.eye, "collapsed", row.visibility ~= "hidden")
+        Session.SetClassIf(entry.eye, "collapsed", row.visibility ~= "hidden" or not OverlandMapPreferences.ShowVisibility())
+        local badge = C.pinBadgeSize * Session.UIScale()
+        Style(entry.eye, "width", badge)
+        Style(entry.eye, "height", badge)
+        Style(entry.eye, "cornerRadius", badge / 2)
     end
 
     function api.Bind(mapId)
@@ -152,7 +156,8 @@ function OverlandMapLabelLayer.Create(ctx)
         -- The tool and the right to edit decide whether the selection shows its handles.
         local key = table.concat({ tostring(mapId), tostring(OverlandMapModel.Revision()), tostring(selected),
             tostring(OverlandMapPreferences.ShowLabels()), tostring(OverlandMapModel.IsDirector()), tostring(ctx.data.locked),
-            tostring(Session.UIScale()), tostring(ctx.data.tool), tostring(Labels.CanEdit(selectedRow)) }, ":")
+            tostring(Session.UIScale()), tostring(ctx.data.tool), tostring(Labels.CanEdit(selectedRow)),
+            tostring(OverlandMapPreferences.ShowVisibility()) }, ":")
         if key == signature and version == signatureVersion then return end
         dirty = true
         -- Typing in the editor changes only the selected label: restyle that one entry.
@@ -241,7 +246,7 @@ function OverlandMapLabelLayer.Create(ctx)
             local box = Box(entry)
             if box then
                 if box.geometry.image then entry.image.Layout(box.geometry.image) end
-                OverlandMapDrawing.PlaceCentered(entry.eye, layout, Offset(box, box.width / 2 + 10, -box.height / 2))
+                OverlandMapDrawing.PlaceCentered(entry.eye, layout, Offset(box, -box.width / 2, -box.height / 2))
             end
         end
         local entry = entries[ctx.data.selectedLabelId]
@@ -325,10 +330,6 @@ function OverlandMapLabelLayer.Styles()
             bgcolor = "clear",
         },
         {
-            selectors = { "overlandMapLettering", "hiddenForPlayers" },
-            opacity = 0.5,
-        },
-        {
             selectors = { "overlandMapLabelOutline" },
             bgimage = "panels/square.png",
             bgcolor = "clear",
@@ -343,16 +344,6 @@ function OverlandMapLabelLayer.Styles()
             bgcolor = "@bg",
             borderWidth = 2,
             borderColor = "@accent",
-            cornerRadius = 4,
-            halign = "center",
-            valign = "center",
-        },
-        {
-            selectors = { "overlandMapLabelEye" },
-            bgimage = "panels/square.png",
-            bgcolor = "@bg",
-            width = 20,
-            height = 20,
             cornerRadius = 4,
             halign = "center",
             valign = "center",

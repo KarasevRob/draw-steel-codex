@@ -56,6 +56,10 @@ The approved map-aids and personal hover-control wording is recorded in
 | tb.lock.off | Positions unlocked - click to lock | Tooltip |
 | toast.locked | Positions are locked | Once per blocked drag |
 | toast.locked.unlock | Unlock | Toast action |
+| vis.chip | {count} hidden from players | Director map count; toggles the overlay |
+| vis.chip.one | {count} hidden from players | Singular count |
+| vis.chip.tooltip | Show or hide which items players cannot see | Visibility count chip |
+| set.showVisibility | Show player visibility | Personal setting, initially off |
 | tb.ruler | Ruler | Tooltip |
 | tb.show | Show this map to players | Tooltip, Director only |
 | tb.viewAs.off | View as player | Tooltip, Director only |

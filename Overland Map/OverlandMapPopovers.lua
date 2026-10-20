@@ -643,6 +643,7 @@ local function BuildSettings(ctx)
     for _, item in ipairs({
         { "cam.names", OverlandMapPreferences.ShowNames, OverlandMapPreferences.SetShowNames },
         { "label.show", OverlandMapPreferences.ShowLabels, OverlandMapPreferences.SetShowLabels },
+        { "set.showVisibility", OverlandMapPreferences.ShowVisibility, OverlandMapPreferences.SetShowVisibility },
         { "aids.showCompass", OverlandMapPreferences.ShowCompass, OverlandMapPreferences.SetShowCompass },
         { "aids.showScaleBar", OverlandMapPreferences.ShowScaleBar, OverlandMapPreferences.SetShowScaleBar },
         { "aids.showHover", OverlandMapPreferences.ShowHoverText, OverlandMapPreferences.SetShowHoverText },

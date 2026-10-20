@@ -126,6 +126,7 @@ end
 --- Build the path layer for a canvas.
 --- @return OverlandMapPathLayerApi
 function OverlandMapPathLayer.Create()
+    local showVisibility = OverlandMapPreferences.ShowVisibility()
     local function Piece(classes)
         return gui.Panel { classes = classes, floating = true, halign = "center", valign = "center", interactable = false }
     end
@@ -230,7 +231,7 @@ function OverlandMapPathLayer.Create()
         Bar(mark, x1 + (offsetX or 0), y1 + (offsetY or 0), x2 + (offsetX or 0), y2 + (offsetY or 0), thickness)
         Set(mark, "bgcolor", entry.look.color)
         -- A hidden path fades its colour but keeps its casing at full strength (Q12).
-        Set(mark, "opacity", entry.hidden and C.pathHiddenOpacity or 1)
+        Set(mark, "opacity", showVisibility and entry.hidden and C.pathHiddenOpacity or 1)
     end
 
     -- Draws the visible part [t0, t1] of segment `index` of a path in its pattern.
@@ -415,7 +416,7 @@ function OverlandMapPathLayer.Create()
                 if t0 ~= nil and t1 ~= nil then
                     DrawSegment(entry, i, ax, ay, bx, by, t0, t1)
                     -- The eye-slash repeats on every segment of a hidden path (Q12).
-                    if entry.hidden and t0 <= 0.5 and t1 >= 0.5 then
+                    if showVisibility and entry.hidden and t0 <= 0.5 and t1 >= 0.5 then
                         local badge = badges.Next()
                         local size = C.pathBadgeSize * scale
                         Set(badge, "width", size)
@@ -440,7 +441,8 @@ function OverlandMapPathLayer.Create()
 
     local inputs = "" -- what the last Bind was built from
     local function Bind(mapId)
-        local parts = { tostring(Model.IsDirector()), Paths.TimeFormatKey() }
+        showVisibility = OverlandMapPreferences.ShowVisibility()
+        local parts = { tostring(Model.IsDirector()), Paths.TimeFormatKey(), tostring(showVisibility) }
         for _, item in ipairs(Paths.Types()) do
             parts[#parts + 1] = table.concat({ item.id, item.name, item.pattern, item.color, item.width }, "|")
         end

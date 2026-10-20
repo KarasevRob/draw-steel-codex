@@ -43,3 +43,15 @@ end
 function OverlandMapReaders.Search(query, limit)
     return OverlandMapLabels.Search(query, limit)
 end
+
+--- Counts hidden content on this map only, using the same viewer-filtered lists as the canvas.
+function OverlandMapReaders.HiddenCount(mapId)
+    if not Model.IsDirector() or Model.GetLocation(mapId) == nil then return 0 end
+    local count = 0
+    for _, rows in ipairs({ Model.Children(mapId), OverlandMapLabels.ForMap(mapId), Paths.Paths(mapId) }) do
+        for _, row in ipairs(rows) do
+            if row.visibility == "hidden" then count = count + 1 end
+        end
+    end
+    return count
+end

@@ -42,6 +42,19 @@ Plan: [AUTHORING_UX_PLAN.md](../docs/AUTHORING_UX_PLAN.md).
   during detection used cached source; touching the files, observing the read log and
   checking the loaded function's ending line confirmed the corrected source was active.
 
+## Phase 3
+
+- Removed hidden pin/label fades. Visibility badges and the hidden path fade now follow
+  the per-viewer Show player visibility preference, initially off. Label eyes use the
+  round pin badge at the label's top-left corner.
+- Added the Director's map-wide hidden count and toggle chip. Broadhurst reports 25.
+- All 264 checks across 14 suites passed, with syntax and ASCII checks. The mod type
+  check still reports only the 60 existing baseline diagnostics.
+- Deployed and visually checked Broadhurst with the overlay off and on: names stay
+  readable, pin and label eyes appear on request, and the chip reflects the preference.
+  Live inspection caught a fixed button-size class overriding the chip width; explicit
+  auto layout sizes corrected the overflow (228 px measured, full text visible).
+
 ## Live verification and prerequisites
 
 - The user opened the game after the initial bridge/lobby checks. No app start or stop

@@ -733,10 +733,6 @@ function OverlandMapCanvas.Styles()
             bgcolor = "clear",
         },
         {
-            selectors = { "overlandMapPin", "hiddenPin" },
-            opacity = 0.55,
-        },
-        {
             selectors = { "overlandMapWaiting" },
             opacity = 0,
             priority = 10,

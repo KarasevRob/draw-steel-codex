@@ -728,6 +728,8 @@ function OverlandMapPanel.Create(options)
     end
 
     local function RefreshBanners(map)
+        local hidden = map ~= nil and OverlandMapReaders.HiddenCount(map.id) or 0
+        local showVisibility = OverlandMapPreferences.ShowVisibility()
         local lines = {}
         if Model.ViewingAsPlayer() then lines[#lines + 1] = T("banner.viewAs") end
         if map ~= nil and not data.locked then lines[#lines + 1] = T("chip.unlocked") end
@@ -751,10 +753,25 @@ function OverlandMapPanel.Create(options)
             and #Model.Children(map.id) < 2 then
             lines[#lines + 1] = T("hint.pointcrawl.empty")
         end
-        local key = table.concat(lines, "\n")
+        local key = hidden .. ":" .. tostring(showVisibility) .. ":" .. table.concat(lines, "\n")
         if key == shell.bannerKey then return end
         shell.bannerKey = key
         local children = {} --- @type Panel[]
+        if hidden > 0 then
+            local chip = gui.Button {
+                id = "overland-map-visibility", classes = { "overlandMapChip", "sizeS" },
+                width = "auto", height = "auto", halign = "left", text = T("vis.chip", { count = hidden }),
+                hover = gui.Tooltip(T("vis.chip.tooltip")),
+                click = function()
+                    if not ctx.IsAlive() or not Model.IsDirector() then return end
+                    OverlandMapPreferences.SetShowVisibility(not OverlandMapPreferences.ShowVisibility())
+                    RefreshAll("preferences")
+                end,
+            }
+            chip:SetClass("on", showVisibility)
+            chip:SetClass("selected", showVisibility)
+            children[#children + 1] = chip
+        end
         for _, line in ipairs(lines) do
             children[#children + 1] = gui.Label { classes = { "overlandMapBanner", "sizeS" }, text = line, interactable = false }
         end

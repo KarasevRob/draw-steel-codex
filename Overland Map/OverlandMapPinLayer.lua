@@ -105,11 +105,11 @@ function OverlandMapPinLayer.Create(ctx, state, input)
     -- Restyling a pin costs engine work even when nothing changed, so a pin is
     -- rebound only when its row (revision), selection, size or badge changed.
     -- Returns true when it did, so the pins are placed again.
-    local function BindPin(pin, location, format, formatKey)
+    local function BindPin(pin, location, format, formatKey, showVisibility)
         local canOpen = location.imageId ~= "" and Model.CanOpenMap(location)
         local selected = data.selectedId == location.id
         local signature = table.concat({
-            tostring(location.revision), tostring(selected), tostring(state.scale), tostring(canOpen), formatKey,
+            tostring(location.revision), tostring(selected), tostring(state.scale), tostring(canOpen), formatKey, tostring(showVisibility),
         }, ":")
         if pin.data.signature == signature then return false end
         pin.data.signature = signature
@@ -157,9 +157,8 @@ function OverlandMapPinLayer.Create(ctx, state, input)
             panel.selfStyle.x, panel.selfStyle.y = x, inset
         end
         -- The hidden badge is left-aligned and the map badge right-aligned, so their x offsets mirror.
-        PlaceBadge("hiddenBadge", location.visibility == "hidden", inset)
+        PlaceBadge("hiddenBadge", showVisibility and location.visibility == "hidden", inset)
         PlaceBadge("mapBadge", canOpen, -inset)
-        pin:SetClass("hiddenPin", location.visibility == "hidden")
         pin:SetClass("selected", selected)
         return true
     end
@@ -168,8 +167,9 @@ function OverlandMapPinLayer.Create(ctx, state, input)
         -- Every refresh comes here, and reading 250 rows costs ms even when none changed.
         -- A pin's look depends only on these, so the same inputs mean the same pins.
         local format, formatKey = OverlandMapPinText.Format(Model.GetLocation(state.mapId))
+        local showVisibility = OverlandMapPreferences.ShowVisibility()
         local inputs = table.concat({ tostring(state.mapId), tostring(Model.Revision()), tostring(data.selectedId),
-            tostring(state.scale), tostring(Model.IsDirector()), formatKey }, "|")
+            tostring(state.scale), tostring(Model.IsDirector()), formatKey, tostring(showVisibility) }, "|")
         if inputs == state.pinInputs then return end
         state.pinInputs = inputs
         local desired = {}
@@ -184,7 +184,7 @@ function OverlandMapPinLayer.Create(ctx, state, input)
                     pin = CreatePin(location.id)
                     pins[location.id] = pin
                 end
-                if BindPin(pin, location, format, formatKey) then changed = true end
+                if BindPin(pin, location, format, formatKey, showVisibility) then changed = true end
                 children[#children + 1] = pin
             end
         end
