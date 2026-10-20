@@ -719,7 +719,7 @@ GameSystem.RegisterGoblinScriptField{
     name = "Count Enemies Of Within",
 
 	type = "function",
-	desc = "Given a distance in squares and a creature, counts the living creatures within that distance of this creature (including vertically) who are enemies of the given creature, not counting the given creature or this creature.",
+	desc = "Given a distance in squares and a creature, counts the living creatures within that distance of this creature who are enemies of the given creature, not counting the given creature or this creature. Distance is horizontal, the same measure the nearest-enemy movement anchor uses, so the two always agree.",
 	examples = {"CountEnemiesOfWithin(3, Caster) > 0"},
 
     calculate = function(targetCreature)
@@ -735,7 +735,7 @@ GameSystem.RegisterGoblinScriptField{
                 --same enemy test the nearest-enemy movement anchor uses (tri-state: neutral is not an enemy).
                 if tok.charid ~= ourToken.charid and tok.charid ~= targetToken.charid and tok.floorid == targetToken.floorid
                    and IsFriendForTargeting(ourToken, tok) == false and (not tok.properties:IsDead())
-                   and TokenDistance3D(targetToken, tok) <= (tonumber(distance) or 1) then
+                   and targetToken:Distance(tok) <= (tonumber(distance) or 1) then
                     count = count + 1
                 end
             end
