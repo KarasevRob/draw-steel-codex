@@ -205,6 +205,7 @@ function OverlandMapSession.CanvasState()
         imageWidth = nil, imageHeight = nil, layout = nil,
         imageRequest = 0, crossfade = false, fadeStart = nil, animOnLoad = nil,
         drag = nil, lastDrag = nil, showNames = false, anim = nil,
+        inset = 0, insetFrom = 0, insetTarget = 0, insetStart = 0, insetClamped = false, presses = {},
         cameraDirty = false, cameraSaveScheduled = false,
         hovered = false, lastPointerX = nil, lastPointerY = nil, lastPointerMove = 0,
         keyEdges = {}, scale = 1,

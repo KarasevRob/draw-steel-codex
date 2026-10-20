@@ -107,7 +107,7 @@ function OverlandMapCameraController.Create(ctx, state, layout, schedule, wake)
         if data.camera.zoom == oldZoom then return end
         -- A layout only exists once the image size is known.
         local newLayout = OverlandMapGeometry.CalculateImageLayout(layout.viewWidth, layout.viewHeight,
-            state.imageWidth --[[@as number]], state.imageHeight --[[@as number]], data.camera, data.panelInset)
+            state.imageWidth --[[@as number]], state.imageHeight --[[@as number]], data.camera, state.inset)
         if newLayout == nil then return end
         data.camera.centerX = beforeU + (layout.viewWidth * 0.5 - mouseX) / newLayout.width
         data.camera.centerY = beforeV + (layout.viewHeight * 0.5 - mouseY) / newLayout.height
