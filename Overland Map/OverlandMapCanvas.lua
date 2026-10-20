@@ -8,7 +8,6 @@ local mod = dmhub.GetModLoading()
 ---   bind()                    redraw from the model (pins, Party, image changes)
 ---   showMap(how)              the open map changed: "fit" | "restore" | "down" | "up" | "jump"
 ---   animateInto(id, onDone)   zoom into a pin, then call onDone (before "Open map")
----   keepVisible(id, inset)    pan just enough that a pin is not under the side panel
 ---   centerOn(id)              center the camera on a pin (Search)
 ---   centerOnLabel(id)         center the camera on map lettering (Search)
 ---   centerOnAid(kind)         center the camera on a compass or scale bar (Find)
@@ -28,7 +27,6 @@ local Copy = OverlandMapCopy
 
 local Clamp = Model.Clamp
 local IsFinite = Model.IsFinite
-local ImageToPanel = OverlandMapGeometry.ImageToPanel
 
 --- A press on the map, a pin or the Party, tracked until the button is released.
 --- @class OverlandMapDrag
@@ -98,6 +96,12 @@ local ImageToPanel = OverlandMapGeometry.ImageToPanel
 --- @field lastDrag nil|OverlandMapDrag the drag the latest release ended
 --- @field showNames boolean cached Show names preference
 --- @field anim nil|OverlandMapCameraAnimation
+--- @field inset number the eased right-side camera allowance
+--- @field insetFrom number
+--- @field insetTarget number
+--- @field insetStart number
+--- @field insetClamped boolean the inset changed the camera during this transition
+--- @field presses table<integer, boolean> buttons whose press reached this canvas
 --- @field cameraDirty boolean
 --- @field cameraSaveScheduled boolean
 --- @field hovered boolean
@@ -157,10 +161,13 @@ function OverlandMapCanvas.Create(ctx)
     local PathTool = OverlandMapPathTool
 
     local Layout
+    local function Wake()
+        if canvas ~= nil then canvas.thinkTime = C.canvasThinkActive end
+    end
 
     local camera = OverlandMapCameraController.Create(ctx, state, function() Layout() end,
         function() canvas:ScheduleEvent("overlandMapSaveCamera", C.cameraSaveDelay) end,
-        function() if canvas ~= nil then canvas.thinkTime = C.canvasThinkActive end end)
+        Wake)
     local FlushCamera, SaveCamera, FitCamera = camera.Flush, camera.Save, camera.Fit
     local StopAnimation, StartAnimation, Zoom = camera.Stop, camera.Animate, camera.Zoom
     local TickAnimation = camera.Tick
@@ -198,16 +205,28 @@ function OverlandMapCanvas.Create(ctx)
 
     -- Layout -----------------------------------------------------------------------------------
 
-    -- Center-aligned placement also keeps auto-sized name plates centered without knowing their size.
-    local PlaceCentered = OverlandMapDrawing.PlaceCentered
-
     Layout = function()
         if not ctx.IsAlive() or canvas == nil then return end
+        if state.insetTarget ~= data.panelInset then
+            state.insetFrom, state.insetTarget, state.insetStart = state.inset, data.panelInset, dmhub.Time()
+            Wake()
+        end
+        local previousInset = state.inset
+        local t = OverlandMapPreferences.ReduceMotion() and 1 or Clamp((dmhub.Time() - state.insetStart) / C.transitionSeconds, 0, 1)
+        state.inset = state.insetFrom + (state.insetTarget - state.insetFrom) * (1 - (1 - t) * (1 - t))
         local viewWidth, viewHeight = canvas.renderedWidth or 0, canvas.renderedHeight or 0
         local layout = nil
+        local centerX, centerY = data.camera.centerX, data.camera.centerY
         if state.mapId ~= nil and IsFinite(state.imageWidth) and IsFinite(state.imageHeight) then
             layout = OverlandMapGeometry.CalculateImageLayout(viewWidth, viewHeight, state.imageWidth --[[@as number]],
-                state.imageHeight --[[@as number]], data.camera, data.panelInset)
+                state.imageHeight --[[@as number]], data.camera, state.inset)
+        end
+        if previousInset ~= state.inset and (centerX ~= data.camera.centerX or centerY ~= data.camera.centerY) then
+            state.insetClamped = true
+        end
+        if state.inset == state.insetTarget and state.insetClamped then
+            state.insetClamped = false
+            SaveCamera()
         end
         state.layout = layout
         -- Pins wait, invisible, until the image is laid out.
@@ -312,7 +331,7 @@ function OverlandMapCanvas.Create(ctx)
     local function UpdateThinkRate(element)
         local active = state.hovered or element.hasFocus or gestures.current ~= nil or state.anim ~= nil
             or state.move ~= nil or state.fadeStart ~= nil or (state.mapId ~= nil and state.layout == nil)
-            or state.zoomMoving
+            or state.zoomMoving or state.inset ~= data.panelInset
         local rate = active and C.canvasThinkActive or C.canvasThinkIdle
         if element.thinkTime ~= rate then element.thinkTime = rate end
     end
@@ -426,6 +445,7 @@ function OverlandMapCanvas.Create(ctx)
             return true
         end,
         press = function(element)
+            for button = 0, 2 do state.presses[button] = element:GetMouseButton(button) end
             if element:GetMouseButton(0) then Session.CloseContextMenu() end
             gui.SetFocus(element)
             if element:GetMouseButton(0) then
@@ -463,6 +483,9 @@ function OverlandMapCanvas.Create(ctx)
             UpdateThinkRate(element)
         end,
         click = function()
+            local pressed = state.presses[0]
+            state.presses[0] = nil
+            if not pressed then return end
             if ReleasedDragMoved() or state.layout == nil then return end
             local x, y = PointerInCanvas()
             if x == nil or y == nil then return end
@@ -489,6 +512,9 @@ function OverlandMapCanvas.Create(ctx)
             Layout()
         end,
         rightClick = function(element)
+            local pressed = state.presses[1]
+            state.presses[1] = nil
+            if not pressed then return end
             if ReleasedDragMoved(1) then return end
             if input.RemoveHandle() then return end
             if data.tool == "path" or data.tool == "redraw" then
@@ -528,6 +554,7 @@ function OverlandMapCanvas.Create(ctx)
             PollPathHover(mouseX, mouseY)
             UpdateDraft(mouseX, mouseY)
             TickAnimation()
+            if state.inset ~= data.panelInset then Layout() end
             ZoomSettled()
             TickPartyMove()
             TickFade()
@@ -536,7 +563,7 @@ function OverlandMapCanvas.Create(ctx)
         end,
         overlandMapSaveCamera = function(element)
             state.cameraSaveScheduled = false
-            if GestureActive() or state.anim ~= nil then
+            if GestureActive() or state.anim ~= nil or state.inset ~= data.panelInset then
                 state.cameraSaveScheduled = true
                 element:ScheduleEvent("overlandMapSaveCamera", C.cameraSaveDelay)
                 return
@@ -551,6 +578,9 @@ function OverlandMapCanvas.Create(ctx)
             state.scale = Session.UIScale()
             state.showNames = OverlandMapPreferences.ShowNames()
             gestures.Cancel()
+            state.presses = {}
+            state.inset, state.insetFrom, state.insetTarget = data.panelInset, data.panelInset, data.panelInset
+            state.insetClamped = false
             -- A leg never plays across a map change; the new map starts from where the Party is.
             state.move, state.partyKey, state.partyNow, state.partyBefore = nil, "", nil, nil
             state.partyLook, state.pinsDirty, state.pinInputs = "", true, ""
@@ -583,17 +613,6 @@ function OverlandMapCanvas.Create(ctx)
             StartAnimation({
                 zoom = math.max(data.camera.zoom, C.openZoom), centerX = location.u, centerY = location.v,
             }, onDone, true)
-        end,
-        keepVisible = function(_, id, inset)
-            local pin = pins[id]
-            local layout = state.layout
-            if pin == nil or layout == nil or inset <= 0 then return end
-            local x = ImageToPanel(layout, pin.data.u, pin.data.v)
-            local limit = layout.viewWidth - inset - 40
-            if x <= limit then return end
-            data.camera.centerX = data.camera.centerX + (x - limit) / layout.width
-            Layout()
-            SaveCamera()
         end,
         centerOn = function(_, id)
             local location = Model.GetLocation(id)

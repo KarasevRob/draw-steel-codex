@@ -334,11 +334,8 @@ function OverlandMapPanel.Create(options)
         else
             data.selectedId, data.panelMode = id, mode or "read"
         end
+        -- Selecting never moves the camera: the viewer lined up their click with the art.
         RefreshAll("selection")
-        if data.selectedId ~= nil then
-            -- The panel has not laid out yet on its first open, so use its intended width.
-            canvas:FireEvent("keepVisible", data.selectedId, C.sidePanelWidth * Session.UIScale())
-        end
     end
 
     -- A path shows in its own panel, in the side panel's place, read or edit.
