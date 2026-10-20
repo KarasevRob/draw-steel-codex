@@ -1686,19 +1686,20 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
 	end
 
     if self.targetType == "all" and casterToken.floorIndex == targetToken.floorIndex and casterToken:GetLineOfSight(targetToken, casterToken.properties:GetPierceWalls()) <= 0 then
-        --A sight-blocking object (a boulder, a solid block) hides its own square, so it is reached if
-        --a square beside it is in sight AND nothing (a wall, a door) stands between that square and the object.
+        --A sight-blocking object (a boulder, a solid block) hides its own square, so the engine reports no
+        --sight to it. It still counts as reached if the line to one of its squares is stopped only at that
+        --square's own edge (within ~0.75 tiles of its centre), not by something further out such as a wall.
+        --Limit: a wall flush against the object's near face stops the line in the same place, so it is not told apart.
         local seen = false
         if targetToken.isObject then
             local pierce = casterToken.properties:GetPierceWalls()
             for _,loc in ipairs(targetToken.locsOccupying) do
-                for _,side in ipairs({loc.north, loc.south, loc.east, loc.west}) do
-                    if casterToken:GetLineOfSight(side, pierce) > 0 and targetToken:GetLineOfSight(side, pierce) > 0 then
-                        seen = true
-                        break
-                    end
-                end
-                if seen then
+                local info = casterToken:GetLineOfSightToSpaceInfo(loc, pierce)
+                local dx = loc.x - casterToken.loc.x
+                local dy = loc.y - casterToken.loc.y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                if info.cover > 0 or distance * (1 - info.obstructionDist) <= 0.75 then
+                    seen = true
                     break
                 end
             end
