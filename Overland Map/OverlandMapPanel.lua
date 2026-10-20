@@ -205,12 +205,15 @@ function OverlandMapPanel.Create(options)
     end
 
     function ctx.CanvasLayout(layout)
+        if data.quick == nil then return end
         local quick = Existing("quick")
         if quick ~= nil then quick:FireEvent("layout", layout) end
     end
 
     function ctx.CloseQuickAdd()
+        if data.quick == nil then return end
         ctx.Transition("quick")
+        data.selectedId, data.selectedLabelId = nil, nil
         RefreshAll("selection")
         FocusCanvas()
     end
@@ -382,12 +385,9 @@ function OverlandMapPanel.Create(options)
     function ctx.QuickAdd(kind, id)
         ctx.Transition("quick")
         LeaveLabel()
-        local row = kind == "label" and OverlandMapLabels.Snapshot(id) or Model.GetLocation(id)
-        if row == nil then return end
-        if kind == "label" then
-            if row.mapId ~= data.mapId or not OverlandMapLabels.CanEdit(row) then return end
-        elseif row.parentId ~= data.mapId or not Model.CanEdit(row) then return end
-        data.quick = { kind = kind, id = id }
+        local quick = { kind = kind, id = id }
+        if OverlandMapReaders.QuickAddItem(quick, data.mapId) == nil then return end
+        data.quick = quick
         data.selectedId = kind == "location" and id or nil
         data.selectedLabelId = kind == "label" and id or nil
         data.selectedPathId, data.panelMode, data.popover = nil, "none", nil
@@ -933,14 +933,9 @@ function OverlandMapPanel.Create(options)
                 or OverlandMapAids.Snapshot(map, data.selectedAid) == nil) then ctx.ClearAid() end
 
             local quick = data.quick
-            if quick ~= nil then
-                local row = quick.kind == "label" and OverlandMapLabels.Snapshot(quick.id) or Model.GetLocation(quick.id)
-                local allowed = false
-                if row ~= nil and map ~= nil then
-                    if quick.kind == "label" then allowed = row.mapId == map.id and OverlandMapLabels.CanEdit(row)
-                    else allowed = row.parentId == map.id and Model.CanEdit(row) end
-                end
-                if not allowed then data.quick = nil; dirty.selection = true end
+            if quick ~= nil and OverlandMapReaders.QuickAddItem(quick, map and map.id) == nil then
+                data.quick = nil
+                dirty.selection = true
             end
 
             local _, created = Ensure(ActiveSideKey(data.panelMode))

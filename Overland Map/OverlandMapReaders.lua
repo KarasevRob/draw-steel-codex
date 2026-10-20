@@ -44,14 +44,36 @@ function OverlandMapReaders.Search(query, limit)
     return OverlandMapLabels.Search(query, limit)
 end
 
+--- Resolve a Quick Add target only while it remains editable on the current map.
+--- @param quick {kind: string, id: string}|nil
+--- @param mapId string|nil
+--- @return table|nil
+function OverlandMapReaders.QuickAddItem(quick, mapId)
+    if quick == nil or mapId == nil then return nil end
+    if quick.kind == "label" then
+        local row = OverlandMapLabels.Snapshot(quick.id)
+        if row ~= nil and row.mapId == mapId and OverlandMapLabels.CanEdit(row) then return row end
+    elseif quick.kind == "location" then
+        local row = Model.GetLocation(quick.id)
+        if row ~= nil and row.parentId == mapId and Model.CanEdit(row) then return row end
+    end
+    return nil
+end
+
+local hiddenCounts, hiddenRevision = {}, nil
+
 --- Counts hidden content on this map only, using the same viewer-filtered lists as the canvas.
 function OverlandMapReaders.HiddenCount(mapId)
     if not Model.IsDirector() or Model.GetLocation(mapId) == nil then return 0 end
+    local revision = Model.Revision()
+    if revision ~= hiddenRevision then hiddenCounts, hiddenRevision = {}, revision end
+    if hiddenCounts[mapId] ~= nil then return hiddenCounts[mapId] end
     local count = 0
     for _, rows in ipairs({ Model.Children(mapId), OverlandMapLabels.ForMap(mapId), Paths.Paths(mapId) }) do
         for _, row in ipairs(rows) do
             if row.visibility == "hidden" then count = count + 1 end
         end
     end
+    hiddenCounts[mapId] = count
     return count
 end
