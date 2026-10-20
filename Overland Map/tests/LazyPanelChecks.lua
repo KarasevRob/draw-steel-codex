@@ -10,6 +10,14 @@ local function Fixture()
     function methods:SetClass(key, on) self.classSet[key] = on end
     function methods:HasClass(key) return self.classSet[key] == true end
     function methods:AddChild(child) self.children[#self.children + 1] = child; child.parent = self end
+    function methods:Unparent()
+        if self.parent then
+            for i, child in ipairs(self.parent.children) do
+                if child == self then table.remove(self.parent.children, i); break end
+            end
+        end
+        self.parent = nil
+    end
     function methods:FireEvent(name, ...)
         if self.events[name] then return self.events[name](self, ...) end
     end

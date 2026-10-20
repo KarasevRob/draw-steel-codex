@@ -23,6 +23,7 @@ end
 --- @return Panel
 function OverlandMapLabelPanel.Create(ctx)
     local panel
+    local scroll
     local releaseSession
     local inputs, colors = {}, {}
     local binding, boundId, generation = false, nil, 0
@@ -144,6 +145,10 @@ function OverlandMapLabelPanel.Create(ctx)
         Field("text", textInput), Field("font", font),
         gui.Panel { width = "100%", height = "auto", flow = "horizontal", bold, italics },
         Field("alignment", alignment), size, angle, spacing, color, appearance, backgroundColor,
+    }
+    local footer = gui.Panel {
+        id = "overland-map-label-footer", classes = { "overlandMapSideBody" },
+        width = "100%", height = "auto", hpad = 14, vpad = 6, borderBox = true,
         gui.Panel { classes = { "overlandMapSideRow" }, status, retry },
         gui.Panel { classes = { "overlandMapButtonRow" },
             Session.Button(T("label.delete"), function()
@@ -174,6 +179,11 @@ function OverlandMapLabelPanel.Create(ctx)
             invalid = {}
             generation = generation + 1
             for _, picker in pairs(colors) do picker.data.openId = nil; picker.popup = nil end
+            scroll.vscrollPosition = 1
+            local id = row.id
+            OverlandMapLifetime.Schedule(C.afterLayoutDelay, function()
+                if ctx.IsAlive() and scroll.valid and boundId == id then scroll.vscrollPosition = 1 end
+            end)
         end
         boundId = row.id
         -- Unsent edits were dropped (Undo, lost permission): even a focused field shows the label again.
@@ -214,9 +224,13 @@ function OverlandMapLabelPanel.Create(ctx)
             Session.FocusSoon(textInput, function() return ctx.IsAlive() and ctx.data.selectedLabelId == id and ctx.data.panelMode == "labelEdit" end)
         end
     end
+    scroll = gui.Panel {
+        classes = { "overlandMapSideScroll" }, vscroll = true, height = "100% available",
+        width = "100%", rpad = 14, borderBox = true, body,
+    }
     panel = gui.Panel {
         id = "overland-map-label-panel", classes = { "overlandMapSide", "collapsed" }, floating = true,
-        width = C.sidePanelWidth, popupsInheritStyles = true, data = {},
+        width = C.sidePanelWidth, flow = "vertical", popupsInheritStyles = true, data = {},
         bind = function() if not mod.unloaded then Bind() end end,
         flush = function() if boundId then Labels.Flush(boundId) end end,
         destroy = function()
@@ -224,7 +238,8 @@ function OverlandMapLabelPanel.Create(ctx)
             if boundId then Labels.Leave(boundId) end
             if unsubscribe then unsubscribe(); unsubscribe = nil end
         end,
-        gui.Panel { classes = { "overlandMapSideScroll" }, vscroll = true, rpad = 12, borderBox = true, body },
+        scroll,
+        footer,
     }
     releaseSession = OverlandMapSession.Register {
         scope = ctx, valid = function() return panel.valid end,

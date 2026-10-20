@@ -34,6 +34,18 @@ end
 
 local TimeInputText, ParseTime = Paths.TimeInputText, Paths.ParseTime
 
+function OverlandMapPathPanel.RequestDelete(ctx, id)
+    local path = Paths.Get(id)
+    if not ctx.IsAlive() or not Model.IsDirector() or path == nil then return end
+    local title = Paths.Title(path, true)
+    local result = OverlandMapCommands.DeletePath(id)
+    if ctx.Report(result.outcome == "accepted" or result.outcome == "unchanged", result.reason) then
+        if ctx.data.selectedPathId == id then ctx.SelectPath(nil) end
+        ctx.Push(result.undo, "toast.pathDeleted", { path = title })
+        ctx.RefreshAll()
+    end
+end
+
 --- Whether a Location can be joined to another by Connect to... now: the
 --- Director, a pin on the open point crawl map, with another pin beside it (E1).
 --- @param ctx OverlandMapContext
@@ -70,15 +82,7 @@ function OverlandMapPathPanel.MenuEntries(ctx, id)
         Add("menu.hide", function() SetVisibility(ctx, path, "hidden") end)
     end
     -- Deleting removes nothing else, so it needs no confirm; the toast has Undo (E3).
-    Add("menu.delete", function()
-        local title = Paths.Title(path, true)
-        local result = OverlandMapCommands.DeletePath(path.id)
-        if ctx.Report(result.outcome == "accepted" or result.outcome == "unchanged", result.reason) then
-            if ctx.data.selectedPathId == path.id then ctx.SelectPath(nil) end
-            ctx.Push(result.undo, "toast.pathDeleted", { path = title })
-            ctx.RefreshAll()
-        end
-    end)
+    Add("menu.delete", function() OverlandMapPathPanel.RequestDelete(ctx, id) end)
     return entries
 end
 
@@ -173,6 +177,7 @@ end
 function OverlandMapPathPanel.Create(ctx)
     local data = ctx.data
     local panel
+    local scroll
     local releaseSession
     local readView
     local editView
@@ -425,8 +430,18 @@ function OverlandMapPathPanel.Create(ctx)
     end)
     local doneButton = Button(T("edit.done"), function()
         Flush()
-        if data.selectedPathId ~= nil then ctx.SelectPath(data.selectedPathId, "path") end
+        ctx.SelectPath(nil)
     end)
+    local footer = gui.Panel {
+        id = "overland-map-path-footer", classes = { "overlandMapSideBody", "collapsed" },
+        width = "100%", height = "auto", hpad = 14, vpad = 6, borderBox = true,
+        gui.Panel { classes = { "overlandMapSideRow" }, stateLine, retryButton },
+        gui.Panel { classes = { "overlandMapButtonRow" },
+            Button(T("menu.delete"), function()
+                if data.selectedPathId ~= nil then OverlandMapPathPanel.RequestDelete(ctx, data.selectedPathId) end
+            end), doneButton,
+        },
+    }
 
     local editArtwork = OverlandMapArtwork.Create(ctx, "path", true,
         function(id) return data.selectedPathId == id and data.panelMode == "pathEdit" end)
@@ -452,8 +467,6 @@ function OverlandMapPathPanel.Create(ctx)
         Label({ "overlandMapHint", "sizeXs" }, T("path.note.sub")),
         noteInput,
         Label({ "overlandMapHint", "sizeXs" }, T("edit.path.bends")),
-        gui.Panel { classes = { "overlandMapSideRow" }, stateLine, retryButton },
-        gui.Panel { classes = { "overlandMapButtonRow" }, doneButton },
     }
 
     -- Typed fields follow the live record unless the viewer has unsaved text
@@ -625,7 +638,15 @@ function OverlandMapPathPanel.Create(ctx)
         end
         readArtwork:FireEvent("bind", path ~= nil and mode == "path" and path.id or nil)
         editArtwork:FireEvent("bind", path ~= nil and mode == "pathEdit" and path.id or nil)
-        if path == nil and picking == nil then return end
+        if path == nil and picking == nil then panel.data.boundId = nil; return end
+        local boundId = path ~= nil and path.id or assert(picking).id
+        if panel.data.boundId ~= boundId then
+            panel.data.boundId = boundId
+            scroll.vscrollPosition = 1
+            OverlandMapLifetime.Schedule(C.afterLayoutDelay, function()
+                if ctx.IsAlive() and scroll.valid and panel.data.boundId == boundId then scroll.vscrollPosition = 1 end
+            end)
+        end
         local rootWidth = ctx.root.renderedWidth or 0
         local width = C.sidePanelWidth * Session.UIScale()
         if rootWidth > 0 and rootWidth < C.narrowWidth then width = rootWidth end
@@ -634,6 +655,7 @@ function OverlandMapPathPanel.Create(ctx)
             panel.selfStyle.width = width
         end
         local editing = mode == "pathEdit" and Model.IsDirector()
+        footer:SetClass("collapsed", not editing)
         header:SetClass("collapsed", path == nil)
         readView:SetClass("collapsed", path == nil or editing)
         editView:SetClass("collapsed", path == nil or not editing)
@@ -648,26 +670,22 @@ function OverlandMapPathPanel.Create(ctx)
         panel.data.binding = false
     end
 
+    scroll = gui.Panel {
+        classes = { "overlandMapSideScroll" }, vscroll = true, height = "100% available",
+        gui.Panel { classes = { "overlandMapSideBody" }, header, readView, editView, pickView },
+    }
     panel = gui.Panel {
         id = "overland-map-path-panel",
         classes = { "overlandMapSide", "collapsed" },
-        floating = true,
+        floating = true, flow = "vertical",
         width = C.sidePanelWidth,
         popupsInheritStyles = true,
         data = { width = nil, binding = false, recheckScheduled = false, pickFor = nil },
         bind = function() if not mod.unloaded then Bind() end end,
         flush = function() Flush() end,
         destroy = function() editor.Destroy(); if releaseSession then releaseSession() end end,
-        gui.Panel {
-            classes = { "overlandMapSideScroll" }, vscroll = true,
-            gui.Panel {
-                classes = { "overlandMapSideBody" },
-                header,
-                readView,
-                editView,
-                pickView,
-            },
-        },
+        scroll,
+        footer,
     }
     releaseSession = OverlandMapSession.Register {
         scope = ctx, valid = function() return panel.valid end, flush = Flush,

@@ -76,12 +76,16 @@ are research, not approved feature designs.
   players (Director), View as player (Director), Session log, Map aids (Director), Settings (everyone), then
   Window/Fullscreen, Pop out, and Close (fullscreen only), or Return to app (native popout).
   Icons with tooltips.
+- The Lock button is highlighted while positions are locked. Maps open locked;
+  a blocked drag shows **Positions are locked** with an **Unlock** action.
 - **Esc** closes one layer at a time: a tool or text field, then edit mode, then a popover
   or the side panel, then goes up one map, and at the Atlas closes the in-app map.
 - Left-clicking elsewhere on the map or Atlas dismisses the mod's context menu. Menu
   actions still run normally; opening another menu replaces the previous one.
 - While a side panel (Location, path, label, Party or log) is open, the map can pan left by the
   panel's width, so a pin under the panel can still be reached at Fit (V2.1).
+  Selecting a location never pans the camera. Closing a panel eases the camera back
+  into its normal bounds; Reduce Motion applies that adjustment immediately.
 
 ### Compass, scale bar and hover text
 
@@ -101,7 +105,7 @@ are research, not approved feature designs.
   measured endpoints. Overlapping labels stagger into additional rows.
 - **Place on map** takes one click; Enter uses the visible centre and Escape cancels.
   **Find on map** moves the camera. X/Y fields place the anchor by percentage. Unlock
-  positions to click-drag an aid directly; this selects it with the editor closed.
+  positions to click-drag an aid directly. A click opens its editor, including while locked.
   Drag the compass corner to resize, or **R** to rotate. The camera brings hidden
   handles into view after selection or release without moving the saved anchor.
   Escape clears the selection. The editor also offers **Unlock positions**. Editing
@@ -124,6 +128,7 @@ See [the approved design](docs/MAP_AIDS_BRIEF.md) and [verification](tests/MAP_A
 
 - Add independent lettering with **+ > Add label** or **Add label here**. Labels have no
   Location pin, description, child map, or Party destination.
+  Add label stays on until Esc or a toolbar toggle, like Add location.
 - The Director manages every label. **Players can manage their own labels** defaults
   off in Settings; turning it off freezes existing player labels. View as player is
   always read-only. Director labels start Hidden; player labels start Revealed.
@@ -136,10 +141,10 @@ See [the approved design](docs/MAP_AIDS_BRIEF.md) and [verification](tests/MAP_A
 - Text permits 256 Unicode characters and 1,024 bytes, with explicit newlines and no
   automatic wrapping. Successful formatting is remembered per viewer/game, excluding
   text, rotation and visibility. Missing fonts fall back without rewriting the stored font.
-- **Positions locked/unlocked** controls movement of both location pins and labels.
-  Unlock, select a label, then drag it. Selected labels have resize and rotation handles,
+- **Positions locked/unlocked** controls movement of location pins, labels and map aids.
+  Unlock and drag any label. Selected labels have resize and rotation handles,
   with numeric size/angle fields in the editor. There are no separate Move label actions.
-  Locked text passes ordinary gestures through; search/context actions still open its editor.
+  Locked labels still open their editor on click; attempted drags offer Unlock.
 - **Show labels** defaults on and is a local preference, separate from Show names. Search
   temporarily shows its selected permitted label even when Show labels is off. Mixed
   search results distinguish Locations from labels and include their map breadcrumbs.
@@ -195,10 +200,13 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   never enter the preview; existing pin visibility rules still apply.
 - **Visibility.** A pin is Hidden (Director only, shown dimmed with an eye-slash badge) or
   Revealed. A Location's own map has a separate Map shared switch.
-- **Side panel.** Click a pin to read it: description, journal link, Party here, Move Party
-  here, Open map, Edit, "..." (Move, Move to map, Show/Hide, Add map, Replace image, Remove
-  map, Link journal, Delete) and the Director note (Director only). Edit turns the panel into
-  a form that autosaves after 1.5 s without typing or on leaving a field.
+- **Side panel.** Clicking an editable pin opens its editor with a shared title, close
+  button, Open map, Move Party here and "..." actions where available. The Director also
+  sees its Paths section. Other viewers, Search and breadcrumbs open the read view,
+  including description, journal link and the permitted actions. Forms autosave after
+  1.5 s without typing or on leaving a field. Location, label and path editors keep save
+  status, Retry, Delete and Done below the scroll area. Done closes the selection;
+  Esc closes an editor once its tool is off, while pickers still return to the read view.
 - **Journal link.** A Location links one journal entry of any kind: document, negotiation,
   PDF, image or PDF bookmark. The picker shows each entry's kind icon. Open in journal opens
   it the way the journal does; a viewer who cannot browse the entry in the journal sees no link.

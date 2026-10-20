@@ -130,7 +130,7 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
         end
         if drag.labelStart ~= nil then
             labelLayer.SetPreview(nil, nil)
-            if drag.moved and drag.labelChanges ~= nil then
+            if drag.moved and drag.labelChanges ~= nil and not data.locked and data.tool == "none" then
                 local kind = drag.kind == "labelResize" and "resized" or drag.kind == "labelRotate" and "rotated" or "moved"
                 OverlandMapLabels.Commit(drag.id, drag.labelChanges, kind)
             end
@@ -202,11 +202,13 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
 
     local function BeginLabelDrag(kind, id)
         local row = OverlandMapLabels.Snapshot(id)
-        if row == nil or data.locked or data.tool ~= "none" or not OverlandMapLabels.CanEdit(row) or state.layout == nil then return false end
+        if row == nil or (data.locked and kind ~= "labelMove") or data.tool ~= "none"
+            or not OverlandMapLabels.CanEdit(row) or state.layout == nil then return false end
         OverlandMapLabels.Flush(id)
-        BeginDrag(kind, id, row.u, row.v, true)
+        BeginDrag(kind, id, row.u, row.v, not data.locked)
         local drag = gestures.current
         if drag == nil then return false end
+        if data.locked then drag.positionLocked = true; return true end
         drag.labelStart = DeepCopy(row)
         local x, y = ImageToPanel(state.layout, row.u, row.v)
         drag.labelDistance = math.max(1, math.sqrt((drag.startX - x)^2 + (drag.startY - y)^2))
@@ -214,14 +216,17 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
         return true
     end
 
-    aidLayer.Begin = function(kind)
+    aidLayer.Begin = function(kind, id)
         ctx.FlushEdits()
-        local row = OverlandMapAids.Snapshot(ctx.CurrentMap(), data.selectedAid)
-        if row == nil or data.locked or data.tool ~= "none" or not OverlandMapAids.CanEdit(data.mapId) or state.layout == nil then return end
+        id = id or data.selectedAid
+        local row = OverlandMapAids.Snapshot(ctx.CurrentMap(), id)
+        if row == nil or (data.locked and kind ~= "aidMove") or data.tool ~= "none"
+            or not OverlandMapAids.CanEdit(data.mapId) or state.layout == nil then return end
         gui.SetFocus(view.Canvas())
-        BeginDrag(kind, data.selectedAid, row.u, row.v, true)
+        BeginDrag(kind, id, row.u, row.v, not data.locked)
         local drag = gestures.current
         if drag == nil then return end
+        if data.locked then drag.positionLocked = true; return true end
         drag.aidStart, drag.aidMapId = DeepCopy(row), data.mapId
         local x, y = ImageToPanel(state.layout, row.u, row.v)
         drag.labelDistance = math.max(1, math.sqrt((drag.startX - x)^2 + (drag.startY - y)^2))
@@ -288,6 +293,9 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
                 gui.SetFocus(view.Canvas())
                 local canDrag = data.tool == "none" and not data.locked and Model.CanEdit(location)
                 BeginDrag("pin", location.id, location.u, location.v, canDrag)
+                if gestures.current then
+                    gestures.current.positionLocked = data.locked and data.tool == "none" and Model.CanEdit(location)
+                end
             end,
             click = function(element)
                 local doubleClickHandled = element.data.doubleClickHandled
@@ -305,14 +313,15 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
                     Layout()
                     return
                 end
-                ctx.Select(element.data.id, "read")
+                local location = Model.GetLocation(element.data.id)
+                ctx.Select(element.data.id, Model.CanEdit(location) and "edit" or "read")
             end,
-            -- Rename only when pins are unlocked and the viewer may edit; else a click (R12).
+            -- The second click focuses the name without changing the selection again on release.
             doubleclick = function(element)
                 -- The engine sends the second release's click after doubleclick.
                 element.data.doubleClickHandled = true
                 local location = Model.GetLocation(element.data.id)
-                if location ~= nil and not data.locked and Model.CanEdit(location) then
+                if location ~= nil and Model.CanEdit(location) then
                     data.focusName = true
                     ctx.Select(location.id, "edit")
                 else
@@ -392,6 +401,16 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
         if mouseX == nil or mouseY == nil or layout == nil then return end
         local dx, dy = mouseX - drag.startX, mouseY - drag.startY
         if not drag.moved then return end
+        if drag.positionLocked then
+            if not drag.lockNotified then
+                drag.lockNotified = true
+                local mapId = data.mapId
+                OverlandMapUndo.Notify("toast.locked", nil, nil, { copyId = "toast.locked.unlock", click = function()
+                    if ctx.IsAlive() and data.mapId == mapId then ctx.SetLocked(false) end
+                end })
+            end
+            return
+        end
         if drag.aidStart ~= nil then
             if not OverlandMapAids.CanEdit(drag.aidMapId) or data.mapId ~= drag.aidMapId
                 or data.selectedAid ~= drag.id or data.locked or data.tool ~= "none" then
@@ -411,7 +430,7 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
             end
             aidLayer.SetPreview(drag.id, drag.aidChanges)
         elseif drag.labelStart ~= nil then
-            if not OverlandMapLabels.CanEdit(OverlandMapLabels.Snapshot(drag.id)) then
+            if data.locked or data.tool ~= "none" or not OverlandMapLabels.CanEdit(OverlandMapLabels.Snapshot(drag.id)) then
                 labelLayer.SetPreview(nil, nil)
                 gestures.Cancel()
                 Layout()

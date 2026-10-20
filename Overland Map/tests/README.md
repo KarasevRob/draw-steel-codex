@@ -20,7 +20,7 @@ LabelChecks provides the isolated model fixture used by several other suites.
 | TabletopIntegrationChecks | 19 | Offline; production host against a Tabletop stand-in: window state machine, placement and per-feature availability |
 | TabletopContentChecks | 11 | Offline; real shell, Atlas controls, preferences and presentation |
 | JournalChecks | 6 | Offline; every journal entry kind, viewer access and older builds |
-| AuthoringFlowChecks | 4 | Offline; stable selection, eased panel inset, Reduce Motion and canvas press ownership |
+| AuthoringFlowChecks | 14 | Offline; camera stability, press ownership, editor footers, selection, drag and lock behavior |
 | ImportChecks | Parser/editor checks | Connected Director app; no Import writes in the editor suite |
 
 The current checkout passes 212 checks across ten offline suites. The original baseline was
@@ -58,7 +58,7 @@ The [2026-10-19 validation record](TABLETOP_2026-10-19.md) records 245 passing o
 checks, zero diagnostics in the final task scope, deployment and live compatibility checks.
 On 2026-10-20 the host split, window state machine and journal entry kinds were added and
 the shared HUD changes were reverted (see that record); 248 checks pass across thirteen
-offline suites. The authoring UX revision adds four checks (252 across fourteen suites);
+offline suites. The authoring UX revision adds fourteen checks (262 across fourteen suites);
 see [authoring UX verification](AUTHORING_UX_2026-10-20.md).
 
 Run all offline suites from the repository root (also run by the Overland Map CI job):

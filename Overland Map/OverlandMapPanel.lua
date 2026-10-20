@@ -373,7 +373,6 @@ function OverlandMapPanel.Create(options)
         ctx.FlushEdits()
         local id = OverlandMapLabels.NewDraft(map.id, u, v, OverlandMapPreferences.LastLabelFormat())
         if id == nil then return end
-        ctx.SetTool("none")
         ctx.SelectLabel(id, true)
     end
 
@@ -411,6 +410,13 @@ function OverlandMapPanel.Create(options)
 
     function ctx.FindAid(kind)
         canvas:FireEvent("centerOnAid", kind)
+    end
+
+    function ctx.SetLocked(locked)
+        if not ctx.IsAlive() then return end
+        canvas:FireEvent("cancelGesture")
+        data.locked = locked
+        RefreshAll()
     end
 
     local tools = { add = true, move = true, ruler = true, scale = true, path = true, redraw = true, labelAdd = true, aidPlace = true }
@@ -659,7 +665,7 @@ function OverlandMapPanel.Create(options)
         pathButton:SetClass("on", data.tool == "path" or data.tool == "redraw")
         Session.SetIconButton(pathButton, T(enoughPins and "tb.path" or "tb.path.disabled"))
         lockButton:SetClass("collapsed", not hasMap)
-        lockButton:SetClass("on", not data.locked)
+        lockButton:SetClass("on", data.locked)
         Session.SetIconButton(lockButton, T(data.locked and "tb.lock.on" or "tb.lock.off"),
             data.locked and C.iconLocked or C.iconUnlocked)
         searchButton:SetClass("on", data.popover == "search")
@@ -1019,9 +1025,7 @@ function OverlandMapPanel.Create(options)
         ctx.SetPopover("aids")
     end)
     lockButton = Session.IconButton("overland-map-lock", C.iconLocked, T("tb.lock.on"), function()
-        canvas:FireEvent("cancelGesture")
-        data.locked = not data.locked
-        RefreshAll()
+        ctx.SetLocked(not data.locked)
     end)
     showButton = Session.IconButton("overland-map-show", C.iconShow, T("tb.show"), function()
         ctx.ShowToPlayers()
@@ -1298,9 +1302,11 @@ function OverlandMapPanel.Create(options)
                 local logPanel = Existing("log")
                 if logPanel ~= nil then logPanel:FireEvent("closeEditor") end
             elseif layer == "edit" and data.panelMode == "pathEdit" then
-                ctx.SelectPath(data.selectedPathId, "path")
+                ctx.SelectPath(nil)
             elseif layer == "edit" and data.panelMode == "labelEdit" then
                 ctx.SelectLabel(nil)
+            elseif layer == "edit" and data.panelMode == "edit" then
+                ctx.Select(nil)
             elseif layer == "edit" then
                 ctx.Select(data.selectedId, "read")
             elseif layer == "panel" and data.panelMode == "log" then
