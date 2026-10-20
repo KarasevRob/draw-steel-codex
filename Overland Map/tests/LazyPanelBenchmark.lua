@@ -3,7 +3,7 @@ local benchmark = {}
 local source = debug.getinfo(1, "S").source:sub(2):gsub("\\", "/")
 local directory = assert(source:match("^(.*)/tests/[^/]+$"))
 local Base = dofile(directory .. "/tests/LivePerformanceBenchmark.lua")
-local componentNames = { "SidePanel", "PathPanel", "LabelPanel", "PartyPanel", "LogPanel", "Import" }
+local componentNames = { "SidePanel", "PathPanel", "LabelPanel", "PartyPanel", "LogPanel", "Import", "QuickAdd" }
 
 local function Counts(root)
     local counts = { panels = 0, pathPanels = 0, activePathPanels = 0 }
@@ -74,6 +74,7 @@ function benchmark.CreateView(options)
 end
 
 local editors = {
+    { name = "QuickAdd", open = function(f) f.ctx.QuickAdd("location", f.pin) end, close = function(f) f.ctx.CloseQuickAdd() end },
     { name = "SidePanel", open = function(f) f.ctx.Select(f.pin, "edit") end, close = function(f) f.ctx.Select(nil) end },
     { name = "PathPanel", open = function(f) f.ctx.SelectPath(f.path, "pathEdit") end, close = function(f) f.ctx.SelectPath(nil) end },
     { name = "LabelPanel", open = function(f) f.ctx.SelectLabel(f.label, true) end, close = function(f) f.ctx.SelectLabel(nil) end },

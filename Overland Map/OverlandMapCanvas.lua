@@ -246,6 +246,7 @@ function OverlandMapCanvas.Create(ctx)
         aidLayer.Metrics(state.imageWidth, state.imageHeight)
         aidLayer.Layout(layout)
         artwork.Layout(layout)
+        ctx.CanvasLayout(layout)
         if layout == nil then return end
 
         -- A pan keeps the image's size, so pins keep their places in the layer and

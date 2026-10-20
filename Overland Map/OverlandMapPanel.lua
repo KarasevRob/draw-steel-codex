@@ -179,6 +179,7 @@ function OverlandMapPanel.Create(options)
             options.userAction()
         end
         OverlandMapSession.Transition(reason, ctx)
+        if reason ~= "flush" and reason ~= "resize" and reason ~= "reconcile" then data.quick = nil end
     end
 
     function ctx.TabletopAvailable(drag)
@@ -201,6 +202,17 @@ function OverlandMapPanel.Create(options)
 
     local function FocusCanvas()
         if hostVisible and Session.CanFocus(canvas) then gui.SetFocus(canvas) end
+    end
+
+    function ctx.CanvasLayout(layout)
+        local quick = Existing("quick")
+        if quick ~= nil then quick:FireEvent("layout", layout) end
+    end
+
+    function ctx.CloseQuickAdd()
+        ctx.Transition("quick")
+        RefreshAll("selection")
+        FocusCanvas()
     end
 
     function ctx.ClearAid()
@@ -325,9 +337,9 @@ function OverlandMapPanel.Create(options)
     end
 
     function ctx.Select(id, mode)
-        LeaveLabel()
-        local leaving = data.selectedId ~= id or (data.panelMode == "edit" and mode ~= "edit")
+        local leaving = data.quick ~= nil or data.selectedId ~= id or (data.panelMode == "edit" and mode ~= "edit")
         if leaving then ctx.Transition("selection") end
+        LeaveLabel()
         data.selectedPathId = nil
         if id == nil or Model.GetLocation(id) == nil then
             data.selectedId, data.panelMode = nil, "none"
@@ -367,13 +379,28 @@ function OverlandMapPanel.Create(options)
         RefreshAll("selection")
     end
 
+    function ctx.QuickAdd(kind, id)
+        ctx.Transition("quick")
+        LeaveLabel()
+        local row = kind == "label" and OverlandMapLabels.Snapshot(id) or Model.GetLocation(id)
+        if row == nil then return end
+        if kind == "label" then
+            if row.mapId ~= data.mapId or not OverlandMapLabels.CanEdit(row) then return end
+        elseif row.parentId ~= data.mapId or not Model.CanEdit(row) then return end
+        data.quick = { kind = kind, id = id }
+        data.selectedId = kind == "location" and id or nil
+        data.selectedLabelId = kind == "label" and id or nil
+        data.selectedPathId, data.panelMode, data.popover = nil, "none", nil
+        RefreshAll("selection")
+    end
+
     function ctx.CreateLabel(u, v)
         local map = ctx.CurrentMap()
         if map == nil then return end
         ctx.FlushEdits()
         local id = OverlandMapLabels.NewDraft(map.id, u, v, OverlandMapPreferences.LastLabelFormat())
         if id == nil then return end
-        ctx.SelectLabel(id, true)
+        ctx.QuickAdd("label", id)
     end
 
     function ctx.FocusLabel(id, edit)
@@ -466,11 +493,11 @@ function OverlandMapPanel.Create(options)
     end
 
     function ctx.ToggleLog()
+        ctx.Transition("selection")
         LeaveLabel()
         if data.panelMode == "log" then
             data.panelMode = "none"
         else
-            ctx.FlushEdits()
             data.selectedId, data.panelMode = nil, "log"
         end
         RefreshAll("selection")
@@ -801,6 +828,7 @@ function OverlandMapPanel.Create(options)
         if canvas ~= nil and canvas.data.hasGesture() then return "gesture" end
         if data.popover ~= nil then return "popover" end
         if data.selectedAid ~= nil then return "aid" end
+        if data.quick ~= nil then return "quick" end
         if data.tool ~= "none" then return "tool" end
         if data.panelMode == "log" and logPanel ~= nil and logPanel.data.editing then return "edit" end
         if data.panelMode == "read" or data.panelMode == "log" or data.panelMode == "path" or data.panelMode == "party" then
@@ -904,8 +932,23 @@ function OverlandMapPanel.Create(options)
             if data.selectedAid and (map == nil or data.aidMapId ~= map.id or not Model.IsDirector()
                 or OverlandMapAids.Snapshot(map, data.selectedAid) == nil) then ctx.ClearAid() end
 
+            local quick = data.quick
+            if quick ~= nil then
+                local row = quick.kind == "label" and OverlandMapLabels.Snapshot(quick.id) or Model.GetLocation(quick.id)
+                local allowed = false
+                if row ~= nil and map ~= nil then
+                    if quick.kind == "label" then allowed = row.mapId == map.id and OverlandMapLabels.CanEdit(row)
+                    else allowed = row.parentId == map.id and Model.CanEdit(row) end
+                end
+                if not allowed then data.quick = nil; dirty.selection = true end
+            end
+
             local _, created = Ensure(ActiveSideKey(data.panelMode))
             if created then dirty.selection = true end
+            if data.quick ~= nil then
+                local _, quickCreated = Ensure("quick")
+                if quickCreated then dirty.selection = true end
+            end
 
             -- An open panel covers the map's right edge; the camera may pan that far further,
             -- so a pin under it can be reached even at fit. A narrow window's panel covers all.
@@ -929,6 +972,7 @@ function OverlandMapPanel.Create(options)
                 BindExisting("path")
                 BindExisting("label")
             end
+            if Needs("records", "selection", "assets", "layout", "preferences") then BindExisting("quick") end
             local artworkReader = OverlandMapArtwork.ActiveReader(ctx)
             local labelTool = data.tool == "labelAdd" or data.tool == "aidPlace"
             if canvas.data.artworkReader ~= artworkReader or canvas.data.labelTool ~= labelTool then
@@ -983,6 +1027,7 @@ function OverlandMapPanel.Create(options)
     local partySlot = Slot("party", OverlandMapPartyPanel.Create)
     local logSlot = Slot("log", OverlandMapLogPanel.Create)
     popovers = OverlandMapPopovers.Create(ctx)
+    local quickSlot = Slot("quick", OverlandMapQuickAdd.Create)
     local importSlot = Slot("import", OverlandMapImport.Create)
     stopCard = OverlandMapPartyPanel.CreateStopCard(ctx)
 
@@ -1311,6 +1356,8 @@ function OverlandMapPanel.Create(options)
             elseif layer == "aid" then
                 ctx.ClearAid()
                 RefreshAll()
+            elseif layer == "quick" then
+                ctx.CloseQuickAdd()
             elseif layer == "tool" then
                 canvas:FireEvent("cancelGesture")
                 -- The Path tool's first Esc drops the line being drawn and keeps the tool (Q7).
@@ -1343,7 +1390,7 @@ function OverlandMapPanel.Create(options)
         end,
 
         canvas, atlas, breadcrumb, toolbar, banners, statusChip, locationSlot, pathSlot, labelSlot, partySlot, logSlot, popovers,
-        toast, importSlot, stopCard, confirmLayer,
+        quickSlot, toast, importSlot, stopCard, confirmLayer,
     }
     ctx.root = root
     return root

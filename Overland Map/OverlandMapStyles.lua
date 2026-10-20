@@ -518,6 +518,7 @@ function OverlandMapStyles.Build()
         OverlandMapAtlas.Styles(),
         OverlandMapCanvasTools.Styles(),
         OverlandMapPopovers.Styles(),
+        OverlandMapQuickAdd.Styles(),
         OverlandMapLogPanel.Styles(),
         OverlandMapPathLayer.Styles(),
         OverlandMapPartyPanel.Styles(),

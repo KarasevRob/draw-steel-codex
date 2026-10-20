@@ -214,6 +214,9 @@ OverlandMapCopy.strings = {
     ["banner.viewAs"] = "Viewing as player - hidden locations are not shown",
     ["chip.unlocked"] = "Positions unlocked - drag locations, labels or map aids to move",
     ["hint.add"] = "Click the map to add a location. Esc to stop.",
+    ["quick.name.placeholder"] = "Name",
+    ["quick.label.placeholder"] = "Label text",
+    ["quick.more"] = "All options",
     ["hint.move"] = "Click where {name} should go. Esc cancels.",
     ["hint.ruler"] = "Ruler: click a start, then an end. Only you see it. Esc stops.",
 

@@ -52,21 +52,20 @@ function OverlandMapCanvasTools.SetFadeBand(fade, band)
 end
 
 --- Create a Location at a point of the open map, copying the last pin style
---- (R10), and open it in the side panel in edit mode once the server has it.
+--- (R10), and open its compact name editor once the server has it.
 --- @param ctx OverlandMapContext
 --- @param u number
 --- @param v number
 function OverlandMapCanvasTools.AddAt(ctx, u, v)
     local map = ctx.CurrentMap()
     if map == nil then return end
-    ctx.FlushEdits()
+    ctx.Transition("placement")
     local valid = OverlandMapSession.Guard(ctx, function() return Model.CanAdd(map.id) end)
     local result = OverlandMapCommands.CreateLocation(map.id, u, v, OverlandMapPreferences.LastPinStyle(), {
         success = function(write)
             local newId = write.record.id
             if not valid() or ctx.data.mapId ~= map.id or not Model.CanEdit(Model.GetLocation(newId)) then return end
-            ctx.data.focusName = true
-            ctx.Select(newId, "edit")
+            ctx.QuickAdd("location", newId)
         end,
         failure = function() if valid() then ctx.Report(false, "unavailable") end end,
     })
