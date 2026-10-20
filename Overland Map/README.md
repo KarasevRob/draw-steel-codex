@@ -77,8 +77,8 @@ are research, not approved feature designs.
   Window/Fullscreen, Pop out, and Close (fullscreen only), or Return to app (native popout).
   Icons with tooltips.
 - The Lock button is highlighted while positions are locked. Maps open locked;
-  a blocked drag shows **Positions are locked** with an **Unlock** action.
-  Dragging over locked labels or map aids pans the map without moving the object.
+  a blocked pin drag shows **Positions are locked** with an **Unlock** action.
+  Dragging over locked labels or map aids quietly pans the map without moving the object.
 - **Esc** commits and closes Quick Add before stopping its placement tool. Other layers close
   one at a time: a tool or text field, then edit mode, then a popover
   or the side panel, then goes up one map, and at the Atlas closes the in-app map.

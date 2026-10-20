@@ -287,7 +287,9 @@ function checks.Run()
         assert(f.ctx.data.selectedLabelId == nil and f.ctx.data.panelMode == "none" and f.ctx.data.mapId == f.map)
     end)
     for _, kind in ipairs({ "pin", "label", "aid" }) do
-        Check("a locked " .. kind .. " drag notifies once and its action unlocks positions", function()
+        local title = kind == "pin" and "a locked pin drag notifies once and its action unlocks positions"
+            or ("a locked " .. kind .. " drag pans without moving it or notifying")
+        Check(title, function()
             local f = CanvasFixture()
             f.ctx.data.camera.zoom = 2; f.canvas:FireEvent("relayout")
             local count = 0
@@ -304,12 +306,16 @@ function checks.Run()
             else f.Press() end
             local before = #f.writes
             f.canvas.mousePoint.x = 0.6; f.Tick(0.02); f.Tick(0.02)
-            local unlock = assert(action)
-            assert(count == 1 and unlock.copyId == "toast.locked.unlock" and #f.writes == before)
+            assert(#f.writes == before and count == (kind == "pin" and 1 or 0))
             Near(f.ctx.data.camera.centerX, kind == "pin" and 0.5 or 0.45)
             f.Release(); f.Advance(0)
             assert(#f.writes == before and f.ctx.data.selectedLabelId == nil and f.ctx.data.selectedAid == nil)
-            if kind ~= "pin" then assert(f.saves == 1) end
+            if kind ~= "pin" then
+                assert(f.saves == 1 and f.ctx.data.locked)
+                return
+            end
+            local unlock = assert(action)
+            assert(unlock.copyId == "toast.locked.unlock")
             unlock.click(); assert(not f.ctx.data.locked and not f.root:Get("overland-map-lock"):HasClass("on"))
         end)
     end
