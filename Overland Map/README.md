@@ -78,6 +78,7 @@ are research, not approved feature designs.
   Icons with tooltips.
 - The Lock button is highlighted while positions are locked. Maps open locked;
   a blocked drag shows **Positions are locked** with an **Unlock** action.
+  Dragging over locked labels or map aids pans the map without moving the object.
 - **Esc** commits and closes Quick Add before stopping its placement tool. Other layers close
   one at a time: a tool or text field, then edit mode, then a popover
   or the side panel, then goes up one map, and at the Atlas closes the in-app map.
@@ -201,7 +202,7 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   never enter the preview; existing pin visibility rules still apply.
 - **Visibility.** A pin is Hidden (Director only) or Revealed. Names and labels remain
   fully readable in preparation view. **Show player visibility**, initially off in
-  personal Settings, adds hidden-item badges; label badges attach to the top-left corner.
+  the Director's personal Settings, adds hidden-item badges; label badges attach to the top-left corner.
   A Location's own map has a separate Map shared switch.
 - **Side panel.** Clicking an editable pin opens its editor with a shared title, close
   button, Open map, Move Party here and "..." actions where available. The Director also
@@ -216,6 +217,7 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
 - **Create**: toolbar Add > Add location then click the map (sticky until Esc), or right-click > Add
   location here. The new Location is Hidden and copies the last pin style used. A compact
   **Quick Add** name field opens beside it; type and press Enter, then click the next spot.
+  Finishing Quick Add clears the selection. Clicking empty map space also deselects.
   Add label uses the same flow and remembers the last label format. Neither opens a side
   panel or changes the camera. **All options** opens the full editor. Leaving saves typed
   text; an empty label draft is discarded. The field follows its anchor and hides off-screen.

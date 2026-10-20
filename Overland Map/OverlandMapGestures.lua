@@ -208,7 +208,7 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
         BeginDrag(kind, id, row.u, row.v, not data.locked)
         local drag = gestures.current
         if drag == nil then return false end
-        if data.locked then drag.positionLocked = true; return true end
+        if data.locked then drag.positionLocked, drag.kind = true, "pan"; return true end
         drag.labelStart = DeepCopy(row)
         local x, y = ImageToPanel(state.layout, row.u, row.v)
         drag.labelDistance = math.max(1, math.sqrt((drag.startX - x)^2 + (drag.startY - y)^2))
@@ -226,7 +226,7 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
         BeginDrag(kind, id, row.u, row.v, not data.locked)
         local drag = gestures.current
         if drag == nil then return end
-        if data.locked then drag.positionLocked = true; return true end
+        if data.locked then drag.positionLocked, drag.kind = true, "pan"; return true end
         drag.aidStart, drag.aidMapId = DeepCopy(row), data.mapId
         local x, y = ImageToPanel(state.layout, row.u, row.v)
         drag.labelDistance = math.max(1, math.sqrt((drag.startX - x)^2 + (drag.startY - y)^2))
@@ -409,7 +409,7 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
                     if ctx.IsAlive() and data.mapId == mapId then ctx.SetLocked(false) end
                 end })
             end
-            return
+            if drag.kind ~= "pan" then return end
         end
         if drag.aidStart ~= nil then
             if not OverlandMapAids.CanEdit(drag.aidMapId) or data.mapId ~= drag.aidMapId

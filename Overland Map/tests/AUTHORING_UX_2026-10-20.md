@@ -118,6 +118,46 @@ Plan: [AUTHORING_UX_PLAN.md](../docs/AUTHORING_UX_PLAN.md).
   19 pins, 6 labels and its original window/font/theme settings. No CodeMod publication
   or presentation to players was performed.
 
+## Reviewer follow-up
+
+- Reproduced a selected pin surviving Quick Add, tool cancellation and a blank-map
+  click, followed by Escape returning to the Atlas. Quick Add now deselects on
+  completion, and blank-map clicks clear either pin or label selection. Escape still
+  stops the sticky placement tool before navigating.
+- Confirmed that a locked drag over Silver Wood left the camera stationary while a
+  background drag panned it. This matched the original plan's dead-gesture rule, but
+  obstructed navigation across large labels. Locked label/aid body drags now pan and
+  retain the once-per-drag Unlock toast. They never write object positions; clicks
+  still select, and unlocked object drags still move the object.
+- Reproduced fractional inset nontermination: retargeting from `0.9850579200000027`
+  to `265.59999999999997` produced `265.60000000000002` even at `t = 1`. Completed
+  easing now assigns the target exactly. The regression checks camera-save release
+  and return to the idle think rate after retargeting.
+- Hidden counts now cache by map ID and `Model.Revision()`, after the Director gate.
+  Before the fix, three live refreshes at the same revision each recounted the lists.
+  Afterwards, three warm-cache refreshes caused zero hidden-list scans; three refreshes
+  following invalidation caused one. Offline checks also cover local writes, remote
+  table updates, map switches and player preview.
+- Quick Add uses `SetClassIf` for visibility and receives no canvas-layout events while
+  closed. The regression fails before the fix and checks repeated visible/off-screen
+  layouts, closing and subsequent canvas frames.
+- `OverlandMapReaders.QuickAddItem` owns the current-map and editing-permission checks
+  used by opening, refresh reconciliation and the input's edit/submit guard.
+- Show player visibility remains a personal preference, constructed in a Director-only
+  slot. Live Settings inspection showed it in Director view, absent in player preview
+  while the other personal settings remained, and restored on returning to Director.
+- Live Quick Add saved the name, collapsed and left no selected pin; Escape stopped
+  placement while Broadhurst remained open. A locked Silver Wood drag moved a landmark
+  100 screen pixels while the label's stored coordinates stayed unchanged. Review test
+  pins were removed; Broadhurst again has its original 19 pins, 6 labels and 25 hidden items.
+- All 276 checks across fourteen offline suites pass, including four new regressions
+  and strengthened Quick Add deselection and zoomed locked-drag checks. Syntax/ASCII
+  checks passed. All six changed runtime files were deployed, the watcher read them,
+  and Lua reloaded successfully; deployed hashes match the repository.
+- The available mod type checker completed with the same 60 baseline diagnostics;
+  comparison by file, code and message found no changes. The required parent typing
+  checker remains absent. Live console checks found only existing video-clock messages.
+
 ## Live verification and prerequisites
 
 - The user opened the game after the initial bridge/lobby checks. No app start or stop

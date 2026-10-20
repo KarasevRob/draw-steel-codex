@@ -27,10 +27,8 @@ function OverlandMapQuickAdd.Create(ctx)
         return Model.GetLocation(bound.id)
     end
     local function Editable()
-        if bound == nil or bound ~= ctx.data.quick then return false end
-        local row = Current()
-        if bound.kind == "label" then return Labels.CanEdit(row) end
-        return Model.CanEdit(row)
+        return bound ~= nil and bound == ctx.data.quick
+            and OverlandMapReaders.QuickAddItem(bound, ctx.data.mapId) ~= nil
     end
     local function Stage(element)
         if binding or mod.unloaded or not Editable() then return end
@@ -42,6 +40,7 @@ function OverlandMapQuickAdd.Create(ctx)
         if bound ~= nil and bound.kind == "label" then Labels.Flush(bound.id) end
     end
     local function Place()
+        if ctx.data.quick == nil then return end
         local row = Current()
         local visible = false
         local x, y
@@ -49,7 +48,7 @@ function OverlandMapQuickAdd.Create(ctx)
             x, y = OverlandMapGeometry.ImageToPanel(layout, row.u, row.v)
             visible = x >= 0 and x <= layout.viewWidth and y >= 0 and y <= layout.viewHeight
         end
-        panel:SetClass("collapsed", not visible)
+        Controls.SetClassIf(panel, "collapsed", not visible)
         if not visible then return end
         local scale = Controls.UIScale()
         local gap = 12 * scale
@@ -97,7 +96,8 @@ function OverlandMapQuickAdd.Create(ctx)
                 binding = false
             end
         end
-        Place()
+        if quick == nil then Controls.SetClassIf(panel, "collapsed", true)
+        else Place() end
     end
     input = gui.Input {
         id = "overland-map-quick-input", classes = { "input", "bordered", "sizeS" },

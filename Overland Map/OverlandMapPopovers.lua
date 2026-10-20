@@ -636,14 +636,15 @@ end
 local function BuildSettings(ctx)
     local binding, director = false, nil
     local directorSlot = gui.Panel { width = "100%", height = "auto", flow = "vertical" }
+    local directorViewSlot = gui.Panel { width = "100%", height = "auto", flow = "vertical" }
+    local visibility
     local checks = {}
     local children = { Label({ "overlandMapPopoverTitle", "sizeM" }, T("set.title")), directorSlot,
         Label({ "overlandMapSectionLabel", "sizeS" }, T("set.you")),
-        Label({ "overlandMapHint", "sizeXs" }, T("aids.personal")) }
+        Label({ "overlandMapHint", "sizeXs" }, T("aids.personal")), directorViewSlot }
     for _, item in ipairs({
         { "cam.names", OverlandMapPreferences.ShowNames, OverlandMapPreferences.SetShowNames },
         { "label.show", OverlandMapPreferences.ShowLabels, OverlandMapPreferences.SetShowLabels },
-        { "set.showVisibility", OverlandMapPreferences.ShowVisibility, OverlandMapPreferences.SetShowVisibility },
         { "aids.showCompass", OverlandMapPreferences.ShowCompass, OverlandMapPreferences.SetShowCompass },
         { "aids.showScaleBar", OverlandMapPreferences.ShowScaleBar, OverlandMapPreferences.SetShowScaleBar },
         { "aids.showHover", OverlandMapPreferences.ShowHoverText, OverlandMapPreferences.SetShowHoverText },
@@ -667,10 +668,22 @@ local function BuildSettings(ctx)
                     director = BuildDirectorSettings(ctx)
                     director:SetClass("collapsed", false)
                     directorSlot.children = { director }
+                    visibility = gui.Check {
+                        id = "overland-map-setting-set.showVisibility", classes = { "overlandMapCheck", "sizeS" },
+                        text = T("set.showVisibility"),
+                        change = function(e)
+                            if binding or mod.unloaded or not Model.IsDirector() then return end
+                            OverlandMapPreferences.SetShowVisibility(e.value == true)
+                            ctx.RefreshAll()
+                        end,
+                    }
+                    directorViewSlot.children = { visibility }
                 elseif not Model.IsDirector() and director ~= nil then
                     director.data.suspend(); directorSlot.children = {}; director = nil
+                    directorViewSlot.children = {}; visibility = nil
                 end
                 if director then director.data.bind() end
+                if visibility then visibility.value = OverlandMapPreferences.ShowVisibility() end
                 for _, check in ipairs(checks) do check.panel.value = check.get() end
                 binding = false
             end,

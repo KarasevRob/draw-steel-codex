@@ -215,7 +215,8 @@ function OverlandMapCanvas.Create(ctx)
         end
         local previousInset = state.inset
         local t = OverlandMapPreferences.ReduceMotion() and 1 or Clamp((dmhub.Time() - state.insetStart) / C.transitionSeconds, 0, 1)
-        state.inset = state.insetFrom + (state.insetTarget - state.insetFrom) * (1 - (1 - t) * (1 - t))
+        if t >= 1 then state.inset = state.insetTarget
+        else state.inset = state.insetFrom + (state.insetTarget - state.insetFrom) * (1 - (1 - t) * (1 - t)) end
         local viewWidth, viewHeight = canvas.renderedWidth or 0, canvas.renderedHeight or 0
         local layout = nil
         local centerX, centerY = data.camera.centerX, data.camera.centerY
@@ -500,7 +501,8 @@ function OverlandMapCanvas.Create(ctx)
                     local id = labelLayer.HitTest(x, y)
                     local aid = id == nil and aidLayer.HitTest(x, y) or nil
                     if aid then ctx.SelectAid(aid, true)
-                    else ctx.SelectLabel(id, id ~= nil and OverlandMapLabels.CanEdit(OverlandMapLabels.Snapshot(id))) end
+                    elseif id ~= nil then ctx.SelectLabel(id, OverlandMapLabels.CanEdit(OverlandMapLabels.Snapshot(id)))
+                    else ctx.Select(nil) end
                 end
                 return
             end
