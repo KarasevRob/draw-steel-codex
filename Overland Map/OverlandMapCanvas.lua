@@ -48,6 +48,8 @@ local IsFinite = Model.IsFinite
 --- @field startU number
 --- @field startV number
 --- @field allowed boolean the viewer may move what was pressed
+--- @field positionLocked nil|boolean an editable object pressed while Position Lock was on
+--- @field lockNotified nil|boolean the blocked drag already showed its feedback
 --- @field moved boolean past the drag threshold
 --- @field previewU nil|number
 --- @field previewV nil|number
@@ -451,12 +453,12 @@ function OverlandMapCanvas.Create(ctx)
             if element:GetMouseButton(0) then
                 if TrySelectionHandle() then return end
                 local x, y = PointerInCanvas()
-                if data.tool == "none" and not data.locked and x ~= nil and y ~= nil
+                if data.tool == "none" and x ~= nil and y ~= nil
                     and not OnPin(x, y) and PathUnder(x, y) == nil and labelLayer.HitTest(x, y) == nil then
                     local aid = aidLayer.HitTest(x, y)
                     if aid ~= nil then
-                        if data.selectedAid ~= aid or data.popover ~= nil then ctx.SelectAid(aid, false, false) end
-                        if aidLayer.Begin("aidMove") then return end
+                        if not data.locked and (data.selectedAid ~= aid or data.popover ~= nil) then ctx.SelectAid(aid, false, false) end
+                        if aidLayer.Begin("aidMove", aid) then UpdateThinkRate(element); return end
                     end
                 end
             end
@@ -470,10 +472,10 @@ function OverlandMapCanvas.Create(ctx)
                 if data.tool == "ruler" and state.layout ~= nil and x ~= nil and y ~= nil then
                     u, v = OverlandMapGeometry.PanelToImage(state.layout, x, y)
                 end
-                if data.tool == "none" and not data.locked and x ~= nil and y ~= nil and not OnPin(x, y)
-                    and PathUnder(x, y) == nil and labelLayer.HitTest(x, y) == data.selectedLabelId
-                    and BeginLabelDrag("labelMove", data.selectedLabelId) then
-                    -- BeginLabelDrag owns this press; unselected text still pans.
+                local label = x ~= nil and y ~= nil and labelLayer.HitTest(x, y) or nil
+                if data.tool == "none" and label ~= nil and not OnPin(x, y) and PathUnder(x, y) == nil
+                    and BeginLabelDrag("labelMove", label) then
+                    -- Labels own their press even before selection, just like pins.
                 elseif u ~= nil and v ~= nil then
                     BeginDrag("ruler", nil, u, v, true)
                 else
@@ -493,12 +495,12 @@ function OverlandMapCanvas.Create(ctx)
                 -- A click within a path's band selects it.
                 local pathId = PathUnder(x, y)
                 if pathId ~= nil then ctx.SelectPath(pathId)
-                elseif not data.locked then
+                else
                     local id = labelLayer.HitTest(x, y)
                     local aid = id == nil and aidLayer.HitTest(x, y) or nil
-                    if aid then ctx.SelectAid(aid, false)
+                    if aid then ctx.SelectAid(aid, true)
                     else ctx.SelectLabel(id, id ~= nil and OverlandMapLabels.CanEdit(OverlandMapLabels.Snapshot(id))) end
-                elseif data.selectedLabelId ~= nil then ctx.SelectLabel(nil) end
+                end
                 return
             end
             if data.tool == "path" or data.tool == "redraw" then

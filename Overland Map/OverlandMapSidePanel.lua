@@ -270,6 +270,7 @@ function OverlandMapSidePanel.Create(ctx)
     local readView
     local editView
     local pickView
+    local scroll
 
     local function Current()
         return Model.GetLocation(data.selectedId)
@@ -369,10 +370,15 @@ function OverlandMapSidePanel.Create(ctx)
     }
 
     local pathsSection = OverlandMapPathPanel.PathsSection(ctx)
+    local sharedHeader = gui.Panel { classes = { "overlandMapSideHeader" }, readIcon, readTitle, closeButton }
+    local readMapActions = gui.Panel { classes = { "overlandMapButtonRow" }, movePartyButton, openMapButton }
+    local readMoreActions = gui.Panel { classes = { "overlandMapButtonRow" }, editButton, moreButton }
+    local readPaths = gui.Panel { classes = { "overlandMapSideBody" }, pathsSection }
+    local editActions = gui.Panel { classes = { "overlandMapButtonRow" } }
+    local editPaths = gui.Panel { classes = { "overlandMapSideBody" } }
 
     readView = gui.Panel {
         classes = { "overlandMapSideBody" },
-        gui.Panel { classes = { "overlandMapSideHeader" }, readIcon, readTitle, closeButton },
         modeChip,
         metaRow,
         readArtwork,
@@ -381,15 +387,13 @@ function OverlandMapSidePanel.Create(ctx)
         author,
         partyHere,
         gui.Panel { classes = { "overlandMapRule" }, interactable = false },
-        gui.Panel { classes = { "overlandMapButtonRow" }, movePartyButton, openMapButton },
-        gui.Panel { classes = { "overlandMapButtonRow" }, editButton, moreButton },
-        pathsSection,
+        readMapActions,
+        readMoreActions,
+        readPaths,
         notesSection,
     }
 
-    local function BindRead(location)
-        local view = OverlandMapReaders.Location(location.id)
-        if view == nil then return end
+    local function BindFrame(location)
         local director = Model.IsDirector()
         local isPin = location.parentId ~= ""
         SetText(readTitle, Copy.Literal(DisplayName(location)))
@@ -398,6 +402,24 @@ function OverlandMapSidePanel.Create(ctx)
         if not isPin then icon = C.iconMap end
         if readIcon.bgimage ~= icon then readIcon.bgimage = icon end
         readIcon:SetClass("image", isPin and location.icon ~= "" and C.pinIcons[location.icon] == nil)
+        local party = Model.Party()
+        local here = party ~= nil and party.locationId == location.id
+        local crawl = isPin and Model.IsPointCrawl(Model.GetLocation(location.parentId))
+        movePartyButton:SetClass("collapsed", not isPin or here or not Model.CanMovePartyOn(location.parentId)
+            or (crawl and not director))
+        openMapButton:SetClass("collapsed", location.imageId == "" or not Model.CanOpenMap(location)
+            or data.mapId == location.id)
+        editButton:SetClass("collapsed", not Model.CanEdit(location))
+        moreButton:SetClass("collapsed", #OverlandMapSidePanel.MenuEntries(ctx, location.id) == 0)
+        pathsSection.data.bind(location)
+        editPaths:SetClass("collapsed", not director)
+    end
+
+    local function BindRead(location)
+        local view = OverlandMapReaders.Location(location.id)
+        if view == nil then return end
+        local director = Model.IsDirector()
+        local isPin = location.parentId ~= ""
         modeChip:SetClass("collapsed", location.imageId == "" or not Model.IsPointCrawl(location))
 
         -- Director meta: importance and visibility, the eye, and the map-shared toggle (R4).
@@ -438,18 +460,6 @@ function OverlandMapSidePanel.Create(ctx)
         partyHere:SetClass("collapsed", not here)
         SetText(partyHere, T("panel.partyHere", { party = Model.PartyName() }))
 
-        -- Players on a point crawl map move the Party only by Travel to (G5, Q16).
-        local crawl = isPin and Model.IsPointCrawl(Model.GetLocation(location.parentId))
-        movePartyButton:SetClass("collapsed", not isPin or here or not Model.CanMovePartyOn(location.parentId)
-            or (crawl and not director))
-        -- Players see Open map only once the map is shared (R4); CanOpenMap says so.
-        openMapButton:SetClass("collapsed", location.imageId == "" or not Model.CanOpenMap(location)
-            or data.mapId == location.id)
-        editButton:SetClass("collapsed", not Model.CanEdit(location))
-        moreButton:SetClass("collapsed", #OverlandMapSidePanel.MenuEntries(ctx, location.id) == 0)
-
-        pathsSection.data.bind(location)
-
         notesSection:SetClass("collapsed", not director)
         if director then
             local note = view.note or ""
@@ -477,6 +487,7 @@ function OverlandMapSidePanel.Create(ctx)
         if location ~= nil and location.visibility ~= value then SetVisibility(ctx, location, value) end
     end)
     local nameInput = gui.Input {
+        id = "overland-map-location-name",
         classes = { "input", "bordered", "overlandMapInput" },
         placeholderText = T("edit.name.placeholder"), characterLimit = C.textLimit,
         edit = function(element)
@@ -576,13 +587,23 @@ function OverlandMapSidePanel.Create(ctx)
     end)
     local doneButton = Button(T("edit.done"), function()
         Flush()
-        if data.selectedId ~= nil then ctx.Select(data.selectedId, "read") end
+        ctx.Select(nil)
     end)
+    local deleteButton = Button(T("menu.delete"), function()
+        if data.selectedId ~= nil then OverlandMapSidePanel.RequestDelete(ctx, data.selectedId) end
+    end)
+    local footer = gui.Panel {
+        id = "overland-map-location-footer", classes = { "overlandMapSideBody", "collapsed" },
+        width = "100%", height = "auto", hpad = 14, vpad = 6, borderBox = true,
+        gui.Panel { classes = { "overlandMapSideRow" }, stateLine, retryButton },
+        gui.Panel { classes = { "overlandMapButtonRow" }, deleteButton, doneButton },
+    }
 
     local editArtwork = OverlandMapArtwork.Create(ctx, "location", true,
         function(id) return data.selectedId == id and data.panelMode == "edit" end)
     editView = gui.Panel {
         classes = { "overlandMapSideBody", "collapsed" },
+        editActions,
         visibilityLabel,
         visibilitySegments,
         Label({ "overlandMapFormLabel", "sizeXs" }, T("edit.name")),
@@ -594,8 +615,7 @@ function OverlandMapSidePanel.Create(ctx)
         journalRow,
         notesLabel,
         notesInput,
-        gui.Panel { classes = { "overlandMapSideRow" }, stateLine, retryButton },
-        gui.Panel { classes = { "overlandMapButtonRow" }, doneButton },
+        editPaths,
     }
 
     -- Typed fields follow the live record unless the viewer has unsaved text
@@ -650,6 +670,7 @@ function OverlandMapSidePanel.Create(ctx)
         SetText(stateLine, text)
         stateLine:SetClass("danger", danger)
         retryButton:SetClass("collapsed", not danger)
+        deleteButton:SetClass("collapsed", not Model.CanDelete(location))
 
 
         if data.focusName then
@@ -826,7 +847,7 @@ function OverlandMapSidePanel.Create(ctx)
         panel:SetClass("collapsed", not open)
         readArtwork:FireEvent("bind", location ~= nil and open and mode == "read" and location.id or nil)
         editArtwork:FireEvent("bind", location ~= nil and open and mode == "edit" and location.id or nil)
-        if not open or location == nil then return end
+        if not open or location == nil then panel.data.boundId = nil; return end
         local rootWidth = ctx.root.renderedWidth or 0
         local width = C.sidePanelWidth * Session.UIScale()
         if rootWidth > 0 and rootWidth < C.narrowWidth then width = rootWidth end
@@ -841,31 +862,55 @@ function OverlandMapSidePanel.Create(ctx)
             notesArrow:SetClass("expanded", false)
             notesBody:SetClass("collapsed", true)
             notesSub:SetClass("collapsed", true)
+            scroll.vscrollPosition = 1
+            local id = location.id
+            OverlandMapLifetime.Schedule(C.afterLayoutDelay, function()
+                if ctx.IsAlive() and scroll.valid and panel.data.boundId == id then scroll.vscrollPosition = 1 end
+            end)
         end
         panel.data.binding = true
+        sharedHeader:SetClass("collapsed", mode ~= "read" and mode ~= "edit")
+        footer:SetClass("collapsed", mode ~= "edit")
+        local actionsInEdit = mode == "edit"
+        if panel.data.actionsInEdit ~= actionsInEdit then
+            panel.data.actionsInEdit = actionsInEdit
+            -- Unparent first: replacing an old slot's children destroys any controls still owned by it.
+            for _, control in ipairs({ openMapButton, movePartyButton, moreButton, pathsSection }) do control:Unparent() end
+            if actionsInEdit then
+                editActions.children = { openMapButton, movePartyButton, moreButton }
+                editPaths.children = { pathsSection }
+                readMapActions.children, readMoreActions.children, readPaths.children = {}, { editButton }, {}
+            else
+                readMapActions.children, readMoreActions.children, readPaths.children = { movePartyButton, openMapButton }, { editButton, moreButton }, { pathsSection }
+                editActions.children, editPaths.children = {}, {}
+            end
+        end
         readView:SetClass("collapsed", mode ~= "read")
         editView:SetClass("collapsed", mode ~= "edit")
         pickView:SetClass("collapsed", mode ~= "pickMode" and mode ~= "pickImage" and mode ~= "pickMap" and mode ~= "pickJournal")
+        if mode == "read" or mode == "edit" then BindFrame(location) end
         if mode == "read" then BindRead(location)
         elseif mode == "edit" then BindEdit(location)
         else BindPick(location) end
         panel.data.binding = false
     end
 
+    scroll = gui.Panel {
+        classes = { "overlandMapSideScroll" }, vscroll = true, height = "100% available", flow = "vertical",
+        sharedHeader, readView, editView, pickView,
+    }
     panel = gui.Panel {
         id = "overland-map-side-panel",
         classes = { "overlandMapSide", "collapsed" },
-        floating = true,
+        floating = true, flow = "vertical",
         width = C.sidePanelWidth,
         popupsInheritStyles = true,
         data = { binding = false, boundId = nil, iconPicker = false, iconTab = "map", recheckScheduled = false },
         bind = function() Bind() end,
         flush = function() Flush() end,
         destroy = function() editor.Destroy(); if releaseSession then releaseSession() end end,
-        gui.Panel {
-            classes = { "overlandMapSideScroll" }, vscroll = true,
-            readView, editView, pickView,
-        },
+        scroll,
+        footer,
     }
     releaseSession = OverlandMapSession.Register {
         scope = ctx, valid = function() return panel.valid end, flush = Flush,

@@ -52,8 +52,10 @@ The approved map-aids and personal hover-control wording is recorded in
 | tb.search | Search locations | Tooltip |
 | tb.add | Add location | Tooltip |
 | tb.import | Import locations | Tooltip; Director, open maps only; beside Add |
-| tb.lock.on | Positions locked - click to unlock locations and labels | Tooltip, default state |
-| tb.lock.off | Positions unlocked - click to lock locations and labels | Tooltip |
+| tb.lock.on | Positions locked - click to unlock | Tooltip, highlighted default state |
+| tb.lock.off | Positions unlocked - click to lock | Tooltip |
+| toast.locked | Positions are locked | Once per blocked drag |
+| toast.locked.unlock | Unlock | Toast action |
 | tb.ruler | Ruler | Tooltip |
 | tb.show | Show this map to players | Tooltip, Director only |
 | tb.viewAs.off | View as player | Tooltip, Director only |
@@ -108,7 +110,7 @@ The approved map-aids and personal hover-control wording is recorded in
 | status.none | {party} is not on a map | |
 | status.none.hint | Right-click a map to place the Party. | Tooltip, Director only |
 | banner.viewAs | Viewing as player - hidden locations are not shown | Director, View as player on (R9) |
-| chip.unlocked | Positions unlocked - drag locations or selected labels to move | While unlocked (R6), updated 2026-10-15 |
+| chip.unlocked | Positions unlocked - drag locations, labels or map aids to move | While unlocked |
 | hint.add | Click the map to add a location. Esc to stop. | "+" active (R10) |
 | hint.move | Click where {name} should go. Esc cancels. | "Move" from the menu |
 | hint.ruler | Ruler: click a start, then an end. Only you see it. Esc stops. | Ruler active (R7) |
