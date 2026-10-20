@@ -78,7 +78,8 @@ are research, not approved feature designs.
   Icons with tooltips.
 - The Lock button is highlighted while positions are locked. Maps open locked;
   a blocked drag shows **Positions are locked** with an **Unlock** action.
-- **Esc** closes one layer at a time: a tool or text field, then edit mode, then a popover
+- **Esc** commits and closes Quick Add before stopping its placement tool. Other layers close
+  one at a time: a tool or text field, then edit mode, then a popover
   or the side panel, then goes up one map, and at the Atlas closes the in-app map.
 - Left-clicking elsewhere on the map or Atlas dismisses the mod's context menu. Menu
   actions still run normally; opening another menu replaces the previous one.
@@ -213,8 +214,11 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
   PDF, image or PDF bookmark. The picker shows each entry's kind icon. Open in journal opens
   it the way the journal does; a viewer who cannot browse the entry in the journal sees no link.
 - **Create**: toolbar Add > Add location then click the map (sticky until Esc), or right-click > Add
-  location here. The new Location is Hidden, opens in edit mode with the name focused and
-  copies the last pin style used.
+  location here. The new Location is Hidden and copies the last pin style used. A compact
+  **Quick Add** name field opens beside it; type and press Enter, then click the next spot.
+  Add label uses the same flow and remembers the last label format. Neither opens a side
+  panel or changes the camera. **All options** opens the full editor. Leaving saves typed
+  text; an empty label draft is discarded. The field follows its anchor and hides off-screen.
 - **Move a pin**: unlock with Lock and drag, or "..." > Move then click. Pins are locked by
   default so nothing moves by accident during play.
 - **Delete**: an empty Location goes at once with an undo toast; one with children or a map
@@ -431,13 +435,14 @@ Load order (49 runtime files; persisted in the CodeMod file list):
 | 42 | `OverlandMapPartyPanel.lua` | Party controls and travel choices |
 | 43 | `OverlandMapAtlas.lua` | Map gallery and map creation |
 | 44 | `OverlandMapPopovers.lua` | Search, settings and aid composition |
-| 45 | `OverlandMapImport.lua` | Explicit JSON draft, preview and batched import |
-| 46 | `OverlandMapLogPanel.lua` | Session log and save-on-close notes |
-| 47 | `OverlandMapPresent.lua` | Map presentation |
-| 48 | `OverlandMapPanel.lua` | Toolbar, navigation, selection, focus and scoped refresh |
-| 49 | `OverlandMapHost.lua` | In-app window chrome, geometry and the window state machine |
-| 50 | `OverlandMapTabletop.lua` | Every Tabletop call, per-feature availability, minimized button, window lists, Atlas placement |
-| 51 | `OverlandMap.lua` | Bootstrap, native popout and lifecycle reconciliation |
+| 45 | `OverlandMapQuickAdd.lua` | Lazy anchor-following name/text editor for new items |
+| 46 | `OverlandMapImport.lua` | Explicit JSON draft, preview and batched import |
+| 47 | `OverlandMapLogPanel.lua` | Session log and save-on-close notes |
+| 48 | `OverlandMapPresent.lua` | Map presentation |
+| 49 | `OverlandMapPanel.lua` | Toolbar, navigation, selection, focus and scoped refresh |
+| 50 | `OverlandMapHost.lua` | In-app window chrome, geometry and the window state machine |
+| 51 | `OverlandMapTabletop.lua` | Every Tabletop call, per-feature availability, minimized button, window lists, Atlas placement |
+| 52 | `OverlandMap.lua` | Bootstrap, native popout and lifecycle reconciliation |
 
 Original cloud file IDs and revision histories are preserved. New files were registered
 through the live bridge, with the bootstrap last. `main.lua` is informational only.

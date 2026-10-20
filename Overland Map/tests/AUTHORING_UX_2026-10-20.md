@@ -55,6 +55,69 @@ Plan: [AUTHORING_UX_PLAN.md](../docs/AUTHORING_UX_PLAN.md).
   Live inspection caught a fixed button-size class overriding the chip width; explicit
   auto layout sizes corrected the overflow (228 px measured, full text visible).
 
+## Phase 4
+
+- Added the lazily constructed Quick Add component. New locations and labels open a
+  single-line field beside their anchor, with All options for the full editor. Enter
+  saves and returns focus to the canvas without stopping placement or opening an editor.
+- Quick Add follows canvas layout, flips left near the right edge, clamps below the
+  toolbar and hides off-screen. It participates in session flush/cancel transitions;
+  empty label drafts disappear on leaving. Escape closes it before stopping the tool.
+- Added eight authoring checks for saves, placement, All options, Escape, blank labels,
+  navigation, permission/undo handling and off-screen layout. All 272 checks across
+  fourteen offline suites pass. Changed Lua files pass syntax and ASCII checks.
+- The final available mod type check completed with the same 60 existing diagnostics
+  and no new diagnostics. Its exit status remains 1 because those baseline hints exist.
+- Final review reproduced a permission-reconciliation reset of an allowed location's
+  unfinished input. The regression isolated the cancel callback (without a bind or
+  navigation); it now resets text only when work was actually cancelled. Undo still
+  removes unsent typing. The regression fails before the fix and passes after it.
+
+## Live authoring checks
+
+- Created five pins down Broadhurst's right edge using click, type, Enter. Each saved
+  with `u = 0.9695783`; the Delian Tomb landmark stayed at screen `(1301, 545)` throughout.
+  The side editor did not exist after the sequence. Quick Add opened to the anchor's left.
+- Escape committed a sixth test name and closed Quick Add; the placement hint remained
+  until the second Escape. Labels use the same flow and keep their placement tool active.
+- A locked label drag displayed Positions are locked with Unlock. Clicking Unlock
+  removed the lock highlight. An unselected test label then moved from `(1820, 1140)`
+  to `(1880, 1180)` without moving the map.
+- Clicking Delian Tomb opened edit with Move Party here and the shared header/actions.
+  Done closed it. After panning into the extra panel allowance, live layout samples on
+  Done showed inset `320, 252.85, 193.61, 142.26, 98.80, 63.25, 35.59, 15.83, 3.97, 0`
+  over 0.300 seconds. Camera center eased from `0.71070` to `0.5`.
+- Inspected Quick Add at normal MCDM/100%, Default/140% in a 740 x 570 logical window,
+  and Forest/80% in a 640 x 500 window. Input and All options stayed inside the card.
+  All options preserved an empty label draft and opened its full editor; the 140%
+  scroll area and pinned Delete/Done footer fit. Original theme, font and geometry
+  were restored. This used the running game, without a harness restart.
+- Removed the six smoke-test locations and test label. Original Broadhurst again has
+  its 25 hidden items. Empty font-test label drafts were discarded.
+- Deployed the final Quick Add cancellation guard, observed the watcher read, and
+  reloaded. A live name stayed unchanged across `overlandMapReconcile` and saved on
+  Enter. The subsequent console window contained no errors other than the app's
+  existing video-clock resync messages.
+
+## Usability rerun
+
+- [Blind UI-only report](BROADHURST_USABILITY_2026-10-20.md): completed 19 named pins
+  and 6 labels on a fresh Broadhurst image copy, including edge placements, then
+  successfully renamed a location. A read-only follow-up confirmed all 25 items.
+- Recorded distinct criticisms about icon discoverability, repeated entry steps,
+  large labels overlapping nearby names, discovering label movement while locked,
+  and finding a player preview. The blind tester's label-move and player-view checks
+  remained incomplete; the separate developer smoke checks cover those behaviors.
+- The new-item sequence used Quick Add without the full side editor. The measured
+  edge-placement check establishes the stable camera; the blind report supplies
+  the remaining usability observations. An exact comparison is unavailable because
+  the earlier prompt and log are missing.
+- A subsequent local player preview returned no trial pins or labels and excluded
+  the unshared map from the visible UI. Restored Director view and the visibility
+  preference, removed the test copy, and reopened the original Broadhurst with
+  19 pins, 6 labels and its original window/font/theme settings. No CodeMod publication
+  or presentation to players was performed.
+
 ## Live verification and prerequisites
 
 - The user opened the game after the initial bridge/lobby checks. No app start or stop
@@ -63,5 +126,6 @@ Plan: [AUTHORING_UX_PLAN.md](../docs/AUTHORING_UX_PLAN.md).
   (`ec447c62-03db-4416-a5a2-0b013c0f3893`, index 45). Player.log confirmed
   `Verified OverlandMapQuickAdd in cloud` and a successful CodeMod write.
 - Broadhurst map: `e7011483-eb13-4d30-a98b-0c76232dd459`.
-- Remaining: full authoring smoke checks, theme/font checks and the blind usability rerun.
-  The referenced `scratchpad/broadhurst-usertest-log.md` is absent from this checkout.
+- The referenced `scratchpad/broadhurst-usertest-log.md` and exact original blind-agent
+  prompt are absent. The usability rerun uses an equivalent 25-item task on a fresh copy;
+  it cannot provide an exact before/after comparison to the missing log.

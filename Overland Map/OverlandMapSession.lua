@@ -110,6 +110,7 @@ end)
 --- @field selectedId nil|string the Location in the side panel
 --- @field selectedPathId nil|string the path in the path panel (panelMode "path")
 --- @field selectedLabelId nil|string selected map lettering, including a local creation draft
+--- @field quick nil|{kind: "location"|"label", id: string} the compact new-item editor
 --- @field selectedAid nil|string compass or scaleBar being edited
 --- @field aidMapId nil|string the map whose aid editor owns the selection
 --- @field panelMode "none"|"read"|"edit"|"pickMode"|"pickImage"|"pickMap"|"pickJournal"|"log"|"path"|"pathEdit"|"pickPathEnd"|"party"|"labelEdit"
@@ -173,6 +174,9 @@ end)
 --- @field SelectPath fun(id: nil|string, mode: nil|"path"|"pathEdit") show a path in the path panel; nil closes it
 --- @field SelectLabel fun(id: nil|string, edit?: boolean)
 --- @field CreateLabel fun(u: number, v: number)
+--- @field QuickAdd fun(kind: "location"|"label", id: string)
+--- @field CloseQuickAdd fun()
+--- @field CanvasLayout fun(layout: OverlandMapLayout?)
 --- @field FocusLabel fun(id: string, edit?: boolean)
 --- @field SelectAid fun(kind: nil|string, edit?: boolean, reveal?: boolean)
 --- @field KeepAidVisible fun(kind: string)

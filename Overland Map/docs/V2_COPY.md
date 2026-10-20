@@ -116,6 +116,9 @@ The approved map-aids and personal hover-control wording is recorded in
 | banner.viewAs | Viewing as player - hidden locations are not shown | Director, View as player on (R9) |
 | chip.unlocked | Positions unlocked - drag locations, labels or map aids to move | While unlocked |
 | hint.add | Click the map to add a location. Esc to stop. | "+" active (R10) |
+| quick.name.placeholder | Name | Quick Add location input |
+| quick.label.placeholder | Label text | Quick Add label input |
+| quick.more | All options | Open the full editor for the new item |
 | hint.move | Click where {name} should go. Esc cancels. | "Move" from the menu |
 | hint.ruler | Ruler: click a start, then an end. Only you see it. Esc stops. | Ruler active (R7) |
 

@@ -14,10 +14,12 @@ local function Fixture()
     ctx.CurrentMap = function() return f.M.GetLocation(f.map) end
     ctx.IsAlive = function() return true end
     ctx.FlushEdits = function() end
+    ctx.Transition = function(reason) f.env.OverlandMapSession.Transition(reason, ctx) end
     ctx.SetTool = function(tool) ctx.data.tool = tool end
     ctx.SetPopover = function(popover) ctx.data.popover = popover end
     ctx.Report = function(ok, reason) assert(ok, tostring(reason)); return ok end
     ctx.Select = function(id) ctx.data.selectedId = id end
+    ctx.QuickAdd = function(kind, id) assert(kind == "location"); ctx.data.selectedId = id end
     ctx.Push = function() end
     ctx.CreateLabel = function(u, v) f.draft = f.L.NewDraft(f.map, u, v) end
     f.ctx = ctx

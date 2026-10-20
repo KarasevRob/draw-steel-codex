@@ -9,7 +9,7 @@ local extraModules = {
     "Journal", "Log", "Editors", "Travel", "Styles", "Controls", "PinText", "Drawing", "CanvasTools",
     "PathLayer", "LabelLayer", "PathTool", "Aids", "AidLayer", "AidEditor", "Gestures", "PinLayer",
     "PartyLayer", "Camera", "GuideLayer", "Canvas", "Artwork", "SidePanel", "PathPanel", "LabelPanel",
-    "PartyPanel", "Atlas", "Popovers", "Import", "LogPanel", "Present", "Panel",
+    "PartyPanel", "Atlas", "Popovers", "QuickAdd", "Import", "LogPanel", "Present", "Panel",
 }
 
 local function PanelCounts()

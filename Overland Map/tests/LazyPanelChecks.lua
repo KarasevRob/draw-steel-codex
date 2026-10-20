@@ -72,7 +72,7 @@ local function Fixture()
     local modes = {
         location = { read = true, edit = true, pickMode = true, pickImage = true, pickMap = true, pickJournal = true },
         path = { path = true, pathEdit = true, pickPathEnd = true }, label = { labelEdit = true },
-        party = { party = true }, log = { log = true }, import = {},
+        party = { party = true }, log = { log = true }, import = {}, quick = {},
     }
     local function Factory(key)
         return function(ctx)
@@ -82,7 +82,7 @@ local function Fixture()
             local release
             local panel = Panel { id = "fixture-" .. key, classes = { "collapsed" },
                 bind = function(p)
-                    local active = modes[key][ctx.data.panelMode] == true
+                    local active = modes[key][ctx.data.panelMode] == true or (key == "quick" and ctx.data.quick ~= nil)
                     p:SetClass("collapsed", not active)
                     f.binds[#f.binds + 1] = { key = key, active = active, mode = ctx.data.panelMode,
                         id = ctx.data.selectedId, director = f.M.IsDirector() }
@@ -104,7 +104,7 @@ local function Fixture()
         end
     end
     for key, name in pairs({ location = "SidePanel", path = "PathPanel", label = "LabelPanel",
-        party = "PartyPanel", log = "LogPanel", import = "Import" }) do
+        party = "PartyPanel", log = "LogPanel", import = "Import", quick = "QuickAdd" }) do
         env["OverlandMap" .. name] = { Create = Factory(key) }
     end
     env.OverlandMapPathPanel.CanConnect = function() return f.canConnect ~= false and f.M.IsDirector() end
@@ -166,9 +166,11 @@ function checks.Run()
     Check("editable labels build once and blank drafts still disappear on leave", function(f)
         f.ctx.CreateLabel(0.2, 0.3)
         local id = f.ctx.data.selectedLabelId
+        assert(f.made.quick == 1 and not f.made.label and f.L.Snapshot(id))
+        f.ctx.SelectLabel(id, true)
         assert(f.made.label == 1 and f.L.Snapshot(id))
         f.ctx.SelectLabel(nil); assert(f.L.Snapshot(id) == nil)
-        f.ctx.CreateLabel(0.6, 0.7); assert(f.made.label == 1)
+        f.ctx.CreateLabel(0.6, 0.7); assert(f.made.quick == 1 and f.made.label == 1)
     end)
     Check("saved-format listener works before the label editor exists", function(f)
         local id = f.L.NewDraft(f.map, 0.2, 0.3)
