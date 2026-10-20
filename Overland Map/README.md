@@ -198,8 +198,10 @@ remaining validation limits are in [tests/LABELS.md](tests/LABELS.md).
 - Pin hover shows the full name and the first two description sentences, capped at
   300 Unicode characters with `...` when shortened. Director notes and journal contents
   never enter the preview; existing pin visibility rules still apply.
-- **Visibility.** A pin is Hidden (Director only, shown dimmed with an eye-slash badge) or
-  Revealed. A Location's own map has a separate Map shared switch.
+- **Visibility.** A pin is Hidden (Director only) or Revealed. Names and labels remain
+  fully readable in preparation view. **Show player visibility**, initially off in
+  personal Settings, adds hidden-item badges; label badges attach to the top-left corner.
+  A Location's own map has a separate Map shared switch.
 - **Side panel.** Clicking an editable pin opens its editor with a shared title, close
   button, Open map, Move Party here and "..." actions where available. The Director also
   sees its Paths section. Other viewers, Search and breadcrumbs open the read view,
@@ -294,7 +296,8 @@ The helper is registered before both detail panels.
   depends on colour. Days or Watches sets how times read. Deleting a used type draws its
   paths as "No type"; Undo restores it.
 - **Drawing.** Lines keep their screen size at every zoom, on a casing of the opposite tone.
-  Hidden paths draw faded with an eye-slash on each segment. Labels ("name - time") show on
+  Show player visibility adds a fade and eye-slash on each hidden path segment. Path text
+  stays opaque. Labels ("name - time") show on
   hover, on the selected path, and for all paths with Show names, where they fit without
   covering pins or each other (more appear as you zoom in).
 - **Making paths** (Director): the Path tool (click a pin, click the map for bends,
@@ -341,6 +344,9 @@ The helper is registered before both detail panels.
   (anywhere on any map).
 - Settings (Director): Party name, Party image (or the default banner), "Players can move
   the Party", "Players can add locations", "Players can manage their own labels".
+- The Director's top banner chip counts hidden pins, labels and paths on the open map.
+  Clicking **N hidden from players** toggles Show player visibility; the chip is highlighted
+  while the overlay is on and disappears when nothing is hidden.
 - The status chip (bottom right, "Party at Old Quarry") goes to the Party: it opens the
   Party's map when it is on another one, then eases the camera onto the Party, zoomed in to
   at least 2x and centered in the part of the map an open side panel leaves visible. On a

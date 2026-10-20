@@ -193,6 +193,7 @@ OverlandMapPreferences.ShowHoverText, OverlandMapPreferences.SetShowHoverText = 
 
 -- "Reduce motion" turns off the map transitions and the control fade (R9).
 OverlandMapPreferences.ReduceMotion, OverlandMapPreferences.SetReduceMotion = OnOffPreference("reduceMotion", false)
+OverlandMapPreferences.ShowVisibility, OverlandMapPreferences.SetShowVisibility = OnOffPreference("showVisibility", false)
 -- "Show route" draws the Party's past route from the session log (D14d).
 OverlandMapPreferences.ShowRoute, OverlandMapPreferences.SetShowRoute = OnOffPreference("showRoute", false)
 
