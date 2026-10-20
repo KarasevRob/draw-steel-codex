@@ -1694,13 +1694,17 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
         if targetToken.isObject then
             local pierce = casterToken.properties:GetPierceWalls()
             for _,loc in ipairs(targetToken.locsOccupying) do
-                local info = casterToken:GetLineOfSightToSpaceInfo(loc, pierce)
-                local dx = loc.x - casterToken.loc.x
-                local dy = loc.y - casterToken.loc.y
-                local distance = math.sqrt(dx*dx + dy*dy)
-                if info.cover > 0 or distance * (1 - info.obstructionDist) <= 0.75 then
-                    seen = true
-                    break
+                --The engine has this call but the repo's stubs predate it; pcall keeps older engine builds working.
+                ---@diagnostic disable-next-line: undefined-field
+                local ok, info = pcall(function() return casterToken:GetLineOfSightToSpaceInfo(loc, pierce) end)
+                if ok then
+                    local dx = loc.x - casterToken.loc.x
+                    local dy = loc.y - casterToken.loc.y
+                    local distance = math.sqrt(dx*dx + dy*dy)
+                    if info.cover > 0 or distance * (1 - info.obstructionDist) <= 0.75 then
+                        seen = true
+                        break
+                    end
                 end
             end
         end
