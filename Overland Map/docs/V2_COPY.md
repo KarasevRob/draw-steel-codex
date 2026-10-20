@@ -54,7 +54,7 @@ The approved map-aids and personal hover-control wording is recorded in
 | tb.import | Import locations | Tooltip; Director, open maps only; beside Add |
 | tb.lock.on | Positions locked - click to unlock | Tooltip, highlighted default state |
 | tb.lock.off | Positions unlocked - click to lock | Tooltip |
-| toast.locked | Positions are locked | Once per blocked drag |
+| toast.locked | Positions are locked | Once per blocked pin drag; locked label and aid drags pan instead |
 | toast.locked.unlock | Unlock | Toast action |
 | vis.chip | {count} hidden from players | Director map count; toggles the overlay |
 | vis.chip.one | {count} hidden from players | Singular count |

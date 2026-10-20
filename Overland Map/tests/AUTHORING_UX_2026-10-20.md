@@ -126,9 +126,11 @@ Plan: [AUTHORING_UX_PLAN.md](../docs/AUTHORING_UX_PLAN.md).
   stops the sticky placement tool before navigating.
 - Confirmed that a locked drag over Silver Wood left the camera stationary while a
   background drag panned it. This matched the original plan's dead-gesture rule, but
-  obstructed navigation across large labels. Locked label/aid body drags now pan and
-  retain the once-per-drag Unlock toast. They never write object positions; clicks
-  still select, and unlocked object drags still move the object.
+  obstructed navigation across large labels. Locked label/aid body drags now pan
+  without a toast, since lettering covers too much of the map to notify on every pan;
+  only a locked pin drag shows the Unlock toast. They never write object positions;
+  clicks still select, and unlocked object drags still move the object. (Offline
+  checks only; not yet re-checked live.)
 - Reproduced fractional inset nontermination: retargeting from `0.9850579200000027`
   to `265.59999999999997` produced `265.60000000000002` even at `t = 1`. Completed
   easing now assigns the target exactly. The regression checks camera-save release

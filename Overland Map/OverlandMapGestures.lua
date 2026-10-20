@@ -402,7 +402,9 @@ function OverlandMapGestures.Canvas(ctx, state, gestures, layers, view)
         local dx, dy = mouseX - drag.startX, mouseY - drag.startY
         if not drag.moved then return end
         if drag.positionLocked then
-            if not drag.lockNotified then
+            -- A locked label or aid drag just pans, so it stays quiet: lettering covers
+            -- too much of the map to toast on every pan in play.
+            if not drag.lockNotified and drag.kind ~= "pan" then
                 drag.lockNotified = true
                 local mapId = data.mapId
                 OverlandMapUndo.Notify("toast.locked", nil, nil, { copyId = "toast.locked.unlock", click = function()
