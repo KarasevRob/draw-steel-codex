@@ -4803,6 +4803,9 @@ local function CreateAudioIndicator()
                     text = "Stop all audio",
                     width = "auto",
                     height = "auto",
+                    bgimage = true,
+                    bgcolor = "clear",
+                    vpad = 4,
                     halign = "left",
                     valign = "center",
                     linger = function(element)
@@ -4819,12 +4822,17 @@ local function CreateAudioIndicator()
                     height = "auto",
                     halign = "right",
                     valign = "center",
+                    --a panel only takes the mouse when it has a bgimage; its
+                    --children are non-interactable, so this one must.
+                    bgimage = true,
+                    bgcolor = "clear",
+                    vpad = 4,
                     press = function()
                         resultPanel.popup = nil
                         LaunchablePanel.LaunchPanelByName("Audio Studio")
                     end,
                     gui.Label{
-                        classes = {"sizeXs", "apLink"},
+                        classes = {"sizeXs", "apLink", "apLinkPart"},
                         text = "Audio Studio",
                         width = "auto",
                         height = "auto",
@@ -4894,7 +4902,9 @@ local function CreateAudioIndicator()
                 { selectors = {"apKnob", "parent:on"}, bgcolor = "@fgStrong" },
                 { selectors = {"apLink"}, color = "@fgMuted" },
                 { selectors = {"apLink", "hover"}, color = "@fg" },
-                { selectors = {"apLink", "parent:hover"}, color = "@fg" },
+                --only the Studio link's own label: "parent:hover" on every apLink
+                --also lit Stop all audio, whose parent (the footer) hovers too.
+                { selectors = {"apLinkPart", "parent:hover"}, color = "@fg" },
                 { selectors = {"apLinkIcon"}, bgcolor = "@fgMuted" },
                 { selectors = {"apLinkIcon", "parent:hover"}, bgcolor = "@fg" },
             },
