@@ -1,0 +1,29 @@
+{
+  "locations": [
+    {
+      "name": "Kell's Ferry",
+      "icon": "port",
+      "importance": "major",
+      "visibility": "revealed",
+      "u": 0.42,
+      "v": 0.61,
+      "description": "A rope ferry over the Brinewater, run by the Kell family for six generations.",
+      "note": "The ferryman owes the Thieves' Guild 40 gp."
+    },
+    {
+      "name": "The Drowned Shrine",
+      "icon": "temple",
+      "pinStyle": "plate",
+      "description": "Half-sunk stones in the marsh. Locals leave salt at the steps."
+    },
+    {
+      "name": "Wolf Tor",
+      "icon": "danger",
+      "importance": "minor",
+      "pinStyle": "iconOnly"
+    },
+    {
+      "name": "Old Watchtower"
+    }
+  ]
+}
