@@ -565,6 +565,7 @@ local g_casterTokenStack = {}
 ---@field shapeRequiresConfirm nil|boolean
 ---@field shapeConfirmedLoc nil|Loc
 ---@field shape nil|LuaShape
+---@field offMapShapeKey nil|string The chosen squares the off-map wall outline was built from, so it is not rebuilt on every hover. Cleared while the pointer is on the map.
 ---@field label nil|SheetContainer
 ---@field radius nil|LuaObjectReference
 ---@field partnerShape nil|LuaShape
@@ -9145,6 +9146,35 @@ function DrawSteelActionBar.RangeMeasureOrigin(ability, casterToken, targetToken
     return ResolveArrowOrigin(ability, casterToken, targetToken)
 end
 
+-- Proximity Targeting: once a target is chosen, the next one is measured from
+-- the first target (or, with Proximity Chain, the last target chosen) at the
+-- proximity range, for range and line of effect alike. Returns that token and
+-- range, or nil while targets are still measured from the caster.
+-- Pass a target that is already chosen and you get nil: it keeps the origin it
+-- was picked against. Defined on DrawSteelActionBar rather than as a local
+-- because this file has hit Lua's limit of 200 locals.
+function DrawSteelActionBar.ProximityTargetingOrigin(ability, casterToken, targetToken)
+    if ability == nil or casterToken == nil or not ability.proximityTargeting or g_firstTarget == nil then
+        return nil
+    end
+    if targetToken ~= nil and list_contains(g_targetsChosen, targetToken.id) then
+        return nil
+    end
+
+    local originId = g_firstTarget
+    if ability:try_get("proximityChain") and #g_targetsChosen > 0 then
+        originId = g_targetsChosen[#g_targetsChosen]
+    end
+    local originToken = dmhub.GetTokenById(originId)
+    if originToken == nil then
+        return nil
+    end
+
+    local range = ExecuteGoblinScript(ability.proximityRange, casterToken.properties:LookupSymbol(),
+        dmhub.unitsPerSquare, "Calculate proximity")
+    return originToken, range
+end
+
 -- For arrow greying: returns the smaller of the ability range and any active
 -- per-creature line-of-effect cap on either token (e.g. Dazzled). LoE limits
 -- are stored as a square count, so they're scaled to dmhub units to match
@@ -9242,7 +9272,9 @@ end
 -- casting-origin relay standing in for it. Everything geometric (line of sight,
 -- line of effect, range) measures from there; the modifier list still comes off
 -- sourceToken, since edges and banes belong to the caster either way.
-local function AddModifierLabelsToMarker(markers, sourceToken, targetToken, ability, range, originToken)
+-- Pass skipRelays when measuring from a proximity target. A casting-origin
+-- relay doesn't extend that reach, so it must not hide "Out of Range".
+local function AddModifierLabelsToMarker(markers, sourceToken, targetToken, ability, range, originToken, skipRelays)
     if markers == nil or ability == nil or sourceToken == nil or targetToken == nil then
         return
     end
@@ -9271,7 +9303,7 @@ local function AddModifierLabelsToMarker(markers, sourceToken, targetToken, abil
         local horizDist = targetToken:Distance(originToken)
         local altDiffUnits = math.abs(originToken.altitude - targetToken.altitude) * dmhub.unitsPerSquare
         if math.max(horizDist, altDiffUnits) >= range + dmhub.unitsPerSquare
-            and not CastingOriginCoversTarget(ability, sourceToken, targetToken, range) then
+            and (skipRelays or not CastingOriginCoversTarget(ability, sourceToken, targetToken, range)) then
             markers:AddLabel("Out of Range", "forbidden")
             return
         end
@@ -10999,6 +11031,131 @@ end
 CreateAbilityController = function()
     local resultPanel
 
+    --Outline of the squares chosen so far for contiguous targeting (walls
+    --and connected spaces), plus extraLoc (the hovered square) if given.
+    --With requireEmpty, an occupied square makes the shape nil.
+    --No line-of-sight filter: the LOS origin is the first chosen square, and
+    --a wall cube built there would block the squares next to it. Adjacency
+    --and range are checked on click instead.
+    local function ChosenSquaresShape(targetPoint, extraLoc, requireEmpty)
+        if g_token == nil or g_currentAbility == nil then
+            return nil
+        end
+        local locations = {}
+        for _, pos in ipairs(m_positionTargetsChosen) do
+            locations[#locations + 1] = pos.loc
+        end
+        if extraLoc ~= nil then
+            locations[#locations + 1] = extraLoc
+        end
+        return dmhub.CalculateShape {
+            shape = "locations",
+            targetPoint = targetPoint,
+            token = g_token,
+            checklos = false,
+            locOverride = g_currentAbility:try_get("casterLocOverride"),
+            requireEmpty = requireEmpty,
+            locations = locations,
+        }
+    end
+
+    --Casts a space-targeted ability at the chosen squares. Used by a map
+    --click once all squares are chosen, and by Confirm to finish a wall
+    --with fewer squares than the maximum.
+    local function CommitSpaceTargetCast(targets)
+        if g_token == nil or g_currentAbility == nil then
+            return
+        end
+        g_token.lookAtMouse = false
+
+        for i,t in ipairs(targets) do
+            print(string.format("XFLOOR:: space commit pre-PrepareTargets target[%d].loc.floor=%s",
+                i, tostring(t.loc and t.loc.floor or "nil")))
+        end
+
+        targets = g_currentAbility:PrepareTargets(g_token, g_currentSymbols, targets)
+
+        for i,t in ipairs(targets) do
+            print(string.format("XFLOOR:: space commit post-PrepareTargets target[%d].loc.floor=%s",
+                i, tostring(t.loc and t.loc.floor or "nil")))
+        end
+
+        --Same adoption AdoptLineOfSightMark performs; the hover is over either way,
+        --so the attack cross-section goes with it.
+        CrossSection.ClearAttack()
+        if m_markLineOfSight ~= nil then
+            ---@cast m_markLineOfSightSourceToken -nil
+            ---@cast m_markLineOfSightToken -nil
+            SetTargetLineOfSightRayForKey(
+                string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid),
+                m_markLineOfSight)
+            m_markLineOfSight = nil
+            m_markLineOfSightToken = nil
+            m_markLineOfSightSourceToken = nil
+        end
+
+        CharacterPanel.HighlightAbilitySection{
+            ability = g_currentAbility,
+            caster = g_token,
+            section = "main",
+        }
+
+        AppendImprovementCosts(g_currentCostProposal)
+
+        local clearAbility = g_currentAbility
+
+        --wall live-placement: mark the session committed so the casting
+        --destructors (run by finishCasting, BEFORE behaviors execute on
+        --their coroutine) don't tear down the already-built wall.
+        if g_currentAbility.targeting == "contiguous_wall" then
+            local buildWall = rawget(_G, "ActivatedAbilityBuildWallBehavior")
+            if buildWall ~= nil then
+                buildWall.CommitPlacement(g_currentAbility)
+            end
+        end
+
+        --Fire pre-cast controls (e.g. Acolyte Invoke: deal Presence to caster,
+        --add Patron's Gaze, set Cast.Invoked = 1). Must happen before Cast()
+        --so symbol values are visible to behaviors and resource changes are
+        --applied as part of this user-initiated action.
+        FireCastControlsOnCommit(g_currentAbility, g_currentSymbols, g_token, targets)
+        local castControlsResolveHandler = MakeCastControlsOnResolveHandler(g_token)
+
+        --Director overview (slice (e)): the cast is now irreversible,
+        --so take the owner's turn first if that is legal (no-op for
+        --every ordinary cast). Same hook as the CalculateSpellTargeting
+        --commit below.
+        OverviewClaimBeforeCast(g_token)
+
+        --An object caster turned to face its target keeps that facing.
+        DrawSteelActionBar._aim.Commit(g_token, targets)
+
+        RecordPartnerBurstRetargets(targets)
+
+        g_currentAbility:Cast(g_token, targets, {
+            targetArea = g_pointTargeting.shape,
+            costOverride = g_currentCostProposal,
+            symbols = g_currentSymbols,
+            markLineOfSight = m_targetLineOfSightRays,
+            OnFinishCastHandlers = {
+                function()
+                    CharacterPanel.HideAbility(clearAbility)
+                end,
+                castControlsResolveHandler,
+            }
+        })
+
+        g_currentAbility = nil
+
+        m_targetLineOfSightRays = {}
+
+        CrossSection.ClearAttack()
+        m_markLineOfSight = nil
+        m_markLineOfSightToken = nil
+        m_markLineOfSightSourceToken = nil
+        if g_abilityController ~= nil then g_abilityController:FireEvent("finishCasting") end
+    end
+
     m_altitudeController = CreateAltitudeController()
     m_shiftController = CreateShiftController()
 
@@ -11220,6 +11377,17 @@ CreateAbilityController = function()
             if g_currentAbility.targetType == 'all' or g_currentAbility.targetType == 'map' or g_currentAbility.targetType == 'areatemplate' then
                 --for 'all' types we have a fake map press. The map parameters don't matter.
                 g_abilityController:FireEvent("mappress")
+            elseif g_currentAbility.targeting == "contiguous_wall" and #m_positionTargetsChosen > 0 then
+                if g_token == nil or not g_token.valid then return end
+
+                --finish the wall with the squares placed so far. The hover
+                --outline may include an unchosen square, so outline just these.
+                local lastLoc = m_positionTargetsChosen[#m_positionTargetsChosen].loc
+                local shape = ChosenSquaresShape(g_token:PosAtLoc(lastLoc))
+                --a map click never casts without a shape, so Confirm doesn't either.
+                if shape == nil then return end
+                g_pointTargeting.shape = shape
+                CommitSpaceTargetCast(m_positionTargetsChosen)
             else
                 CalculateSpellTargeting(true)
             end
@@ -11758,13 +11926,17 @@ CreateAbilityController = function()
 
         create = function(element)
             element.data.oldIsCasting = gamehud.actionBarPanel.data.IsCastingSpell
-            gamehud.actionBarPanel.data.IsCastingSpell = function()
+            element.data.isCasting = function()
                 return g_currentAbility
             end
+            gamehud.actionBarPanel.data.IsCastingSpell = element.data.isCasting
         end,
 
         destroy = function(element)
-            if gamehud and gamehud.actionBarPanel and gamehud.actionBarPanel.valid then
+            --A rebuilt bar (Refresh, code reload) installs its own IsCastingSpell before this
+            --old controller is destroyed. Only put the old one back if nobody replaced ours.
+            if gamehud and gamehud.actionBarPanel and gamehud.actionBarPanel.valid
+                and gamehud.actionBarPanel.data.IsCastingSpell == element.data.isCasting then
                 gamehud.actionBarPanel.data.IsCastingSpell = element.data.oldIsCasting
             end
         end,
@@ -12112,6 +12284,19 @@ CreateAbilityController = function()
 
         --- @param opts nil|{norefresh: nil|boolean} norefresh when called from inside the bar's own refresh
         cancelCasting = function(element, opts)
+            --An open target prompt sits inside the controller this is about to hide, where
+            --nobody could answer it. Close it first: its cancel callback releases the waiting
+            --ability, and it removes its own caster token before the cast's one below.
+            --Read both now: the teardown clears them.
+            local openPrompt = DrawSteelActionBar._openPrompt
+            local promptTeardown = DrawSteelActionBar._openPromptTeardown
+            if promptTeardown ~= nil then
+                promptTeardown()
+            end
+            if openPrompt ~= nil and openPrompt.valid then
+                openPrompt:DestroySelf()
+            end
+
             --Director overview (slice (e)): whatever ended this cast, the
             --pending implicit-claim record dies with it.
             g_overviewCastPending = nil
@@ -12346,6 +12531,7 @@ CreateAbilityController = function()
                 m_tornDown = true
                 if DrawSteelActionBar._openPrompt == targetChooser then
                     DrawSteelActionBar._openPrompt = nil
+                    DrawSteelActionBar._openPromptTeardown = nil
                 end
                 if g_castMessage ~= nil then
                     g_castMessage.data.promptText = ''
@@ -12451,6 +12637,8 @@ CreateAbilityController = function()
             g_actionBar:AddChild(targetChooser)
             gui.SetFocus(targetChooser)
             DrawSteelActionBar._openPrompt = targetChooser
+            --Lets cancelCasting close this prompt cleanly instead of stranding it.
+            DrawSteelActionBar._openPromptTeardown = TeardownPrompt
         end,
 
         --- @param invokerInfo nil|{oncast: nil|function, oncancel: nil|function}
@@ -12570,11 +12758,18 @@ CreateAbilityController = function()
             if rays == nil or not rayCoversTarget then
                 --either no squad rays at all, or the hovered target wasn't
                 --reachable by any squad member -- draw from the caster, or from
-                --a casting-origin relay if one is closer to the target.
+                --a casting-origin relay if one is closer to the target. Proximity
+                --targeting draws from the first target instead (or the last one,
+                --for a chain).
                 local originToken = ResolveArrowOrigin(g_currentAbility, g_token, targetToken)
+                local proximityOrigin, proximityRange = DrawSteelActionBar.ProximityTargetingOrigin(g_currentAbility, g_token, targetToken)
+                if proximityOrigin ~= nil then
+                    originToken = proximityOrigin
+                    range = proximityRange
+                end
                 m_markLineOfSight = dmhub.MarkLineOfSight(originToken, targetToken, originToken.properties:GetPierceWalls(), GetArrowColor(g_currentAbility, g_token, targetToken), EffectiveArrowRange(originToken, targetToken, range, g_currentAbility))
                 if m_markLineOfSight ~= nil then
-                    AddModifierLabelsToMarker(m_markLineOfSight, g_token, targetToken, g_currentAbility, range, originToken)
+                    AddModifierLabelsToMarker(m_markLineOfSight, g_token, targetToken, g_currentAbility, range, originToken, proximityOrigin ~= nil)
                     m_markLineOfSightToken = targetToken
                     m_markLineOfSightSourceToken = originToken
                 end
@@ -12702,6 +12897,8 @@ CreateAbilityController = function()
             g_pointTargeting.chargeJumpRequiresRoll = false
             local pathfinding = false
             if point ~= nil and g_currentAbility.targetType ~= "areatemplate" then
+                --the hover below replaces the off-map wall outline.
+                g_pointTargeting.offMapShapeKey = nil
                 local radius = g_currentAbility:GetRadius(g_token.properties, g_currentSymbols)
                 local shape = g_currentAbility.targetType
                 local requireEmpty = false
@@ -13551,16 +13748,6 @@ CreateAbilityController = function()
                     locOverride = m_positionTargetsChosen[1] --[[@as Loc]]
                 end
 
-                local locations = nil
-                if shape == "locations" then
-                    locations = {}
-                    for _, pos in ipairs(m_positionTargetsChosen) do
-                        locations[#locations + 1] = pos.loc
-                    end
-                    --add the current location in too, provisionally.
-                    locations[#locations+1] = loc
-                end
-
                 --For direct emptyspace/anyspace targeting (teleport-style), let the cursor rest on
                 --whichever floor it's hovering and render the radius preview there. Movement-style
                 --targeting (pathfind/vacated/straightline) stays floor-bound -- the engine's
@@ -13595,27 +13782,24 @@ CreateAbilityController = function()
                     shapeAltitude = loc.altitude * dmhub.unitsPerSquare
                 end
 
-                g_pointTargeting.shape = dmhub.CalculateShape {
-                    shape = shape,
-                    targetPoint = point,
-                    token = g_token,
-                    range = range,
-                    radius = radius,
-                    --contiguous selection ("locations" shape): do NOT line-of-sight
-                    --filter the preview. The shape's LOS origin is the first chosen
-                    --square, and with live wall building that square contains the
-                    --wall cube just built -- its own walls gave Full cover to every
-                    --orthogonally adjacent square, silently filtering the chosen and
-                    --legal squares out of the outline. Adjacency/range are validated
-                    --on click instead.
-                    checklos = (shape ~= "locations"),
-                    locOverride = locOverride or g_currentAbility:try_get("casterLocOverride"),
-                    requireEmpty = requireEmpty,
-                    emptyMayIncludeSelf = requireEmpty and (targetingType == "pathfind" or targetingType == "vacated" or targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures"),
-                    locations = locations,
-                    targetFloorIndex = targetFloorIndex,
-                    altitude = shapeAltitude,
-                }
+                if shape == "locations" then
+                    --the hovered square is added provisionally.
+                    g_pointTargeting.shape = ChosenSquaresShape(point, loc, requireEmpty)
+                else
+                    g_pointTargeting.shape = dmhub.CalculateShape {
+                        shape = shape,
+                        targetPoint = point,
+                        token = g_token,
+                        range = range,
+                        radius = radius,
+                        checklos = true,
+                        locOverride = locOverride or g_currentAbility:try_get("casterLocOverride"),
+                        requireEmpty = requireEmpty,
+                        emptyMayIncludeSelf = requireEmpty and (targetingType == "pathfind" or targetingType == "vacated" or targetingType == "straightline" or targetingType == "straightpath" or targetingType == "straightpathignorecreatures"),
+                        targetFloorIndex = targetFloorIndex,
+                        altitude = shapeAltitude,
+                    }
+                end
 
                 --a nil shape is how an unusable space reads to the click handler.
                 if teleportAltitude ~= nil and g_pointTargeting.shape ~= nil
@@ -13692,6 +13876,18 @@ CreateAbilityController = function()
                     token = g_token,
                     objectTemplate = g_currentAbility:try_get("areaTemplateObjectId"),
                 }
+            elseif g_currentAbility.targeting == "contiguous_wall" and #m_positionTargetsChosen > 0 then
+                --The pointer is off the map, e.g. on its way to the Confirm
+                --button. Keep outlining the wall squares already placed instead
+                --of clearing the outline. Built once, then rebuilt only if
+                --the chosen squares change.
+                g_pointTargeting.shapeRequiresConfirm = false
+                local lastLoc = m_positionTargetsChosen[#m_positionTargetsChosen].loc
+                local key = string.format("%d|%s", #m_positionTargetsChosen, lastLoc.str)
+                if g_pointTargeting.offMapShapeKey ~= key then
+                    g_pointTargeting.shape = ChosenSquaresShape(g_token:PosAtLoc(lastLoc))
+                    g_pointTargeting.offMapShapeKey = key
+                end
             else
                 g_pointTargeting.shapeRequiresConfirm = false
                 g_pointTargeting.shape = nil
@@ -14155,6 +14351,10 @@ CreateAbilityController = function()
                             local promptText = g_currentAbility:PromptText(g_token, targets, g_currentSymbols)
                             g_castMessage.data.promptText = promptText
                             g_castMessage:FireEvent("refresh")
+                            --same rule CalculateSpellTargeting uses to show Confirm.
+                            if g_currentAbility.targeting == "contiguous_wall" then
+                                g_castButton:FireEvent("setVisible", g_currentAbility:CanCastAsIs(g_token, targets, g_currentSymbols))
+                            end
                             return
                         end
                     end
@@ -14286,6 +14486,12 @@ CreateAbilityController = function()
                     local promptText = g_currentAbility:PromptText(g_token, targets, g_currentSymbols)
                     g_castMessage.data.promptText = promptText
                     g_castMessage:FireEvent("refresh")
+
+                    --a wall may be finished with fewer squares than the maximum.
+                    --Same rule CalculateSpellTargeting uses to show Confirm.
+                    if g_currentAbility.targeting == "contiguous_wall" then
+                        g_castButton:FireEvent("setVisible", g_currentAbility:CanCastAsIs(g_token, targets, g_currentSymbols))
+                    end
                     return
                 end
 
@@ -14357,94 +14563,7 @@ CreateAbilityController = function()
                     --we don't have any movement left, so cast.
                 end
 
-                g_token.lookAtMouse = false
-
-                for i,t in ipairs(targets) do
-                    print(string.format("XFLOOR:: mappress pre-PrepareTargets target[%d].loc.floor=%s",
-                        i, tostring(t.loc and t.loc.floor or "nil")))
-                end
-
-                targets = g_currentAbility:PrepareTargets(g_token, g_currentSymbols, targets)
-
-                for i,t in ipairs(targets) do
-                    print(string.format("XFLOOR:: mappress post-PrepareTargets target[%d].loc.floor=%s",
-                        i, tostring(t.loc and t.loc.floor or "nil")))
-                end
-
-                --Same adoption AdoptLineOfSightMark performs; the hover is over either way,
-                --so the attack cross-section goes with it.
-                CrossSection.ClearAttack()
-                if m_markLineOfSight ~= nil then
-                    ---@cast m_markLineOfSightSourceToken -nil
-                    ---@cast m_markLineOfSightToken -nil
-                    SetTargetLineOfSightRayForKey(
-                        string.format("%s-%s", m_markLineOfSightSourceToken.charid, m_markLineOfSightToken.charid),
-                        m_markLineOfSight)
-                    m_markLineOfSight = nil
-                    m_markLineOfSightToken = nil
-                    m_markLineOfSightSourceToken = nil
-                end
-
-                CharacterPanel.HighlightAbilitySection{
-                    ability = g_currentAbility,
-                    caster = g_token,
-                    section = "main",
-                }
-
-                AppendImprovementCosts(g_currentCostProposal)
-
-                local clearAbility = g_currentAbility
-
-                --wall live-placement: mark the session committed so the casting
-                --destructors (run by finishCasting, BEFORE behaviors execute on
-                --their coroutine) don't tear down the already-built wall.
-                if g_currentAbility.targeting == "contiguous_wall" then
-                    local buildWall = rawget(_G, "ActivatedAbilityBuildWallBehavior")
-                    if buildWall ~= nil then
-                        buildWall.CommitPlacement(g_currentAbility)
-                    end
-                end
-
-                --Fire pre-cast controls (e.g. Acolyte Invoke: deal Presence to caster,
-                --add Patron's Gaze, set Cast.Invoked = 1). Must happen before Cast()
-                --so symbol values are visible to behaviors and resource changes are
-                --applied as part of this user-initiated action.
-                FireCastControlsOnCommit(g_currentAbility, g_currentSymbols, g_token, targets)
-                local castControlsResolveHandler = MakeCastControlsOnResolveHandler(g_token)
-
-                --Director overview (slice (e)): the cast is now irreversible,
-                --so take the owner's turn first if that is legal (no-op for
-                --every ordinary cast). Same hook as the CalculateSpellTargeting
-                --commit below.
-                OverviewClaimBeforeCast(g_token)
-
-                --An object caster turned to face its target keeps that facing.
-                DrawSteelActionBar._aim.Commit(g_token, targets)
-
-                RecordPartnerBurstRetargets(targets)
-
-                g_currentAbility:Cast(g_token, targets, {
-                    targetArea = g_pointTargeting.shape,
-                    costOverride = g_currentCostProposal,
-                    symbols = g_currentSymbols,
-                    markLineOfSight = m_targetLineOfSightRays,
-                    OnFinishCastHandlers = {
-                        function()
-                            CharacterPanel.HideAbility(clearAbility)
-                        end,
-                        castControlsResolveHandler,
-                    }
-                })
-
-                g_currentAbility = nil
-
-                m_targetLineOfSightRays = {}
-
-                CrossSection.ClearAttack()
-                m_markLineOfSight = nil
-                m_markLineOfSightToken = nil
-                m_markLineOfSightSourceToken = nil
-                if g_abilityController ~= nil then g_abilityController:FireEvent("finishCasting") end
+                CommitSpaceTargetCast(targets)
             end
         end,
 
@@ -14531,6 +14650,8 @@ local function CalculateSpellTargetFocusing(symbols)
                 allTokens = dmhub.allTokensIncludingObjects
             end
         end
+
+        local proximityOrigin, proximityRange = DrawSteelActionBar.ProximityTargetingOrigin(g_currentAbility, g_token)
 
         for _, targetToken in ipairs(allTokens) do
             if targetToken.valid and targetToken.sheet ~= nil then
@@ -14647,12 +14768,24 @@ local function CalculateSpellTargetFocusing(symbols)
                 local casterLocOverride = g_currentAbility:try_get("casterLocOverride")
                 local rangeSource = g_currentAbility:GetRangeSource(g_token)
                 local directRangeSource = casterLocOverride or rangeSource
+                --Proximity targeting: once a target is chosen, the rest are measured
+                --from it (or from the last one chosen, for a chain), at the proximity range.
+                local targetRange = range
+                local targetProximityOrigin = nil
+                if proximityOrigin ~= nil and not list_contains(g_targetsChosen, targetToken.id) then
+                    targetProximityOrigin = proximityOrigin
+                    rangeSource = proximityOrigin
+                    directRangeSource = proximityOrigin
+                    targetRange = proximityRange
+                end
                 local checkStrictRange = (not g_token.properties.minion) or rangeSource ~= g_token
 
                 if canTarget then
                     --give us an extra square of range to account for diagonals.
-                    if failReason == nil and spell.targetType ~= "areatemplate" and checkStrictRange and not (range + dmhub.unitsPerSquare > targetToken:Distance(directRangeSource)) then
-                        if not CastingOriginCoversTarget(spell, g_token, targetToken, range) then
+                    --Relays don't help a proximity target, here or in the altitude check
+                    --below: it must be in reach of the earlier target itself.
+                    if failReason == nil and spell.targetType ~= "areatemplate" and checkStrictRange and not (targetRange + dmhub.unitsPerSquare > targetToken:Distance(directRangeSource)) then
+                        if targetProximityOrigin ~= nil or not CastingOriginCoversTarget(spell, g_token, targetToken, targetRange) then
                             failReason = "Out of range"
                         end
                     end
@@ -14667,8 +14800,8 @@ local function CalculateSpellTargetFocusing(symbols)
                         if altDiff > 0 then
                             local horizDist = targetToken:Distance(directRangeSource)
                             local altDiffUnits = altDiff * dmhub.unitsPerSquare
-                            if math.max(horizDist, altDiffUnits) >= range + dmhub.unitsPerSquare
-                                and not CastingOriginCoversTarget(spell, g_token, targetToken, range) then
+                            if math.max(horizDist, altDiffUnits) >= targetRange + dmhub.unitsPerSquare
+                                and (targetProximityOrigin ~= nil or not CastingOriginCoversTarget(spell, g_token, targetToken, targetRange)) then
                                 failReason = string.format("Out of range (altitude difference: %d)", altDiff)
                             end
                         end
@@ -14679,10 +14812,11 @@ local function CalculateSpellTargetFocusing(symbols)
                     --Area abilities already drop such targets in TargetPassesFilter.
                     --Squad strikes draw from each minion (any one may reach), and an
                     --aura's casterLocOverride cast has no caster token to measure from.
-                    if failReason == nil and spell.targetType == "target" and casterLocOverride == nil
+                    --A proximity target always has an origin to measure from, even on an aura cast.
+                    if failReason == nil and spell.targetType == "target" and (casterLocOverride == nil or targetProximityOrigin ~= nil)
                         and targetToken.charid ~= g_token.charid and not SquadStrikeActive() then
                         failReason = DrawSteelActionBar.LineOfEffectFailReason(g_token, targetToken,
-                            DrawSteelActionBar.RangeMeasureOrigin(g_currentAbility, g_token, targetToken))
+                            targetProximityOrigin or DrawSteelActionBar.RangeMeasureOrigin(g_currentAbility, g_token, targetToken))
                     end
 
                     local valid = failReason == nil
@@ -14931,12 +15065,20 @@ CalculateSpellTargeting = function(forceCast, initialSetup)
             g_castChargesInput:FireEvent("refreshSpell")
 
             local synthesizedSpells = g_synthesizedSpellsPanel.data.synthesized
-            local canConfirm = g_currentAbility:CanCastAsIs(g_token, targets, g_currentSymbols) and
+            --A wall's targets are the squares placed so far, not creatures.
+            --Counting creatures would hide Confirm whenever this refreshes
+            --while squares are being placed.
+            local shownTargets = targets
+            if g_currentAbility.targeting == "contiguous_wall" then
+                shownTargets = m_positionTargetsChosen
+            end
+
+            local canConfirm = g_currentAbility:CanCastAsIs(g_token, shownTargets, g_currentSymbols) and
                 not (synthesizedSpells ~= nil and #synthesizedSpells > 0)
             g_castButton:FireEvent("setVisible", canConfirm)
 
 
-            local promptText = g_currentAbility:PromptText(g_token, targets, g_currentSymbols, synthesizedSpells)
+            local promptText = g_currentAbility:PromptText(g_token, shownTargets, g_currentSymbols, synthesizedSpells)
             --Abilities that need no targets (targetType 'all', zero targets) have no
             --prompt of their own, which left a bare Confirm button with nothing
             --explaining it. Give the player a sentence naming what they are confirming.
@@ -15053,23 +15195,10 @@ CalculateSpellTargeting = function(forceCast, initialSetup)
             elseif (g_currentAbility.targetType ~= 'line' or g_currentAbility.canChooseLowerRange) and g_currentAbility.targetType ~= 'cone' and g_currentAbility.targetType ~= 'self' and g_currentAbility.targetType ~= 'all' and g_currentAbility.targetType ~= 'map' and g_currentAbility.targetType ~= 'areatemplate' then
                 local loc = g_currentAbility:try_get("casterLocOverride")
 
-                if g_currentAbility.proximityTargeting and g_firstTarget ~= nil then
-                    local targetToken = nil
-
-                    if g_currentAbility:try_get("proximityChain") and #g_targetsChosen > 0 then
-                        -- For proximity chain, use the last target
-                        targetToken = dmhub.GetTokenById(g_targetsChosen[#g_targetsChosen])
-                    else
-                        -- For normal proximity, use the first target
-                        targetToken = dmhub.GetTokenById(g_firstTarget)
-                    end
-                    
-                    if targetToken ~= nil then
-                        loc = targetToken.locsOccupying
-                        range = ExecuteGoblinScript(g_currentAbility.proximityRange,
-                            g_token.properties:LookupSymbol(), dmhub.unitsPerSquare,
-                            "Calculate proximity")
-                    end
+                local proximityOrigin, proximityRange = DrawSteelActionBar.ProximityTargetingOrigin(g_currentAbility, g_token)
+                if proximityOrigin ~= nil then
+                    loc = proximityOrigin.locsOccupying
+                    range = proximityRange
                 end
 
                 ClearRadiusMarkers()
