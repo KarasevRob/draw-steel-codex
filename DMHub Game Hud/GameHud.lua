@@ -1770,8 +1770,8 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 		},
 
 		children = {
-			--bottom of the stack: a maximized tabletop map window sits here,
-			--under everything else, as a full-screen map does (Tabletop.lua).
+			--bottom of the stack: the table, and a maximized tabletop scene
+			--shown under the UI (Tabletop.lua).
 			Tabletop.CreateLayer(),
 
             gamehud:CreateAdventureDocumentsManager(),
@@ -1845,6 +1845,7 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 			gamehud:CreateReactionBar(dialog, tokenInfo),
             gamehud:CreateAbilityDisplayPanel(),
             gamehud:CreateStandaloneRollHost(),
+            gamehud:CreateGroupRollBoardLayer(),
 			mainDialogPanel,
 			gamehud.shopPanel,
 			gamehud:ModalDialogPanel(),
@@ -1853,8 +1854,6 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 			gamehud.rollDialog,
 
 			FullscreenDisplay.Create{belowui = false},
-			--a maximized tabletop scene on show over the UI (Tabletop.lua).
-			Tabletop.CreateTopLayer(),
 			--a maximized map or scene window's strip under the app title bar:
 			--chrome, so it is over everything the windows can be under.
 			Tabletop.CreateChromeLayer(),
@@ -2035,6 +2034,12 @@ end
 
 --Stub overridden by Timeline\AbilitySidebar.lua.
 function GameHud:InitStandaloneRollHost(panel)
+end
+
+--The board everyone sees while a group of creatures rolls against one ability
+--(e.g. resistance rolls). Stub overridden by Draw Steel UI\DSRequestRollsDialog.lua.
+function GameHud:CreateGroupRollBoardLayer()
+    return gui.Panel{width = 1, height = 1, interactable = false}
 end
 
 --return the presented dialog doc, if it exists and matches the given dialogid.
@@ -2989,7 +2994,7 @@ function GameHud:_TipFindNotice()
 end
 
 --Notice half of the driver tick. Returns true when a notice owns the
---banner this tick (shown, dismissed, or blocked by a dialog), in which case
+--banner this tick (shown or dismissed), in which case
 --the tip half must not run.
 function GameHud:_TipDriverNoticeTick()
 	local notice, noticeText, noticeControls = self:_TipFindNotice()
@@ -3008,10 +3013,13 @@ function GameHud:_TipDriverNoticeTick()
 		self._tipLastScan = nil
 	end
 
+	--Unlike tips, an open dialog does not hold a notice back: it is live game
+	--status ("Waiting for Shadow's ..."), and an open character window (a
+	--journalViewer, often covered by the maximized map) once hid it.
 	local dismissed = self:try_get("_noticeDismissed")
 	local isDismissed = dismissed ~= nil and dismissed.id == notice.id
 		and dismissed.text == noticeText
-	if isDismissed or self:_TipIsBlockedByDialog() then
+	if isDismissed then
 		if activeNotice ~= nil then
 			self:_HideNoticeBanner()
 		end

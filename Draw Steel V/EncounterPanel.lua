@@ -483,8 +483,8 @@ end
 
 --Regroup the flat banked slots into one queue of saved positions PER MONSTER
 --TYPE, so an edit to the roster cannot hand one monster's tile to another.
---Each entry carries the appearance and player-visibility banked with it, since
---those are slot-keyed too and must travel with the position.
+--Each entry carries the appearance, player-visibility and Hidden state banked
+--with it, since those are slot-keyed too and must travel with the position.
 --
 --Positions banked before spawnmonsters existed carry no monsterid stamp; they
 --go into a shared legacy queue any monster may draw from in slot order, which
@@ -498,6 +498,7 @@ local function BankedPositionQueues(group)
             loc = locs[slot],
             appearance = (group.appearances or {})[slot],
             invisible = (group.invisibleToPlayers or {})[slot],
+            hidden = (group.startsHidden or {})[slot],
         }
         local monsterid = (group.spawnmonsters or {})[slot]
         if monsterid == nil or monsterid == false then
@@ -529,7 +530,7 @@ local function TakeBankedPosition(queues, legacy, monsterid)
 end
 
 --Bank one group's staged tokens into the group: positions (spawnlocs),
---player-visibility, and (when the encounter opts in) appearances, all in
+--player-visibility, the Hidden condition, and (when the encounter opts in) appearances, all in
 --spawn-slot order. Also stamps the map the positions belong to -- spawnlocs
 --are map-blind coordinates, so consumers must not use them on another map.
 --Returns the banked tokens; the CALLER decides whether to delete them.
@@ -541,11 +542,14 @@ local function BankGroupPositions(group, saveAppearances)
     group.spawnlocs = {}
     group.appearances = {}
     group.invisibleToPlayers = {}
+    group.startsHidden = {}
     group.spawnmonsters = {}
     group.stagemapid = game.currentMapId
     for slot, token in ipairs(tokens) do
         group.spawnlocs[slot] = token.loc
         group.invisibleToPlayers[slot] = token.invisibleToPlayers or false
+        --a monster staged with the Hidden condition starts every run hidden.
+        group.startsHidden[slot] = token.properties:IsHidden()
         --which monster type held this tile, so a later restage can hand it back
         --to the same one even if the roster changed in between. false (never
         --nil) for tokens spawned before the stamp existed: the list has to stay
@@ -623,6 +627,7 @@ local function ClearGroupStaging(group)
     group.spawnlocs = nil
     group.appearances = nil
     group.invisibleToPlayers = nil
+    group.startsHidden = nil
     group.spawnmonsters = nil
     group.mounts = nil
     group.stagemapid = nil
@@ -723,6 +728,9 @@ local function StageGroupAtSavedLocations(encounter, groupIndex, group, numHeroe
                 end
                 if entry ~= nil and entry.invisible then
                     token.invisibleToPlayers = true
+                end
+                if entry ~= nil and entry.hidden then
+                    token.properties:BecomeHidden(token)
                 end
                 token:UploadToken()
                 tokens[#tokens + 1] = token
@@ -3301,6 +3309,7 @@ local function CreateGroupCard(args)
                         copy.spawnlocs = nil
                         copy.appearances = nil
                         copy.invisibleToPlayers = nil
+                        copy.startsHidden = nil
                         copy.spawnmonsters = nil
                         copy.mounts = nil
                         encounter.groups[#encounter.groups + 1] = copy
@@ -4390,6 +4399,11 @@ local function CreateEncounterMapCard(encounter, refresh)
             Refresh()
         end,
 
+        --the builder set the map itself (monsters dropped from the map).
+        refreshBuilder = function(element)
+            Refresh()
+        end,
+
         hover = function(element)
             local text
             if EncounterMap(encounter) == nil and encounter:GetMapRef() ~= nil then
@@ -4955,6 +4969,9 @@ function Encounter.SpawnGroupForReal(group, numHeroes, fallbackAnchor)
                 if entry ~= nil and entry.invisible then
                     token.invisibleToPlayers = true
                 end
+                if entry ~= nil and entry.hidden then
+                    token.properties:BecomeHidden(token)
+                end
 
                 local balancing = group.balancing
                 if balancing ~= nil then
@@ -5117,6 +5134,9 @@ function Encounter.SpawnPrepMonsters(group, monsterid, count, numHeroes, existin
             end
             if entry ~= nil and entry.invisible then
                 token.invisibleToPlayers = true
+            end
+            if entry ~= nil and entry.hidden then
+                token.properties:BecomeHidden(token)
             end
             local info = (group.balancing or {})[numHeroes]
             if info ~= nil and type(info.stamina) == "number" then
@@ -5936,6 +5956,28 @@ local function DroppableMonsters(charids)
     return monsters, others
 end
 
+--Split DroppableMonsters' list into one list per shared initiative (an
+--initiative grouping or a minion squad), in drag order; the monsters with an
+--initiative of their own share one list. Each list becomes an encounter group.
+local function SplitByInitiative(monsters)
+    local lists = {}
+    local listsByKey = {}
+    for _, entry in ipairs(monsters) do
+        local key = InitiativeQueue.GetInitiativeId(entry.token) or ""
+        if key == entry.token.id then
+            key = ""
+        end
+        local list = listsByKey[key]
+        if list == nil then
+            list = {}
+            listsByKey[key] = list
+            lists[#lists + 1] = list
+        end
+        list[#list + 1] = entry
+    end
+    return lists
+end
+
 --"Goblin Warrior x2, Goblin Sniper": the monsters by type, in drag order.
 local function DescribeMonsters(monsters)
     local order = {}
@@ -6162,25 +6204,13 @@ function Encounter.CreateFromTokens(charids)
         encounter.name = name
     end
 
-    local groupsByKey = {}
-    local slots = {}
-    for _, entry in ipairs(monsters) do
-        local token = entry.token
-        local initiativeid = InitiativeQueue.GetInitiativeId(token)
-        local key = initiativeid or ""
-        if key == token.id then
-            key = ""
+    for _, list in ipairs(SplitByInitiative(monsters)) do
+        local group = { monsters = {}, placementid = dmhub.GenerateGuid() }
+        encounter.groups[#encounter.groups + 1] = group
+        for slot, entry in ipairs(list) do
+            group.monsters[entry.monsterid] = (group.monsters[entry.monsterid] or 0) + 1
+            StampStagedToken(entry.token, group, slot, entry.monsterid)
         end
-        local group = groupsByKey[key]
-        if group == nil then
-            group = { monsters = {}, placementid = dmhub.GenerateGuid() }
-            groupsByKey[key] = group
-            encounter.groups[#encounter.groups + 1] = group
-            slots[group] = 0
-        end
-        group.monsters[entry.monsterid] = (group.monsters[entry.monsterid] or 0) + 1
-        slots[group] = slots[group] + 1
-        StampStagedToken(token, group, slots[group], entry.monsterid)
     end
 
     for _, group in ipairs(encounter.groups) do
@@ -6427,9 +6457,12 @@ function Encounter.Editor(self, options)
     --tokenDropTarget, so the engine fires dropTokens): staging in reverse. Each
     --monster joins targetGroup and is tagged exactly as staging tags the tokens
     --it spawns, so it banks, collects and places with the plan from then on.
-    --A drop beside the cards (targetGroup nil) fills the active group while it
-    --is still empty, else starts a new group. A monster already in another of
-    --this plan's groups moves over; one already in targetGroup is left alone.
+    --A plan with no map yet takes the map the monsters are on.
+    --A drop beside the cards (targetGroup nil) splits the monsters into one
+    --group per shared initiative, as a drop on the Encounters list does: the
+    --first fills the active group while it is still empty, the rest are new
+    --groups. A monster already in another of this plan's groups moves over;
+    --one already in targetGroup is left alone.
     local function AdoptDroppedTokens(charids, targetGroup)
         local tokens, skipped = DroppableMonsters(charids)
 
@@ -6443,80 +6476,104 @@ function Encounter.Editor(self, options)
             return
         end
 
-        local group = targetGroup
-        if group == nil then
-            group = state.activeGroup
-            if group == nil or next(group.monsters) ~= nil then
-                --AddGroup deep-copies the groups array, so take the new group
-                --from the copy.
-                self:AddGroup()
-                group = self.groups[#self.groups]
-            end
+        --no map chosen yet (not even a library map still to add): the
+        --monsters' map, the one on screen, becomes it.
+        if self.mapid == "" and self:GetMapRef() == nil and game.currentMap ~= nil then
+            self.mapid = game.currentMapId
         end
 
-        local groupIndex = nil
-        for i, g in ipairs(self.groups) do
-            if g == group then
-                groupIndex = i
+        --each group the drop fills, by its index in self.groups, and the
+        --monsters it takes. Indices, because AddGroup deep-copies the groups
+        --array: every group is made before any group table is held.
+        --- @type {index: integer, tokens: table[]}[]
+        local batches = {}
+        if targetGroup ~= nil then
+            for i, g in ipairs(self.groups) do
+                if g == targetGroup then
+                    batches[1] = { index = i, tokens = tokens }
+                end
+            end
+        else
+            local activeIndex = nil
+            for i, g in ipairs(self.groups) do
+                if g == state.activeGroup and next(g.monsters) == nil then
+                    activeIndex = i
+                end
+            end
+            for i, list in ipairs(SplitByInitiative(tokens)) do
+                local index = activeIndex
+                if i > 1 or index == nil then
+                    self:AddGroup()
+                    index = #self.groups
+                end
+                batches[#batches + 1] = { index = index, tokens = list }
             end
         end
-        if groupIndex == nil then
+        if #batches == 0 then
             return
         end
 
-        if group.placementid == nil then
-            group.placementid = dmhub.GenerateGuid()
-        end
-
-        --A group whose positions are saved but not on the map would bank only
-        --the newcomers on the next save, losing everyone else's tile. Bring its
-        --saved arrangement back first so the whole group is staged together.
-        local live = PlacedTokensForGroup(group)
-        if #live == 0 and GroupHasUsableStaging(self, group) then
-            for _, token in ipairs(StageGroupAtSavedLocations(self, groupIndex, group, party.numHeroes, group.placementid)) do
-                live[#live + 1] = token
-            end
-        end
-
-        local nextSlot = 1
-        for _, token in ipairs(live) do
-            nextSlot = math.max(nextSlot, token.properties:try_get("encounterSpawnSlot", 0) + 1)
-        end
-
         local emptiedGroups = {}
-        for _, entry in ipairs(tokens) do
-            local token = entry.token
-            local monsterid = entry.monsterid
-            local placementid = token.properties:try_get("encounterPlacementId")
+        for _, batch in ipairs(batches) do
+            local groupIndex = batch.index
+            local group = self.groups[groupIndex]
 
-            local oldGroup = nil
-            if placementid ~= nil then
-                for _, g in ipairs(self.groups) do
-                    if g.placementid == placementid then
-                        oldGroup = g
-                    end
+            if group.placementid == nil then
+                group.placementid = dmhub.GenerateGuid()
+            end
+
+            --A group whose positions are saved but not on the map would bank only
+            --the newcomers on the next save, losing everyone else's tile. Bring its
+            --saved arrangement back first so the whole group is staged together.
+            local live = PlacedTokensForGroup(group)
+            if #live == 0 and GroupHasUsableStaging(self, group) then
+                for _, token in ipairs(StageGroupAtSavedLocations(self, groupIndex, group, party.numHeroes, group.placementid)) do
+                    live[#live + 1] = token
                 end
             end
 
-            if oldGroup ~= group or token.properties:try_get("encounterStaged") == false then
-                --already counted in this plan's roster: move the count over
-                --rather than adding a second copy.
-                if oldGroup == nil then
-                    group.monsters[monsterid] = (group.monsters[monsterid] or 0) + 1
-                elseif oldGroup ~= group then
-                    local oldMonster = token.properties:try_get("encounterSpawnMonster") or monsterid
-                    local count = (oldGroup.monsters[oldMonster] or 0) - 1
-                    oldGroup.monsters[oldMonster] = cond(count > 0, count, nil)
-                    if next(oldGroup.monsters) == nil then
-                        emptiedGroups[#emptiedGroups + 1] = oldGroup
+            local nextSlot = 1
+            for _, token in ipairs(live) do
+                nextSlot = math.max(nextSlot, token.properties:try_get("encounterSpawnSlot", 0) + 1)
+            end
+
+            for _, entry in ipairs(batch.tokens) do
+                local token = entry.token
+                local monsterid = entry.monsterid
+                local placementid = token.properties:try_get("encounterPlacementId")
+
+                local oldGroup = nil
+                if placementid ~= nil then
+                    for _, g in ipairs(self.groups) do
+                        if g.placementid == placementid then
+                            oldGroup = g
+                        end
                     end
-                    group.monsters[monsterid] = (group.monsters[monsterid] or 0) + 1
                 end
 
-                StampStagedToken(token, group, nextSlot, monsterid)
-                nextSlot = nextSlot + 1
+                if oldGroup ~= group or token.properties:try_get("encounterStaged") == false then
+                    --already counted in this plan's roster: move the count over
+                    --rather than adding a second copy.
+                    if oldGroup == nil then
+                        group.monsters[monsterid] = (group.monsters[monsterid] or 0) + 1
+                    elseif oldGroup ~= group then
+                        local oldMonster = token.properties:try_get("encounterSpawnMonster") or monsterid
+                        local count = (oldGroup.monsters[oldMonster] or 0) - 1
+                        oldGroup.monsters[oldMonster] = cond(count > 0, count, nil)
+                        if next(oldGroup.monsters) == nil then
+                            emptiedGroups[#emptiedGroups + 1] = oldGroup
+                        end
+                        group.monsters[monsterid] = (group.monsters[monsterid] or 0) + 1
+                    end
+
+                    StampStagedToken(token, group, nextSlot, monsterid)
+                    nextSlot = nextSlot + 1
+                end
             end
         end
+
+        --held before the removals below shift the indices.
+        local firstGroup = self.groups[batches[1].index]
 
         --a group the drop took its last monster from goes, as removing the
         --last monster by hand does (RemoveMonsterFromGroup in the card).
@@ -6529,7 +6586,7 @@ function Encounter.Editor(self, options)
             end
         end
 
-        state.activeGroup = group
+        state.activeGroup = firstGroup
         rebuild()
     end
 
@@ -6551,7 +6608,16 @@ function Encounter.Editor(self, options)
             end
         end
 
+        --beside the cards, monsters on different initiatives split up.
+        local numGroups = 1
+        if targetGroup == nil then
+            numGroups = #SplitByInitiative((DroppableMonsters(charids)))
+        end
+
         ShowTokenDropPreview(charids, function(list)
+            if numGroups > 1 then
+                return string.format("Split %s into %d groups by initiative", list, numGroups)
+            end
             if groupName == nil then
                 return string.format("Start a new group with %s", list)
             end

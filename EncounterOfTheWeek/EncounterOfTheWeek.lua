@@ -106,6 +106,16 @@ setting{
     storage = "preference",
 }
 
+--Handoff to the titlescreen: the player chose to go straight on to a
+--series' next part (the victory screen's invitation). JSON { [userid] =
+--{ key, at } }; back in town, Form a Party opens on that part once the city
+--says it is open (titlescreen, "continue a series").
+setting{
+    id = "eotw:continueSeries",
+    default = "",
+    storage = "preference",
+}
+
 --Set when the player abandons this game (EncounterPresence.Abandon): JSON
 --{ gameid }. The titlescreen's next refresh abandons it there: the
 --eotwAbandonGame cloud function deletes the game when no other member
@@ -724,6 +734,52 @@ function Series.FindPartMap(seriesMapName, part)
         return map
     end
     return FindMapByName(seriesMapName)
+end
+
+--The part after the one this game plays, when its series has one:
+--{ number, title, key } (title nil when only its part map is known), else
+--nil. Its script is on this map (SeriesParts), or it has its own part map.
+function Series.NextPart()
+    local key = nil
+    pcall(function() key = mod:GetDocumentSnapshot(STATE_DOC_ID).data.encounterMap end)
+    if type(key) ~= "string" or key == "" then
+        return nil
+    end
+    local _, mapName, part = ParseEncounterKey(key)
+    local number = part + 1
+    local found, title = false, nil
+    for _, p in ipairs(EncounterOfTheWeekGame.SeriesParts()) do
+        if p.number == number then
+            found, title = true, p.title
+        end
+    end
+    if not found and FindMapByName(Series.PartMapName(mapName, number)) == nil then
+        return nil
+    end
+    local seriesKey = key:match("^(.-)#%d+$") or key
+    return { number = number, title = title, key = string.format("%s#%d", seriesKey, number) }
+end
+
+--"Part 2: Lush Garden" (or "Part 2") for Series.NextPart's answer.
+function Series.PartLabel(nextPart)
+    if nextPart.title ~= nil then
+        return UIText.T("encounter.story.part_named", { number = nextPart.number, title = nextPart.title })
+    end
+    return UIText.T("encounter.story.part", { number = nextPart.number })
+end
+
+--Record (key) or forget (nil) that this player goes straight on to a
+--series' next part (eotw:continueSeries, read by the titlescreen).
+function Series.SetContinue(key)
+    local all = {}
+    pcall(function()
+        local parsed = dmhub.FromJson(dmhub.GetSettingValue("eotw:continueSeries"))
+        if type(parsed) == "table" and parsed.success and type(parsed.result) == "table" then
+            all = parsed.result
+        end
+    end)
+    all[dmhub.loginUserid] = cond(key ~= nil, { key = key, at = os.time() }, nil)
+    dmhub.SetSettingValue("eotw:continueSeries", dmhub.ToJson(all))
 end
 
 local function FindMapById(mapid)
@@ -1780,6 +1836,73 @@ pcall(function()
     end)
 end)
 
+--A won series part invites the player straight on to the next one, which
+--stays open only until their next respite (the town's inn warns too). The
+--button records the choice for the town (Series.SetContinue) and presses
+--Proceed; the story screen offers the same choice again.
+pcall(function()
+    DSVictoryScreen.RegisterFooterPanel("eotw-series-next", function(outcome, pressProceed)
+        if outcome ~= "victory" or not EncounterOfTheWeekGame.IsEotwGame() or EncounterOfTheWeekGame.IsTestPlayer() then
+            return nil
+        end
+        local nextPart = Series.NextPart()
+        if nextPart == nil then
+            return nil
+        end
+        local label = Series.PartLabel(nextPart)
+        local chosen = false
+        return gui.Panel{
+            width = 640,
+            height = "auto",
+            flow = "vertical",
+            halign = "center",
+            pad = 16,
+            borderBox = true,
+            bgimage = "panels/square.png",
+            bgcolor = "#120f0bdd",
+            border = 1,
+            borderColor = "#d9b56a",
+            cornerRadius = 8,
+            gui.Label{
+                text = UIText.T("encounter.series_next.title", { part = label }),
+                fontSize = 26,
+                bold = true,
+                color = "#ffd66b",
+                width = "100%",
+                height = "auto",
+                textAlignment = "center",
+            },
+            gui.Label{
+                text = UIText.T("encounter.series_next.body"),
+                fontSize = 16,
+                color = "#efe4cc",
+                width = "100%",
+                height = "auto",
+                tmargin = 4,
+                textAlignment = "center",
+                textWrap = true,
+            },
+            gui.Button{
+                classes = {"sizeM"},
+                text = UIText.T("encounter.series_next.button", { part = label }),
+                width = 320,
+                height = 44,
+                halign = "center",
+                tmargin = 10,
+                click = function(element)
+                    if chosen then
+                        return
+                    end
+                    chosen = true
+                    audio.FireSoundEvent("Mouse.Click")
+                    Series.SetContinue(nextPart.key)
+                    pressProceed()
+                end,
+            },
+        }
+    end)
+end)
+
 --A surviving hero's wounds, to carry home (Downtime: nothing heals on the
 --way back to town; a respite at the Blue Fish Inn does). Stamina lost and
 --Recoveries spent, as the town applies them: absolute values, since this
@@ -2710,11 +2833,25 @@ local function UpdateEncounterConclusion()
                     title = cond(title ~= nil, UIText.T("encounter.story.title_with_part", { title = title or "", part = partName }), partName)
                 end
             end)
+            --a won series part offers the next one (see "eotw-series-next").
+            local choice = nil
+            local nextPart = cond(m_outcomeKind == "victory", Series.NextPart(), nil)
+            if nextPart ~= nil then
+                local label = Series.PartLabel(nextPart)
+                choice = {
+                    text = UIText.T("encounter.series_next.button", { part = label }),
+                    note = UIText.T("encounter.series_next.story_note", { part = label }),
+                    onChoose = function()
+                        Series.SetContinue(nextPart.key)
+                    end,
+                }
+            end
             local ok, err = pcall(stage.ShowStoryScreen, {
                 outcome = m_outcomeKind,
                 title = title,
                 section = section,
                 script = script,
+                choice = choice,
                 onContinue = Leave,
             })
             if not ok then
@@ -3909,6 +4046,46 @@ local function MoveStrayHeroesIntoPlay()
     DropHostPermissions()
 end
 
+--Put the companion of each beastheart this client just placed onto the free
+--Start-zone tile nearest its hero, so it starts the encounter with the party
+--(and inside the arrangement confinement). Runs once the heroes have
+--settled (after UnstackPlacedHeroes), and only for fresh placements, so a
+--resume never brings back a companion that died. The summon copies the
+--hero's owner, so wait for ClaimPastedHero to have made the hero ours.
+--Yields; runs inside the arrival coroutine. A table field, not a local:
+--this file is at Lua's 200-local limit.
+function EncounterOfTheWeekGame.DeployMyCompanions(charids)
+    for _, charid in ipairs(charids or {}) do
+        local token = nil
+        for _ = 1, 50 do
+            if mod.unloaded then
+                return
+            end
+            token = dmhub.GetCharacterById(charid)
+            if token ~= nil and token.ownerId == dmhub.loginUserid then
+                break
+            end
+            coroutine.yield(0.1)
+        end
+        if token ~= nil and token.valid and token.properties ~= nil
+                and token.properties:GetCompanionType() ~= nil then
+            local existing = token.properties:GetCompanionToken()
+            if existing == nil or not existing.loc.isOnMap then
+                --nil (no Start zone, or it is full) summons beside the hero.
+                local dest = EncounterOfTheWeekGame.FreeStartTileNear(token.loc)
+                local ok, result = pcall(function()
+                    return token.properties:SummonCompanionAt(token, dest)
+                end)
+                if not ok or result == nil then
+                    printf("EotW: could not deploy the companion of %s: %s", charid, tostring(result))
+                else
+                    printf("EotW: deployed the companion of %s at %s", charid, tostring(result.loc))
+                end
+            end
+        end
+    end
+end
+
 --Place the local player's claimed heroes into the Start zone.
 --  heroes:       full claim list, {kind, id, name} each, in claim order.
 --  clipboardIds: ids of the "lobby" heroes copied to the token clipboard at
@@ -4895,6 +5072,7 @@ local g_forcedGameSettings = {
     { id = "hpbarsonlyincombat", value = false },  --stamina bars shown outside combat too
     { id = "monsterinfo", value = true },          --Monster Info: players learn monster stat blocks
     { id = "monsterinfoautolearn", value = true }, --...automatically, from combat events
+    { id = "strict:hiddeninvisible", value = true }, --Hidden Creatures are Invisible (to players and the player host)
 }
 
 --Force every forced game setting to its value, writing only the ones not
@@ -5740,7 +5918,14 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
         if IsDMOrPlayerHost() then
             --stamp the game and record who the encounter waits for, BEFORE
             --any hero placement, so every later joiner sees an EotW game.
-            RecordExpectedUsers(args.members)
+            --A resume brings no roster; a game that never recorded one waits
+            --for the host alone rather than for nobody, forever (MZXR5BYM).
+            local members = args.members
+            local recorded = mod:GetDocumentSnapshot(STATE_DOC_ID).data.expectedUsers
+            if (type(members) ~= "table" or #members == 0) and type(recorded) ~= "table" then
+                members = { dmhub.loginUserid }
+            end
+            RecordExpectedUsers(members)
 
             --NOTE: nothing here switches on player-host mode. The game was
             --created directorless, so the engine already had it on before this
@@ -5867,6 +6052,9 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
         --the map while it moves anyone.
         UnstackPlacedHeroes(myPasted, anchor)
         EotwProf("unstack done")
+
+        --a beastheart brings their companion.
+        EncounterOfTheWeekGame.DeployMyCompanions(myPasted)
 
         --the loading screen stays up until the whole party is in. With an
         --opening stage, the stage releases it once the beat has opened
@@ -6237,6 +6425,13 @@ local function TestArrival(pending)
     for objid, _ in pairs(CorpseObjects()) do
         saved.corpses[objid] = true
     end
+    --auras left on the ground (an Angulotl Slink's Adhesive Sludge); the
+    --ones the author placed are noted so End Test keeps them.
+    saved.auras = {}
+    Aura.InvalidateMapAnchoredAuras()
+    for _, entry in ipairs(Aura.GetMapAnchoredAuras()) do
+        saved.auras[entry.guid] = true
+    end
     --after the clean-slate reset (so a previous run's leftovers are not
     --noted) and before the hero copies arrive.
     saved.tokens = SnapshotMapTokens()
@@ -6285,6 +6480,7 @@ local function TestArrival(pending)
     if #placed == 0 then
         error("none of the chosen heroes could be placed")
     end
+    EncounterOfTheWeekGame.DeployMyCompanions(placed)
 
     --what a real EotW host writes at setup.
     local numHeroes = math.max(3, math.min(7, #placed))
@@ -6463,6 +6659,12 @@ local function TestTeardown()
     for _, charid in pairs(GetPlacedHeroes(dmhub.loginUserid)) do
         AddCopy(charid)
     end
+    --and the companions DeployMyCompanions summoned for them.
+    for _, tok in ipairs(dmhub.allTokens) do
+        if tok.valid and seen[tok.summonerid] and tok.properties ~= nil and tok.properties:IsCompanion() then
+            AddCopy(tok.charid)
+        end
+    end
 
     ElevateToHostPermissions()
     local ok, err = pcall(function()
@@ -6483,6 +6685,23 @@ local function TestTeardown()
             end
             if n > 0 then
                 printf("EotW test: removed %d corpse/loot objects", n)
+            end
+        end
+        --the map-anchored auras the fight left (before the casters are
+        --restored, so each goes through its caster's copy when it has one).
+        if type(saved) == "table" and type(saved.auras) == "table" then
+            Aura.InvalidateMapAnchoredAuras()
+            local leftover = {}
+            for _, entry in ipairs(Aura.GetMapAnchoredAuras()) do
+                if not saved.auras[entry.guid] then
+                    leftover[#leftover + 1] = entry
+                end
+            end
+            for _, entry in ipairs(leftover) do
+                Aura.RemoveMapAnchoredAura(entry)
+            end
+            if #leftover > 0 then
+                printf("EotW test: removed %d map auras", #leftover)
             end
         end
         --the tokens that were on the map before the test, exactly as they were.
