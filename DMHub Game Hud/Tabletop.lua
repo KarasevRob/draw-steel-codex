@@ -2039,7 +2039,11 @@ local function BuildWindow(rec)
     local share = nil
     if dmhub.isDM then
         share = ShareControl{
-            store = g_sharing.MapStore(rec.mapid),
+            --read each time: the window's map changes when the Maps panel
+            --opens another map in it.
+            store = g_sharing.MapStore(function()
+                return rec.mapid
+            end),
             what = "this map",
             iconSize = 15,
             changed = function()
@@ -4075,11 +4079,17 @@ end
 
 --A map's share is its Player Viewable setting: on for every player
 --(players joining later too), or for the players picked one by one.
---- @param mapid string
+--mapid may be a function returning the id, for a map window, which takes a
+--new map when the Maps panel opens one in it (WVBUPTCZ).
+--- @param mapid string|fun(): string
 --- @return TabletopShareStore
 g_sharing.MapStore = function(mapid)
     local function Map()
-        local map = game.GetMap(mapid)
+        local id = mapid
+        if type(id) == "function" then
+            id = id()
+        end
+        local map = game.GetMap(id)
         if map == nil or not map.valid then
             return nil
         end
