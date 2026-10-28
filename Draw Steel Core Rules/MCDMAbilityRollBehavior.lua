@@ -2017,8 +2017,9 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         --If the dialog is gone or now showing a different roll, our callbacks
         --will never fire and this loop would spin forever, leaving the red
         --targeting arrows stuck on the map. Bail out as a cancel so the cast
-        --finishes and cleans them up.
-        if (not dialog.valid) or rollKey == nil or dialog.data.rollid ~= rollKey then
+        --finishes and cleans them up. A roll that completed during the yield is
+        --not a cancel even if its dialog was displaced in the same frame (JF4Q6EJZ).
+        if m_result.total == nil and ((not dialog.valid) or rollKey == nil or dialog.data.rollid ~= rollKey) then
             m_canceled = true
         end
 

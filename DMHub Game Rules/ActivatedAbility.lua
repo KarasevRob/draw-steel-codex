@@ -3485,8 +3485,27 @@ local function PlayerIsResolvingCast()
     if gamehud.rollDialog ~= nil and gamehud.rollDialog.valid and gamehud.rollDialog.data.IsShown() then
         return true
     end
-    if gamehud.actionBarPanel ~= nil and gamehud.actionBarPanel.valid and gamehud.actionBarPanel.data.IsCastingSpell() then
-        return true
+    if gamehud.actionBarPanel ~= nil and gamehud.actionBarPanel.valid then
+        local data = gamehud.actionBarPanel.data
+        if data.IsCastingSpell() then
+            return true
+        end
+        --A target chooser mid-cast (Lightfall's ally teleport, JY7WM9BQ).
+        if data.IsPrompting ~= nil and data.IsPrompting() then
+            return true
+        end
+    end
+    --Ability rolls show in the Timeline's embedded dialog, not gamehud.rollDialog
+    --(R79SNQ4Y). Only a SHOWN dialog counts: AnyRollDialogShown also reports a
+    --not-yet-shown roll owned by a live cast, which is exactly a stranded cast.
+    if CharacterPanel ~= nil and CharacterPanel.FindEmbeddedRollDialog ~= nil then
+        local embedded = CharacterPanel.FindEmbeddedRollDialog()
+        if embedded ~= nil and embedded.valid and embedded.data ~= nil and embedded.data.IsShown ~= nil and embedded.data.IsShown() then
+            return true
+        end
+        if CharacterPanel.StandaloneRollShown ~= nil and CharacterPanel.StandaloneRollShown() then
+            return true
+        end
     end
     return false
 end

@@ -11946,6 +11946,16 @@ CreateAbilityController = function()
                 return g_currentAbility
             end
             gamehud.actionBarPanel.data.IsCastingSpell = element.data.isCasting
+
+            --A target prompt on screen (Lightfall's ally chooser) means a cast is
+            --waiting on the player. The cast watchdog reads this so it does not
+            --abandon a cast the player is still choosing for (JY7WM9BQ).
+            element.data.oldIsPrompting = gamehud.actionBarPanel.data.IsPrompting
+            element.data.isPrompting = function()
+                local prompt = DrawSteelActionBar._openPrompt
+                return prompt ~= nil and prompt.valid
+            end
+            gamehud.actionBarPanel.data.IsPrompting = element.data.isPrompting
         end,
 
         destroy = function(element)
@@ -11954,6 +11964,10 @@ CreateAbilityController = function()
             if gamehud and gamehud.actionBarPanel and gamehud.actionBarPanel.valid
                 and gamehud.actionBarPanel.data.IsCastingSpell == element.data.isCasting then
                 gamehud.actionBarPanel.data.IsCastingSpell = element.data.oldIsCasting
+            end
+            if gamehud and gamehud.actionBarPanel and gamehud.actionBarPanel.valid
+                and gamehud.actionBarPanel.data.IsPrompting == element.data.isPrompting then
+                gamehud.actionBarPanel.data.IsPrompting = element.data.oldIsPrompting
             end
         end,
 
