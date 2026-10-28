@@ -755,6 +755,14 @@ function dmhub.LocalAssetsRevertFile(dirIndex, path, state) end
 --- @param path string The directory or file to reveal.
 function dmhub.RevealInFileBrowser(path) end
 
+--- Opens Explorer / Finder with this session's log file (Player.log) selected, the same as pressing F1. Available outside dev mode and before login, so the titlescreen can offer it when login fails and the user needs to send the log to support.
+--- @return string|nil # The log file's path, or nil when there is no log file.
+function dmhub.RevealLogFile() end
+
+--- The path of this session's log file (Player.log). The previous session's log is Player-prev.log in the same folder.
+--- @return string|nil # The log file's path, or nil when there is no log file.
+function dmhub.GetLogFilePath() end
+
 --- Imports a single object table from YAML files on disk into memory. Reads _table.yaml from the table's subdirectory. Does NOT upload to the cloud -- use UploadAllTables for that. Returns nil if no import source was found.
 --- @param tableName string The name of the table to import into.
 --- @param options nil|{ directory: string }
