@@ -6295,12 +6295,14 @@ CreateScreen = function(args)
                 action = "create-game",
                 args = { name = name, public = m_public, encounter = m_encounter, challenge = m_challenge and challengeOffered },
                 success = function()
-                    EotwAnalytics.Track("eotw_party_create", {
+                    --sent once the game exists, so it carries the party's
+                    --runid like the join and launch events.
+                    local createEvent = {
                         encounter = m_encounter,
                         board = cond(m_encounter ~= nil and EncounterOfTheWeek.IsDangerRoomEncounter(m_encounter), "pits", "gate"),
                         public = m_public,
                         challenge = m_challenge and challengeOffered,
-                    })
+                    }
                     SetDialogStatus(T("eotw.create.creating"))
                     --one EotW game per account: capture the current slot
                     --value now -- creating the new game overwrites it --
@@ -6321,6 +6323,8 @@ CreateScreen = function(args)
                         --in-game Director-UI filter.
                         directorless = true,
                         create = function(gameid)
+                            createEvent.runid = gameid
+                            EotwAnalytics.Track("eotw_party_create", createEvent)
                             MarkSlotGame(gameid, false)
                             if prev ~= nil and prev ~= gameid then
                                 DestroyPreviousGame(prev, { abandon = true })

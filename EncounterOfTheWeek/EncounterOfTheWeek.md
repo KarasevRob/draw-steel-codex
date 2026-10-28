@@ -2065,7 +2065,7 @@ Events (fields beyond the run fields):
 | `eotw_town_open` / `eotw_town_close` | client | `seconds`, `reason` (enter_game / close) |
 | `eotw_welcome` | client | `action` shown (first visit on this machine) / discord |
 | `eotw_location_open` / `_close` | client | `location`, `seconds` |
-| `eotw_party_create` / `_join` / `_launch` / `_leave` | client | `encounter`, `board`, `public`; `members`, `slotsFilled`/`slotsTotal`; leave `how` leave / disband |
+| `eotw_party_create` / `_join` / `_launch` / `_leave` | client | `runid` (create: from 2026-10-28, sent once the game exists), `encounter`, `board`, `public`; `members`, `slotsFilled`/`slotsTotal`; leave `how` leave / disband |
 | `eotw_enter_game` | client | `resume`, `members`, `slotsFilled`, `myHeroes`, `host`, `fastLaunch` |
 | `eotw_run_start` / `_resume` | client | `host`, `sittings`, `players`, `partyHeroes`, `heroCount`, `heroClasses`/`heroAncestries`/`heroLevels` (comma lists), `combatStarted`, `lastPhase` (resume) |
 | `eotw_run_end` | client | `outcome`, `how`, `lastPhase`, `lastPhaseSeconds`, `minutes`/`seconds` (this machine's play time, all sittings), `heroesDied`/`heroesSurvived`, `victoriesEarned`, `treasuresEarned`, `rounds`, `combatStarted` |
