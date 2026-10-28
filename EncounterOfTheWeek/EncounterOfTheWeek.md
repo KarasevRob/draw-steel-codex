@@ -5132,11 +5132,21 @@ all three, appended at the end (text-storage keys `zA`..`zF`). The user's
 Town Gate text said "sort"; it was written as "sought".
 
 **The Victory award.**
-- One Victory per won encounter (`ENCOUNTER_VICTORIES`), awarded by the host
-  through the core `DSVictoryScreen.AwardVictories(live, amount,
-  exemptions)` -- the same code the Director's Award button now runs --
-  elevated, so it can write every player's heroes. Every client plays the
-  usual icon drop.
+- A won encounter is worth the opening fight's **"Victories awarded"**
+  (encounter builder, `Encounter.victories`, default 1; read from
+  `live.victories` by `EncounterVictories`). Until 2026-10-27 this was a
+  hard-coded 1 (`ENCOUNTER_VICTORIES`). An Encounter Script can change it
+  mid-fight with `ctx:SetVictories(n)` (e.g. 2 for the better ending); it
+  must do so before the victory condition is met. Challenge Mode adds one.
+  The validator panel shows the number and warns (only warns) when a
+  Challenge Mode win would be worth more than 3: Proving Pits wins never
+  reach a hero, so a module is looked at before it joins the Town Gate.
+  A hero who already won the encounter still gets 0, whatever ending they
+  reach this time (the City records completion, not the amount).
+- Awarded by the host through the core `DSVictoryScreen.AwardVictories(live,
+  amount, exemptions)` -- the same code the Director's Award button now
+  runs -- elevated, so it can write every player's heroes. Every client
+  plays the usual icon drop.
 - **Exemptions** (`live.victoryExemptions = {[charid] = note}`): a hero who
   died gets nothing and no note (user decision: no Victory for the dead);
   a hero who already won this encounter gets "Already Completed" in grey
@@ -6038,7 +6048,7 @@ montage.consumeSeq                     -- bumped by every item use (see "Consuma
 initiative, surprised = {party, enemy}, noSurprise, surges = { [heroCharid] = n }
 zoneSetup, revealZones, zonesRevealed, unlocked, intelligence, intelligenceByHero,
 intelligenceLog,
-chestSeen, stageDismissAt
+chestSeen, stageDismissAt        -- chestSeen also holds "(Mystery)" tables ("table:<entry id>:<table key>")
 reinforcements = { arrived = { ["<sectionId>-r<round>"] = {round, at, island, count} },
                    spawned = { charid, ... } }
 ```
@@ -6252,6 +6262,23 @@ The grammar is in the /eotw skill's `script-reference.md`; in short:
   and landed count. Hidden clauses, delve obstacles, chest rows and
   narratives still roll silently on the host. Verified live 2026-10-17
   (Flotsam x2, Rising Waters 1d3 x4, the 45s fallback).
+- **Mystery tables (2026-10-27, dev-approved).** `|Grave Goods: 1d6 (Mystery)`
+  (`EncounterScript.TableHeaderDice`, case-insensitive; the name and key stay
+  "Grave Goods") sets `tableRoll.mystery`. Its rows read `???` on the
+  `DiceCard` until the party first lands on them, like a delve chest; damage
+  tables simply leave the tag off. Seen rows share `data.chestSeen`, under
+  `EncounterMontage.MysteryTableSeenKey(entryId, tableKey)` =
+  `"table:<entry id>:<table key>"` (kept by the dev reset). The host marks a
+  row in `LandMysteryRoll` as each die lands (`diceRolled` and the 45 s
+  fallback), setting `r.newReveal` / `r.landedAt`; the stage then holds `???`
+  for `CHEST_REVEAL_DELAY` and types the row in (`TableRowPanel`, shared with
+  `ChestCard`). Because `m.dice` normally closes the moment the last die
+  lands, `DiceAllIn` keeps it up until `d.holdUntil`
+  (`MYSTERY_REVEAL_HOLD_SECONDS` = 4 after a new reveal, the stage's reveal window) and `HostTick`
+  resumes it then; tables without a new reveal resume at once as before.
+  Hidden `{roll on ...}` clauses roll on the host with no card and mark
+  nothing. The montage builder shows a "Mystery" tick box on entry tables and
+  keeps the tag when the table is renamed or its dice change.
 - **Riders**: `movement` (climb = `IsClimber`, fly/swim/burrow speed > 0,
   teleport) and `wealth` (`CalculateNamedCustomAttribute("Wealth") >= N`)
   requirement kinds; `(Round N)` in a rider label (`rider.round`) gates it on

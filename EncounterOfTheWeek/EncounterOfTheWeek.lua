@@ -1490,9 +1490,21 @@ end
 
 --- coming home ---------------------------------------------------------
 
---The Victories a won encounter is worth, to each hero who has not won it
---before (DSVictoryScreen.AwardVictories on the host; the town write-back).
-local ENCOUNTER_VICTORIES = 1
+--The encounter builder's "Victories awarded", read at award time because a script can change it mid-fight (ctx:SetVictories).
+---@param live? LiveEncounter
+---@return integer
+local function EncounterVictories(live)
+    local victories = 1
+    pcall(function()
+        if live == nil then
+            live = dmhub.initiativeQueue:try_get("liveEncounter")
+        end
+        if type(live) == "table" then
+            victories = tonumber(live:try_get("victories", 1)) or 1
+        end
+    end)
+    return math.max(0, math.floor(victories))
+end
 
 --"victory" or "defeat": the outcome this client saw on the victory screen.
 local m_outcomeKind = nil
@@ -1516,17 +1528,21 @@ local function AlreadyCompletedHeroes()
     return result
 end
 
---The Victories this hero's win is worth: one the first time; in Challenge
---Mode one more for the challenge's first win -- both at once for a hero who
---never won the normal mode, and nothing for one who has won the challenge.
+--The extra Victory Challenge Mode is worth; the script validator reads it too.
+EncounterOfTheWeekGame.CHALLENGE_VICTORIES = 1
+
+--The Victories this hero's win is worth: the encounter's Victories the first
+--time; in Challenge Mode one more for the challenge's first win -- both at
+--once for a hero who never won the normal mode, and nothing for one who has
+--won the challenge.
 function EncounterOfTheWeekGame.VictoryAward(charid)
-    --the extra Victory Challenge Mode is worth.
-    local CHALLENGE_VICTORIES = 1
+    local CHALLENGE_VICTORIES = EncounterOfTheWeekGame.CHALLENGE_VICTORIES
     if AlreadyCompletedHeroes()[charid] then
         return 0
     end
+    local encounterVictories = EncounterVictories()
     if not EncounterOfTheWeekGame.IsChallenge() then
-        return ENCOUNTER_VICTORIES
+        return encounterVictories
     end
     --heroes whose owners' town says they won the normal mode (data.completedNormal).
     local wonNormal = false
@@ -1537,7 +1553,7 @@ function EncounterOfTheWeekGame.VictoryAward(charid)
     if wonNormal then
         return CHALLENGE_VICTORIES
     end
-    return ENCOUNTER_VICTORIES + CHALLENGE_VICTORIES
+    return encounterVictories + CHALLENGE_VICTORIES
 end
 
 --After hero placement: stamp which of MY heroes the town says already won
@@ -1621,7 +1637,7 @@ local function AutoAwardVictories(live, now)
     --elevated: the award writes every player's heroes, and the host is a
     --player in an EotW game.
     ElevateToHostPermissions()
-    local ok, err = pcall(DSVictoryScreen.AwardVictories, live, ENCOUNTER_VICTORIES, exemptions, amounts)
+    local ok, err = pcall(DSVictoryScreen.AwardVictories, live, EncounterVictories(live), exemptions, amounts)
     DropHostPermissions()
     if not ok then
         printf("EotW: the Victory award failed: %s", tostring(err))
@@ -2969,6 +2985,7 @@ local m_busyStampTime = nil
 --from the exact predicates the invoke pipeline (AbilityInvokeAbility.lua),
 --the Monster AI's WaitForAbilityIdle, and the death gate
 --(AbilityRemoveCreature.lua) already trust. Every probe is pcall-guarded.
+--The second return names what is busy, for the award-held log line.
 local function AbilityActivityInFlight()
     --any live cast coroutine (covers post-roll prompts, forced-movement
     --placement, spend-recovery, invoked sub-abilities). On the host this
@@ -2976,7 +2993,7 @@ local function AbilityActivityInFlight()
     local activeCasts = 0
     pcall(function() activeCasts = ActivatedAbility.CountActiveCasts() end)
     if activeCasts > 0 then
-        return true
+        return true, "an ability cast"
     end
 
     --the action bar is targeting / awaiting Confirm. The new bar returns
@@ -2988,7 +3005,7 @@ local function AbilityActivityInFlight()
         end
     end)
     if casting ~= nil and casting ~= false then
-        return true
+        return true, "action bar targeting"
     end
 
     --any of the three roll surfaces (legacy singleton, embedded ability
@@ -2996,14 +3013,14 @@ local function AbilityActivityInFlight()
     local rolling = false
     pcall(function() rolling = CharacterPanel.AnyRollDialogShown() end)
     if rolling then
-        return true
+        return true, "a roll dialog"
     end
 
     --a modal prompt is up (recovery selection, confer condition, fall...).
     local modal = nil
     pcall(function() modal = gui.GetModal() end)
     if modal ~= nil then
-        return true
+        return true, "a modal prompt"
     end
 
     --an unanswered trigger / invocation prompt card on a creature this
@@ -3011,8 +3028,12 @@ local function AbilityActivityInFlight()
     --monsters its Monster AI answers for. tok.canControl is elevation-aware
     --(false for monsters in the host's un-elevated tick), so ask under host
     --permissions -- a state read, no UI. Hostile prompts never age out, so
-    --they must not block forever (same carve-out as the death gate).
-    local pending = false
+    --they must not block forever (same carve-out as the death gate), and
+    --any other prompt blocks only while it is fresh: a prompt raised again
+    --every turn (My Life For Yours) is never answered, and with no limit it
+    --held a won fight open for good (WNQZG7EW).
+    local TRIGGER_PROMPT_HOLD_SECONDS = 30
+    local pending = nil
     ElevateToHostPermissions()
     for _,tok in ipairs(dmhub.allTokens) do
         if tok.valid and tok.canControl and tok.properties ~= nil then
@@ -3020,20 +3041,22 @@ local function AbilityActivityInFlight()
             pcall(function() triggers = tok.properties:GetAvailableTriggers(true) end)
             if triggers ~= nil then
                 for _,t in pairs(triggers) do
-                    if not t.hostile then
-                        pending = true
+                    local age = nil
+                    pcall(function() age = EventTimestampAge(t.timestamp) end)
+                    if not t.hostile and age ~= nil and age < TRIGGER_PROMPT_HOLD_SECONDS then
+                        pending = string.format("%s's trigger prompt", tok.name or "a creature")
                         break
                     end
                 end
             end
         end
-        if pending then
+        if pending ~= nil then
             break
         end
     end
     DropHostPermissions()
 
-    return pending
+    return pending ~= nil, pending
 end
 
 local function WriteBusyStamp()
@@ -3081,21 +3104,22 @@ end
 
 --Host-side award gate: true while this client is busy (checked live, so AI
 --casts on the host are always fresh) or any other client's mirror stamp is
---recent.
+--recent. The second return names what is busy.
 local function AnyClientAbilityBusy()
-    if AbilityActivityInFlight() then
-        return true
+    local localBusy, localReason = AbilityActivityInFlight()
+    if localBusy then
+        return true, localReason
     end
     local stamps = mod:GetDocumentSnapshot(STATE_DOC_ID).data.abilityBusy
     if type(stamps) == "table" then
         local myUserid = dmhub.loginUserid
         for userid,t in pairs(stamps) do
             if userid ~= myUserid and type(t) == "number" and math.abs(dmhub.serverTime - t) < BUSY_STALE_SECONDS then
-                return true
+                return true, "ability activity on client " .. tostring(userid)
             end
         end
     end
-    return false
+    return false, nil
 end
 
 --Player-host mode is NOT switched on from here. EotW games are created
@@ -5074,8 +5098,12 @@ end
 --Consecutive host ticks the met outcome condition has been observed with
 --every client ability-idle; the award waits for AWARD_HOLD_TICKS of them so
 --the fight visibly settles (and any just-started prompt's busy stamp has
---time to replicate) before the screen takes over.
-local m_awardHoldTicks = 0
+--time to replicate) before the screen takes over. heldLoggedFor is the
+--m_outcomeMetTime whose held award was logged, so the "award held by" line
+--prints once per met outcome rather than every tick. One table, not two
+--locals: this file's main chunk is at Lua's 200-local limit.
+---@type {holdTicks: integer, heldLoggedFor: number|nil}
+local m_award = {holdTicks = 0, heldLoggedFor = nil}
 local AWARD_HOLD_TICKS = 2
 
 --When the outcome condition was FIRST observed met (whether or not clients
@@ -5174,7 +5202,7 @@ local function CheckEncounterOutcome(queue)
     end
 
     if not victory and not defeat then
-        m_awardHoldTicks = 0
+        m_award.holdTicks = 0
         m_outcomeMetTime = nil
         return
     end
@@ -5188,18 +5216,23 @@ local function CheckEncounterOutcome(queue)
     end
 
     local busy = false
-    pcall(function() busy = AnyClientAbilityBusy() end)
+    local busyReason = nil
+    pcall(function() busy, busyReason = AnyClientAbilityBusy() end)
     if busy then
-        m_awardHoldTicks = 0
+        m_award.holdTicks = 0
+        if m_award.heldLoggedFor ~= m_outcomeMetTime then
+            m_award.heldLoggedFor = m_outcomeMetTime
+            printf("EotW: %s met; award held by %s", victory and "victory" or "defeat", tostring(busyReason))
+        end
         return
     end
 
-    m_awardHoldTicks = m_awardHoldTicks + 1
-    if m_awardHoldTicks < AWARD_HOLD_TICKS then
+    m_award.holdTicks = m_award.holdTicks + 1
+    if m_award.holdTicks < AWARD_HOLD_TICKS then
         return
     end
     --cap the counter so later ticks re-enter here while the linger holds.
-    m_awardHoldTicks = AWARD_HOLD_TICKS
+    m_award.holdTicks = AWARD_HOLD_TICKS
 
     --idle hold satisfied; also let the moment breathe -- the banner waits
     --OUTCOME_LINGER_SECONDS from the killing blow. math.abs so a serverTime
@@ -5208,7 +5241,7 @@ local function CheckEncounterOutcome(queue)
         return
     end
 
-    m_awardHoldTicks = 0
+    m_award.holdTicks = 0
     m_outcomeMetTime = nil
 
     if victory then
@@ -6796,7 +6829,7 @@ function Series.OnNewPart(data)
     m_exitScheduled = false
     m_localProceeded = false
     m_victorySeenAt = nil
-    m_awardHoldTicks = 0
+    m_award.holdTicks = 0
     m_outcomeMetTime = nil
     m_absentOffered = false
     m_hallRecorded = false
@@ -7545,7 +7578,7 @@ local function TestTeardown()
     m_exitScheduled = false
     m_localProceeded = false
     m_victorySeenAt = nil
-    m_awardHoldTicks = 0
+    m_award.holdTicks = 0
     m_outcomeMetTime = nil
 end
 
