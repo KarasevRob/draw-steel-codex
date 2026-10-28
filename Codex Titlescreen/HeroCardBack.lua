@@ -598,7 +598,7 @@ local function ResourceGains(c)
             local level = Try(function() return c:CharacterLevel() end, 1)
             local row = nil
             for _, candidate in ipairs(quantity.entries or {}) do
-                if (candidate.threshold or 1) <= level and (row == nil or candidate.threshold > row.threshold) then
+                if (candidate.threshold or 1) <= level and (row == nil or (candidate.threshold or 1) > (row.threshold or 1)) then
                     row = candidate
                 end
             end
