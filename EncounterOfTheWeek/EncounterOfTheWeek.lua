@@ -7087,6 +7087,9 @@ function EncounterOfTheWeekGame.StartTest(options)
     --titlescreen hands a real arrival over (EotwPendingArrival).
     _G.EotwPendingTest = {
         gameid = dmhub.gameid,
+        --the refresh loads a player-host onto the map of a token it owns, else
+        --the first map in the list, so the setup travels back to this one.
+        mapid = game.currentMapId,
         mode = options.mode,
         part = tonumber(options.part) or 1,
         heroes = options.heroes,
@@ -7389,6 +7392,25 @@ local function RunTestSetup(pending)
             return
         end
         _G.EotwPendingTest = nil
+        --back onto the map the test was started from (see StartTest), and
+        --wait for it to finish loading.
+        if pending.mapid ~= nil and game.currentMapId ~= pending.mapid then
+            local map = game.GetMap(pending.mapid)
+            if map ~= nil then
+                game.ChangeMap(map)
+                for _ = 1, 150 do
+                    if mod.unloaded then
+                        return
+                    end
+                    local progress = dmhub.gameLoadingProgress
+                    if game.currentMapId == pending.mapid and game.currentMap ~= nil and (progress == nil or progress >= 1) then
+                        break
+                    end
+                    coroutine.yield(0.2)
+                end
+                coroutine.yield(1)
+            end
+        end
         local ok, err = pcall(TestArrival, pending)
         m_testSetupRunning = false
         if not ok then
