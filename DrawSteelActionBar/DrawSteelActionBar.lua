@@ -10694,6 +10694,12 @@ local function CreateSynthesizedSpellsPanel()
                 if g_currentSymbols ~= nil and g_currentSymbols.invoked and a:try_get("_tmp_temporaryClone", false) then
                     a._tmp_invokedChoice = true
                 end
+                --A picked choice replaces the prompt as the current cast, so it must
+                --keep the prompt's Skip: Overwatch's free strike may have no legal
+                --target, and without Skip the player was stuck in it.
+                if g_currentSymbols ~= nil and g_currentSymbols.invoked and g_currentAbility:try_get("skippable", false) then
+                    a.skippable = true
+                end
 
                 local spellOptions = {
                     synthesized = true,
