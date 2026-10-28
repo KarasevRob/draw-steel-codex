@@ -3543,6 +3543,25 @@ local function TurnStillCurrent(initiativeid)
     return q ~= nil and not q.hidden and q:CurrentInitiativeId() == initiativeid
 end
 
+--Checked just before a chosen move executes. Choosing yields for a while, and
+--a hero who takes the turn meanwhile must stop the move, not watch it happen
+--on their turn (9RF3TMVV). Sets _tmp_abortTurn, so the turn pauses after.
+---@return boolean
+function MonsterAI:TurnTakenBeforeMove()
+    local initiativeid = self:try_get("_tmp_turnInitiativeId")
+    if initiativeid == nil or TurnStillCurrent(initiativeid) then
+        return false
+    end
+    if self:try_get("_tmp_abortTurn") == nil then
+        self._tmp_abortTurn = g_abortTurnTaken
+    end
+    self:LogDecision("MOVE ABORTED", {
+        reason = self._tmp_abortTurn,
+        result = "move not executed",
+    })
+    return true
+end
+
 --A monster that sat out a turn hidden is dull to play against, so every hidden monster
 --the AI is about to play reveals itself first and then acts. Hidden This Turn still gives
 --it the edge for the rest of the turn. Hiding again later in the turn works as usual.
@@ -3579,6 +3598,7 @@ end
 function MonsterAI:PlayTurnCoroutine(initiativeid)
     local queue = dmhub.initiativeQueue
 	self._tmp_abortTurn = nil
+    self._tmp_turnInitiativeId = initiativeid
     self._tmp_rangedStrikers = {}
 
     self.log.analysis = self:Analysis()
@@ -5513,6 +5533,7 @@ function MonsterAI:ExecuteSquadStrike(ability)
     --slot a fallen squad-mate freed), a second chance to join the same volley
     --rather than save their action for a later one.
     local announced = false
+    local turnTaken = false
     for round=1,2 do
         RefreshAssignments()
         local reserved = self.NewSquadReservations()
@@ -5533,6 +5554,12 @@ function MonsterAI:ExecuteSquadStrike(ability)
             if not self:AwaitPlanPreview(self:BuildSquadPreview(plans, advancers, ability)) then
                 return false
             end
+        end
+
+        --Planning the squad yields; a hero may have taken the turn meanwhile.
+        if self:TurnTakenBeforeMove() then
+            turnTaken = true
+            break
         end
 
         if #plans > 0 then
@@ -5567,7 +5594,9 @@ function MonsterAI:ExecuteSquadStrike(ability)
     end
 
     local executed = false
-    if #targetPairs > 0 and casterToken ~= nil then
+    if turnTaken or self:TurnTakenBeforeMove() then
+        logMessage = "Stopped: " .. g_abortTurnTaken
+    elseif #targetPairs > 0 and casterToken ~= nil then
         --casterToken is only set once castAbility was found non-nil, and the loop then breaks.
         ---@cast castAbility -nil
         --The battle cry was called before the squad moved (AnnounceSquadStrike).
@@ -7831,6 +7860,9 @@ function MonsterAI:FindAndExecuteMove()
                 return g_moveResultNone
             end
         end
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. moveid)
         local ok, err = RunYieldingFunction(function()
             executed = self:ExecuteSynthesizedAbilityPlan(token, synthesizedMove)
@@ -7885,6 +7917,9 @@ function MonsterAI:FindAndExecuteMove()
             and not self:AwaitPlanPreview(self:BuildPlanPreview(token, bestScore.usingAbilities, bestScore)) then
             return g_moveResultNone
         end
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. bestMove.id)
         local ok, err = RunYieldingFunction(function()
             executeResult = bestMove.execute(bestMove, self, token, bestScore,
@@ -7916,6 +7951,9 @@ function MonsterAI:FindAndExecuteMove()
         self:SetMoveLogContext(token, {id = returnId, category = "Movement"})
         local returned = false
         ProfEnd(chooseProf)
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. returnId)
         local ok, err = RunYieldingFunction(function()
             returned = self:ExecuteReturnToHoldZone(token)
@@ -7940,6 +7978,9 @@ function MonsterAI:FindAndExecuteMove()
         self:SetMoveLogContext(token, {id = advanceId, category = "Movement"})
         local advanced = false
         ProfEnd(chooseProf)
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. advanceId)
         local ok, err = RunYieldingFunction(function()
             advanced = self:ExecuteAdvanceFallback(token)
@@ -7956,6 +7997,9 @@ function MonsterAI:FindAndExecuteMove()
     if not failedMoves[leaveId] and MonsterAI.InDirectiveZone("avoid", self:GetMovementToken(token)) then
         self:SetMoveLogContext(token, {id = leaveId, category = "Movement"})
         local left = false
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. leaveId)
         local ok, err = RunYieldingFunction(function()
             left = self:ExecuteLeaveAvoidZone(token)

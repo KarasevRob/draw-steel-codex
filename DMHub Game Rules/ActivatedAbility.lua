@@ -3137,6 +3137,16 @@ function ActivatedAbility:Cast(casterToken, targets, options)
 	--check: the Monster AI's casts on a player host must never be refused.
 	if dmhub.frozen and not IsDMOrPlayerHost() then
 		print("Cast:: refused; the game is frozen")
+		--The cast never starts, but its caller may be waiting on it: a triggered
+		--ability's finish handlers complete the Monster AI's reaction wait and
+		--release event waits (237AHPF5 hung on Judgment). Run them as an abort.
+		if options ~= nil and not options.executedFinish then
+			options.executedFinish = true
+			options.abort = true
+			for _,handler in ipairs(options.OnFinishCastHandlers or {}) do
+				handler(self, casterToken, options)
+			end
+		end
 		return
 	end
 

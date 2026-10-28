@@ -6118,13 +6118,21 @@ immediately via `SetHeroesSurprised`, duration end-of-encounter). `ctx.heroEntri
 gives a multi-target apply (narratives). Hidden effects are applied and then
 removed from the `applied` list.
 
-**Haul hand-over**: a hero's player can drag a haul icon onto another hero's
-card to give one unit (`giveItem {heroid, targetId, itemid}`; the host
-re-checks ownership, the haul record and what the hero really holds, worn
-items included: a treasure found is auto-equipped, and the give takes it off
-first via `GiveItem`). The icon
-decrements optimistically. Only montage finds can be handed over; consumables
-the hero carried in show on the strip but stay with them.
+**Haul hand-over**: a hero's player can drag an icon from the item strip onto
+another hero's card to give one unit (`giveItem {heroid, targetId, itemid}`,
+host-side `EncounterMontage.GiveItem`; the host re-checks ownership, the haul
+record and what the hero really holds, worn items included: a treasure found
+is auto-equipped, and the give takes it off first via `GiveItem`). The icon
+decrements optimistically. Since 2026-10-28 (user direction) every strip item
+can be handed over: a find (its haul record moves with it) or any consumable
+the hero carries -- brought from town, or found in an earlier series part
+(`montage.ResetTest` clears the haul records between parts), which stays
+unrecorded so it is still "carried" for the receiver. The strip and the
+hand-over work on the montage, narrative and Tactical Preparation stages
+alike: each stage's strip sends through its own beat's `SendRequest`, and the
+narrative and preparation hosts route `giveItem` to `GiveItem` in any phase.
+The narrative strip used to stay empty (only the montage stage fires
+`refreshMontage`); a strip now fills itself at create.
 
 **Consumables in a montage** (BUILT 2026-10-09, user direction; untested in
 the app). Heroes can use their consumables during the montage rounds:

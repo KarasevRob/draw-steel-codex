@@ -4477,7 +4477,9 @@ end
 --Hovering shows the item's full tooltip. The hero's own player may drag the
 --icon onto another hero's card to hand over ONE of the item (a stack takes
 --one drag per unit); the host moves it between inventories ("giveItem").
-local function CreateItemIcon(entry, animate, delay, charid)
+--`send` is the SendRequest of the beat on screen (montage, narrative or
+--Tactical Preparation), since only that beat's host reads requests.
+local function CreateItemIcon(entry, animate, delay, charid, send)
     local qtyLabel = gui.Label{
         classes = {"eotwItemQty"},
         text = "",
@@ -4556,7 +4558,7 @@ local function CreateItemIcon(entry, animate, delay, charid)
         data = { itemid = entry.itemid, charid = charid },
         --only a montage find can be handed to another hero; anything the
         --hero carried in stays with them.
-        draggable = charid ~= nil and entry.haul ~= false and LocalUserControlsHero(charid),
+        draggable = charid ~= nil and LocalUserControlsHero(charid),
         thinkTime = 0.5,
         think = function(element)
             local benefits = nil
@@ -4648,7 +4650,7 @@ local function CreateItemIcon(entry, animate, delay, charid)
             --comes back -- the flash. Show the outcome now and let the
             --refresh reconcile it.
             HandOff()
-            EncounterMontage.SendRequest("giveItem", { heroid = charid, targetId = target.data.charid, itemid = entry.itemid })
+            send("giveItem", { heroid = charid, targetId = target.data.charid, itemid = entry.itemid })
         end,
         hover = function(element)
             local item = ItemGear(entry.itemid)
@@ -4704,8 +4706,9 @@ local function CreateItemIcon(entry, animate, delay, charid)
             icon.bgimage = "panels/square.png"
             icon.selfStyle.bgcolor = "#232a33"
         end
-        --a carried item becomes a find (handable) once the montage grants one.
-        local canDrag = charid ~= nil and newEntry.haul ~= false and LocalUserControlsHero(charid)
+        --everything on the strip can be handed over: a find, or a consumable
+        --the hero carries (EncounterMontage.GiveItem).
+        local canDrag = charid ~= nil and LocalUserControlsHero(charid)
         if icon.draggable ~= canDrag then
             icon.draggable = canDrag
         end
@@ -4779,11 +4782,13 @@ end
 --The gutter of item icons beside one hero's card. Items already in the
 --document when the strip is built appear instantly (a rebuilt hero row must
 --not replay the whole montage); anything that lands afterwards drops in.
-local function CreateItemStrip(charid)
+--`send` is passed on to each icon (see CreateItemIcon); it defaults to the
+--montage's.
+local function CreateItemStrip(charid, send)
+    send = send or EncounterMontage.SendRequest
     local m_icons = {}
     local m_count = 0
-    --the first refreshMontage is the one that comes straight after this
-    --strip is created, so it populates silently.
+    --the first refreshMontage is the one at create, so it populates silently.
     local m_primed = false
 
     return gui.Panel{
@@ -4792,6 +4797,12 @@ local function CreateItemStrip(charid)
         flow = "vertical",
         halign = "left",
         valign = "top",
+        --only the montage stage fires refreshMontage, so a strip on the
+        --narrative or preparation stage fills itself here and then keeps
+        --itself current from think.
+        create = function(element)
+            element:FireEvent("refreshMontage")
+        end,
         --a used consumable reaches this client as a token change, which does
         --not refresh the montage; look again now and then.
         thinkTime = 1,
@@ -4823,7 +4834,7 @@ local function CreateItemStrip(charid)
             for _, entry in ipairs(entries) do
                 local icon = m_icons[entry.itemid]
                 if icon == nil then
-                    icon = CreateItemIcon(entry, m_primed, newCount * ITEM_DROP_STAGGER, charid)
+                    icon = CreateItemIcon(entry, m_primed, newCount * ITEM_DROP_STAGGER, charid, send)
                     m_icons[entry.itemid] = icon
                     newCount = newCount + 1
                     added = true
@@ -5914,6 +5925,12 @@ local function CreateNarrativeHeroColumn(hero, section)
         card = hud.CreateHeroCard({ charid = charid, mine = false, name = hero.name }, {
             halign = "center",
             draggable = individual and EncounterNarrative.LocalUserCanChooseFor(charid),
+            --another hero's item may be dropped here, as on the montage stage.
+            dragTarget = true,
+            dragTargetPriority = 10,
+            dragTargets = function(element, on, mode, sourceCharid)
+                element:SetClass("droppable", on == true and mode == "item" and sourceCharid ~= charid)
+            end,
             showStats = true,
             spendRecovery = true,
             click = function(element, openCharacterPanel)
@@ -5964,7 +5981,7 @@ local function CreateNarrativeHeroColumn(hero, section)
         flow = "horizontal",
         halign = "center",
         valign = "top",
-        CreateItemStrip(charid),
+        CreateItemStrip(charid, EncounterNarrative.SendRequest),
         card,
     }
 
@@ -6579,6 +6596,12 @@ local function CreatePrepHeroColumn(hero)
     if hud ~= nil and hud.CreateHeroCard ~= nil then
         card = hud.CreateHeroCard({ charid = hero.charid, mine = false, name = hero.name }, {
             halign = "center",
+            --another hero's item may be dropped here, as on the montage stage.
+            dragTarget = true,
+            dragTargetPriority = 10,
+            dragTargets = function(element, on, mode, sourceCharid)
+                element:SetClass("droppable", on == true and mode == "item" and sourceCharid ~= hero.charid)
+            end,
             showStats = true,
             spendRecovery = true,
         })
@@ -6588,6 +6611,16 @@ local function CreatePrepHeroColumn(hero)
 
     local stateLabel = gui.Label{ classes = {"eotwHeroChoice", "waiting"}, text = "", halign = "center" }
 
+    local cardRow = gui.Panel{
+        width = "auto",
+        height = "auto",
+        flow = "horizontal",
+        halign = "center",
+        valign = "top",
+        CreateItemStrip(hero.charid, EncounterPrep.SendRequest),
+        card,
+    }
+
     return gui.Panel{
         width = "auto",
         height = "auto",
@@ -6596,7 +6629,7 @@ local function CreatePrepHeroColumn(hero)
         valign = "top",
         hmargin = 6,
         data = { charid = hero.charid },
-        card,
+        cardRow,
         stateLabel,
 
         refreshPrep = function(element, m)
@@ -6891,6 +6924,10 @@ local function CreatePrepStage(args)
             stage.styles = ThemeEngine.MergeStyles(StageRules())
         end
     end)
+
+    --Broadcast reaches this stage (an item drag lights up the hero cards).
+    m_root = stage
+    m_selectedHero = nil
 
     return stage
 end

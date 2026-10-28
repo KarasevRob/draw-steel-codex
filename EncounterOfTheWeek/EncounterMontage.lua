@@ -455,9 +455,10 @@ end
 --What the stage shows beside a hero's card: the montage haul in grant
 --order, then every other consumable the hero carries -- items brought from
 --town can be used in a montage too (user direction 2026-10-09).
---{ { itemid, name, qty, haul }, ... }; `haul` = gained in this montage
---(only those can be handed to another hero). A consumable's qty is what the
---hero really holds, so a used one shrinks or leaves at once.
+--{ { itemid, name, qty, haul }, ... }; `haul` = gained in this montage.
+--Every entry can be handed to another hero (EncounterMontage.GiveItem). A
+--consumable's qty is what the hero really holds, so a used one shrinks or
+--leaves at once.
 function EncounterMontage.GetStripItems(heroid)
     local result, seen = {}, {}
     local tok = dmhub.GetCharacterById(heroid)
@@ -5348,6 +5349,58 @@ function EncounterMontage.ItemBenefits(charid, itemid)
     return result
 end
 
+--Host: a "giveItem" request {heroid, targetId, itemid}. A hero's player
+--dragged an icon from their item strip onto another hero's card
+--(EncounterMontageStage.CreateItemIcon): one unit of the item moves between
+--the two inventories. Either an item gained in this game (its haul record
+--follows it) or any consumable the hero carries (brought from town, or found
+--in an earlier part of a series, whose records are cleared between parts);
+--a carried one stays unrecorded, so it is still "carried" for the
+--receiver. The montage, narrative and Tactical Preparation hosts all route
+--the request here, in any phase -- sharing the loot is never "not the
+--moment". Call inside the open change on the script document. Returns a
+--line for the log.
+function EncounterMontage.GiveItem(doc, heroes, userid, req)
+    local hero = HeroByCharid(heroes, req.heroid)
+    if hero == nil or not UserControlsHero(userid, hero) then
+        return "ignored give: not your hero"
+    end
+    local target = HeroByCharid(heroes, req.targetId)
+    if target == nil or target.charid == hero.charid then
+        return "ignored give: no such hero to give to"
+    end
+    local entry = FindRecordedItem(doc, hero.charid, req.itemid)
+    local itemName = entry ~= nil and entry.name or nil
+    if entry == nil then
+        local item = (dmhub.GetTable("tbl_Gear") or {})[req.itemid]
+        if item == nil or not EquipmentCategory.IsConsumable(item) then
+            return "ignored give: hero did not gain that item here"
+        end
+        itemName = item.name
+    end
+    if HeldQuantity(hero.token, req.itemid) < 1 then
+        --already used up or dropped: the icon is stale.
+        if entry ~= nil then
+            UnrecordItem(doc, hero.charid, req.itemid, entry.qty or 1)
+        end
+        return "ignored give: item no longer in the hero's inventory"
+    end
+    ElevateToHostPermissions()
+    local ok, err = pcall(function()
+        GrantItem(target.token, req.itemid, itemName, 1)
+        GrantItem(hero.token, req.itemid, itemName, -1)
+    end)
+    DropHostPermissions()
+    if not ok then
+        error(err)
+    end
+    if entry ~= nil then
+        RecordItem(doc, target.charid, req.itemid, itemName, 1)
+        UnrecordItem(doc, hero.charid, req.itemid, 1)
+    end
+    return string.format("%s hands %s to %s", hero.name, tostring(itemName), target.name)
+end
+
 --Handle one player request against the (mutable) state. Returns a string
 --describing what happened, for the log.
 local function HandleRequest(m, doc, userid, req, beat, heroes)
@@ -5688,39 +5741,7 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         MarkPerkUsed(m, "teamleader:" .. hero.charid)
         return string.format("%s leads the party (Team Leader)", hero.name)
     elseif kind == "giveItem" then
-        --a hero's player drags an icon from their haul onto another hero's
-        --card (EncounterMontageStage.CreateItemIcon): one unit of the item
-        --moves between the two inventories, and the haul records follow.
-        --Allowed in any phase -- sharing the loot is never "not the moment".
-        local hero = HeroByCharid(heroes, req.heroid)
-        if hero == nil or not UserControlsHero(userid, hero) then
-            return "ignored give: not your hero"
-        end
-        local target = HeroByCharid(heroes, req.targetId)
-        if target == nil or target.charid == hero.charid then
-            return "ignored give: no such hero to give to"
-        end
-        local entry = FindRecordedItem(doc, hero.charid, req.itemid)
-        if entry == nil then
-            return "ignored give: hero did not gain that item here"
-        end
-        if HeldQuantity(hero.token, req.itemid) < 1 then
-            --gained here, but already used up or dropped: the icon is stale.
-            UnrecordItem(doc, hero.charid, req.itemid, entry.qty or 1)
-            return "ignored give: item no longer in the hero's inventory"
-        end
-        ElevateToHostPermissions()
-        local ok, err = pcall(function()
-            GrantItem(target.token, req.itemid, entry.name, 1)
-            GrantItem(hero.token, req.itemid, entry.name, -1)
-        end)
-        DropHostPermissions()
-        if not ok then
-            error(err)
-        end
-        RecordItem(doc, target.charid, req.itemid, entry.name, 1)
-        UnrecordItem(doc, hero.charid, req.itemid, 1)
-        return string.format("%s hands %s to %s", hero.name, tostring(entry.name), target.name)
+        return EncounterMontage.GiveItem(doc, heroes, userid, req)
     elseif kind == "consumed" then
         --a player used one of their hero's items (EncounterMontage.ConsumeItem
         --cast it on their own client). The effects carry their own markers;

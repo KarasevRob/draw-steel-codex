@@ -177,6 +177,8 @@ text("builder.choice.status.choose_more", [[Choose {count} more]])
 --The description of a treasure choice (a complication's "a trinket of your
 --choice"). {prompt} is the rules' own wording, without a full stop.
 text("builder.choice.treasure_grant_prompt", [[{prompt}. It goes straight into your hero's gear.]])
+--Shown when a hero with two kits (a Tactician) clicks a third kit.
+text("builder.choice.kits_full", [[Deselect one of your kits first]])
 
 ----------------------------------------------------------------------------
 -- THE HERO BUILDER: the Class step's characteristics

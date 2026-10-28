@@ -57,7 +57,7 @@ shadow-elves.lua
    - If the actual actor is outside the usable map view, pan and sync the camera before it begins. Shared initiative entries can therefore pan again as each distinct monster acts without recentering monsters that are already visible.
    - Minions: find their Signature Ability and execute it as a coordinated squad strike (`ExecuteSquadStrike`). The squad moves as one: every member is planned before any moves, with the squares and charge lanes already claimed by squad-mates held in a reservation table (`ReserveSquadOption` / `SquadOptionIsFree`) so no two members end on one square or charge through each other. The captain (or a member) calls the attack and two or three members shout back (`AnnounceSquadStrike`, which writes bubbles directly through `SpeakNow`), then all members move side by side, each starting `squadMoveStagger` (0.2s) after the last (`RunConcurrently`). Chargers move to their charge start, then all shout "Charge!" and charge together. Each member's plan is checked after movement; a second round re-plans members that advanced, failed, or gained a target slot from a fallen squad-mate. Run `../dependencies/lua/bin/lua.exe tests/ai_squad_volley_test.lua`. Reassess members who advanced before firing so they can join the same volley, including sharing targets within the normal limit. The rules layer spends the action for every active squad member, including nonparticipants. Reconsider up to 6 action cycles so critical-hit extra actions are used. Each cycle selects a surviving member with an affordable signature; only affordable members join its target pairs, and movement uses the remaining turn budget.
    - Non-minions: iterate up to 6 times calling `FindAndExecuteMove()`, which scores every registered move and executes the best one. A scoring or execution error quarantines that move for the actor; `"failed"` continues to another cycle, while `"none"` or `"unsafe"` stops the actor.
-5. After all tokens act, initiative advances automatically. Before each actor and after each move cycle, the turn checks that its entry is still the current one. If something else took the turn (a hero's turn-grab ability, a host clicking the initiative bar), it stops with `TURN PAUSED` and does **not** advance, because `NextInitiative` would end the new entry's turn.
+5. After all tokens act, initiative advances automatically. Before each actor, right before each chosen move executes (`TurnTakenBeforeMove`, including a minion squad's moves and strike), and after each move cycle, the turn checks that its entry is still the current one. If something else took the turn (a hero's turn-grab ability, a host clicking the initiative bar), it stops with `TURN PAUSED` and does **not** advance, because `NextInitiative` would end the new entry's turn.
 
 When no registered or synthesized move scores above zero, the actor advances
 toward the enemy with the cheapest complete traversable route to an unoccupied
@@ -129,6 +129,15 @@ evaluated there, because the prompt does not exist until it has been (in the
 check runs again just before `SelectTurn`. The "Waiting for Fox's Showdown"
 banner offers the hero's player Select and Dismiss; dismissing the prompt, or
 its 10-minute expiry, releases the wait.
+
+Accepting the prompt does not release it. The card is removed at once, but the
+cast runs afterwards and may claim the turn (Hesitation Is Weakness moves
+initiative only after its cast completes). So the write that removes an
+accepted card also adds a `turn-claim` marker to the hero's
+`pendingAIActivityReactions` (in `TriggeredAbility.lua`), completed by the
+cast's normal AI-reaction completion path. The AI keeps waiting while that
+marker is resolving (up to 60s) and for 2s after it completes, with the banner
+"Waiting for Iswyln's Hesitation Is Weakness to finish" (BR8M9Z2W).
 
 The turn handoff itself also waits. A hero's mandatory end-of-turn trigger
 whose invoked ability prompts them (Revitalizing Limerick's "choose allies to

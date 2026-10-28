@@ -1023,6 +1023,14 @@ local g_liveTriggerWatchers = {}
 --on another machine: GenerateSymbols function wrappers are unwrapped to their
 --underlying creatures, and SerializeEventValue converts live tokens/creatures
 --into string refs which DeserializeEventValue resolves back to live objects.
+--While the Director has the game frozen, ActivatedAbility:Cast refuses this
+--client's casts (the same test). An accepted prompt that executed then would
+--be consumed and lost (237AHPF5: Judgment accepted, never cast), so the prompt
+--watcher holds an accepted answer until the game is unfrozen.
+local function CastsRefusedByFreeze()
+	return dmhub.frozen and not IsDMOrPlayerHost()
+end
+
 local function SerializeTriggerContext(symbols, targets)
 	local visited = {}
 	local serializedSymbols = {}
@@ -1833,7 +1841,12 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
             --were undiagnosable because every exit path looked the same.
             local exitReason = nil
 
-			while trigger ~= nil and (not trigger.triggered) and (not trigger.dismissed) and sustain do
+			local heldByFreeze = false
+			while trigger ~= nil and ((not trigger.triggered) or CastsRefusedByFreeze()) and (not trigger.dismissed) and sustain do
+				if trigger.triggered and not heldByFreeze then
+					heldByFreeze = true
+					printf("TRIGGERGUARD:: prompt %s (%s) accepted while frozen; held until unfrozen", tostring(guid), tostring(self.name))
+				end
 				coroutine.yield()
 
 				trigger = nil
@@ -1969,12 +1982,31 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 			--with no coroutine watching it -- clickable but unresponsive. Clear by
 			--guid rather than by the (possibly nil) trigger reference, since some
 			--exits leave trigger nil while the entry is still present.
+			--
+			--A hero's accepted prompt held the Monster AI's next turn choice while
+			--it was open; the cast runs after the card is gone and may claim the
+			--turn itself (Hesitation Is Weakness), so a "turn-claim" marker keeps
+			--holding the AI until the cast completes (BR8M9Z2W). It rides in the
+			--card's removal write, so the AI never sees the card gone without it.
+			local turnClaimMarker = aiActivityId == nil and trigger ~= nil and trigger.triggered
+				and casterToken ~= nil and casterToken.valid and casterToken.playerControlled
+				and dmhub.initiativeQueue ~= nil and not dmhub.initiativeQueue.hidden
+				and not trigger:try_get("hostile", false)
+				and trigger:try_get("powerRollModifier", false) == false
+			if turnClaimMarker then
+				aiActivityId = "turn-claim"
+				argOptions.aiActivityId = aiActivityId
+				argOptions.aiReactionId = guid
+			end
 			if casterToken ~= nil and casterToken.valid then
 				casterToken:ModifyProperties{
 					description = "Clear Trigger",
 					undoable = false,
 					execute = function()
 						casterToken.properties:ClearAvailableTrigger({id = guid})
+						if turnClaimMarker then
+							casterToken.properties:AddPendingAIActivityReaction("turn-claim", guid, self.name, "resolving")
+						end
 					end,
 				}
 			end

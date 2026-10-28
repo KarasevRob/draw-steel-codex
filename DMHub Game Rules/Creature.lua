@@ -11284,20 +11284,30 @@ function creature:BeginPendingAIActivityReaction(activityId, reactionId, ability
         undoable = false,
         combine = true,
         execute = function()
-            local pendingReactions = self:get_or_add("pendingAIActivityReactions", {})
-            for id,entry in pairs(pendingReactions) do
-                if type(entry) == "table" and entry.state == "completed" and entry.timestamp ~= nil
-                    and TimestampAgeInSeconds(entry.timestamp) > g_aiActivityReactionExpirySeconds then
-                    pendingReactions[id] = nil
-                end
-            end
-            pendingReactions[reactionId] = {
-                activityId = activityId,
-                timestamp = ServerTimestamp(),
-                state = state or "awaiting_choice",
-                ability = abilityName,
-            }
+            self:AddPendingAIActivityReaction(activityId, reactionId, abilityName, state)
         end,
+    }
+end
+
+--The marker write BeginPendingAIActivityReaction makes, for a caller already
+--inside a ModifyProperties that needs the marker in the same write.
+--- @param activityId string
+--- @param reactionId string
+--- @param abilityName string|nil
+--- @param state nil|"awaiting_choice"|"resolving"
+function creature:AddPendingAIActivityReaction(activityId, reactionId, abilityName, state)
+    local pendingReactions = self:get_or_add("pendingAIActivityReactions", {})
+    for id,entry in pairs(pendingReactions) do
+        if type(entry) == "table" and entry.state == "completed" and entry.timestamp ~= nil
+            and TimestampAgeInSeconds(entry.timestamp) > g_aiActivityReactionExpirySeconds then
+            pendingReactions[id] = nil
+        end
+    end
+    pendingReactions[reactionId] = {
+        activityId = activityId,
+        timestamp = ServerTimestamp(),
+        state = state or "awaiting_choice",
+        ability = abilityName,
     }
 end
 
@@ -11325,7 +11335,7 @@ function creature:CompletePendingAIActivityReaction(activityId, reactionId)
             --Retain completion so late callbacks can see that this reaction
             --already ended. A later Begin call collects old terminal records.
             pendingReactions[reactionId] = {activityId = entry.activityId,
-                timestamp = ServerTimestamp(), state = "completed"}
+                timestamp = ServerTimestamp(), state = "completed", ability = entry.ability}
         end,
     }
 end

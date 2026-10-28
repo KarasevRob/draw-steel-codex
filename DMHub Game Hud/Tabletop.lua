@@ -5028,7 +5028,6 @@ local function CardStyles()
             selectors = {"tabletopCardSelectRing"},
             bgcolor = "clear",
             borderColor = "@accent",
-            border = 3,
         },
         {
             selectors = {"tabletopCardSheet"},
@@ -5258,11 +5257,13 @@ function Tabletop.ClearCardSelection()
     g_cs.made = nil
 end
 
---- The ring a selected card wears. Put it on the card's frame and call
---- Tabletop.ShowCardSelected(ring, on) as the selection changes.
---- @param cornerRadius number
+--- The ring a selected card wears. Add it to the card's face (CardFace) as
+--- its last child, so it grows and turns over with the face when the card is
+--- turned to its back (HeroCardBack). Call Tabletop.FitCardSelectRing as the
+--- card's scale changes and Tabletop.ShowCardSelected(ring, on) as the
+--- selection changes.
 --- @return Panel
-function Tabletop.CardSelectRing(cornerRadius)
+function Tabletop.CardSelectRing()
     return gui.Panel{
         classes = {"tabletopCardSelectRing", "collapsed"},
         floating = true,
@@ -5270,10 +5271,29 @@ function Tabletop.CardSelectRing(cornerRadius)
         valign = "center",
         width = "100%+6",
         height = "100%+6",
-        cornerRadius = cornerRadius + 3,
+        --the face's corners (EotwHeroCard draws it with cornerRadius 8).
+        cornerRadius = 8 + 3,
+        borderWidth = 3,
         bgimage = "panels/square.png",
         interactable = false,
     }
+end
+
+--- Keeps a card's ring 3 pixels wide on screen while its face is drawn at
+--- scale s (the ring is inside the face, so it is scaled with it).
+--- @param ring Panel
+--- @param s number
+function Tabletop.FitCardSelectRing(ring, s)
+    --scene cards reposition every frame they move; restyle only on a change.
+    if ring == nil or not ring.valid or ring.data.fitScale == s then
+        return
+    end
+    ring.data.fitScale = s
+    local w, h = CardSize()
+    ring.selfStyle.width = w + 6 / s
+    ring.selfStyle.height = h + 6 / s
+    ring.selfStyle.cornerRadius = 8 + 3 / s
+    ring.selfStyle.borderWidth = 3 / s
 end
 
 --- @param ring Panel
@@ -5573,8 +5593,11 @@ local function ApplyCardScale(card, except)
     panel.selfStyle.height = math.floor(h * s)
     --the frame draws nothing itself; its corners shape the face's shadow.
     panel.selfStyle.cornerRadius = (card.shadowRadius or 0) * s
-    if card.selectRing ~= nil and card.selectRing.valid then
-        card.selectRing.selfStyle.cornerRadius = (card.shadowRadius or 0) * s + 3
+    --the ring and the unshared frame are on the face, inside the scaler:
+    --keep their lines as thick on screen at any scale.
+    Tabletop.FitCardSelectRing(card.selectRing, s)
+    if card.share ~= nil and card.share.frame.valid then
+        card.share.frame.selfStyle.borderWidth = 2 / s
     end
     card.scaler.selfStyle.scale = s
     --the titlebar is at least as wide as the card (see BuildCard).
@@ -5895,13 +5918,14 @@ local function BuildCard(card)
     --what the resize grips report a player's resize under (TookControl).
     card.layoutKey = CardItemId(card.charid)
 
+    local face = CardFace(card.charid, tok)
     card.scaler = gui.Panel{
         halign = "center",
         valign = "center",
         width = w,
         height = h,
         scale = card.scale,
-        CardFace(card.charid, tok),
+        face,
     }
 
     --the ping, left of the share button (DefinePings).
@@ -5976,15 +6000,18 @@ local function BuildCard(card)
     card.titlebar = titlebar
     card.grips = CardGrips(card)
 
-    --over the face: the ring a selected card wears, and the sheet button.
-    card.selectRing = Tabletop.CardSelectRing(card.shadowRadius * card.scale)
+    --on the face, over everything else on it, so they grow and turn over
+    --with it when the card is turned to its back: the frame of an unshared
+    --card, and the ring a selected card wears.
+    if share ~= nil then
+        face:AddChild(share.frame)
+    end
+    card.selectRing = Tabletop.CardSelectRing()
     Tabletop.ShowCardSelected(card.selectRing, Tabletop.SelectedCharids()[card.charid] == true)
+    face:AddChild(card.selectRing)
     card.sheetButton = Tabletop.CardSheetButton(card.charid)
 
-    local children = {card.scaler, card.selectRing, card.sheetButton, titlebar}
-    if share ~= nil then
-        children[#children+1] = share.frame
-    end
+    local children = {card.scaler, card.sheetButton, titlebar}
     for _, grip in ipairs(card.grips) do
         children[#children+1] = grip
     end
@@ -6221,9 +6248,8 @@ local function BuildCard(card)
     }
     layer:AddChild(panel)
     card.panel = panel
-    for _, grip in ipairs(card.grips) do
-        PlaceGrip(card, grip)
-    end
+    --places the grips and fits the ring and frame to a card made at a scale.
+    ApplyCardScale(card)
 end
 
 --Puts a character's card on this user's table (or brings its card

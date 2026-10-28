@@ -18,6 +18,8 @@ MonsterAI = {TokenIsLiveCombatant = function(t) return t.valid end,
     TargetsLogName = tostring, Sleep = noop}
 --Plan previews (Continue to go on) are off in these tests.
 MonsterAI.PlanPreviewsOn = function() return false end
+--No hero takes the turn mid-move in these tests.
+MonsterAI.TurnTakenBeforeMove = function() return false end
 function RunYieldingFunction(fn)
     local ok, err = pcall(fn)
     if not ok then return false, err end
