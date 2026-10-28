@@ -1196,7 +1196,7 @@ local TURNED_RISE = 0.25
 --than by a style transition so it runs on the card itself, whose styles
 --belong to the host. The card grows from fromScale to toScale as it turns,
 --rising so the growth goes upward (scale is around the card's centre).
-local function AnimateFlip(card, cardHeight, fromScale, toScale, onMidpoint)
+local function AnimateFlip(card, cardHeight, fromScale, toScale, onMidpoint, onDone)
     if card.data.heroCardFlipping then
         return
     end
@@ -1228,6 +1228,7 @@ local function AnimateFlip(card, cardHeight, fromScale, toScale, onMidpoint)
             card.selfStyle.y = Lift(toScale)
             card.constrainToScreen = toScale ~= 1
             card.data.heroCardFlipping = false
+            onDone()
             return
         end
         local eased = 0.5 - 0.5 * math.cos(p * math.pi)
@@ -1402,6 +1403,18 @@ local function CreateFlipButton(charid)
                 selectors = {"heroCardFlipIcon", "parent:hover"},
                 bgcolor = COLOR_GOLD,
             },
+            --edge-on, the card slips out from under the mouse: while it
+            --turns the button holds its hovered look instead of blinking.
+            {
+                selectors = {"heroCardFlip", "turning"},
+                hidden = 0,
+                borderColor = COLOR_GOLD,
+                scale = 1.15,
+            },
+            {
+                selectors = {"heroCardFlipIcon", "parent:turning"},
+                bgcolor = COLOR_GOLD,
+            },
         },
         gui.Panel{
             classes = {"heroCardFlipIcon"},
@@ -1413,10 +1426,18 @@ local function CreateFlipButton(charid)
             bgcolor = "#ffffffee",
             interactable = false,
         },
-        hover = gui.Tooltip("Turn the card over"),
+        --no tooltip mid-turn: the mouse leaving and re-entering the edge-on
+        --card would pop it away and back.
+        hover = function(element)
+            if element:HasClass("turning") then
+                return
+            end
+            element.tooltip = "Turn the card over"
+        end,
         --on click, as the card's dismiss X does: a handled click stops
         --here instead of bubbling up to open the hero's sheet.
         click = function(element)
+            element.tooltip = nil
             audio.FireSoundEvent("Mouse.Click")
             element.parent:FireEvent("turnCard")
         end,
@@ -1444,11 +1465,15 @@ local function Decorate(cardArgs, charid, cardWidth, cardHeight)
         end
     end
     cardArgs[#cardArgs+1] = backFace
-    cardArgs[#cardArgs+1] = CreateFlipButton(charid)
+    local flipButton = CreateFlipButton(charid)
+    cardArgs[#cardArgs+1] = flipButton
     cardArgs.turnCard = function(element)
         local turned = not backFace:HasClass("turned")
+        flipButton:SetClass("turning", true)
         AnimateFlip(element, cardHeight, cond(turned, 1, TURNED_SCALE), cond(turned, TURNED_SCALE, 1), function()
             backFace:FireEvent("showBack", turned)
+        end, function()
+            flipButton:SetClass("turning", false)
         end)
     end
 end
