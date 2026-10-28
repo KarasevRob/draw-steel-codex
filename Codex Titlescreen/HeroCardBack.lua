@@ -11,6 +11,9 @@ local mod = dmhub.GetModLoading()
 local BACK_WIDTH = 350
 local PAD = 18
 local INNER_WIDTH = BACK_WIDTH - PAD * 2
+--the back's rows scroll: they are laid out this much clear of the scrollbar.
+local SCROLLBAR_ROOM = 14
+local CONTENT_WIDTH = INNER_WIDTH - SCROLLBAR_ROOM
 
 local COLOR_TEXT = "#eef1f4"
 local COLOR_SOFT = "#c6d0da"
@@ -120,7 +123,7 @@ local function Header(tok, c)
         interactable = false,
         portrait,
         gui.Panel{
-            width = INNER_WIDTH - 50 - 11 - 44,
+            width = CONTENT_WIDTH - 50 - 11 - 44,
             height = "auto",
             lmargin = 11,
             valign = "center",
@@ -175,7 +178,7 @@ local function StaminaStrip(c)
     local victories = Try(function() return c:GetVictories() end, 0)
     local heroTokens = Try(function() return c:GetHeroTokens() end, 0)
 
-    local barWidth = INNER_WIDTH - 30
+    local barWidth = CONTENT_WIDTH - 20
     local function Px(value)
         if max <= 0 then
             return 0
@@ -290,7 +293,7 @@ local function Characteristics(c)
     end
 
     local cells = {}
-    local cellWidth = math.floor(INNER_WIDTH / math.max(1, #attrs))
+    local cellWidth = math.floor(CONTENT_WIDTH / math.max(1, #attrs))
     for i, attr in ipairs(attrs) do
         local top = values[i] == best and best > 0
         cells[#cells+1] = gui.Panel{
@@ -566,7 +569,7 @@ local function TwoColumnRow(left, right, rightColor, dim)
         flow = "horizontal",
         opacity = cond(dim, 0.45, 1),
         interactable = false,
-        Text{ text = left, fontSize = 12, width = INNER_WIDTH - 90 },
+        Text{ text = left, fontSize = 12, width = CONTENT_WIDTH - 90 },
         Text{ text = right, fontSize = 12, bold = true, color = rightColor or COLOR_TEXT, width = 90, textAlignment = "right" },
     }
 end
@@ -587,7 +590,22 @@ local function ResourceGains(c)
         --quantities are GoblinScript ("Victories", "1 + 1 when level >= 4"):
         --evaluate them as the tac panel does. A dice expression stays as
         --written, so the card reads "+1d3" rather than one random roll.
-        local quantity = tostring(entry.quantity or 1)
+        local quantity = entry.quantity or 1
+        --a level table (the Beastheart's "1d3, +1 from level 7"): the row for
+        --the hero's level, its symbols resolved ("1d Heroic Resource Gain at
+        --Start" reads 1d3).
+        if type(quantity) == "table" then
+            local level = Try(function() return c:CharacterLevel() end, 1)
+            local row = nil
+            for _, candidate in ipairs(quantity.entries or {}) do
+                if (candidate.threshold or 1) <= level and (row == nil or candidate.threshold > row.threshold) then
+                    row = candidate
+                end
+            end
+            local script = row and row.script or ""
+            quantity = Try(function() return dmhub.NormalizeRoll(script, c:LookupSymbol()) end, script)
+        end
+        quantity = tostring(quantity)
         local amount = tonumber(quantity)
         if amount == nil and not string.find(quantity, "%d+d%d+") then
             amount = Try(function() return dmhub.EvalGoblinScript(quantity, c:LookupSymbol()) end)
@@ -807,7 +825,7 @@ local function MonsterHeader(tok, c)
         interactable = false,
         portrait,
         gui.Panel{
-            width = INNER_WIDTH - 50 - 11 - 44,
+            width = CONTENT_WIDTH - 50 - 11 - 44,
             height = "auto",
             lmargin = 11,
             valign = "center",
@@ -1304,9 +1322,8 @@ local function CreateBackFace(charid, cardWidth, cardHeight)
             --monsters wear the enemy red the mockup gave them.
             element.parent.selfStyle.borderColor = cond(IsHeroProps(tok.properties), "#6fa8ffcc", "#b0444acc")
             sections, info = BuildSections(tok)
-            --keep clear of the scrollbar along the right edge.
             for _, section in ipairs(sections) do
-                section.selfStyle.width = "100%-10"
+                section.selfStyle.width = CONTENT_WIDTH
             end
             scroller.children = sections
             ApplyFolds()
