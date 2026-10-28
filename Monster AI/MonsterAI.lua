@@ -2692,6 +2692,68 @@ function MonsterAI:WaitForActivityReactions(activityId)
     return completed, reason
 end
 
+--Answer the trigger prompts of AI-run minions while a squad owes deaths. A
+--minion offered a trigger (an angulotl's Leapfrog) shows no death skull, and
+--the panel's trigger poll cannot answer it until this turn ends, so the wait
+--below could never finish (QNT42FK4). Each prompt is tried once per wait; one
+--with no AI handler is left to the "Choose for me" banner in DrawSteelTokenHud.
+--Minions are matched by minionDead, not IsDead: a doomed minion's squad pool
+--may already read as dead.
+---@param answered table<string, boolean> prompts already tried this wait
+function MonsterAI:AnswerMinionTriggersDuringWait(answered)
+    local work = {}
+    for _,token in ipairs(dmhub.allTokens) do
+        local props = token.valid and token.properties or nil
+        if props ~= nil and props.minion and not props.minionDead
+            and not token.playerControlled then
+            for _,trigger in pairs(props:GetAvailableTriggers(true) or {}) do
+                local key = string.format("%s:%s", tostring(token.charid), tostring(trigger.id))
+                if not answered[key] and not trigger.triggered and not trigger.dismissed then
+                    answered[key] = true
+                    work[#work+1] = {token = token, trigger = trigger}
+                end
+            end
+        end
+    end
+
+    --Answered after the scan: answering one rewrites availableTriggers.
+    for _,item in ipairs(work) do
+        local token, trigger = item.token, item.trigger
+        if token.valid and token.properties ~= nil then
+            local responder = MonsterAI.new{token = token}
+            local ok, err = responder:RunYieldingFunction(function()
+                responder:HandleAvailableTrigger(token, trigger)
+            end)
+            if not ok then
+                --Same recovery as the panel's trigger poll: dismiss it so the
+                --skull comes back instead of the wait hanging on it.
+                pcall(function()
+                    token:ModifyProperties{
+                        description = "AI Trigger Recovery",
+                        undoable = false,
+                        execute = function()
+                            local liveTrigger = (token.properties:GetAvailableTriggers() or {})[trigger.id]
+                            if liveTrigger ~= nil and not liveTrigger.triggered
+                                and not liveTrigger.dismissed then
+                                liveTrigger.dismissed = true
+                                token.properties:DispatchAvailableTrigger(liveTrigger)
+                            end
+                        end,
+                    }
+                end)
+                pcall(function()
+                    responder:LogDecision("TRIGGER ERROR", {
+                        category = "Triggered Action",
+                        ability = trigger.abilityName,
+                        reason = tostring(err),
+                        result = "trigger dismissed while waiting for minion deaths",
+                    })
+                end)
+            end
+        end
+    end
+end
+
 function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
     local pending, status, failure = self:CountPendingActivityReactions(activityId)
     local pendingMinionDeaths = self:CountPendingMinionDeathConfirmations()
@@ -2708,6 +2770,7 @@ function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
 
     local startedAt = dmhub.Time()
     local idleSince = nil
+    local answeredTriggers = {}
     local isAIRunning = rawget(MonsterAI, "IsAIRunning")
     local cancelWhenAIStops = MonsterAI.active and isAIRunning ~= nil
         and isAIRunning()
@@ -2744,6 +2807,9 @@ function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
             end
         else
             idleSince = nil
+            if pending == 0 then
+                self:AnswerMinionTriggersDuringWait(answeredTriggers)
+            end
         end
         coroutine.yield(0.1)
     end

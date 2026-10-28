@@ -163,6 +163,14 @@ squad owing deaths, the barrier also remains up while the red-skull choices and
 their Monster Death removals resolve. Stopping the AI while it waits aborts the
 remaining monster turn without advancing initiative.
 
+A minion offered a trigger shows no skull, and the panel's trigger poll cannot
+run during a turn. So while only minion deaths hold the barrier,
+`AnswerMinionTriggersDuringWait` answers the AI-run minions' triggers with
+`HandleAvailableTrigger` (an angulotl pushed through a Clawfish offers it
+Leapfrog; QNT42FK4). A trigger with no AI handler is still covered: the
+"choose-minion-deaths" banner in `DrawSteelTokenHud.lua` counts minions whose
+skull a trigger hides, so "Choose for me" can resolve them.
+
 Delivery failures, orphaned prompt markers, and evaluation errors stop the AI
 without advancing initiative. The panel explains the specific client/ability
 being awaited; a failure also opens a message even if the panel is closed. Check
