@@ -3425,6 +3425,15 @@ dmhub.Coroutine(function()
             return
         end
         pcall(UpdateDirectorUIHatch)
+        --EotW allows no undo but Turn Rewind: the ordinary undo stack is per client
+        --and blind to other players' writes, so one Ctrl+Z could delete the whole
+        --combat (FM2VP7AK). Follows IsEotwGame, so it lifts when an authoring test ends.
+        pcall(function()
+            local want = EncounterOfTheWeekGame.IsEotwGame()
+            if dmhub.undoDisabled ~= want then
+                dmhub.undoDisabled = want
+            end
+        end)
         pcall(UpdateStartZoneConfinement)
         pcall(UpdateArrangePanel)
         pcall(UpdateBusyMirror)
