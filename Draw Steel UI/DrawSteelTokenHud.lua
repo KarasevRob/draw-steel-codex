@@ -899,10 +899,18 @@ TokenHud.RegisterPanel{
                         return
                     end
                     if token.canControl then
+                        --The initiative bubble's Claim Turn also fires this press, for
+                        --whichever token is selected or primary. Never re-open the turn
+                        --of an entry that has already gone this round (QM6XE5YN); only
+                        --the Director may do that deliberately.
+                        local initiativeid = dmhub.initiativeQueue.GetInitiativeId(token)
+                        if dmhub.initiativeQueue:HasHadTurn(initiativeid) and not dmhub.isDM then
+                            return
+                        end
+
                         element.data.clickTime = dmhub.Time()
                         audio.FireSoundEvent("Mouse.Click")
                         element:SetClass("hidden", true)
-                        local initiativeid = dmhub.initiativeQueue.GetInitiativeId(token)
                         dmhub.initiativeQueue:SelectTurn(initiativeid)
                         dmhub:UploadInitiativeQueue()
 
