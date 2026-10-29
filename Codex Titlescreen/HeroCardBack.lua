@@ -605,12 +605,12 @@ local function ResourceGains(c)
             local script = row and row.script or ""
             quantity = Try(function() return dmhub.NormalizeRoll(script, c:LookupSymbol()) end, script)
         end
-        quantity = tostring(quantity)
-        local amount = tonumber(quantity)
-        if amount == nil and not string.find(quantity, "%d+d%d+") then
-            amount = Try(function() return dmhub.EvalGoblinScript(quantity, c:LookupSymbol()) end)
+        local quantityText = tostring(quantity)
+        local amount = tonumber(quantityText)
+        if amount == nil and not string.find(quantityText, "%d+d%d+") then
+            amount = Try(function() return dmhub.EvalGoblinScript(quantityText, c:LookupSymbol()) end)
         end
-        local amountText = "+" .. quantity
+        local amountText = "+" .. quantityText
         if tonumber(amount) ~= nil then
             amountText = string.format("+%d", tonumber(amount))
         end
