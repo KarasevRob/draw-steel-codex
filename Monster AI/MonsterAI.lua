@@ -2906,6 +2906,12 @@ function MonsterAI:MoveToken(token, loc, options, continueIfActorDies)
     if not continueIfActorDies and (options == nil or not options.straightline)
         and not self:MovementTokenIsAtLoc(token, loc) then
         self._tmp_moveFailure = "movement did not reach the planned destination"
+        --It moved but was stopped early (a trap, a reaction), so the move may
+        --still work from where it stands: HandleMoveExecutionFailure re-plans it.
+        local mover = self:GetMovementToken(token)
+        if fromLoc ~= nil and mover ~= nil and mover.loc.str ~= fromLoc.str then
+            self._tmp_moveFellShort = true
+        end
     end
     return result, true
 end
@@ -3722,6 +3728,7 @@ function MonsterAI:PlayTurnCoroutine(initiativeid)
                     self._tmp_synthesizedAbilitiesUsed = {}
                     self._tmp_synthesizedPlanningFailed = false
                     self._tmp_failedMoves = {}
+                    self._tmp_shortMoveRetries = {}
                     self._tmp_failedChargePlans = {}
 					self._tmp_actorInterrupted = nil
 
@@ -6716,9 +6723,19 @@ function MonsterAI:CanStrikeThisTurn(token)
     return false, "no square it can move to has an enemy in reach"
 end
 
-function MonsterAI:HandleMoveExecutionFailure(moveid, abilityName, err)
+--fellShort: the creature moved but stopped before its planned square. The
+--move then gets one more try, re-scored from where it stands next cycle; a
+--second shortfall quarantines it like any other failure.
+function MonsterAI:HandleMoveExecutionFailure(moveid, abilityName, err, fellShort)
     self._tmp_failedMoves = self:try_get("_tmp_failedMoves", {})
-    self._tmp_failedMoves[moveid] = true
+    local retried = self:try_get("_tmp_shortMoveRetries", {})
+    self._tmp_shortMoveRetries = retried
+    local replan = fellShort == true and not retried[moveid]
+    if replan then
+        retried[moveid] = true
+    else
+        self._tmp_failedMoves[moveid] = true
+    end
     self._tmp_expectedPromptTarget = nil
 
 	if self:try_get("_tmp_abortTurn") ~= nil then
@@ -6749,7 +6766,8 @@ function MonsterAI:HandleMoveExecutionFailure(moveid, abilityName, err)
         self:LogDecision("MOVE ERROR", {
             ability = abilityName,
             reason = "execution failed: " .. tostring(err),
-            result = "move quarantined for this actor",
+            result = replan and "move re-planned from where the actor stopped"
+                or "move quarantined for this actor",
         })
     end)
 
@@ -7589,6 +7607,7 @@ function MonsterAI:FindAndExecuteMove()
     --before each RunYieldingFunction below (ProfEnd is safe to repeat).
     local chooseProf = ProfBegin("choose move")
     self._tmp_moveFailure = nil
+    self._tmp_moveFellShort = nil
     self._tmp_oaSafeOnly = nil
     local token = self.token
     local searchContext = {}
@@ -7934,7 +7953,8 @@ function MonsterAI:FindAndExecuteMove()
         if executeResult == false or self:try_get("_tmp_moveFailure") ~= nil then
             return self:HandleMoveExecutionFailure(bestMove.id,
                 self.AbilitiesLogName(bestScore.usingAbilities),
-                self:try_get("_tmp_moveFailure", "execution returned false"))
+                self:try_get("_tmp_moveFailure", "execution returned false"),
+                self:try_get("_tmp_moveFellShort") == true)
         end
         self:LogMove(self.token.properties.monster_type, bestMove.id, "Executed move")
         self:LogDecision("MOVE FINISHED", {

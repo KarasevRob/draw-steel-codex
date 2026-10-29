@@ -404,8 +404,9 @@ A **tactic** is a passive scoring modifier that adjusts the edge count when eval
 A **behavior** is a switchable piece of a monster's personality. Unlike a
 tactic it is **off** unless switched on: by the monster types in its
 `monsters` list (or `allMonsters = true`), or by a behavior source. The two
-built in, registered at the bottom of `MonsterAITactics.lua` with empty
-`monsters` lists, are:
+built in, registered at the bottom of `MonsterAITactics.lua`, are (Bully has
+an empty `monsters` list, so it is off by default; Avoid Opportunity Attacks
+has `allMonsters = true`, so every monster uses it unless it is turned off):
 
 - **Bully**: `targetEdges` adds up to `MonsterAI.bullyMaxEdges` (6) edges to a
   target as its share of Stamina falls to 0 (dying counts as 0), and cancels
