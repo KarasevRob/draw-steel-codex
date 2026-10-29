@@ -10701,13 +10701,23 @@ local function CreateSynthesizedSpellsPanel()
                     a.skippable = true
                 end
 
+                --Forward the current symbol table so flags like `forcedroll` (set by
+                --InvokeAbility with inheritRoll=true) survive the chip-pick handoff.
+                local symbols = g_currentSymbols
+                --A chip that channels its own resource starts at its own default
+                --charges, not the parent's: Practical Magic's default 1 otherwise
+                --pre-spent 1 essence on its Teleport option (report JF7SAVWU).
+                if symbols ~= nil and symbols.charges ~= nil and a:try_get("channeledResource", "none") ~= "none" then
+                    --Copy so the parent cast's own charges are left alone.
+                    symbols = table.shallow_copy(symbols)
+                    symbols.charges = a:DefaultCharges()
+                end
+
                 local spellOptions = {
                     synthesized = true,
                     cast = cast,
                     ability = a,
-                    --Forward the current symbol table so flags like `forcedroll` (set by
-                    --InvokeAbility with inheritRoll=true) survive the chip-pick handoff.
-                    symbols = g_currentSymbols,
+                    symbols = symbols,
                 }
                 for k, v in pairs(addedSpellOptions or {}) do
                     spellOptions[k] = v
