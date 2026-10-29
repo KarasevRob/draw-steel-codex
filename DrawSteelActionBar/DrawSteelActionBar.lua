@@ -10762,13 +10762,17 @@ local function CreateTokenSelectionContainer()
 
     --A static tint over the hovered candidate (the sprite redrawn in yellow). Objects have no locate
     --ring, and two identical objects are otherwise impossible to tell apart.
-    local m_pulseCanvas = nil
+    local m_tintCanvas = nil
+
+    local function ClearTint()
+        if m_tintCanvas ~= nil then
+            m_tintCanvas:Destroy()
+            m_tintCanvas = nil
+        end
+    end
 
     local function SetLocateRing(charid, on)
-        if m_pulseCanvas ~= nil then
-            m_pulseCanvas:Destroy()
-            m_pulseCanvas = nil
-        end
+        ClearTint()
 
         local tok = charid ~= nil and dmhub.GetTokenById(charid) or nil
         if tok == nil or not tok.valid then
@@ -10776,10 +10780,11 @@ local function CreateTokenSelectionContainer()
         end
 
         local instance = on and tok.isObject and tok.objectInstance or nil
-        if instance ~= nil then
+        --area is nil when the object's map instance has gone.
+        local area = instance ~= nil and instance.area or nil
+        if instance ~= nil and area ~= nil then
             --Redraw the object's own sprite as a flat tint on top of it, so the highlight has its exact shape.
-            local area = instance.area
-            m_pulseCanvas = dmhub.CreateCanvasOnMap{
+            m_tintCanvas = dmhub.CreateCanvasOnMap{
                 point = core.Vector3((area.x1 + area.x2) / 2, (area.y1 + area.y2) / 2, 0),
                 floorIndex = tok.loc.floor,
                 sheet = gui.Panel{
@@ -10801,7 +10806,9 @@ local function CreateTokenSelectionContainer()
         end
     end
 
+    --Always drops the tint, even with no located token, so nothing can strand it on the map.
     local function ClearLocate()
+        ClearTint()
         if m_locatedCharid ~= nil then
             SetLocateRing(m_locatedCharid, false)
             m_locatedCharid = nil
@@ -14014,11 +14021,14 @@ CreateAbilityController = function()
             local targetTokens = dmhub.tokenInfo.TokensInShape(g_pointTargeting.shape)
 
             --The engine's line-of-sight shape drops sight-blocking objects (they hide their own
-            --square). Re-add objects in range; TargetPassesFilter then checks the squares beside them.
-            if g_currentAbility.targetType == "all" and g_currentAbility.objectTarget == true and g_token ~= nil and g_token.valid then
+            --square). Re-add objects in range; TargetPassesFilter then checks where the line to them stops.
+            --Only for a burst centred on the caster: a casterLocOverride moves the burst elsewhere.
+            if g_currentAbility.targetType == "all" and g_currentAbility.objectTarget == true and g_token ~= nil and g_token.valid
+                and g_currentAbility:try_get("casterLocOverride") == nil then
                 local burstRange = g_currentAbility:GetRange(g_token.properties, g_currentSymbols)
                 for _, tok in ipairs(dmhub.allTokensIncludingObjects) do
-                    if tok.valid and tok.isObject and targetTokens[tok.charid] == nil
+                    --objectTarget abilities only take attackable objects, so skip the rest before the sight test.
+                    if tok.valid and tok.isObject and tok.isAttackableObject and targetTokens[tok.charid] == nil
                         and tok.floorIndex == g_token.floorIndex and g_token:Distance(tok) <= burstRange then
                         targetTokens[tok.charid] = tok
                     end

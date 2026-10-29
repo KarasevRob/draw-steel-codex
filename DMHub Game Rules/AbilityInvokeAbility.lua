@@ -252,9 +252,11 @@ local function DescribeMovementConstraint(behavior)
     local anchorType = behavior:try_get("movementConstraintAnchor", "caster")
     local text = phrase .. " " .. (g_movementConstraintAnchorNames[anchorType] or "the anchor")
 
+    --The distance only limits the anchors that are searched for (see CollectMovementConstraintCandidates).
+    --%g, not %d: the editor accepts a fractional distance, which %d would raise on.
     local maxDistance = tonumber(behavior:try_get("movementConstraintAnchorDistance"))
-    if maxDistance ~= nil and (anchorType == "nearest_enemy" or anchorType == "nearest_creature") then
-        text = text .. string.format(" within %d square%s of the target", maxDistance, maxDistance == 1 and "" or "s")
+    if maxDistance ~= nil and (anchorType == "nearest_enemy" or anchorType == "nearest_creature" or anchorType == "all_matching") then
+        text = text .. string.format(" within %g square%s of the target", maxDistance, maxDistance == 1 and "" or "s")
     end
 
     return text
@@ -343,7 +345,7 @@ local function ChooseNearestMovementConstraintAnchor(behavior, casterToken, move
         end
     end
 
-    --Opt-in (set in the data file): every candidate in range is offered and the table decides which
+    --Opt-in ("Offer Every Anchor in Range" in the invoke editor): every candidate in range is offered and the table decides which
     --counts as nearest, since measuring around objects and big creatures is easy to dispute.
     if behavior:try_get("movementConstraintPickAnyInRange", false) and #candidates > 1 then
         nearest = candidates
@@ -2481,6 +2483,7 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
             change = function(element)
                 ---@cast element Dropdown
                 self.movementConstraintAnchor = element.idChosen
+                parentPanel:FireEventTree("refreshInvoke")
             end,
         },
     }
@@ -2538,6 +2541,24 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
         },
     }
 
+    --Only a nearest-creature or nearest-enemy anchor is chosen by distance, so only those offer the pick.
+    local function pickAnyOff()
+        local anchorType = self:try_get("movementConstraintAnchor", "caster")
+        return movementConstraintOff() or (anchorType ~= "nearest_creature" and anchorType ~= "nearest_enemy")
+    end
+
+    result[#result+1] = gui.Check{
+        classes = {cond(pickAnyOff(), "collapsed")},
+        refreshInvoke = function(element)
+            element:SetClass("collapsed", pickAnyOff())
+        end,
+        text = "Offer Every Anchor in Range (Table Picks Nearest)",
+        value = self:try_get("movementConstraintPickAnyInRange", false),
+        change = function(element)
+            self.movementConstraintPickAnyInRange = element.value
+        end,
+    }
+
     result[#result+1] = gui.Check{
         text = "Movement Must Be in a Straight Line",
         value = self:try_get("movementConstraintStraightLine", false),
@@ -2555,18 +2576,6 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
         value = self:try_get("movementConstraintAsForcedMovementOrigin", false),
         change = function(element)
             self.movementConstraintAsForcedMovementOrigin = element.value
-        end,
-    }
-
-    result[#result+1] = gui.Check{
-        classes = {cond(movementConstraintOff(), "collapsed")},
-        refreshInvoke = function(element)
-            element:SetClass("collapsed", movementConstraintOff())
-        end,
-        text = "Offer Every Anchor in Range (Table Picks Nearest)",
-        value = self:try_get("movementConstraintPickAnyInRange", false),
-        change = function(element)
-            self.movementConstraintPickAnyInRange = element.value
         end,
     }
 

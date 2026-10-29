@@ -719,7 +719,7 @@ GameSystem.RegisterGoblinScriptField{
     name = "Count Enemies Of Within",
 
 	type = "function",
-	desc = "Given a distance in squares and a creature, counts the living creatures within that distance of this creature who are enemies of the given creature, not counting the given creature or this creature. Distance is horizontal, the same measure the nearest-enemy movement anchor uses, so the two always agree.",
+	desc = "Given a distance in squares and a creature, counts the living creatures within that distance of this creature who are enemies of the given creature, not counting the given creature or this creature. Distance is horizontal (only this creature's floor counts), the same measure the nearest-enemy movement anchor uses.",
 	examples = {"CountEnemiesOfWithin(3, Caster) > 0"},
 
     calculate = function(targetCreature)
