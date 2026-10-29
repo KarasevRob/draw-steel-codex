@@ -7475,6 +7475,12 @@ function GameHud.CreateEmbeddedRollDialog()
                         BroadcastDialogState()
                     end,
                     pending = function(rollInfo)
+                        --nil when the roll's chat message is gone (a game-server
+                        --restart can drop it); `complete` cancels the roll.
+                        if rollInfo == nil then
+                            print("ROLL:: PENDING WITH NO ROLL INFO (chat message lost)")
+                            return
+                        end
                         m_rollInfo = rollInfo
                         m_rerolling = false
 
@@ -7646,6 +7652,20 @@ function GameHud.CreateEmbeddedRollDialog()
                         -- Crows already resolved this roll in `pending`; do not
                         -- re-apply it.
                         if m_crowsResolved then
+                            return
+                        end
+                        --nil when the roll's chat message is gone: a game-server
+                        --restart can lose the last few seconds of writes, and the
+                        --reconnect snapshot no longer has it (6689VA6U). There is no
+                        --result to apply, so cancel the roll as the Cancel button would;
+                        --that releases the waiting cast instead of leaving it hung.
+                        if rollInfo == nil then
+                            print("ROLL:: COMPLETE WITH NO ROLL INFO (chat message lost); cancelling")
+                            m_rerolling = false
+                            CancelRollDialog()
+                            if g_activeRoll == activeRoll then
+                                g_activeRoll = nil
+                            end
                             return
                         end
                         m_rollInfo = rollInfo
