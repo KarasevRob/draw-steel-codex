@@ -1392,7 +1392,7 @@ function dmhub.SetSteamJoinTarget(kind, payload, group, groupSize) end
 --- @return any
 function dmhub.TakeSteamInvite() end
 
---- (PROTOTYPE) Starts linking the user's Discord account: Discord's approval screen opens (in the Discord app or a browser). Watch dmhub.discordStatus.account for the result. Returns false when linking cannot start (unsupported, or already in progress).
+--- (PROTOTYPE) Starts linking the user's Discord account: Discord's approval screen opens (in the Discord app or a browser). Watch dmhub.discordStatus.account for the result. Calling it while still waiting for approval abandons that attempt and starts again. Returns false when linking cannot start (unsupported, or the approved link is being set up).
 --- @return boolean
 function dmhub.DiscordLink() end
 

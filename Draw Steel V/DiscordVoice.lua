@@ -320,7 +320,7 @@ function DiscordVoice.StatusText()
     if s.account == "notlinked" then
         return "Discord is not linked."
     elseif s.account == "linking" then
-        return "Waiting for you to approve Codex in Discord..."
+        return "Waiting for you to approve Codex in Discord... Nothing to approve? Open the Discord app and click Try again."
     elseif s.account == "connecting" then
         return "Connecting to Discord..."
     elseif s.account == "error" then
@@ -357,12 +357,15 @@ function DiscordVoice.OpenSettings()
     dmhub.ShowPlayerSettings{ tab = "Audio" }
 end
 
---the account / call button for a status: Link Discord, Join voice, Leave voice, or none.
+--the account / call button for a status: Link Discord, Try again, Join voice, Leave voice, or none.
 --- @return string|nil action
 --- @return string text
 local function VoiceAction(s)
     if s.account == "notlinked" or s.account == "error" then
         return "link", "Link Discord"
+    elseif s.account == "linking" then
+        --the approval can go missing (a closed browser tab, an unseen Discord window); linking again starts over.
+        return "link", "Try again"
     elseif s.account == "ready" then
         if s.voice == "off" then
             return "join", "Join voice"
