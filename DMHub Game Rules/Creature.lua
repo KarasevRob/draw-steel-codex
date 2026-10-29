@@ -257,6 +257,7 @@ end
 --- @field actionbar? table<string, table<string, integer>> Action bar ordering: tab -> ability id -> slot index.
 --- @field languageSpeaking? string Language id the creature is currently speaking in chat.
 --- @field gold? number Legacy gold amount; read via GetGold (0 when absent).
+--- @field pendingFinishLater? table<string, FinishLaterRecord> Abilities used this turn with targets left to finish (Double Strike), keyed by ability guid. See "Finish targets later" in MCDMActivatedAbility.lua.
 --- @field _tmp_freeMovement? boolean Transient: movement in progress is not charged against speed.
 --- @field _tmp_suppressTeleportEvent? boolean Transient: suppress the teleport event for the next teleport.
 --- @field _tmp_portalForcedMoveDest? string Transient: loc string a forced move is taking this creature to through a portal.
@@ -8586,6 +8587,13 @@ creature.helpSymbols = {
 		desc = "The names of any ongoing effects affecting the creature.",
 		examples = {'Ongoing Effects has "Rage"'},
 	},
+
+	abilitiesusedthisround = {
+		name = "Abilities Used This Round",
+		type = "set",
+		desc = "The names of the abilities the creature has used in the current combat round. Empty outside combat.",
+		examples = {'Abilities Used This Round has Ability.Name'},
+	},
 	
 	stacks = {
 		name = "Stacks",
@@ -9364,6 +9372,17 @@ creature.lookupSymbols = {
 			if info ~= nil then
 				strings[#strings+1] = info.name
 			end
+		end
+
+		return StringSet.new{
+			strings = strings,
+		}
+	end,
+
+	abilitiesusedthisround = function(c)
+		local strings = {}
+		for name,_ in pairs(c:AbilitiesUsedThisRound()) do
+			strings[#strings+1] = name
 		end
 
 		return StringSet.new{
@@ -11284,20 +11303,30 @@ function creature:BeginPendingAIActivityReaction(activityId, reactionId, ability
         undoable = false,
         combine = true,
         execute = function()
-            local pendingReactions = self:get_or_add("pendingAIActivityReactions", {})
-            for id,entry in pairs(pendingReactions) do
-                if type(entry) == "table" and entry.state == "completed" and entry.timestamp ~= nil
-                    and TimestampAgeInSeconds(entry.timestamp) > g_aiActivityReactionExpirySeconds then
-                    pendingReactions[id] = nil
-                end
-            end
-            pendingReactions[reactionId] = {
-                activityId = activityId,
-                timestamp = ServerTimestamp(),
-                state = state or "awaiting_choice",
-                ability = abilityName,
-            }
+            self:AddPendingAIActivityReaction(activityId, reactionId, abilityName, state)
         end,
+    }
+end
+
+--The marker write BeginPendingAIActivityReaction makes, for a caller already
+--inside a ModifyProperties that needs the marker in the same write.
+--- @param activityId string
+--- @param reactionId string
+--- @param abilityName string|nil
+--- @param state nil|"awaiting_choice"|"resolving"
+function creature:AddPendingAIActivityReaction(activityId, reactionId, abilityName, state)
+    local pendingReactions = self:get_or_add("pendingAIActivityReactions", {})
+    for id,entry in pairs(pendingReactions) do
+        if type(entry) == "table" and entry.state == "completed" and entry.timestamp ~= nil
+            and TimestampAgeInSeconds(entry.timestamp) > g_aiActivityReactionExpirySeconds then
+            pendingReactions[id] = nil
+        end
+    end
+    pendingReactions[reactionId] = {
+        activityId = activityId,
+        timestamp = ServerTimestamp(),
+        state = state or "awaiting_choice",
+        ability = abilityName,
     }
 end
 
@@ -11325,7 +11354,7 @@ function creature:CompletePendingAIActivityReaction(activityId, reactionId)
             --Retain completion so late callbacks can see that this reaction
             --already ended. A later Begin call collects old terminal records.
             pendingReactions[reactionId] = {activityId = entry.activityId,
-                timestamp = ServerTimestamp(), state = "completed"}
+                timestamp = ServerTimestamp(), state = "completed", ability = entry.ability}
         end,
     }
 end
@@ -12207,6 +12236,37 @@ function creature:LegacyAuraEntryAvailable(info, level)
 	end
 
 	return true
+end
+
+--- The names of the abilities this creature has used in the current combat
+--- round, as {[ability name] = true}. Keyed by name because separate abilities
+--- can share a guid (Melee and Ranged Free Strike). Recorded by
+--- ActivatedAbility:FireUseAbility and read by rules like the Talent's Flashback
+--- ("an ability they've previously used this round"). Empty outside combat.
+--- @return table<string, boolean>
+function creature:AbilitiesUsedThisRound()
+    local q = dmhub.initiativeQueue
+    local roundId = q and q:GetRoundId()
+    if roundId == nil or self:try_get("abilitiesUsedRoundId") ~= roundId then
+        return {}
+    end
+    return self:try_get("abilitiesUsedThisRound", {})
+end
+
+--- Records that this creature used an ability this round. Call inside
+--- ModifyProperties. Does nothing outside combat.
+--- @param ability ActivatedAbility
+function creature:RecordAbilityUsedThisRound(ability)
+    local q = dmhub.initiativeQueue
+    local roundId = q and q:GetRoundId()
+    if roundId == nil then
+        return
+    end
+    if self:try_get("abilitiesUsedRoundId") ~= roundId then
+        self.abilitiesUsedRoundId = roundId
+        self.abilitiesUsedThisRound = {}
+    end
+    self.abilitiesUsedThisRound[ability.name] = true
 end
 
 --These opt-in triggers keep movement entry independent from turn start.

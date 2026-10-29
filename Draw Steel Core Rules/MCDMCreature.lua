@@ -2339,7 +2339,8 @@ local function GetEnemyCreaturesAtLoc(token, loc, result)
     local tokensAtLoc = dmhub.GetTokensAtLoc(loc)
     if tokensAtLoc ~= nil then
         for _, otherTok in ipairs(tokensAtLoc) do
-            if token.charid ~= otherTok.charid and token:IsFriend(otherTok) == false and otherTok:GetLineOfSight(token, otherTok.properties:GetPierceWalls(), "basic") > 0 and (not otherTok.properties:IsDead()) then
+            --GetLineOfSight returns nil when a token stands on a floor whose data has not loaded (RD3WUFCR).
+            if token.charid ~= otherTok.charid and token:IsFriend(otherTok) == false and (otherTok:GetLineOfSight(token, otherTok.properties:GetPierceWalls(), "basic") or 0) > 0 and (not otherTok.properties:IsDead()) then
                 AddTokenOnce(result, otherTok)
             end
         end
@@ -3548,6 +3549,11 @@ function creature:GetActivatedAbilities(options)
         else
             j = j + 1
         end
+    end
+
+    --a Double Strike used on one target this turn offers its free second strike.
+    if not options.characterSheet then
+        self:AddFinishLaterAbilities(result)
     end
 
     return result

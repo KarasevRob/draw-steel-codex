@@ -10694,14 +10694,30 @@ local function CreateSynthesizedSpellsPanel()
                 if g_currentSymbols ~= nil and g_currentSymbols.invoked and a:try_get("_tmp_temporaryClone", false) then
                     a._tmp_invokedChoice = true
                 end
+                --A picked choice replaces the prompt as the current cast, so it must
+                --keep the prompt's Skip: Overwatch's free strike may have no legal
+                --target, and without Skip the player was stuck in it.
+                if g_currentSymbols ~= nil and g_currentSymbols.invoked and g_currentAbility:try_get("skippable", false) then
+                    a.skippable = true
+                end
+
+                --Forward the current symbol table so flags like `forcedroll` (set by
+                --InvokeAbility with inheritRoll=true) survive the chip-pick handoff.
+                local symbols = g_currentSymbols
+                --A chip that channels its own resource starts at its own default
+                --charges, not the parent's: Practical Magic's default 1 otherwise
+                --pre-spent 1 essence on its Teleport option (report JF7SAVWU).
+                if symbols ~= nil and symbols.charges ~= nil and a:try_get("channeledResource", "none") ~= "none" then
+                    --Copy so the parent cast's own charges are left alone.
+                    symbols = table.shallow_copy(symbols)
+                    symbols.charges = a:DefaultCharges()
+                end
 
                 local spellOptions = {
                     synthesized = true,
                     cast = cast,
                     ability = a,
-                    --Forward the current symbol table so flags like `forcedroll` (set by
-                    --InvokeAbility with inheritRoll=true) survive the chip-pick handoff.
-                    symbols = g_currentSymbols,
+                    symbols = symbols,
                 }
                 for k, v in pairs(addedSpellOptions or {}) do
                     spellOptions[k] = v
@@ -10744,15 +10760,55 @@ local function CreateTokenSelectionContainer()
     --hovered portrait never strands a ring on the map.
     local m_locatedCharid = nil
 
-    local function SetLocateRing(charid, on)
-        local tok = charid ~= nil and dmhub.GetTokenById(charid) or nil
-        if tok == nil or not tok.valid or tok.bottomsheet == nil or not tok.bottomsheet.valid then
-            return
+    --A static tint over the hovered candidate (the sprite redrawn in yellow). Objects have no locate
+    --ring, and two identical objects are otherwise impossible to tell apart.
+    local m_tintCanvas = nil
+
+    local function ClearTint()
+        if m_tintCanvas ~= nil then
+            m_tintCanvas:Destroy()
+            m_tintCanvas = nil
         end
-        tok.bottomsheet:SetClassTree("locate", on)
     end
 
+    local function SetLocateRing(charid, on)
+        ClearTint()
+
+        local tok = charid ~= nil and dmhub.GetTokenById(charid) or nil
+        if tok == nil or not tok.valid then
+            return
+        end
+
+        local instance = on and tok.isObject and tok.objectInstance or nil
+        --area is nil when the object's map instance has gone.
+        local area = instance ~= nil and instance.area or nil
+        if instance ~= nil and area ~= nil then
+            --Redraw the object's own sprite as a flat tint on top of it, so the highlight has its exact shape.
+            m_tintCanvas = dmhub.CreateCanvasOnMap{
+                point = core.Vector3((area.x1 + area.x2) / 2, (area.y1 + area.y2) / 2, 0),
+                floorIndex = tok.loc.floor,
+                sheet = gui.Panel{
+                    interactable = false,
+                    halign = "center",
+                    valign = "center",
+                    width = area.x2 - area.x1,
+                    height = area.y2 - area.y1,
+                    rotate = instance.rotation,
+                    bgimage = instance.displayImageId,
+                    bgcolor = "#ffe066",
+                    opacity = 0.6,
+                },
+            }
+        end
+
+        if tok.bottomsheet ~= nil and tok.bottomsheet.valid then
+            tok.bottomsheet:SetClassTree("locate", on)
+        end
+    end
+
+    --Always drops the tint, even with no located token, so nothing can strand it on the map.
     local function ClearLocate()
+        ClearTint()
         if m_locatedCharid ~= nil then
             SetLocateRing(m_locatedCharid, false)
             m_locatedCharid = nil
@@ -10877,7 +10933,12 @@ local function CreateTokenSelectionContainer()
                     --ring is no use when the token is off the edge of the screen.
                     rightClick = function(element)
                         if tok.valid then
-                            dmhub.CenterOnToken(tok.charid, { smooth = true })
+                            --CenterOnToken only knows creatures; a map object is centred through its instance.
+                            if tok.isObject and tok.objectInstance ~= nil then
+                                tok.objectInstance:CenterCamera{ smooth = true }
+                            else
+                                dmhub.CenterOnToken(tok.charid, { smooth = true })
+                            end
                         end
                     end,
                     --The engine's own pulse is a brief white flash that is easy to
@@ -11940,6 +12001,16 @@ CreateAbilityController = function()
                 return g_currentAbility
             end
             gamehud.actionBarPanel.data.IsCastingSpell = element.data.isCasting
+
+            --A target prompt on screen (Lightfall's ally chooser) means a cast is
+            --waiting on the player. The cast watchdog reads this so it does not
+            --abandon a cast the player is still choosing for (JY7WM9BQ).
+            element.data.oldIsPrompting = gamehud.actionBarPanel.data.IsPrompting
+            element.data.isPrompting = function()
+                local prompt = DrawSteelActionBar._openPrompt
+                return prompt ~= nil and prompt.valid
+            end
+            gamehud.actionBarPanel.data.IsPrompting = element.data.isPrompting
         end,
 
         destroy = function(element)
@@ -11948,6 +12019,10 @@ CreateAbilityController = function()
             if gamehud and gamehud.actionBarPanel and gamehud.actionBarPanel.valid
                 and gamehud.actionBarPanel.data.IsCastingSpell == element.data.isCasting then
                 gamehud.actionBarPanel.data.IsCastingSpell = element.data.oldIsCasting
+            end
+            if gamehud and gamehud.actionBarPanel and gamehud.actionBarPanel.valid
+                and gamehud.actionBarPanel.data.IsPrompting == element.data.isPrompting then
+                gamehud.actionBarPanel.data.IsPrompting = element.data.oldIsPrompting
             end
         end,
 
@@ -12482,6 +12557,13 @@ CreateAbilityController = function()
 
             local targets = options.targets or {}
             local promptText = options.prompt or "Choose a target"
+            --Clicking an unlocked object on the map opens it for editing, so point at the portraits instead.
+            for _, candidate in ipairs(targets) do
+                if candidate.valid and candidate.isObject then
+                    promptText = promptText .. " (click the portrait below)"
+                    break
+                end
+            end
             local choose = options.choose or function(target) end
             local cancel = options.cancel or function() end
 
@@ -13937,6 +14019,21 @@ CreateAbilityController = function()
 
             local selfTarget = g_currentAbility.selfTarget
             local targetTokens = dmhub.tokenInfo.TokensInShape(g_pointTargeting.shape)
+
+            --The engine's line-of-sight shape drops sight-blocking objects (they hide their own
+            --square). Re-add objects in range; TargetPassesFilter then checks where the line to them stops.
+            --Only for a burst centred on the caster: a casterLocOverride moves the burst elsewhere.
+            if g_currentAbility.targetType == "all" and g_currentAbility.objectTarget == true and g_token ~= nil and g_token.valid
+                and g_currentAbility:try_get("casterLocOverride") == nil then
+                local burstRange = g_currentAbility:GetRange(g_token.properties, g_currentSymbols)
+                for _, tok in ipairs(dmhub.allTokensIncludingObjects) do
+                    --objectTarget abilities only take attackable objects, so skip the rest before the sight test.
+                    if tok.valid and tok.isObject and tok.isAttackableObject and targetTokens[tok.charid] == nil
+                        and tok.floorIndex == g_token.floorIndex and g_token:Distance(tok) <= burstRange then
+                        targetTokens[tok.charid] = tok
+                    end
+                end
+            end
 
             -- Partner burst: union tokens from the partner shape into the target dict.
             -- Same-key entries dedupe automatically -- "An enemy in both areas is

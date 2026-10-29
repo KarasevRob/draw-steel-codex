@@ -5028,7 +5028,6 @@ local function CardStyles()
             selectors = {"tabletopCardSelectRing"},
             bgcolor = "clear",
             borderColor = "@accent",
-            border = 3,
         },
         {
             selectors = {"tabletopCardSheet"},
@@ -5067,6 +5066,15 @@ local function ScreenToLayer(px, py)
     end
     local scale = layer.renderedHeight / below.y
     return px * scale, (py - (screen.y - below.y)) * scale
+end
+
+--- Screen pixels (top-left origin) to the table's own units, where its
+--- windows and items are placed.
+--- @param px number
+--- @param py number
+--- @return number, number
+function Tabletop.ScreenToTable(px, py)
+    return ScreenToLayer(px, py)
 end
 
 local function IsHeroToken(tok)
@@ -5258,11 +5266,13 @@ function Tabletop.ClearCardSelection()
     g_cs.made = nil
 end
 
---- The ring a selected card wears. Put it on the card's frame and call
---- Tabletop.ShowCardSelected(ring, on) as the selection changes.
---- @param cornerRadius number
+--- The ring a selected card wears. Add it to the card's face (CardFace) as
+--- its last child, so it grows and turns over with the face when the card is
+--- turned to its back (HeroCardBack). Call Tabletop.FitCardSelectRing as the
+--- card's scale changes and Tabletop.ShowCardSelected(ring, on) as the
+--- selection changes.
 --- @return Panel
-function Tabletop.CardSelectRing(cornerRadius)
+function Tabletop.CardSelectRing()
     return gui.Panel{
         classes = {"tabletopCardSelectRing", "collapsed"},
         floating = true,
@@ -5270,10 +5280,29 @@ function Tabletop.CardSelectRing(cornerRadius)
         valign = "center",
         width = "100%+6",
         height = "100%+6",
-        cornerRadius = cornerRadius + 3,
+        --the face's corners (EotwHeroCard draws it with cornerRadius 8).
+        cornerRadius = 8 + 3,
+        borderWidth = 3,
         bgimage = "panels/square.png",
         interactable = false,
     }
+end
+
+--- Keeps a card's ring 3 pixels wide on screen while its face is drawn at
+--- scale s (the ring is inside the face, so it is scaled with it).
+--- @param ring Panel
+--- @param s number
+function Tabletop.FitCardSelectRing(ring, s)
+    --scene cards reposition every frame they move; restyle only on a change.
+    if ring == nil or not ring.valid or ring.data.fitScale == s then
+        return
+    end
+    ring.data.fitScale = s
+    local w, h = CardSize()
+    ring.selfStyle.width = w + 6 / s
+    ring.selfStyle.height = h + 6 / s
+    ring.selfStyle.cornerRadius = 8 + 3 / s
+    ring.selfStyle.borderWidth = 3 / s
 end
 
 --- @param ring Panel
@@ -5573,8 +5602,11 @@ local function ApplyCardScale(card, except)
     panel.selfStyle.height = math.floor(h * s)
     --the frame draws nothing itself; its corners shape the face's shadow.
     panel.selfStyle.cornerRadius = (card.shadowRadius or 0) * s
-    if card.selectRing ~= nil and card.selectRing.valid then
-        card.selectRing.selfStyle.cornerRadius = (card.shadowRadius or 0) * s + 3
+    --the ring and the unshared frame are on the face, inside the scaler:
+    --keep their lines as thick on screen at any scale.
+    Tabletop.FitCardSelectRing(card.selectRing, s)
+    if card.share ~= nil and card.share.frame.valid then
+        card.share.frame.selfStyle.borderWidth = 2 / s
     end
     card.scaler.selfStyle.scale = s
     --the titlebar is at least as wide as the card (see BuildCard).
@@ -5895,13 +5927,14 @@ local function BuildCard(card)
     --what the resize grips report a player's resize under (TookControl).
     card.layoutKey = CardItemId(card.charid)
 
+    local face = CardFace(card.charid, tok)
     card.scaler = gui.Panel{
         halign = "center",
         valign = "center",
         width = w,
         height = h,
         scale = card.scale,
-        CardFace(card.charid, tok),
+        face,
     }
 
     --the ping, left of the share button (DefinePings).
@@ -5976,15 +6009,18 @@ local function BuildCard(card)
     card.titlebar = titlebar
     card.grips = CardGrips(card)
 
-    --over the face: the ring a selected card wears, and the sheet button.
-    card.selectRing = Tabletop.CardSelectRing(card.shadowRadius * card.scale)
+    --on the face, over everything else on it, so they grow and turn over
+    --with it when the card is turned to its back: the frame of an unshared
+    --card, and the ring a selected card wears.
+    if share ~= nil then
+        face:AddChild(share.frame)
+    end
+    card.selectRing = Tabletop.CardSelectRing()
     Tabletop.ShowCardSelected(card.selectRing, Tabletop.SelectedCharids()[card.charid] == true)
+    face:AddChild(card.selectRing)
     card.sheetButton = Tabletop.CardSheetButton(card.charid)
 
-    local children = {card.scaler, card.selectRing, card.sheetButton, titlebar}
-    if share ~= nil then
-        children[#children+1] = share.frame
-    end
+    local children = {card.scaler, card.sheetButton, titlebar}
     for _, grip in ipairs(card.grips) do
         children[#children+1] = grip
     end
@@ -6221,9 +6257,8 @@ local function BuildCard(card)
     }
     layer:AddChild(panel)
     card.panel = panel
-    for _, grip in ipairs(card.grips) do
-        PlaceGrip(card, grip)
-    end
+    --places the grips and fits the ring and frame to a card made at a scale.
+    ApplyCardScale(card)
 end
 
 --Puts a character's card on this user's table (or brings its card
@@ -8274,6 +8309,145 @@ do
         end
     end
 
+    --- Shares a journal entry's table item with every player (a drop made
+    --- with Ctrl held).
+    --- @param entryid string
+    function Tabletop.ShareDocItem(entryid)
+        ShareItem(DocItemId(entryid), {kind = "doc", entryid = entryid})
+    end
+
+    --- @class TabletopPendingDoc
+    --- @field progress fun(fraction: number) moves the upload bar (0 to 1)
+    --- @field center fun(): {x: number, y: number} where the real item should go
+    --- @field remove fun() takes the stand-in away
+
+    --- A stand-in on the table for a document still uploading (a dropped PDF):
+    --- a tile with its name and an upload bar centred at `at` (table units),
+    --- which can be moved meanwhile. It is not saved with the layout.
+    --- @param args {name: string, icon: nil|string, at: {x: number, y: number}}
+    --- @return nil|TabletopPendingDoc
+    function Tabletop.ShowPendingDocItem(args)
+        local layer = DocumentsLayer()
+        if layer == nil or not Tabletop.IsActive() then
+            return nil
+        end
+        local w, h = DOC_TILE_WIDTH, DOC_TILE_HEIGHT
+        local barW = w - DOC.pad * 2
+        local lw, lh = LayerSize()
+        local fraction = 0
+        local fill = gui.Panel{
+            bgimage = "panels/square.png",
+            bgcolor = "#d9b56a",
+            cornerRadius = 1,
+            width = 0,
+            height = "100%",
+            halign = "left",
+            interactable = false,
+        }
+        local kind = gui.Label{
+            classes = {"tabletopDocKind"},
+            width = "100%",
+            height = "auto",
+            text = "Uploading...",
+            interactable = false,
+        }
+        local panel
+        panel = gui.Panel{
+            classes = {"tabletopDoc"},
+            styles = DocStyles(),
+            x = math.max(0, math.min(math.floor(args.at.x - w / 2), lw - w)),
+            y = math.max(CARD_TITLE_HEIGHT, math.min(math.floor(args.at.y - h / 2), lh - h)),
+            width = w,
+            height = h,
+            flow = "none",
+            draggable = true,
+            dragInPlace = true,
+            swallowPress = true,
+            drag = function(element)
+                element.x = math.max(0, math.min(element.xdrag, lw - 60))
+                element.y = math.max(CARD_TITLE_HEIGHT, math.min(element.ydrag, lh - 60))
+            end,
+            thinkTime = 0.1,
+            think = function(element)
+                fill.selfStyle.width = math.floor(barW * fraction)
+                if fraction >= 1 then
+                    kind.text = "Finishing..."
+                else
+                    kind.text = string.format("Uploading %d%%", math.floor(fraction * 100))
+                end
+            end,
+            gui.Panel{
+                classes = {"tabletopDocFace"},
+                bgimage = "panels/square.png",
+                width = w,
+                height = h,
+                flow = "horizontal",
+                hpad = DOC.pad,
+                borderBox = true,
+                interactable = false,
+                gui.Panel{
+                    classes = {"tabletopDocIcon"},
+                    bgimage = args.icon or "phosphor/file-pdf.png",
+                    width = DOC.icon,
+                    height = DOC.icon,
+                    valign = "center",
+                    rmargin = DOC.iconGap,
+                    interactable = false,
+                },
+                gui.Panel{
+                    width = w - DOC.pad * 2 - DOC.icon - DOC.iconGap,
+                    height = "auto",
+                    valign = "center",
+                    flow = "vertical",
+                    interactable = false,
+                    gui.Label{
+                        classes = {"tabletopDocTitle"},
+                        width = "100%",
+                        height = "auto",
+                        maxHeight = 30,
+                        fontSize = 13,
+                        textWrap = true,
+                        textOverflow = "ellipsis",
+                        text = args.name,
+                        interactable = false,
+                    },
+                    kind,
+                },
+                gui.Panel{
+                    floating = true,
+                    bgimage = "panels/square.png",
+                    bgcolor = "#00000066",
+                    cornerRadius = 1,
+                    width = barW,
+                    height = 3,
+                    halign = "center",
+                    valign = "bottom",
+                    y = -5,
+                    interactable = false,
+                    fill,
+                },
+            },
+        }
+        layer:AddChild(panel)
+        panel:SetAsLastSibling()
+        return {
+            progress = function(f)
+                fraction = math.max(0, math.min(1, tonumber(f) or 0))
+            end,
+            center = function()
+                if not panel.valid then
+                    return {x = args.at.x, y = args.at.y}
+                end
+                return {x = panel.x + w / 2, y = panel.y + h / 2}
+            end,
+            remove = function()
+                if panel.valid then
+                    panel:DestroySelf()
+                end
+            end,
+        }
+    end
+
     --Minimized journal and PDF windows. A window minimizing on the table
     --becomes the table items for its entries, and a click on one opens the
     --entry, which brings the window back (CustomDocument.ShowDocument and
@@ -10145,6 +10319,20 @@ local function DefineSceneWindows()
         end
     end
 
+    --- The size a scene window opens at, in the table's units.
+    --- @return number width
+    --- @return number height
+    function Tabletop.SceneWindowSize()
+        local _, _, width, height = ScenePlacement()
+        return width, height
+    end
+
+    --- Shares a scene with every player (a drop made with Ctrl held).
+    --- @param sceneid string
+    function Tabletop.ShareScene(sceneid)
+        ShareItem(SceneItemId(sceneid), {kind = "scene", sceneid = sceneid})
+    end
+
     ----------------------------------------------------------------------
     --Lifecycle and saving.
 
@@ -11375,37 +11563,26 @@ end
 
 local function BeginTableFileDrag(paths)
     EndTableFileDrag()
-    local media = {}
-    local sounds = {}
-    for _, path in ipairs(paths) do
-        if FileDrops.IsAudio(path) then
-            sounds[#sounds+1] = path
-        else
-            media[#media+1] = path
-        end
-    end
-    local text
-    if #media == 0 then
-        text = string.format("Put %s on the table to play", FileDrops.Describe(sounds))
-    elseif #sounds == 0 then
-        text = string.format("Add %s to the table", FileDrops.Describe(media))
-    else
-        text = string.format("Add %s to the table, and %s to play",
-            FileDrops.Describe(media), FileDrops.Describe(sounds))
-    end
     local ghost
-    ghost = FileDrops.ShowGhost(text, function()
-        return g_fileDragGhost == ghost
-    end)
+    ghost = TableDropDialog.ShowDragCard{
+        paths = paths,
+        canShare = dmhub.isDM,
+        isActive = function()
+            return g_fileDragGhost == ghost
+        end,
+    }
     g_fileDragGhost = ghost
 end
 
 --- Each file becomes a scene (in the Scenes library) opened at (mx, my) on
---- the table, stepping down-right for each further file.
+--- the table, stepping down-right for each further file. options.shared
+--- shares each with every player.
 --- @param paths string[]
 --- @param mx number
 --- @param my number
-function Tabletop.AddFilesAsScenes(paths, mx, my)
+--- @param options nil|{shared: nil|boolean}
+function Tabletop.AddFilesAsScenes(paths, mx, my, options)
+    options = options or {}
     for i, path in ipairs(paths) do
         local imageid = FileDrops.UploadImage(path, {library = "coverart"})
         if imageid ~= nil then
@@ -11415,6 +11592,9 @@ function Tabletop.AddFilesAsScenes(paths, mx, my)
             }
             local step = 28 * (i - 1)
             Tabletop.OpenSceneCentredAt(sceneid, mx + step, my + step)
+            if options.shared then
+                Tabletop.ShareScene(sceneid)
+            end
         end
     end
 end
@@ -11425,11 +11605,12 @@ end
 --- takes that shape and frames the whole map once it is placed; variations,
 --- more files that become the map's alternate appearances (paths is then
 --- the one base image); name, the map's name (else the first file's);
---- created(mapid), called once the map exists.
+--- created(mapid), called once the map exists; shared, make the map
+--- viewable by every player once it exists.
 --- @param paths string[]
 --- @param mx number
 --- @param my number
---- @param options nil|{aspect: nil|number, variations: nil|string[], name: nil|string, created: nil|fun(mapid: string)}
+--- @param options nil|{aspect: nil|number, variations: nil|string[], name: nil|string, created: nil|fun(mapid: string), shared: nil|boolean}
 function Tabletop.AddFilesAsMap(paths, mx, my, options)
     options = options or {}
     local rec = nil
@@ -11457,6 +11638,9 @@ function Tabletop.AddFilesAsMap(paths, mx, my, options)
             SaveSoon()
             --a drop: private if it lands on the Director's Screen.
             DirectorScreen.ItemPlaced(g_sharing.ScreenKey(rec))
+            if options.shared then
+                g_sharing.MapStore(mapid).share()
+            end
             if options.created ~= nil then
                 options.created(mapid)
             end
@@ -11494,6 +11678,10 @@ local function TableFilesDropped(allPaths, screenPos)
     --is elsewhere.
     local mouse = screenPos or dmhub.mouseScreenPosition
     local mx, my = ScreenToLayer(mouse.x, mouse.y)
+    --what the Director drops stays private unless Ctrl is held (a paste
+    --from the table menu has no Ctrl); behind the Director's Screen it is
+    --always private.
+    local shareState = cond(dmhub.isDM and screenPos == nil, TableDropDialog.DropShareState(), "private")
 
     --audio files become audio widgets there (Audio.lua) with no question;
     --documents (PDF, Markdown, text, .zip) go into the journal and their
@@ -11515,12 +11703,41 @@ local function TableFilesDropped(allPaths, screenPos)
         AudioDroppedOnTable(sounds, mouse.x, mouse.y)
     end
     if #documents > 0 and rawget(_G, "DocumentImport") ~= nil then
+        --a PDF's stand-in tile while it uploads, by its file's index; its item
+        --goes wherever the stand-in was moved to.
+        --- @type table<integer, TabletopPendingDoc>
+        local pending = {}
         DocumentImport.ImportFiles(documents, {
+            uploading = function(index, name)
+                local step = (index - 1) * 24
+                local handle = Tabletop.ShowPendingDocItem{name = name, at = {x = mx + step, y = my + step}}
+                if handle == nil then
+                    return nil
+                end
+                pending[index] = handle
+                return {
+                    progress = handle.progress,
+                    failed = function()
+                        handle.remove()
+                        pending[index] = nil
+                    end,
+                }
+            end,
             ready = function(entryid, index)
                 --several files step down-right from the drop point (the
                 --documents block's DOC.cascade).
                 local step = (index - 1) * 24
-                Tabletop.OpenDocItem(entryid, {at = {x = mx + step, y = my + step}, placed = true})
+                local at = {x = mx + step, y = my + step}
+                local handle = pending[index]
+                if handle ~= nil then
+                    at = handle.center()
+                    handle.remove()
+                    pending[index] = nil
+                end
+                Tabletop.OpenDocItem(entryid, {at = at, placed = true})
+                if shareState == "shared" then
+                    Tabletop.ShareDocItem(entryid)
+                end
             end,
         })
     end
@@ -11528,7 +11745,7 @@ local function TableFilesDropped(allPaths, screenPos)
         return
     end
     --the Add Image / Add Video dialog: map, scene, or a picture on the table.
-    TableDropDialog.Show(paths, mx, my)
+    TableDropDialog.Show(paths, mx, my, {shared = shareState == "shared", behindScreen = shareState == "screen"})
 end
 
 --Owns the table's right-click menu. The engine keeps a popup open while its

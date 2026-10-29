@@ -655,9 +655,12 @@ local function InfoIcon(detailFn, side, extra)
 end
 
 --A clickable card (a main pick) or chip (a choice's option).
---args: text, selected, unavailable, width, height, fontSize, press, info
+--args: text, selected, unavailable, width, height, fontSize, press, info,
+--blockedTip
 --info: a function returning the card's detail table for its (i), or nil
 --for a card without one.
+--blockedTip: a tooltip shown when an unavailable card is clicked, saying
+--why it can't be picked.
 local function Card(args)
     ---@type Panel[]
     local children = {
@@ -686,7 +689,11 @@ local function Card(args)
         vmargin = 4,
         hpad = 8,
         borderBox = true,
-        press = function()
+        press = function(element)
+            if args.unavailable and args.blockedTip ~= nil then
+                gui.Tooltip(args.blockedTip)(element)
+                return
+            end
             if args.unavailable or args.press == nil then
                 return
             end
@@ -1287,6 +1294,9 @@ function EotwBuilder.Open(args)
         local statusText, statusClass = RowStatusText(row, info)
 
         local isCharacteristics = row.guid == "characteristics"
+        --a full multi-kit row (a Tactician's two kits) greys out the other
+        --kits; clicking one says to free a slot rather than doing nothing.
+        local kitsFull = info.typeName == "CharacterKitChoice" and info.numChoices > 1 and info.remaining == 0
         local chips = {}
         for _,entry in ipairs(options) do
             local text = entry.name
@@ -1298,6 +1308,7 @@ function EotwBuilder.Open(args)
                 text = text,
                 selected = entry.selected,
                 unavailable = not entry.available,
+                blockedTip = (kitsFull and not entry.available) and T("builder.choice.kits_full") or nil,
                 width = cond(isCharacteristics, 150, 220),
                 height = 44,
                 fontSize = 15,

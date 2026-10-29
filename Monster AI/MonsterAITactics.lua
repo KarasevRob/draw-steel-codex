@@ -181,10 +181,11 @@ MonsterAI:RegisterBehavior{
 
 --Avoid Opportunity Attacks: the work is in MonsterAI.lua (OpportunityAttackers,
 --ChooseAvoidingOpportunityAttacks); the size of the penalty is
---MonsterAI.opportunityAttackPenalty.
+--MonsterAI.opportunityAttackPenalty. On for every monster; turn it off per type
+--in the Monster AI panel, with SetMoveEnabledForMonster, or in an EotW script.
 MonsterAI:RegisterBehavior{
     id = MonsterAI.avoidOpportunityAttacksBehavior,
     aliases = {"Avoids Opportunity Attacks", "Avoid OAs", "Avoids OAs"},
     description = "Will not walk away from an adjacent enemy who could make an opportunity attack, unless the plan that does is worth far more than any that does not.",
-    monsters = {},
+    allMonsters = true,
 }

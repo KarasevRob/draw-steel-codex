@@ -2886,11 +2886,11 @@ end
 function EotwDowntime.TributeButton(host, projectid)
     return gui.Button{
         text = T("tribute.button"),
-        fontSize = 15,
-        width = 240,
-        height = 32,
-        halign = "center",
-        tmargin = 10,
+        fontSize = 12,
+        width = 160,
+        height = 22,
+        halign = "right",
+        tmargin = 8,
         click = function()
             audio.FireSoundEvent("Mouse.Click")
             EotwDowntime.ShowTribute(host, projectid)

@@ -2692,6 +2692,68 @@ function MonsterAI:WaitForActivityReactions(activityId)
     return completed, reason
 end
 
+--Answer the trigger prompts of AI-run minions while a squad owes deaths. A
+--minion offered a trigger (an angulotl's Leapfrog) shows no death skull, and
+--the panel's trigger poll cannot answer it until this turn ends, so the wait
+--below could never finish (QNT42FK4). Each prompt is tried once per wait; one
+--with no AI handler is left to the "Choose for me" banner in DrawSteelTokenHud.
+--Minions are matched by minionDead, not IsDead: a doomed minion's squad pool
+--may already read as dead.
+---@param answered table<string, boolean> prompts already tried this wait
+function MonsterAI:AnswerMinionTriggersDuringWait(answered)
+    local work = {}
+    for _,token in ipairs(dmhub.allTokens) do
+        local props = token.valid and token.properties or nil
+        if props ~= nil and props.minion and not props.minionDead
+            and not token.playerControlled then
+            for _,trigger in pairs(props:GetAvailableTriggers(true) or {}) do
+                local key = string.format("%s:%s", tostring(token.charid), tostring(trigger.id))
+                if not answered[key] and not trigger.triggered and not trigger.dismissed then
+                    answered[key] = true
+                    work[#work+1] = {token = token, trigger = trigger}
+                end
+            end
+        end
+    end
+
+    --Answered after the scan: answering one rewrites availableTriggers.
+    for _,item in ipairs(work) do
+        local token, trigger = item.token, item.trigger
+        if token.valid and token.properties ~= nil then
+            local responder = MonsterAI.new{token = token}
+            local ok, err = responder:RunYieldingFunction(function()
+                responder:HandleAvailableTrigger(token, trigger)
+            end)
+            if not ok then
+                --Same recovery as the panel's trigger poll: dismiss it so the
+                --skull comes back instead of the wait hanging on it.
+                pcall(function()
+                    token:ModifyProperties{
+                        description = "AI Trigger Recovery",
+                        undoable = false,
+                        execute = function()
+                            local liveTrigger = (token.properties:GetAvailableTriggers() or {})[trigger.id]
+                            if liveTrigger ~= nil and not liveTrigger.triggered
+                                and not liveTrigger.dismissed then
+                                liveTrigger.dismissed = true
+                                token.properties:DispatchAvailableTrigger(liveTrigger)
+                            end
+                        end,
+                    }
+                end)
+                pcall(function()
+                    responder:LogDecision("TRIGGER ERROR", {
+                        category = "Triggered Action",
+                        ability = trigger.abilityName,
+                        reason = tostring(err),
+                        result = "trigger dismissed while waiting for minion deaths",
+                    })
+                end)
+            end
+        end
+    end
+end
+
 function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
     local pending, status, failure = self:CountPendingActivityReactions(activityId)
     local pendingMinionDeaths = self:CountPendingMinionDeathConfirmations()
@@ -2708,6 +2770,7 @@ function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
 
     local startedAt = dmhub.Time()
     local idleSince = nil
+    local answeredTriggers = {}
     local isAIRunning = rawget(MonsterAI, "IsAIRunning")
     local cancelWhenAIStops = MonsterAI.active and isAIRunning ~= nil
         and isAIRunning()
@@ -2744,6 +2807,9 @@ function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
             end
         else
             idleSince = nil
+            if pending == 0 then
+                self:AnswerMinionTriggersDuringWait(answeredTriggers)
+            end
         end
         coroutine.yield(0.1)
     end
@@ -2840,6 +2906,12 @@ function MonsterAI:MoveToken(token, loc, options, continueIfActorDies)
     if not continueIfActorDies and (options == nil or not options.straightline)
         and not self:MovementTokenIsAtLoc(token, loc) then
         self._tmp_moveFailure = "movement did not reach the planned destination"
+        --It moved but was stopped early (a trap, a reaction), so the move may
+        --still work from where it stands: HandleMoveExecutionFailure re-plans it.
+        local mover = self:GetMovementToken(token)
+        if fromLoc ~= nil and mover ~= nil and mover.loc.str ~= fromLoc.str then
+            self._tmp_moveFellShort = true
+        end
     end
     return result, true
 end
@@ -3477,6 +3549,25 @@ local function TurnStillCurrent(initiativeid)
     return q ~= nil and not q.hidden and q:CurrentInitiativeId() == initiativeid
 end
 
+--Checked just before a chosen move executes. Choosing yields for a while, and
+--a hero who takes the turn meanwhile must stop the move, not watch it happen
+--on their turn (9RF3TMVV). Sets _tmp_abortTurn, so the turn pauses after.
+---@return boolean
+function MonsterAI:TurnTakenBeforeMove()
+    local initiativeid = self:try_get("_tmp_turnInitiativeId")
+    if initiativeid == nil or TurnStillCurrent(initiativeid) then
+        return false
+    end
+    if self:try_get("_tmp_abortTurn") == nil then
+        self._tmp_abortTurn = g_abortTurnTaken
+    end
+    self:LogDecision("MOVE ABORTED", {
+        reason = self._tmp_abortTurn,
+        result = "move not executed",
+    })
+    return true
+end
+
 --A monster that sat out a turn hidden is dull to play against, so every hidden monster
 --the AI is about to play reveals itself first and then acts. Hidden This Turn still gives
 --it the edge for the rest of the turn. Hiding again later in the turn works as usual.
@@ -3513,6 +3604,7 @@ end
 function MonsterAI:PlayTurnCoroutine(initiativeid)
     local queue = dmhub.initiativeQueue
 	self._tmp_abortTurn = nil
+    self._tmp_turnInitiativeId = initiativeid
     self._tmp_rangedStrikers = {}
 
     self.log.analysis = self:Analysis()
@@ -3636,6 +3728,7 @@ function MonsterAI:PlayTurnCoroutine(initiativeid)
                     self._tmp_synthesizedAbilitiesUsed = {}
                     self._tmp_synthesizedPlanningFailed = false
                     self._tmp_failedMoves = {}
+                    self._tmp_shortMoveRetries = {}
                     self._tmp_failedChargePlans = {}
 					self._tmp_actorInterrupted = nil
 
@@ -5447,6 +5540,7 @@ function MonsterAI:ExecuteSquadStrike(ability)
     --slot a fallen squad-mate freed), a second chance to join the same volley
     --rather than save their action for a later one.
     local announced = false
+    local turnTaken = false
     for round=1,2 do
         RefreshAssignments()
         local reserved = self.NewSquadReservations()
@@ -5467,6 +5561,12 @@ function MonsterAI:ExecuteSquadStrike(ability)
             if not self:AwaitPlanPreview(self:BuildSquadPreview(plans, advancers, ability)) then
                 return false
             end
+        end
+
+        --Planning the squad yields; a hero may have taken the turn meanwhile.
+        if self:TurnTakenBeforeMove() then
+            turnTaken = true
+            break
         end
 
         if #plans > 0 then
@@ -5501,7 +5601,9 @@ function MonsterAI:ExecuteSquadStrike(ability)
     end
 
     local executed = false
-    if #targetPairs > 0 and casterToken ~= nil then
+    if turnTaken or self:TurnTakenBeforeMove() then
+        logMessage = "Stopped: " .. g_abortTurnTaken
+    elseif #targetPairs > 0 and casterToken ~= nil then
         --casterToken is only set once castAbility was found non-nil, and the loop then breaks.
         ---@cast castAbility -nil
         --The battle cry was called before the squad moved (AnnounceSquadStrike).
@@ -6621,9 +6723,19 @@ function MonsterAI:CanStrikeThisTurn(token)
     return false, "no square it can move to has an enemy in reach"
 end
 
-function MonsterAI:HandleMoveExecutionFailure(moveid, abilityName, err)
+--fellShort: the creature moved but stopped before its planned square. The
+--move then gets one more try, re-scored from where it stands next cycle; a
+--second shortfall quarantines it like any other failure.
+function MonsterAI:HandleMoveExecutionFailure(moveid, abilityName, err, fellShort)
     self._tmp_failedMoves = self:try_get("_tmp_failedMoves", {})
-    self._tmp_failedMoves[moveid] = true
+    local retried = self:try_get("_tmp_shortMoveRetries", {})
+    self._tmp_shortMoveRetries = retried
+    local replan = fellShort == true and not retried[moveid]
+    if replan then
+        retried[moveid] = true
+    else
+        self._tmp_failedMoves[moveid] = true
+    end
     self._tmp_expectedPromptTarget = nil
 
 	if self:try_get("_tmp_abortTurn") ~= nil then
@@ -6654,7 +6766,8 @@ function MonsterAI:HandleMoveExecutionFailure(moveid, abilityName, err)
         self:LogDecision("MOVE ERROR", {
             ability = abilityName,
             reason = "execution failed: " .. tostring(err),
-            result = "move quarantined for this actor",
+            result = replan and "move re-planned from where the actor stopped"
+                or "move quarantined for this actor",
         })
     end)
 
@@ -7494,6 +7607,7 @@ function MonsterAI:FindAndExecuteMove()
     --before each RunYieldingFunction below (ProfEnd is safe to repeat).
     local chooseProf = ProfBegin("choose move")
     self._tmp_moveFailure = nil
+    self._tmp_moveFellShort = nil
     self._tmp_oaSafeOnly = nil
     local token = self.token
     local searchContext = {}
@@ -7765,6 +7879,9 @@ function MonsterAI:FindAndExecuteMove()
                 return g_moveResultNone
             end
         end
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. moveid)
         local ok, err = RunYieldingFunction(function()
             executed = self:ExecuteSynthesizedAbilityPlan(token, synthesizedMove)
@@ -7819,6 +7936,9 @@ function MonsterAI:FindAndExecuteMove()
             and not self:AwaitPlanPreview(self:BuildPlanPreview(token, bestScore.usingAbilities, bestScore)) then
             return g_moveResultNone
         end
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. bestMove.id)
         local ok, err = RunYieldingFunction(function()
             executeResult = bestMove.execute(bestMove, self, token, bestScore,
@@ -7833,7 +7953,8 @@ function MonsterAI:FindAndExecuteMove()
         if executeResult == false or self:try_get("_tmp_moveFailure") ~= nil then
             return self:HandleMoveExecutionFailure(bestMove.id,
                 self.AbilitiesLogName(bestScore.usingAbilities),
-                self:try_get("_tmp_moveFailure", "execution returned false"))
+                self:try_get("_tmp_moveFailure", "execution returned false"),
+                self:try_get("_tmp_moveFellShort") == true)
         end
         self:LogMove(self.token.properties.monster_type, bestMove.id, "Executed move")
         self:LogDecision("MOVE FINISHED", {
@@ -7850,6 +7971,9 @@ function MonsterAI:FindAndExecuteMove()
         self:SetMoveLogContext(token, {id = returnId, category = "Movement"})
         local returned = false
         ProfEnd(chooseProf)
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. returnId)
         local ok, err = RunYieldingFunction(function()
             returned = self:ExecuteReturnToHoldZone(token)
@@ -7874,6 +7998,9 @@ function MonsterAI:FindAndExecuteMove()
         self:SetMoveLogContext(token, {id = advanceId, category = "Movement"})
         local advanced = false
         ProfEnd(chooseProf)
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. advanceId)
         local ok, err = RunYieldingFunction(function()
             advanced = self:ExecuteAdvanceFallback(token)
@@ -7890,6 +8017,9 @@ function MonsterAI:FindAndExecuteMove()
     if not failedMoves[leaveId] and MonsterAI.InDirectiveZone("avoid", self:GetMovementToken(token)) then
         self:SetMoveLogContext(token, {id = leaveId, category = "Movement"})
         local left = false
+        if self:TurnTakenBeforeMove() then
+            return g_moveResultUnsafe
+        end
         local executePhase = ProfPhaseBegin("execute: " .. leaveId)
         local ok, err = RunYieldingFunction(function()
             left = self:ExecuteLeaveAvoidZone(token)

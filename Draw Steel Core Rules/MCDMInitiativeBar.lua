@@ -293,6 +293,24 @@ local CanControlInitiative = function()
 	return dmhub.isDM or playersControlInitiativeSetting:Get()
 end
 
+--True in Encounter of the Week games. pcall-guarded: the EotW codemod may not be
+--loaded in this game.
+--- @return boolean
+local function IsEotwGame()
+	local eotw = false
+	pcall(function() eotw = EncounterOfTheWeekGame.IsEotwGame() end)
+	return eotw
+end
+
+--Manual overrides of the initiative bar: moving cards between sides, switching
+--the acting side, picking who goes first, skipping rounds, ending combat, removing
+--cards or marking them moved. EotW turns players-run-initiative on so they can
+--claim turns, but the game runs everything else, so none of this is offered there.
+--- @return boolean
+local function CanRearrangeInitiative()
+	return CanControlInitiative() and not IsEotwGame()
+end
+
 --Revert Turn. While the queue is between turns, a client showing the Director UI keeps a
 --snapshot of the board (backup.CreateCombatCheckpoint); the Revert Turn buttons restore it
 --to undo everything the current turn did. One snapshot, held in memory on that client.
@@ -389,9 +407,7 @@ end
 --pcall-guarded: the EotW codemod may not be loaded in this game.
 --- @return boolean
 function TurnCheckpoint.RevertAllowed()
-	local eotw = false
-	pcall(function() eotw = EncounterOfTheWeekGame.IsEotwGame() end)
-	return not eotw
+	return not IsEotwGame()
 end
 
 --Restores checkpoint, telling the user when it could not be done.
@@ -1545,7 +1561,7 @@ local function CreateDrawSteelBubble()
         classes = "arrow",
 
         press = function(element)
-            if not element:HasClass("selected") and CanControlInitiative() and dmhub.initiativeQueue:ChoosingTurn() then
+            if not element:HasClass("selected") and CanRearrangeInitiative() and dmhub.initiativeQueue:ChoosingTurn() then
                 dmhub.initiativeQueue.playersTurn = true
                 dmhub:UploadInitiativeQueue()
                 bubblePanel:FireEventTree("refresh")
@@ -1583,7 +1599,7 @@ local function CreateDrawSteelBubble()
         classes = { "arrow", "selected" },
 
         press = function(element)
-            if not element:HasClass("selected") and CanControlInitiative() and dmhub.initiativeQueue:ChoosingTurn() then
+            if not element:HasClass("selected") and CanRearrangeInitiative() and dmhub.initiativeQueue:ChoosingTurn() then
                 dmhub.initiativeQueue.playersTurn = false
                 dmhub:UploadInitiativeQueue()
                 bubblePanel:FireEventTree("refresh")
@@ -1692,7 +1708,7 @@ local function CreateDrawSteelBubble()
             local token = dmhub.selectedOrPrimaryTokens[1]
             if token ~= nil and token.onBoard and TokenControlledByUser(token) then
                 local initiativeid = InitiativeQueue.GetInitiativeId(token)
-                if initiativeid ~= nil and dmhub.initiativeQueue:IsEntryPlayer(initiativeid) and token.topsheet ~= nil then
+                if initiativeid ~= nil and dmhub.initiativeQueue:IsEntryPlayer(initiativeid) and dmhub.initiativeQueue:HasHadTurn(initiativeid) == false and token.topsheet ~= nil then
                     canSelectToken = true
                 end
             end
@@ -1754,7 +1770,9 @@ local function CreateDrawSteelBubble()
             local token = dmhub.selectedOrPrimaryTokens[1]
             if token ~= nil and token.onBoard and TokenControlledByUser(token) then
                 local initiativeid = InitiativeQueue.GetInitiativeId(token)
-                if initiativeid ~= nil and (dmhub.initiativeQueue:IsEntryPlayer(initiativeid) == dmhub.initiativeQueue:IsPlayersTurn()) and token.topsheet ~= nil then
+                --HasHadTurn: with nothing selected, selectedOrPrimaryTokens falls back to
+                --the last hero used, who may already have gone this round (QM6XE5YN).
+                if initiativeid ~= nil and (dmhub.initiativeQueue:IsEntryPlayer(initiativeid) == dmhub.initiativeQueue:IsPlayersTurn()) and dmhub.initiativeQueue:HasHadTurn(initiativeid) == false and token.topsheet ~= nil then
                     local nameplate = token.topsheet:GetChildrenWithClassRecursive("nameplate")[1]
                     if nameplate ~= nil then
                         nameplate:FireEvent("press")
@@ -1766,7 +1784,7 @@ local function CreateDrawSteelBubble()
 
 		rightClick = function (self)
 
-			if not CanControlInitiative() then
+			if not CanRearrangeInitiative() then
 				return
 			end
 
@@ -1988,7 +2006,7 @@ local function CreateDrawSteelBubble()
                 local token = dmhub.selectedOrPrimaryTokens[1]
                 if token ~= nil and token.onBoard and TokenControlledByUser(token) then
                     local initiativeid = InitiativeQueue.GetInitiativeId(token)
-                    if initiativeid ~= nil and (dmhub.initiativeQueue:IsEntryPlayer(initiativeid) == dmhub.initiativeQueue:IsPlayersTurn()) then
+                    if initiativeid ~= nil and (dmhub.initiativeQueue:IsEntryPlayer(initiativeid) == dmhub.initiativeQueue:IsPlayersTurn()) and dmhub.initiativeQueue:HasHadTurn(initiativeid) == false then
                         element.parent:FireEventTree("claiming", true)
                         return
                     end
@@ -5147,7 +5165,7 @@ function GameHud.CreateInitiativeBarChoicePanel(self, info)
 			},
 
 			press = function(element)
-				if element:HasClass("inactive") and CanControlInitiative() then
+				if element:HasClass("inactive") and CanRearrangeInitiative() then
 					info.initiativeQueue.playersTurn = not info.initiativeQueue.playersTurn
 					info.UploadInitiative()
 				end
@@ -5176,7 +5194,7 @@ function GameHud.CreateInitiativeBarChoicePanel(self, info)
 			end,
 
 			press = function(element)
-				if CanControlInitiative() and (not element:HasClass("won")) then
+				if CanRearrangeInitiative() and (not element:HasClass("won")) then
 					info.initiativeQueue.playersGoFirst = playerside
 					info.UploadInitiative()
 
@@ -5932,7 +5950,9 @@ function GameHud.CreateInitiativeBarChoicePanel(self, info)
 							--InitiativeQueue.ClaimTurn so other surfaces can reuse it. It
 							--reads the LIVE queue and uses the loop key k as the initiative
 							--id (group entries do not populate v.initiativeid).
-							InitiativeQueue.ClaimTurn(k, {canControlInitiative = CanControlInitiative()})
+							--In EotW only the players' normal claim applies (no monster or
+							--out-of-turn claims), as on the EotW hero sheet.
+							InitiativeQueue.ClaimTurn(k, {canControlInitiative = CanRearrangeInitiative()})
 						end,
 					})
 					newEntries[k]:SetClass("player", isplayer)
@@ -7210,7 +7230,7 @@ function GameHud.CreateInitiativeEntry(self, info, initiativeid, options)
 	--the initiative bar (the DM, or the "players control initiative" setting). As a
 	--special case we also let a non-DM player drag a hero card onto the center
 	--"Drag Hero Here" slot to claim that hero's turn. Reassigning an entry between
-	--containers stays DM-only.
+	--containers stays DM-only, and is never allowed in EotW (CanRearrangeInitiative).
 	--
 	--We make the card draggable under EXACTLY the conditions selectinitiative accepts
 	--the drop (heroes' choose-a-turn phase, an unmoved hero entry) -- NOT token
@@ -7222,7 +7242,7 @@ function GameHud.CreateInitiativeEntry(self, info, initiativeid, options)
 	--created then cached across refreshes, and eligibility changes as the initiative
 	--phase changes, so a value frozen at creation would be wrong.
 	local CanDragEntry = function()
-		if CanControlInitiative() then
+		if CanRearrangeInitiative() then
 			return true
 		end
 
@@ -7260,7 +7280,7 @@ function GameHud.CreateInitiativeEntry(self, info, initiativeid, options)
 			end
 
 			--Reassigning an entry between containers is a DM-only reorganization.
-			if not CanControlInitiative() then
+			if not CanRearrangeInitiative() then
 				return
 			end
 
@@ -7286,7 +7306,7 @@ function GameHud.CreateInitiativeEntry(self, info, initiativeid, options)
 
 			--Only DMs (or when players control initiative) may move an entry between
 			--containers by dropping on another entry container.
-			if CanControlInitiative() and target:HasClass("initiativeEntryContainer") then
+			if CanRearrangeInitiative() and target:HasClass("initiativeEntryContainer") then
 				return true
 			end
 
@@ -7311,7 +7331,7 @@ function GameHud.CreateInitiativeEntry(self, info, initiativeid, options)
 
             rightClick = function(element)
                 local q = info.initiativeQueue
-                if q == nil or q.hidden then
+                if q == nil or q.hidden or IsEotwGame() then
                     return
                 end
 
@@ -7344,7 +7364,7 @@ function GameHud.CreateInitiativeEntry(self, info, initiativeid, options)
                 --the acting entry would orphan currentTurn) and to whoever may
                 --reorganize the bar, the same gate as dragging cards between
                 --sides. A minion squad counts as a single creature.
-                if q.currentTurn ~= initiativeid and CanControlInitiative() then
+                if q.currentTurn ~= initiativeid and CanRearrangeInitiative() then
                     local groupTokens = self:GetTokensForInitiativeId(info, initiativeid)
                     if CountInitiativeUnits(groupTokens) > 1 then
                         entries[#entries+1] = {

@@ -2065,7 +2065,7 @@ Events (fields beyond the run fields):
 | `eotw_town_open` / `eotw_town_close` | client | `seconds`, `reason` (enter_game / close) |
 | `eotw_welcome` | client | `action` shown (first visit on this machine) / discord |
 | `eotw_location_open` / `_close` | client | `location`, `seconds` |
-| `eotw_party_create` / `_join` / `_launch` / `_leave` | client | `encounter`, `board`, `public`; `members`, `slotsFilled`/`slotsTotal`; leave `how` leave / disband |
+| `eotw_party_create` / `_join` / `_launch` / `_leave` | client | `runid` (create: from 2026-10-28, sent once the game exists), `encounter`, `board`, `public`; `members`, `slotsFilled`/`slotsTotal`; leave `how` leave / disband |
 | `eotw_enter_game` | client | `resume`, `members`, `slotsFilled`, `myHeroes`, `host`, `fastLaunch` |
 | `eotw_run_start` / `_resume` | client | `host`, `sittings`, `players`, `partyHeroes`, `heroCount`, `heroClasses`/`heroAncestries`/`heroLevels` (comma lists), `combatStarted`, `lastPhase` (resume) |
 | `eotw_run_end` | client | `outcome`, `how`, `lastPhase`, `lastPhaseSeconds`, `minutes`/`seconds` (this machine's play time, all sittings), `heroesDied`/`heroesSurvived`, `victoriesEarned`, `treasuresEarned`, `rounds`, `combatStarted` |
@@ -6118,13 +6118,21 @@ immediately via `SetHeroesSurprised`, duration end-of-encounter). `ctx.heroEntri
 gives a multi-target apply (narratives). Hidden effects are applied and then
 removed from the `applied` list.
 
-**Haul hand-over**: a hero's player can drag a haul icon onto another hero's
-card to give one unit (`giveItem {heroid, targetId, itemid}`; the host
-re-checks ownership, the haul record and what the hero really holds, worn
-items included: a treasure found is auto-equipped, and the give takes it off
-first via `GiveItem`). The icon
-decrements optimistically. Only montage finds can be handed over; consumables
-the hero carried in show on the strip but stay with them.
+**Haul hand-over**: a hero's player can drag an icon from the item strip onto
+another hero's card to give one unit (`giveItem {heroid, targetId, itemid}`,
+host-side `EncounterMontage.GiveItem`; the host re-checks ownership, the haul
+record and what the hero really holds, worn items included: a treasure found
+is auto-equipped, and the give takes it off first via `GiveItem`). The icon
+decrements optimistically. Since 2026-10-28 (user direction) every strip item
+can be handed over: a find (its haul record moves with it) or any consumable
+the hero carries -- brought from town, or found in an earlier series part
+(`montage.ResetTest` clears the haul records between parts), which stays
+unrecorded so it is still "carried" for the receiver. The strip and the
+hand-over work on the montage, narrative and Tactical Preparation stages
+alike: each stage's strip sends through its own beat's `SendRequest`, and the
+narrative and preparation hosts route `giveItem` to `GiveItem` in any phase.
+The narrative strip used to stay empty (only the montage stage fires
+`refreshMontage`); a strip now fills itself at create.
 
 **Consumables in a montage** (BUILT 2026-10-09, user direction; untested in
 the app). Heroes can use their consumables during the montage rounds:

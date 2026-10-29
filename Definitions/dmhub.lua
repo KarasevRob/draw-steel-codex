@@ -159,6 +159,7 @@
 --- @field screenSpaceCursorSurface nil|string Switches shared mouse cursors between world space and screen space. nil (the default) is normal map sharing: everyone's cursor is shared as a position on the current map. Set it to a surface id (any string, e.g. "eotwstage") while a full-screen UI surface is up and this client's cursor is shared as a position on the screen instead, and only other players' cursors on the same surface id are shown, drawn above the UI. Set it back to nil when the surface goes away. Honours the same settings as map cursors (Player/Director Mouse Cursors Shared, Hide Other Player's Cursors). Clients on an engine without this mode do not show screen-space cursors.
 --- @field editorMode boolean (Read-only) returns true if the user is doing some kind of map/game editing, rather than in normal play mode.
 --- @field undoState table (Read-only) Returns a table describing the current undo/redo state for user editing actions.
+--- @field undoDisabled boolean True turns off the ordinary undo/redo stack for the rest of this game: no edit is recorded, and Ctrl+Z / Ctrl+Y, dmhub.Undo() and dmhub.Redo() reach nothing. Setting it true drops anything already on the stacks. Panels that listen for the undo/redo input events (such as Turn Rewind) still receive the keys. Resets when the game is left.
 --- @field connectionErrorStatus ConnectionErrorStatus The current connection error status, if any. Used to display connection issues to the user.
 --- @field writeErrors WriteReceipt[] A list of failed and unconfirmed write receipts that haven't been acknowledged. Each entry is a WriteReceipt with path, method, failureReason, isFailed, isUnconfirmed, and acknowledged fields.
 --- @field pendingWriteCount number The number of writes currently pending (in-flight to the cloud).
@@ -190,7 +191,7 @@
 --- @field primaryCharacter CharacterToken|nil (Read-only) the primary character for the current player. This can be an off-map token.
 --- @field tokenHovered nil|CharacterToken (Read-only) Gets the currently hovered token, or nil if there is none.
 --- @field modMergeInfo nil|{numFiles: number, conflicts: nil|string[]} (Undocumented: engine-internal, not part of the modding API.)
---- @field modKeys {ctrl: nil|boolean, alt: nil|boolean, shift: nil|boolean} Returns which mod keys are currently depressed.
+--- @field modKeys {ctrl: nil|boolean, alt: nil|boolean, shift: nil|boolean} Returns which mod keys are currently depressed. While files dragged in from the operating system are over the window (and in their dropfiles handler) the keys are read from the OS, since the drag source has the keyboard focus.
 --- @field mouseWheel number Returns a positive or negative number if the mousewheel has been moved this frame, based on the direction. Returns 0 if the mousewheel has not been moved this frame.
 --- @field harnessMode nil|string (Read-only) The test-harness name passed via --harness on the command line, or nil when not launched in harness mode. Dev builds only. See TEST_HARNESS_PLAN.md.
 --- @field harnessArgs nil|string (Read-only) The raw string passed via --harness-args on the command line, or nil. Interpretation (typically JSON) is up to the Lua harness.
@@ -754,6 +755,14 @@ function dmhub.LocalAssetsRevertFile(dirIndex, path, state) end
 --- Reveals the given file or directory in the operating system's file browser (Windows Explorer / macOS Finder). Dev mode only; does nothing otherwise.
 --- @param path string The directory or file to reveal.
 function dmhub.RevealInFileBrowser(path) end
+
+--- Opens Explorer / Finder with this session's log file (Player.log) selected, the same as pressing F1. Available outside dev mode and before login, so the titlescreen can offer it when login fails and the user needs to send the log to support.
+--- @return string|nil # The log file's path, or nil when there is no log file.
+function dmhub.RevealLogFile() end
+
+--- The path of this session's log file (Player.log). The previous session's log is Player-prev.log in the same folder.
+--- @return string|nil # The log file's path, or nil when there is no log file.
+function dmhub.GetLogFilePath() end
 
 --- Imports a single object table from YAML files on disk into memory. Reads _table.yaml from the table's subdirectory. Does NOT upload to the cloud -- use UploadAllTables for that. Returns nil if no import source was found.
 --- @param tableName string The name of the table to import into.
@@ -1384,7 +1393,7 @@ function dmhub.SetSteamJoinTarget(kind, payload, group, groupSize) end
 --- @return any
 function dmhub.TakeSteamInvite() end
 
---- (PROTOTYPE) Starts linking the user's Discord account: Discord's approval screen opens (in the Discord app or a browser). Watch dmhub.discordStatus.account for the result. Returns false when linking cannot start (unsupported, or already in progress).
+--- (PROTOTYPE) Starts linking the user's Discord account: Discord's approval screen opens (in the Discord app or a browser). Watch dmhub.discordStatus.account for the result. Calling it while still waiting for approval abandons that attempt and starts again. Returns false when linking cannot start (unsupported, or the approved link is being set up).
 --- @return boolean
 function dmhub.DiscordLink() end
 

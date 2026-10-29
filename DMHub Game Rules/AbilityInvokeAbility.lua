@@ -224,6 +224,44 @@ local g_movementConstraintAnchorOptions = {
     { id = "all_matching", text = "All Matching Creatures" },
 }
 
+local g_movementConstraintPhrases = {
+    toward = "toward",
+    away = "away from",
+    not_closer = "without ending closer to",
+}
+
+local g_movementConstraintAnchorNames = {
+    caster = "the invoking creature",
+    attacker = "the attacker",
+    parent_target = "the parent target",
+    nearest_creature = "the nearest creature",
+    nearest_enemy = "the nearest enemy",
+    all_matching = "the matching creatures",
+}
+
+--- Rules-style phrase for a movement constraint, like "toward the nearest enemy within 3 squares of the
+--- target", appended to the generated forced-movement prompt. nil when the behavior has no constraint.
+--- @param behavior ActivatedAbilityInvokeAbilityBehavior
+--- @return string|nil
+local function DescribeMovementConstraint(behavior)
+    local phrase = g_movementConstraintPhrases[behavior:try_get("movementConstraint", "none")]
+    if phrase == nil then
+        return nil
+    end
+
+    local anchorType = behavior:try_get("movementConstraintAnchor", "caster")
+    local text = phrase .. " " .. (g_movementConstraintAnchorNames[anchorType] or "the anchor")
+
+    --The distance only limits the anchors that are searched for (see CollectMovementConstraintCandidates).
+    --%g, not %d: the editor accepts a fractional distance, which %d would raise on.
+    local maxDistance = tonumber(behavior:try_get("movementConstraintAnchorDistance"))
+    if maxDistance ~= nil and (anchorType == "nearest_enemy" or anchorType == "nearest_creature" or anchorType == "all_matching") then
+        text = text .. string.format(" within %g square%s of the target", maxDistance, maxDistance == 1 and "" or "s")
+    end
+
+    return text
+end
+
 local function ResolveMovementConstraintToken(value)
     if type(value) == "function" then
         value = value("self")
@@ -305,6 +343,12 @@ local function ChooseNearestMovementConstraintAnchor(behavior, casterToken, move
         elseif distance == nearestDistance then
             nearest[#nearest+1] = candidate
         end
+    end
+
+    --Opt-in ("Offer Every Anchor in Range" in the invoke editor): every candidate in range is offered and the table decides which
+    --counts as nearest, since measuring around objects and big creatures is easy to dispute.
+    if behavior:try_get("movementConstraintPickAnyInRange", false) and #candidates > 1 then
+        nearest = candidates
     end
 
     if #nearest <= 1 then
@@ -728,6 +772,20 @@ local function CanDeferCommitUntilInvokedCast(behavior, casterToken, targets)
     end
     for _,target in ipairs(targets) do
         if target.token == nil or target.token.charid ~= casterToken.charid then
+            return false
+        end
+    end
+    return true
+end
+
+--True when every other behavior of the ability only runs for strain (Flashback's
+--"Strained:" damage and slow), so this invoke is the whole ability.
+--- @param behavior ActivatedAbilityInvokeAbilityBehavior
+--- @param ability ActivatedAbility
+--- @return boolean
+local function InvokeIsWholeAbility(behavior, ability)
+    for _,other in ipairs(ability.behaviors) do
+        if not rawequal(other, behavior) and other:try_get("strainSelection", "") == "" then
             return false
         end
     end
@@ -1300,6 +1358,12 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
 
                             abilityClone.range = adjustedRange * dmhub.unitsPerSquare
                             local description = string.format("You may %s the target %d square%s", baseMoveType, adjustedRange, adjustedRange > 1 and "s" or "")
+                            --A constrained pull names its anchor ("toward the nearest enemy within 3 squares") and keeps the real distance.
+                            local constraintText = DescribeMovementConstraint(self)
+                            if constraintText ~= nil then
+                                local verb = cond(string.find(forcedMovementType, "^vertical_") ~= nil, "vertically ", "") .. baseMoveType
+                                description = string.format("You may %s the target up to %d square%s %s", verb, adjustedRange, adjustedRange > 1 and "s" or "", constraintText)
+                            end
                             if #adjustments > 0 then
                                 description = description .. " (" .. table.concat(adjustments, ", ") .. ")"
                             end
@@ -1413,6 +1477,14 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                 --suppressed), so there was nothing to back out of: pay as before.
                 if deferCommit and not promptOffered and not options.pay then
                     ability:CommitToPaying(casterToken, options)
+                end
+
+                --The player backed out of their own prompt and the invoke is the whole ability,
+                --so it was never used: end the cast so its strain effects don't run and it isn't
+                --recorded as used. An ability with other effects keeps running them.
+                if deferCommit and promptOffered and not options.pay and InvokeIsWholeAbility(self, ability) then
+                    options.abort = true
+                    return
                 end
             end
         end
@@ -1683,6 +1755,20 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
         --timeout, so end the invoke as cancelled instead.
         if casterToken == nil or not casterToken.valid or casterToken.properties == nil then
             printf("INVOKEDIAG:: caster of %s is gone before cast -- treating the invoke as cancelled", tostring(abilityClone.name))
+            canceled = true
+            break
+        end
+
+        --An ability that only offers a list of the creature's own abilities (Flashback's
+        --"an ability used this round") has nothing to offer when the list is empty, and the
+        --prompt would show a Confirm that does nothing: end the invoke as cancelled instead.
+        local offered = nil
+        if (targeting == "prompt" or targeting == "prompt_inherit") and casterToken ~= nil and casterToken.properties ~= nil then
+            offered = abilityClone:SynthesizeAbilities(casterToken.properties)
+        end
+        if offered ~= nil and #offered == 0 then
+            print("INVOKE:: nothing to offer for", abilityClone.name, "-- treating the invoke as cancelled")
+            casterToken.properties:FloatLabel("No abilities to use", "#ff0000")
             canceled = true
             break
         end
@@ -2433,6 +2519,7 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
             change = function(element)
                 ---@cast element Dropdown
                 self.movementConstraintAnchor = element.idChosen
+                parentPanel:FireEventTree("refreshInvoke")
             end,
         },
     }
@@ -2488,6 +2575,24 @@ function ActivatedAbilityInvokeAbilityBehavior:EditorItems(parentPanel)
                 end
             end,
         },
+    }
+
+    --Only a nearest-creature or nearest-enemy anchor is chosen by distance, so only those offer the pick.
+    local function pickAnyOff()
+        local anchorType = self:try_get("movementConstraintAnchor", "caster")
+        return movementConstraintOff() or (anchorType ~= "nearest_creature" and anchorType ~= "nearest_enemy")
+    end
+
+    result[#result+1] = gui.Check{
+        classes = {cond(pickAnyOff(), "collapsed")},
+        refreshInvoke = function(element)
+            element:SetClass("collapsed", pickAnyOff())
+        end,
+        text = "Offer Every Anchor in Range (Table Picks Nearest)",
+        value = self:try_get("movementConstraintPickAnyInRange", false),
+        change = function(element)
+            self.movementConstraintPickAnyInRange = element.value
+        end,
     }
 
     result[#result+1] = gui.Check{

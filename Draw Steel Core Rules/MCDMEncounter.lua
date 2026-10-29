@@ -1428,9 +1428,23 @@ end
 --Which monster this token counts as when checking for victory, or nil if it
 --doesn't count. Every minion in a squad returns the same answer, so the squad
 --counts once. Summoned minions don't count.
+--True for a creature summoned by a hero or a companion, e.g. a Familiar perk's
+--stat block. It fights for the heroes, so it is never a monster left to defeat;
+--counting one meant an "all defeated" victory never came.
+--- @param token CharacterToken
+--- @return boolean
+function Encounter.IsHeroSideSummon(token)
+    local summonerid = token.summonerid
+    if summonerid == nil or summonerid == "" then
+        return false
+    end
+    local summoner = dmhub.GetTokenById(summonerid)
+    return summoner ~= nil and summoner.valid and summoner.properties ~= nil and not summoner.properties:IsMonster()
+end
+
 function Encounter.VictoryUnitKey(token)
     local props = token.properties
-    if props == nil or not props:IsMonster() then
+    if props == nil or not props:IsMonster() or Encounter.IsHeroSideSummon(token) then
         return nil
     end
     if not props.minion then
@@ -4712,7 +4726,7 @@ function LiveEncounter:CountLiveNonMinions(org)
             if token ~= nil and not seen[token.charid] then
                 seen[token.charid] = true
                 local props = token.properties
-                if props ~= nil and props:IsMonster() and not props.minion and
+                if props ~= nil and props:IsMonster() and not props.minion and not Encounter.IsHeroSideSummon(token) and
                     (org == nil or OrganizationKeyword(props) == org) and props:CurrentHitpoints() > 0 then
                     count = count + 1
                 end
