@@ -3550,6 +3550,11 @@ function creature:GetActivatedAbilities(options)
         end
     end
 
+    --a Double Strike used on one target this turn offers its free second strike.
+    if not options.characterSheet then
+        self:AddFinishLaterAbilities(result)
+    end
+
     return result
 end
 

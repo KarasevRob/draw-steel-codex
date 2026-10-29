@@ -5409,3 +5409,167 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
 
     return false, string.format("%s blocks line of effect to this creature.", RuleUtils.LineOfEffectBlockerName(blocker))
 end
+
+--------------------------------------------------------------------------------
+-- Finish targets later (Dual Wielder's Double Strike).
+--
+-- An ability flagged finishTargetsLater that is used on your turn, in combat,
+-- against fewer targets than it allows does not lose the rest. The power roll
+-- records its dice on the caster (creature.pendingFinishLater), and until that
+-- turn ends GetActivatedAbilities adds a clone for the remaining targets: free
+-- (actionNumber 0, so it sits in its own drawer but spends nothing), unable to
+-- target the creatures already hit, and landing on the same dice. Each new
+-- target's own edges and banes still apply to those dice.
+--------------------------------------------------------------------------------
+
+--- @class FinishLaterRecord
+--- @field turnid string The turn (creature:GetTurnId) the first use happened on; the record is dead after it.
+--- @field dice {numFaces: number, result: number}[] The die faces the first power roll landed on.
+--- @field naturalRoll number The first roll's natural result, for display.
+--- @field targetIds table<string, boolean> Charids the first use already hit.
+--- @field remaining number How many targets are left.
+
+--- Called by the power roll once it resolves. Records the dice when this was the
+--- first use of a finishTargetsLater ability and targets are left over.
+--- @param ability ActivatedAbility
+--- @param casterToken CharacterToken
+--- @param targets table[] The cast's targets ({token = CharacterToken}).
+--- @param rollInfo table The completed roll (its rolls list carries the dice).
+function ActivatedAbility.SaveTargetsForLater(ability, casterToken, targets, rollInfo)
+    if (not ability:try_get("finishTargetsLater", false)) or ability:try_get("followUpOf") ~= nil then
+        return
+    end
+
+    local caster = casterToken.properties
+    if caster == nil or rollInfo == nil or not caster:IsOurTurn() then
+        return
+    end
+
+    local turnid = caster:GetTurnId()
+    if turnid == nil then
+        return
+    end
+
+    local hit = {}
+    local hitCount = 0
+    for _,target in ipairs(targets or {}) do
+        if target.token ~= nil and not hit[target.token.charid] then
+            hit[target.token.charid] = true
+            hitCount = hitCount + 1
+        end
+    end
+
+    local remaining = ability:GetNumTargets(casterToken, {}) - hitCount
+    if hitCount == 0 or remaining <= 0 then
+        return
+    end
+
+    local dice = {}
+    for _,roll in ipairs(rollInfo.rolls or {}) do
+        if (not roll.dropped) and roll.numFaces ~= nil and roll.result ~= nil then
+            dice[#dice+1] = { numFaces = roll.numFaces, result = roll.result }
+        end
+    end
+
+    if #dice == 0 then
+        return
+    end
+
+    casterToken:ModifyProperties{
+        description = string.format("Save %s for later", ability.name),
+        execute = function()
+            local pending = caster:try_get("pendingFinishLater") or {}
+
+            --records from earlier turns can never be used again.
+            for guid,entry in pairs(pending) do
+                if entry.turnid ~= turnid then
+                    pending[guid] = nil
+                end
+            end
+
+            pending[ability.guid] = {
+                turnid = turnid,
+                dice = dice,
+                naturalRoll = rollInfo.naturalRoll or 0,
+                targetIds = hit,
+                remaining = remaining,
+            }
+            caster.pendingFinishLater = pending
+        end,
+    }
+end
+
+--- Called by the power roll when the follow-up clone resolves: the saved targets are used up.
+--- @param ability ActivatedAbility The follow-up clone.
+--- @param casterToken CharacterToken
+function ActivatedAbility.ConsumeTargetsForLater(ability, casterToken)
+    local sourceGuid = ability:try_get("followUpOf")
+    local caster = casterToken.properties
+    if sourceGuid == nil or caster == nil or caster:try_get("pendingFinishLater") == nil then
+        return
+    end
+
+    casterToken:ModifyProperties{
+        description = string.format("Finish %s", ability.name),
+        execute = function()
+            caster.pendingFinishLater[sourceGuid] = nil
+        end,
+    }
+end
+
+--- The free clone that finishes a saved ability.
+--- @param ability ActivatedAbility The ability as the caster has it now (kit bonuses applied).
+--- @param entry FinishLaterRecord
+--- @return ActivatedAbility
+function ActivatedAbility.MakeFinishLaterClone(ability, entry)
+    local clone = DeepCopy(ability)
+    clone._tmp_temporaryClone = true
+
+    --its own guid, so the action bar flags it as a newly available ability.
+    clone.guid = ability.guid .. "-finish"
+    clone.followUpOf = ability.guid
+    clone.followUpDice = DeepCopy(entry.dice)
+    clone.excludedTargetTokenIds = DeepCopy(entry.targetIds)
+    clone.numTargets = entry.remaining
+    clone.actionNumber = 0
+    clone.finishTargetsLater = false
+
+    local hitCount = 0
+    for _,_ in pairs(entry.targetIds) do
+        hitCount = hitCount + 1
+    end
+
+    if hitCount == 1 and entry.remaining == 1 then
+        clone.name = string.format("%s (Second Target)", ability.name)
+    else
+        clone.name = string.format("%s (Remaining Targets)", ability.name)
+    end
+
+    return clone
+end
+
+--- Appends the follow-up clones for this turn's saved abilities. Called at the
+--- end of creature:GetActivatedAbilities, once kit and modifier changes are in.
+--- @param result ActivatedAbility[]
+function creature:AddFinishLaterAbilities(result)
+    local pending = self:try_get("pendingFinishLater")
+    if pending == nil or next(pending) == nil then
+        return
+    end
+
+    local turnid = self:GetTurnId()
+    if turnid == nil then
+        return
+    end
+
+    for guid,entry in pairs(pending) do
+        if entry.turnid == turnid then
+            for _,ability in ipairs(result) do
+                if ability.guid == guid and ability:try_get("followUpOf") == nil then
+                    result[#result+1] = ActivatedAbility.MakeFinishLaterClone(ability, entry)
+                    break
+                end
+            end
+        end
+    end
+end

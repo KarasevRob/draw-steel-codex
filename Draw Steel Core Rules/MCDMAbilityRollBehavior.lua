@@ -1333,6 +1333,11 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         roll = regex.ReplaceAll(roll, "\\d+d\\d+", tostring(forcedroll))
     end
 
+    --The free second strike of a Double Strike (see "Finish targets later" in
+    --MCDMActivatedAbility.lua): the dice land on the first strike's faces, and the
+    --new target's edges and banes apply to them. It is not a new power roll.
+    local followUpDice = ability:try_get("followUpDice")
+
 	local modifiersApplied = nil
     local appliedTargetCreature = nil
 
@@ -1874,14 +1879,16 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         return
     end
     rollKey = dialog.data.ShowDialog{
-        description = ability.name .. ": Power Roll",
+        description = ability.name .. cond(followUpDice ~= nil, ": Power Roll (same dice)", ": Power Roll"),
         title = ability.name,
         type = "ability_power_roll",
         ability = ability,
         roll = roll,
+        forcedDice = followUpDice,
         --Only set autoroll when forcing -- the dialog's autoroll branch treats
         --any non-nil value (including false) as a table-with-.id and crashes.
-        autoroll = forcedroll ~= nil and true or nil,
+        --A Double Strike's second strike reuses dice already rolled, so it rolls itself.
+        autoroll = (forcedroll ~= nil or followUpDice ~= nil) and true or nil,
         showDialogDuringRoll = true,
         amendable = true,
         modifiers = modifiersApplied,
@@ -2063,7 +2070,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
     --of Cast applies (manual amend / test overrideTier wins over the natural
     --dice tier).
     local rolledTier = rollProperties:try_get("overrideTier") or DiceResultToTier(m_result)
-    if rolledTier == 1 or rolledTier == 2 or rolledTier == 3 then
+    if followUpDice == nil and (rolledTier == 1 or rolledTier == 2 or rolledTier == 3) then
         LiveEncounter.TrackHeroStats(casterToken.charid, string.format("tierRolls/tier%d", rolledTier))
 
         local edges = m_result.boons or 0
@@ -2344,7 +2351,15 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
         triggerInfo.squadparticipantids = participantIds
     end
 
-    casterToken.properties:DispatchEvent("rollpower", triggerInfo)
+    if followUpDice ~= nil then
+        --Double Strike's second strike reuses the first roll: "made a power roll"
+        --triggers (a crit's extra main action among them) already fired for it.
+        ActivatedAbility.ConsumeTargetsForLater(ability, casterToken)
+    else
+        --multitargets, not targets: it holds every creature hit, after any redirects.
+        ActivatedAbility.SaveTargetsForLater(ability, casterToken, multitargets, m_rollInfo)
+        casterToken.properties:DispatchEvent("rollpower", triggerInfo)
+    end
 
     casterToken.properties:ClearMomentaryOngoingEffects()
     for _,target in ipairs(multitargets) do

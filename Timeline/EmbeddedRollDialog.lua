@@ -7372,6 +7372,9 @@ function GameHud.CreateEmbeddedRollDialog()
                     dicetower = dicetower,
                     instant = instant,
                     roll = rollInput.text,
+                    --nil normally. A caller that must reuse earlier dice (the second
+                    --strike of Double Strike) passes the faces; the dice land on them.
+                    forcedDice = m_options.forcedDice,
                     creature = creature,
                     properties = rollProperties,
                     begin = function(rollInfo)

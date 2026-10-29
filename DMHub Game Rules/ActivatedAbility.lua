@@ -29,6 +29,10 @@ end
 --- @field operatorTokenId nil|string Charid of the creature operating the object, stamped on an operated ability's clone; that creature pays the action.
 --- @field grantingObjectTokenId nil|string Charid of the object that granted this clone; the only token it can target.
 --- @field grantedToTokenId nil|string Charid of the creature a granted clone belongs to (its caster).
+--- @field finishTargetsLater boolean Used on your turn against fewer targets than it allows, the rest can be targeted later that turn, free, with the same dice (Dual Wielder's Double Strike). See "Finish targets later" in MCDMActivatedAbility.lua.
+--- @field followUpOf nil|string On the clone that finishes a finishTargetsLater ability: the guid of the ability it finishes.
+--- @field followUpDice nil|{numFaces: number, result: number}[] On that clone: the die faces its power roll lands on instead of rolling fresh.
+--- @field excludedTargetTokenIds nil|table<string, boolean> Charids this clone may not target (the creatures the first use already hit).
 --- @field aimCasterAtTarget boolean An object caster turns to face its target while this is aimed, and keeps that facing (a Field Ballista's Release Bolt).
 --- @field _tmp_boundCaster nil|creature The creature a temporary clone was generated for.
 --- @field forcedMovementStraightUp boolean A forced-movement clone that moves its creature straight up ("vertical push straight up N").
@@ -367,6 +371,8 @@ ActivatedAbility.proximityRange = "5"
 
 --default for abilities serialized before this field existed; Create() sets it explicitly.
 ActivatedAbility.repeatTargets = false
+
+ActivatedAbility.finishTargetsLater = false
 
 ActivatedAbility.sequentialTargeting = false
 
@@ -1677,6 +1683,12 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
 		return false
 	end
 
+	--Finishing a Double Strike: the creatures the first strike hit are not new targets.
+	local excludedids = self:try_get("excludedTargetTokenIds")
+	if excludedids ~= nil and excludedids[targetToken.charid] then
+		return false
+	end
+
 	if targetToken.properties:CalculateNamedCustomAttribute("Untargetable") > 0 then
 		return false
 	end
@@ -2294,8 +2306,10 @@ function ActivatedAbility:GetCost(casterToken, options)
 		result.canAfford = false
 	end
 
+	--An action count of 0 lists the ability under its action type but spends nothing
+	--(the free second strike of Double Strike sits in the Main Action drawer).
 	local actionResource = self:ActionResource()
-	if actionResource ~= nil and actionResource ~= "none" and resourcesTable[actionResource] ~= nil then
+	if actionResource ~= nil and actionResource ~= "none" and resourcesTable[actionResource] ~= nil and self:GetNumberOfActionsCost(creature, { mode = options.mode or 1 }) > 0 then
 		--An operated object's action (main action, maneuver...) comes out of the
 		--operator's action economy, not the object's.
 		local payerToken = self:GetOperatorToken()

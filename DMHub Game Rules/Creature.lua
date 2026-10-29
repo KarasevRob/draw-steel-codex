@@ -257,6 +257,7 @@ end
 --- @field actionbar? table<string, table<string, integer>> Action bar ordering: tab -> ability id -> slot index.
 --- @field languageSpeaking? string Language id the creature is currently speaking in chat.
 --- @field gold? number Legacy gold amount; read via GetGold (0 when absent).
+--- @field pendingFinishLater? table<string, FinishLaterRecord> Abilities used this turn with targets left to finish (Double Strike), keyed by ability guid. See "Finish targets later" in MCDMActivatedAbility.lua.
 --- @field _tmp_freeMovement? boolean Transient: movement in progress is not charged against speed.
 --- @field _tmp_suppressTeleportEvent? boolean Transient: suppress the teleport event for the next teleport.
 --- @field _tmp_portalForcedMoveDest? string Transient: loc string a forced move is taking this creature to through a portal.
