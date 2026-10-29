@@ -778,6 +778,20 @@ local function CanDeferCommitUntilInvokedCast(behavior, casterToken, targets)
     return true
 end
 
+--True when every other behavior of the ability only runs for strain (Flashback's
+--"Strained:" damage and slow), so this invoke is the whole ability.
+--- @param behavior ActivatedAbilityInvokeAbilityBehavior
+--- @param ability ActivatedAbility
+--- @return boolean
+local function InvokeIsWholeAbility(behavior, ability)
+    for _,other in ipairs(ability.behaviors) do
+        if not rawequal(other, behavior) and other:try_get("strainSelection", "") == "" then
+            return false
+        end
+    end
+    return true
+end
+
 function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, targets, options)
 
     --Resolve a "choose an ability off your class list" pick up front, before any
@@ -1464,6 +1478,14 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                 if deferCommit and not promptOffered and not options.pay then
                     ability:CommitToPaying(casterToken, options)
                 end
+
+                --The player backed out of their own prompt and the invoke is the whole ability,
+                --so it was never used: end the cast so its strain effects don't run and it isn't
+                --recorded as used. An ability with other effects keeps running them.
+                if deferCommit and promptOffered and not options.pay and InvokeIsWholeAbility(self, ability) then
+                    options.abort = true
+                    return
+                end
             end
         end
     until promptWhenResolving == false or #targetChoices == 0
@@ -1733,6 +1755,20 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
         --timeout, so end the invoke as cancelled instead.
         if casterToken == nil or not casterToken.valid or casterToken.properties == nil then
             printf("INVOKEDIAG:: caster of %s is gone before cast -- treating the invoke as cancelled", tostring(abilityClone.name))
+            canceled = true
+            break
+        end
+
+        --An ability that only offers a list of the creature's own abilities (Flashback's
+        --"an ability used this round") has nothing to offer when the list is empty, and the
+        --prompt would show a Confirm that does nothing: end the invoke as cancelled instead.
+        local offered = nil
+        if (targeting == "prompt" or targeting == "prompt_inherit") and casterToken ~= nil and casterToken.properties ~= nil then
+            offered = abilityClone:SynthesizeAbilities(casterToken.properties)
+        end
+        if offered ~= nil and #offered == 0 then
+            print("INVOKE:: nothing to offer for", abilityClone.name, "-- treating the invoke as cancelled")
+            casterToken.properties:FloatLabel("No abilities to use", "#ff0000")
             canceled = true
             break
         end

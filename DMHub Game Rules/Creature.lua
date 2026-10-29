@@ -8587,6 +8587,13 @@ creature.helpSymbols = {
 		desc = "The names of any ongoing effects affecting the creature.",
 		examples = {'Ongoing Effects has "Rage"'},
 	},
+
+	abilitiesusedthisround = {
+		name = "Abilities Used This Round",
+		type = "set",
+		desc = "The names of the abilities the creature has used in the current combat round. Empty outside combat.",
+		examples = {'Abilities Used This Round has Ability.Name'},
+	},
 	
 	stacks = {
 		name = "Stacks",
@@ -9365,6 +9372,17 @@ creature.lookupSymbols = {
 			if info ~= nil then
 				strings[#strings+1] = info.name
 			end
+		end
+
+		return StringSet.new{
+			strings = strings,
+		}
+	end,
+
+	abilitiesusedthisround = function(c)
+		local strings = {}
+		for name,_ in pairs(c:AbilitiesUsedThisRound()) do
+			strings[#strings+1] = name
 		end
 
 		return StringSet.new{
@@ -12218,6 +12236,37 @@ function creature:LegacyAuraEntryAvailable(info, level)
 	end
 
 	return true
+end
+
+--- The names of the abilities this creature has used in the current combat
+--- round, as {[ability name] = true}. Keyed by name because separate abilities
+--- can share a guid (Melee and Ranged Free Strike). Recorded by
+--- ActivatedAbility:FireUseAbility and read by rules like the Talent's Flashback
+--- ("an ability they've previously used this round"). Empty outside combat.
+--- @return table<string, boolean>
+function creature:AbilitiesUsedThisRound()
+    local q = dmhub.initiativeQueue
+    local roundId = q and q:GetRoundId()
+    if roundId == nil or self:try_get("abilitiesUsedRoundId") ~= roundId then
+        return {}
+    end
+    return self:try_get("abilitiesUsedThisRound", {})
+end
+
+--- Records that this creature used an ability this round. Call inside
+--- ModifyProperties. Does nothing outside combat.
+--- @param ability ActivatedAbility
+function creature:RecordAbilityUsedThisRound(ability)
+    local q = dmhub.initiativeQueue
+    local roundId = q and q:GetRoundId()
+    if roundId == nil then
+        return
+    end
+    if self:try_get("abilitiesUsedRoundId") ~= roundId then
+        self.abilitiesUsedRoundId = roundId
+        self.abilitiesUsedThisRound = {}
+    end
+    self.abilitiesUsedThisRound[ability.name] = true
 end
 
 --These opt-in triggers keep movement entry independent from turn start.

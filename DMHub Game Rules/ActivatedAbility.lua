@@ -2247,6 +2247,19 @@ function ActivatedAbility:FireUseAbility(casterToken, options)
 			}
 		end
 
+		--Remember the ability for "used this round" rules (Flashback). Skipped when
+		--it is already recorded, so repeat uses don't upload anything.
+		if casterToken.properties:AbilitiesUsedThisRound()[self.name] == nil
+			and dmhub.initiativeQueue ~= nil and not dmhub.initiativeQueue.hidden then
+			casterToken:ModifyProperties{
+				description = "Use Ability",
+				undoable = false,
+				execute = function()
+					casterToken.properties:RecordAbilityUsedThisRound(self)
+				end,
+			}
+		end
+
         casterToken.properties:DispatchEvent("useability", {usedability = self, cast = options.symbols and options.symbols.cast, partofanotherability = self:IsPartOfAnotherAbility(casterToken, options)})
 
         for _,target in ipairs(options.targets or {}) do
@@ -3921,6 +3934,7 @@ function ActivatedAbility.CastCoroutine(self, casterToken, targets, options)
         end
 
         for _,behavior in ipairs(strainedAbility.behaviors) do
+            behavior._tmp_noCommit = true
             behavior:Cast(self, casterToken, {{ token = casterToken }}, options)
         end
     end
