@@ -1470,6 +1470,28 @@ function ActivatedAbility:TargetLocMaxElevationChangeFunction(casterToken, symbo
 
 end
 
+local g_verticalForcedMovement = {vertical_push = true, vertical_pull = true, vertical_slide = true}
+
+--- True for the forced movement types whose target carries a chosen altitude.
+--- @param forcedMovement string|nil
+--- @return boolean
+function ActivatedAbility.IsVerticalForcedMovement(forcedMovement)
+    return g_verticalForcedMovement[forcedMovement or ""] == true
+end
+
+--- The loc to hand CharacterToken:Move / MarkMovementArrow for a vertical forced move.
+--- The calculators above return ABSOLUTE altitudes, but the engine reads a straight-line
+--- move's loc altitude as height above the ground at the destination. Handing it the
+--- absolute value counted raised ground twice: a pull of 4 from ground 3 went to 10 and
+--- fell 7 (TYXFY9RY). A pick below the ground clamps to it (0 = no vertical part).
+--- Convert only at that hand-off; the picked loc itself stays absolute.
+--- @param loc Loc
+--- @return Loc
+function ActivatedAbility.VerticalForcedMovementEngineLoc(loc)
+    local ground = loc.withGroundAltitude.altitude
+    return loc:WithAltitude(math.max(0, loc.altitude - ground))
+end
+
 --returns a predicate function saying if a target loc passes the filter.
 function ActivatedAbility:TargetLocPassesFilterPredicate(casterToken, symbols)
 
