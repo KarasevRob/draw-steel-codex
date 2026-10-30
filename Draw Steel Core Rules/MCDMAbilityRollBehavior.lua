@@ -1680,6 +1680,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
             --Squad maneuvers: replace the power roll with the rule's deterministic
             --formula. Result = 8 + caster's highest characteristic + the number of
             --squad members within range of the target (counting the caster).
+            --Members that could not pay for the maneuver are not counted.
             if ability:UsesSquadManeuver(casterToken) then
                 local maneuverRange = ability:GetRange(casterToken.properties) or 1
                 local squad = casterToken.properties._tmp_minionSquad
@@ -1687,6 +1688,7 @@ function ActivatedAbilityPowerRollBehavior:Cast(ability, casterToken, targets, o
                 for _,tok in ipairs(squad.tokens or {}) do
                     if tok ~= nil and tok.valid and (not tok.properties:IsDead())
                         and tok.properties:IsActiveInSquad()
+                        and ability:SquadMemberCanPay(casterToken, tok, options)
                         and tok:Distance(target.token) <= maneuverRange then
                         inRangeCount = inRangeCount + 1
                     end

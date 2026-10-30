@@ -3796,6 +3796,92 @@ function ActivatedAbility.SquadMemberParticipates(casterToken, memberToken)
     return selected[memberToken.charid] == true
 end
 
+--- The running cast of this ability by this caster, if the current code is
+--- inside one.
+--- @param casterToken CharacterToken
+--- @return table|nil
+function ActivatedAbility:RunningSquadCast(casterToken)
+    local info = ActivatedAbility.CurrentCastInfo()
+    if info == nil or info.casterToken == nil or info.ability == nil then
+        return nil
+    end
+    if info.casterToken.charid ~= casterToken.charid or info.ability.name ~= self.name then
+        return nil
+    end
+    return info
+end
+
+--- True when a cost includes the action or the maneuver.
+--- @param cost table a cost as GetCost returns it
+--- @return boolean
+local function CostUsesActionOrManeuver(cost)
+    for _,entry in ipairs(cost.details or {}) do
+        for _,payment in ipairs(entry.paymentOptions or {}) do
+            if payment.resourceid == CharacterResource.actionResourceId
+                or payment.resourceid == CharacterResource.maneuverResourceId then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- True when a squad member can still pay for this ability, so it joins the
+--- squad cast. A member that already spent its action this turn sits out.
+--- The lead minion always counts: the normal cast check covers what it can pay.
+--- @param casterToken CharacterToken the minion leading the cast
+--- @param memberToken CharacterToken the squad member being considered
+--- @param castOptions? table the cast's options; found from the running cast when left out
+--- @return boolean
+function ActivatedAbility:SquadMemberCanPay(casterToken, memberToken, castOptions)
+    if casterToken == nil or memberToken == nil or memberToken.properties == nil then
+        return true
+    end
+    if memberToken.charid == casterToken.charid then
+        return true
+    end
+
+    if castOptions == nil then
+        local castInfo = self:RunningSquadCast(casterToken)
+        castOptions = castInfo ~= nil and castInfo.options or nil
+    end
+
+    --Once the cast has paid, every member looks spent. Use the list of
+    --members who could pay, saved just before paying.
+    local joiners = castOptions ~= nil and castOptions.squadJoiners or nil
+    if joiners ~= nil then
+        return joiners[memberToken.charid] == true
+    end
+
+    --Targeting refreshes often, so skip the full cost check for a member
+    --that has used neither its action nor its maneuver.
+    local properties = memberToken.properties
+    if (properties:GetResourceUsage(CharacterResource.actionResourceId, "turn") or 0) == 0
+        and (properties:GetResourceUsage(CharacterResource.maneuverResourceId, "turn") or 0) == 0 then
+        return true
+    end
+
+    --A cast can pay a different cost than the ability lists, such as a
+    --triggered free strike. If that cost needs no action or maneuver, a
+    --member who spent them can still join.
+    local costOverride = castOptions ~= nil and castOptions.costOverride or nil
+    if costOverride ~= nil and not CostUsesActionOrManeuver(costOverride) then
+        return true
+    end
+
+    return self:CanAfford(memberToken)
+end
+
+--- A squad member joins this cast when no invoke left it out and it can
+--- still pay for the ability.
+--- @param casterToken CharacterToken the minion leading the cast
+--- @param memberToken CharacterToken the squad member being considered
+--- @return boolean
+function ActivatedAbility:SquadMemberJoins(casterToken, memberToken)
+    return ActivatedAbility.SquadMemberParticipates(casterToken, memberToken)
+        and self:SquadMemberCanPay(casterToken, memberToken)
+end
+
 --True for squad-coordinated strikes (signature abilities and free strikes). Excludes
 --maneuvers because their target-stacking and target-multiplicity differs.
 function ActivatedAbility:UsesSquadStrike(casterToken)
@@ -3811,6 +3897,29 @@ end
 --function wrapper for Summoner Minion Main Action and Maneuver usage support
 local g_consumeResources_base = ActivatedAbility.ConsumeResources
 function ActivatedAbility:ConsumeResources(casterToken, options)
+    --Note who can pay before anyone does, so later squad counts in this cast
+    --(like the squad maneuver roll) still include them. Some casts pay with
+    --their own options table, so the running cast keeps a copy too.
+    if casterToken ~= nil and casterToken.valid and options.squadJoiners == nil
+        and self:UsesSquadCoordination(casterToken) then
+        local castInfo = self:RunningSquadCast(casterToken)
+        local joiners = castInfo ~= nil and castInfo.options.squadJoiners or nil
+        if joiners == nil then
+            local squad = casterToken.properties:try_get("_tmp_minionSquad")
+            joiners = {}
+            for _,tok in ipairs(squad and squad.tokens or {}) do
+                if tok ~= nil and tok.valid and tok.properties ~= nil
+                    and self:SquadMemberCanPay(casterToken, tok, options) then
+                    joiners[tok.charid] = true
+                end
+            end
+        end
+        options.squadJoiners = joiners
+        if castInfo ~= nil and castInfo.options.squadJoiners == nil then
+            castInfo.options.squadJoiners = joiners
+        end
+    end
+
     g_consumeResources_base(self, casterToken, options)
 
     if casterToken == nil or not casterToken.valid then
@@ -4130,7 +4239,7 @@ function ActivatedAbility:GetTargetingRays(casterToken, range, symbols, targets)
         local squadTokens = {}
         for _, tok in ipairs(squad.tokens) do
             if tok ~= nil and tok.valid and tok.properties:IsActiveInSquad()
-                and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
+                and self:SquadMemberJoins(casterToken, tok) then
                 squadTokens[#squadTokens + 1] = tok
             end
         end
@@ -4554,7 +4663,7 @@ function ActivatedAbility:CustomTargetShape(casterToken, range, symbols, targets
         local squadTokens = {}
         for _, tok in ipairs(squad.tokens) do
             if tok ~= nil and tok.valid and tok.properties:IsActiveInSquad()
-                and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
+                and self:SquadMemberJoins(casterToken, tok) then
                 squadTokens[#squadTokens + 1] = tok
             end
         end
@@ -4660,103 +4769,75 @@ end
 
 local g_numTargetsFunction = ActivatedAbility.GetNumTargets
 
---- Returns nil when no invoke narrowed the squad, so callers keep their
---- existing whole-squad count. Dead and broken-off picks are left out so a
---- stale selection cannot inflate the strike.
+--GetNumTargets re-runs on every targeting recompute, so throttle its diagnostic
+--below to one line per caster/squad/game update instead of flooding the log.
+local g_lastNoSquadAttackerDiag = nil
+
+--- Counts the squad members that join this cast: alive, not skipping their
+--- turn, not broken off for an individual maneuver, able to pay, and, when an
+--- invoke picked only some minions, one of those.
+--- @param ability ActivatedAbility
 --- @param casterToken CharacterToken
 --- @param squad SquadInfo
---- @return number|nil
-local function SelectedSquadMemberCount(casterToken, squad)
-    if casterToken == nil or casterToken.properties == nil then
-        return nil
-    end
-    if casterToken.properties:try_get("_tmp_squadParticipants") == nil then
-        return nil
-    end
-
+--- @return number
+local function JoiningSquadMemberCount(ability, casterToken, squad)
     local count = 0
-    for _, tok in ipairs(squad.tokens or {}) do
-        if tok ~= nil and tok.valid and tok.properties ~= nil
-            and (not tok.properties:IsDead())
-            and tok.properties:IsActiveInSquad()
-            and ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
+    local rejectInvalid, rejectDead, rejectSkipped, rejectInactive = 0, 0, 0, 0
+    local rejectNotSelected, rejectSpent = 0, 0
+    for _, tok in ipairs(squad.tokens) do
+        if tok == nil or not tok.valid or tok.properties == nil then
+            rejectInvalid = rejectInvalid + 1
+        elseif tok.properties:IsDead() then
+            rejectDead = rejectDead + 1
+        elseif tok.properties:IsTurnSkipped(tok) then
+            rejectSkipped = rejectSkipped + 1
+        elseif not tok.properties:IsActiveInSquad() then
+            rejectInactive = rejectInactive + 1
+        elseif not ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
+            rejectNotSelected = rejectNotSelected + 1
+        elseif not ability:SquadMemberCanPay(casterToken, tok) then
+            rejectSpent = rejectSpent + 1
+        else
             count = count + 1
         end
     end
 
-    --Never zero: the lead minion is always one of the selection, and a zero
-    --here would silently cancel the strike's targeting.
     if count < 1 then
+        --An empty squad here strikes as one minion while ConsumeResources still
+        --charges all of them, which on screen looks like a normal solo strike.
+        --Fall back to 1 so the cast works, but log what emptied the squad.
+        local diagKey = string.format("%s/%s/%s", tostring(casterToken.charid),
+            tostring(squad.name), tostring(dmhub.gameupdateid))
+        if g_lastNoSquadAttackerDiag ~= diagKey then
+            g_lastNoSquadAttackerDiag = diagKey
+            print(string.format(
+                "SQUADDIAG:: no squad attackers for %s ability=%s squad=%s tokens=%d invalid=%d dead=%d turnskipped=%d inactive=%d notselected=%d spent=%d; falling back to 1 attacker",
+                tostring(casterToken.name or casterToken.charid),
+                tostring(ability.name),
+                tostring(squad.name),
+                #squad.tokens, rejectInvalid, rejectDead, rejectSkipped, rejectInactive, rejectNotSelected, rejectSpent))
+        end
         count = 1
     end
 
     return count
 end
 
---GetNumTargets re-runs on every targeting recompute, so throttle its diagnostic
---below to one line per caster/squad/game update instead of flooding the log.
-local g_lastNoSquadAttackerDiag = nil
-
 function ActivatedAbility:GetNumTargets(casterToken, symbols)
     local result = g_numTargetsFunction(self, casterToken, symbols) or 0
 
     if (not mod.unloaded) and casterToken ~= nil and result >= 1 and self:UsesSquadStrike(casterToken) then
-        --minion signature abilities and free strikes can target one enemy per active
-        --(non-skipped) squad member, multiplied by the ability's own per-minion
-        --target count. For Maneuver-or-Action squads, also exclude minions that
-        --have already broken off for an individual maneuver this turn.
+        --minion signature abilities and free strikes can target one enemy per
+        --squad member that joins, multiplied by the ability's own per-minion
+        --target count.
         local squad = casterToken.properties._tmp_minionSquad
-        if casterToken.properties:HasManeuverOrActionRule() and squad ~= nil and squad.tokens ~= nil then
-            local count = 0
-            local rejectInvalid, rejectDead, rejectSkipped, rejectInactive = 0, 0, 0, 0
-            local rejectNotSelected = 0
-            for _, tok in ipairs(squad.tokens) do
-                if tok == nil or not tok.valid or tok.properties == nil then
-                    rejectInvalid = rejectInvalid + 1
-                elseif tok.properties:IsDead() then
-                    rejectDead = rejectDead + 1
-                elseif tok.properties:IsTurnSkipped(tok) then
-                    rejectSkipped = rejectSkipped + 1
-                elseif not tok.properties:IsActiveInSquad() then
-                    rejectInactive = rejectInactive + 1
-                elseif not ActivatedAbility.SquadMemberParticipates(casterToken, tok) then
-                    rejectNotSelected = rejectNotSelected + 1
-                else
-                    count = count + 1
-                end
-            end
-
-            if count < 1 then
-                --An empty squad here strikes as one minion while ConsumeResources still
-                --charges all of them, which on screen looks like a normal solo strike.
-                --Fall back to 1 so the cast works, but log what emptied the squad.
-                local diagKey = string.format("%s/%s/%s", tostring(casterToken.charid),
-                    tostring(squad.name), tostring(dmhub.gameupdateid))
-                if g_lastNoSquadAttackerDiag ~= diagKey then
-                    g_lastNoSquadAttackerDiag = diagKey
-                    print(string.format(
-                        "SQUADDIAG:: no squad attackers for %s ability=%s squad=%s tokens=%d invalid=%d dead=%d turnskipped=%d inactive=%d notselected=%d; falling back to 1 attacker",
-                        tostring(casterToken.name or casterToken.charid),
-                        tostring(self.name),
-                        tostring(squad.name),
-                        #squad.tokens, rejectInvalid, rejectDead, rejectSkipped, rejectInactive, rejectNotSelected))
-                end
-                count = 1
-            end
-
-            return count * result
+        if squad == nil then
+            return result
         end
-
-        --Squads without the Maneuver-or-Action rule size the strike off the
-        --squad's own live count, so narrow that the same way when an invoke
-        --selected only some of the minions.
-        local activeCount = (squad.activeMinions or squad.liveMinions) or 1
-        local selectedCount = SelectedSquadMemberCount(casterToken, squad)
-        if selectedCount ~= nil then
-            activeCount = selectedCount
+        if squad.tokens == nil then
+            return ((squad.activeMinions or squad.liveMinions) or 1) * result
         end
-
-        return activeCount * result
+        return JoiningSquadMemberCount(self, casterToken, squad) * result
     end
 
     return result
