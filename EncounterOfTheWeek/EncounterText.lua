@@ -867,6 +867,15 @@ text("montage.boon.immunity_description", [[You have {damage_type} immunity {amo
 --The name shown for the shared "party" voter in a scene the party decides
 --together, when the heroes belong to the whole table rather than to one
 --player.
+text("negotiation.effect_source", [[Negotiation]])
+text("negotiation.reply.positive", [[That's a fair point.]])
+text("negotiation.reply.negative", [[I don't buy that.]])
+text("negotiation.reply.impatient", [[I've heard that before.]])
+text("negotiation.roll.read_name", [[Read Them]])
+text("negotiation.roll.read_attr", [[Reason, Intuition or Presence]])
+text("negotiation.roll.tier1", [[It falls short.]])
+text("negotiation.roll.tier2", [[It lands.]])
+text("negotiation.roll.tier3", [[It lands well.]])
 text("narrative.party_name", [[The party]])
 --Where a scene's effects came from, in a hero's Stamina and resource
 --history. Shown as "Narrative: <the scene's name>". Short.

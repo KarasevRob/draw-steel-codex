@@ -3460,6 +3460,10 @@ dmhub.Coroutine(function()
             local montage = rawget(_G, "EncounterMontage")
             if montage ~= nil then
                 montage.ClientTick()
+                local negotiation = rawget(_G, "EncounterNegotiation")
+                if negotiation ~= nil then
+                    negotiation.ClientTick()
+                end
             end
         end)
         --zones the script revealed: this client's zone overlay shows them.
@@ -5436,6 +5440,13 @@ local function AdvanceFromStageBeat(script, index, montage, narrative)
         pcall(narrative.HostTick, script, nextBeat, index + 1)
         return
     end
+    local negotiation = rawget(_G, "EncounterNegotiation")
+    if nextBeat ~= nil and nextBeat.kind == "negotiation" and negotiation ~= nil then
+        negotiation.Begin(script, nextBeat, index + 1)
+        SetBeatIndex(index + 1)
+        pcall(negotiation.HostTick, script, nextBeat, index + 1)
+        return
+    end
 
     --Not a stage beat: the surface has to go, but NOT here. The encounter
     --beat dismisses it once its monsters are placed, so the spawn happens
@@ -5573,6 +5584,22 @@ local function RunScriptBeat(ctx)
         return
     end
 
+    if beat.kind == "negotiation" then
+        local negotiation = rawget(_G, "EncounterNegotiation")
+        if negotiation == nil then
+            printf("EotW: skipping negotiation beat %d (this client has no negotiation runtime)", index)
+            SetBeatIndex(index + 1)
+            return
+        end
+        EncounterOfTheWeekGame.AnalyticsPhase("negotiation", index, { title = beat.title })
+        local status = negotiation.HostTick(script, beat, index)
+        if status == "done" then
+            printf("EotW: negotiation beat %d complete", index)
+            AdvanceFromStageBeat(script, index, montage, rawget(_G, "EncounterNarrative"))
+        end
+        return
+    end
+
     if beat.kind ~= "encounter" then
         printf("EotW: skipping unknown script beat %d (%s)", index, tostring(beat.title))
         SetBeatIndex(index + 1)
@@ -5686,7 +5713,7 @@ local function SkipToCombatTarget()
         local beats = montage.FindMapScript().parse.beats
         local index = GetBeatIndex()
         local beat = beats[index]
-        if beat == nil or (beat.kind ~= "montage" and beat.kind ~= "narrative") then
+        if beat == nil or (beat.kind ~= "montage" and beat.kind ~= "narrative" and beat.kind ~= "negotiation") then
             return
         end
         for i = index + 1, #beats do
@@ -6050,6 +6077,8 @@ local function OpenOpeningBeatWhenPartyIn()
                     montage.HostTick(script, beat, index)
                 elseif beat.kind == "narrative" and narrative ~= nil then
                     narrative.HostTick(script, beat, index)
+                elseif beat.kind == "negotiation" and rawget(_G, "EncounterNegotiation") ~= nil then
+                    EncounterNegotiation.HostTick(script, beat, index)
                 end
             end)
             if not ok then
@@ -6155,6 +6184,8 @@ local function BeginOpeningMontage()
             montage.Begin(script, beat, 1)
         elseif beat.kind == "narrative" and narrative ~= nil then
             narrative.Begin(script, beat, 1)
+        elseif beat.kind == "negotiation" and rawget(_G, "EncounterNegotiation") ~= nil then
+            EncounterNegotiation.Begin(script, beat, 1)
         end
     end)
     if not ok then
@@ -7359,6 +7390,8 @@ local function TestArrival(pending)
         montage.Begin(script, beat, index)
     elseif beat.kind == "narrative" and narrative ~= nil then
         narrative.Begin(script, beat, index)
+    elseif beat.kind == "negotiation" and rawget(_G, "EncounterNegotiation") ~= nil then
+        EncounterNegotiation.Begin(script, beat, index)
     end
     SetBeatIndex(index)
 

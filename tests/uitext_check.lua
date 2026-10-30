@@ -39,6 +39,7 @@ local DEFAULT_CODE = {
     "EncounterOfTheWeek/EncounterMontageBuilder.lua",
     "EncounterOfTheWeek/EncounterMontageStage.lua",
     "EncounterOfTheWeek/EncounterNarrative.lua",
+    "EncounterOfTheWeek/EncounterNegotiation.lua",
     "EncounterOfTheWeek/EncounterOfTheWeek.lua",
     "EncounterOfTheWeek/EncounterOfTheWeekHud.lua",
     "EncounterOfTheWeek/EncounterPrep.lua",
