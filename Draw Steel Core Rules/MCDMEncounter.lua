@@ -6359,6 +6359,17 @@ function EncounterScript.ResetEncounter(encounter)
             ctx.Log = function(_, text)
                 print(string.format("EncounterScript '%s': %s", name, tostring(text)))
             end
+            --putting the water back is what onReset is for (Rising Waters drains).
+            ctx.SetWaterLevel = function(_, level, options)
+                local setOk, setErr = Encounter.SetWaterLevel(level, options)
+                if not setOk then
+                    print(string.format("EncounterScript '%s': SetWaterLevel: %s", name, tostring(setErr)))
+                end
+                return setOk
+            end
+            ctx.GetWaterLevel = function(_)
+                return Encounter.GetWaterLevel()
+            end
             local ok, err = pcall(def.onReset, ctx)
             if not ok then
                 PrintScriptError(instance, tostring(err))
