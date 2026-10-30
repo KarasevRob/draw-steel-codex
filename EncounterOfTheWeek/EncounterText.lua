@@ -1252,6 +1252,7 @@ text("script.effect.ally", [[{ally} joins the hero]])
 text("script.effect.vanquish", [[the threat is vanquished]])
 --{entry} is the name of a locked opportunity or threat.
 text("script.effect.unlock", [[unlock '{entry}']])
+text("script.effect.uncover", [[uncover {clue}]])
 --{test} is the name of another test of the montage.
 text("script.effect.test_mod.edge", [[edge on '{test}']])
 text("script.effect.test_mod.double_edge", [[double edge on '{test}']])

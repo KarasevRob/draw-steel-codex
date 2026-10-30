@@ -3050,6 +3050,13 @@ function EncounterMontage.ApplyEffects(effects, ctx)
                     printf("EotW montage: '%s' has no montage to unlock in", tostring(effect.text))
                 end
                 applied[#applied + 1] = EncounterScript.DescribeUnlock(effect.name)
+            elseif effect.kind == "uncover" then
+                --read when a negotiation begins (EncounterNegotiation.Begin).
+                if ctx.doc ~= nil then
+                    ctx.doc.data.negotiationClues = ctx.doc.data.negotiationClues or {}
+                    ctx.doc.data.negotiationClues[effect.key] = true
+                end
+                applied[#applied + 1] = EncounterScript.DescribeEffect(effect)
             elseif effect.kind == "testmod" then
                 --"Edge on Capture Them": a standing edge or bane on
                 --another test of this montage, for whoever takes it. Held

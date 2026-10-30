@@ -514,13 +514,14 @@ function EncounterNegotiation.Begin(script, beat, beatIndex)
     local attitude = NegotiationRules.AttitudeById(beat.attitude)
     local heroes = EncounterMontage.Heroes()
     local patience = math.min(NegotiationRules.MAX, attitude.patience + LanguageBonus(beat, heroes))
+    local doc = EncounterNegotiation.GetDoc()
+    local clues = doc.data.negotiationClues or {}
     local learned = {}
     for _, trait in ipairs(beat.traits) do
-        if trait.start == "known" then
+        if trait.start == "known" or (trait.start == "unlock" and clues[EncounterScript.MatchKey(trait.unlock)]) then
             learned[trait.id] = true
         end
     end
-    local doc = EncounterNegotiation.GetDoc()
     doc:BeginChange()
     doc.data.negotiation = {
         beatIndex = beatIndex,
@@ -639,11 +640,11 @@ local m_launchedRollSeq = nil
 --with the argument's skills and the hero's edges.
 function EncounterNegotiation.ClientTick()
     local m = EncounterNegotiation.GetState()
-    local t = m ~= nil and m.turn or nil
-    if t == nil or m.phase ~= "rolling" then
+    if m == nil or m.turn == nil or m.phase ~= "rolling" then
         m_launchedRollSeq = nil
         return
     end
+    local t = m.turn
     if t.noDice or t.userid ~= dmhub.loginUserid or m_launchedRollSeq == t.rollSeq then
         return
     end

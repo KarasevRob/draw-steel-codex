@@ -183,6 +183,16 @@ check(Fresh().patience == 2, "Caelian never counts")
 beat.language = "Zaliac"
 speakers = { brunna = true }
 
+--something uncovered earlier starts learned
+beat.traits[1].start = "unlock"
+beat.traits[1].unlock = "the ledger"
+documents.data = {}
+applied = {}
+documents.data.negotiationClues = { [EncounterScript.MatchKey("The Ledger")] = true }
+N.Begin({}, beat, 1)
+check(N.GetState().learned[beat.traits[1].id] == true, "an uncovered clue starts learned")
+beat.traits[1].start = "hidden"
+
 --an appeal: tier 2 raises interest, costs patience, reveals the motivation
 m = Fresh()
 Argue(CUT, "brunna", 2)

@@ -2574,7 +2574,7 @@ Nobody crosses tonight.
     local cut, writ, drink, oath = b.arguments[1], b.arguments[2], b.arguments[3], b.arguments[4]
     check(cut.kind == "motivation" and cut.traitId == b.traits[1].id, "an argument ties to its motivation")
     check(cut.roll.attr == "Presence (Persuade)" and cut.say ~= "" and cut.lands ~= "" and cut.fallsShort ~= "", "argument fields")
-    check(#cut.riders == 1 and cut.riders[1].effect == "edge", "an edge rider")
+    check(#cut.riders == 2 and cut.riders[1].effect == "edge" and cut.riders[2].renown, "an edge rider, and the Renown edge on Persuade")
     check(writ.kind == "pitfall" and writ.roll == nil and writ.backfires ~= "", "a pitfall argument needs no test")
     check(drink.kind == "neutral" and drink.traitId == nil and drink.backfires ~= "", "a neutral argument")
     check(oath.riders[1].effect == "allow", "a secret argument")
@@ -2602,6 +2602,28 @@ Appeals: Vanity
     check(string.find(text, "'## Offer: Maybe'", 1, true) ~= nil, "an unknown offer warns")
     check(string.find(text, "'## Round 1'", 1, true) ~= nil, "a foreign heading warns")
     check(string.find(text, "Unknown beat", 1, true) == nil, "the heading is a known beat")
+
+    --the Renown rule is an edge rider on arguments of the right kind
+    local famous = EncounterScript.Parse([==[
+# Negotiation: Hask
+
+Impression: 2
+Renown: Famous
+
+## Argument: Charm
+Appeals: Nothing
+|Test: Presence (Flirt)
+
+## Argument: Threaten
+Appeals: Nothing
+|Test: Presence (Intimidate)
+]==])
+    local charm, threaten = famous.beats[1].arguments[1], famous.beats[1].arguments[2]
+    check(#charm.riders == 1 and charm.riders[1].effect == "edge" and charm.riders[1].renown, "famous: an edge on Flirt")
+    check(#threaten.riders == 0, "famous: no edge on Intimidate")
+
+    local uncover = EncounterScript.ParseEffects("You uncover the ledger")[1]
+    check(uncover.kind == "uncover" and uncover.name == "the ledger", "the uncover clause")
 
     check(EncounterScript.NegotiationOfferInterest("Yes but") == 3, "'Yes but' reads as 'Yes, but'")
     check(EncounterScript.NegotiationOfferInterest("No, and...") == 0, "the ellipsis is dropped")

@@ -711,6 +711,13 @@ local function ParseClause(clause)
 
     --"Unlock Interrogate the Goblin": a "(Locked)" entry of this montage
     --joins the board (immediately, or when its round comes round).
+    --"You uncover the ledger": what the party found out before a negotiation.
+    --A trait written "Start: Unlocked by the ledger" starts learned.
+    local uncovered = string.match(clause, "^[Yy]ou uncover%s+(.+)$")
+    if uncovered ~= nil then
+        uncovered = trim(uncovered)
+        return { kind = "uncover", name = uncovered, key = EncounterScript.MatchKey(uncovered), text = clause }
+    end
     local unlockName = EncounterScript.ParseUnlockClause(clause)
     if unlockName ~= nil then
         return { kind = "unlock", name = unlockName, key = EncounterScript.MatchKey(unlockName), text = clause }
@@ -2102,6 +2109,10 @@ EncounterScript.NEGOTIATION_ATTITUDES = {
 }
 EncounterScript.NEGOTIATION_PRONOUNS = { he = true, she = true, they = true, it = true }
 EncounterScript.NEGOTIATION_RENOWN = { unknown = true, famous = true, infamous = true }
+EncounterScript.NEGOTIATION_RENOWN_SKILLS = {
+    famous = { "flirt", "lead", "persuade" },
+    infamous = { "brag", "interrogate", "intimidate" },
+}
 
 function EncounterScript.NewNegotiationBeat(beat, name)
     beat.name = name
@@ -2341,6 +2352,20 @@ function EncounterScript.FinishNegotiation(beat, warn)
         end
         if argument.roll == nil and argument.kind ~= "pitfall" then
             warn(argument.line, "%s", T("author.script.negotiation.no_test", { argument = argument.name }))
+        end
+        --the book's Renown rule, as an ordinary rider: a hero whose Renown
+        --reaches the NPC's Impression has an edge on arguments of the right
+        --kind, even without the skill.
+        local skills = EncounterScript.NEGOTIATION_RENOWN_SKILLS[beat.renown]
+        if skills ~= nil and argument.roll ~= nil then
+            local attr = lower(argument.roll.attr)
+            for _, skill in ipairs(skills) do
+                if string.find(attr, skill, 1, true) ~= nil then
+                    local text = string.format("your Renown is %d or higher", beat.impression)
+                    argument.riders[#argument.riders + 1] = { effect = "edge", text = text, requirement = EncounterScript.ParseRequirement(text), line = argument.line, renown = true }
+                    break
+                end
+            end
         end
     end
 end
@@ -5824,6 +5849,8 @@ function EncounterScript.DescribeEffect(effect)
         return EncounterScript.DescribeRevealZones(effect.zone)
     elseif effect.kind == "unlock" then
         return T("script.effect.unlock", { entry = effect.name })
+    elseif effect.kind == "uncover" then
+        return T("script.effect.uncover", { clue = effect.name })
     elseif effect.kind == "testmod" then
         if effect.effect == "doubleedge" then
             return T("script.effect.test_mod.double_edge", { test = effect.name })
