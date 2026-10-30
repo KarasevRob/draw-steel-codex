@@ -2205,7 +2205,12 @@ function GameHud.CreateActionBar(self, dialog, tokenInfo)
 							local throughCreatures = currentSpell:try_get("forcedMovementThroughCreatures", false)
 							local reboundOptions = token.properties:GetForcedPushOptions()
 							local isVerticalSlidePreview = (currentSymbols.forcedmovement or currentSpell:try_get("forcedMovement")) == "vertical_slide"
-							local movementInfo = token:MarkMovementArrow(loc, {straightline = true, ignorecreatures = (targetingType == "straightpathignorecreatures" or throughCreatures), rebound = reboundOptions.rebound, maxBounces = reboundOptions.maxBounces, slide = isVerticalSlidePreview })
+							--A vertical move's dialed altitude is absolute; the engine wants it above the ground.
+							local previewLoc = loc
+							if ActivatedAbility.IsVerticalForcedMovement(currentSymbols.forcedmovement or currentSpell:try_get("forcedMovement")) then
+								previewLoc = ActivatedAbility.VerticalForcedMovementEngineLoc(loc)
+							end
+							local movementInfo = token:MarkMovementArrow(previewLoc, {straightline = true, ignorecreatures = (targetingType == "straightpathignorecreatures" or throughCreatures), rebound = reboundOptions.rebound, maxBounces = reboundOptions.maxBounces, slide = isVerticalSlidePreview })
 							showingMovementArrow = true
 							clearMovementArrow = false
 
