@@ -2,6 +2,8 @@
 --Drives the negotiation host (EncounterNegotiation.lua) through its requests
 --with stand-ins for the engine, against the real book rules: the pure part of
 --NegotiationRules.lua is lifted out of the file, which cannot load here whole.
+--State always exists where these checks read it, and a nil is a failed test.
+---@diagnostic disable: need-check-nil
 local server = 1000
 local documents = { data = {} }
 function documents:BeginChange() end
@@ -34,8 +36,8 @@ local rulesFile = assert(io.open("Draw Steel V/NegotiationRules.lua", "r"))
 local rulesText = rulesFile:read("a")
 rulesFile:close()
 local from = assert(string.find(rulesText, "NegotiationRules = rawget", 1, true))
-local to = assert(string.find(rulesText, "-- LiveNegotiation: the in-play state", 1, true))
-to = string.find(string.sub(rulesText, 1, to), "\n[^\n]*\n[^\n]*$")
+local marker = assert(string.find(rulesText, "-- LiveNegotiation: the in-play state", 1, true))
+local to = assert(string.find(string.sub(rulesText, 1, marker), "\n[^\n]*\n[^\n]*$"))
 assert(load(string.sub(rulesText, from, to), "NegotiationRules"))()
 
 local passed = 0
