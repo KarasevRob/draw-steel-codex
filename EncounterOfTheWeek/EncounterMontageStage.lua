@@ -6644,7 +6644,7 @@ local function CreateNegotiationStage(args)
         patienceLabel,
     }
 
-    local promptLabel = gui.Label{ classes = {"eotwNarrativePrompt"}, text = "", width = "100%", vmargin = 2 }
+    local promptLabel = gui.Label{ classes = {"eotwNarrativePrompt"}, text = "", width = "100%", vmargin = 2, valign = "top" }
     local cardList = gui.Panel{ width = "100%", height = "auto", flow = "vertical", valign = "top" }
     local readButton = gui.Button{
         width = "100%",
@@ -6739,9 +6739,9 @@ local function CreateNegotiationStage(args)
         dialogBox,
     }
 
-    local clueList = gui.Panel{ width = "100%", height = "auto", flow = "vertical" }
-    local learnedList = gui.Panel{ width = "100%", height = "auto", flow = "vertical" }
-    local logList = gui.Panel{ width = "100%", height = "auto", flow = "vertical" }
+    local clueList = gui.Panel{ width = "100%", height = "auto", flow = "vertical", valign = "top" }
+    local learnedList = gui.Panel{ width = "100%", height = "auto", flow = "vertical", valign = "top" }
+    local logList = gui.Panel{ width = "100%", height = "auto", flow = "vertical", valign = "top" }
     local rightRail = gui.Panel{
         classes = {"eotwTurnPanel"},
         width = NEGOTIATION_SIDE_WIDTH,
@@ -6753,11 +6753,11 @@ local function CreateNegotiationStage(args)
         pad = 12,
         borderBox = true,
         vscroll = true,
-        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.noticed"), width = "100%", vmargin = 2 },
+        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.noticed"), width = "100%", vmargin = 2, valign = "top" },
         clueList,
-        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.learned"), width = "100%", vmargin = 2, tmargin = 10 },
+        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.learned"), width = "100%", vmargin = 2, tmargin = 10, valign = "top" },
         learnedList,
-        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.so_far"), width = "100%", vmargin = 2, tmargin = 10 },
+        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.so_far"), width = "100%", vmargin = 2, tmargin = 10, valign = "top" },
         logList,
     }
 
