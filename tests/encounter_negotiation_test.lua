@@ -91,7 +91,14 @@ EncounterScript.EvaluateRiders = function(riders, facts)
 end
 EncounterNarrative = {
     Voters = function(_, heroes)
-        return { { key = "david", heroids = {} }, { key = "lisa", heroids = {} } }
+        local seen, result = {}, {}
+        for _, hero in ipairs(heroes or HEROES) do
+            if not seen[hero.ownerId] then
+                seen[hero.ownerId] = true
+                result[#result + 1] = { key = hero.ownerId, name = hero.ownerId, heroids = {} }
+            end
+        end
+        return result
     end,
     VoterKeyForUser = function(userid) return userid end,
 }
@@ -322,6 +329,59 @@ Send("lisa", "vote", { choice = "refuse" })
 Send("david", "vote", { choice = "refuse" })
 m = N.GetState()
 check(m.result.outcome == "refused" and #applied == 0, "a refused offer applies nothing")
+
+--a split vote says whose word settled it, on the next screen everyone sees
+m = Fresh()
+Argue(CUT, "brunna", 3)
+PassReply()
+Send("lisa", "takeDeal")
+Send("david", "vote", { choice = "talk" })
+m = N.GetState()
+check(m.phase == "choosing" or m.phase == "done", "a split settles")
+check(m.split ~= nil and (m.split == "lisa" or m.split == "david"), "a split names the player who settled it")
+
+--who a vote is waiting for
+m = Fresh()
+Argue(CUT, "brunna", 3)
+PassReply()
+Send("lisa", "takeDeal")
+local waiting = N.PendingVoters(N.GetState())
+check(#waiting == 1 and waiting[1] == "david", "the vote is waiting for david")
+
+--a player leaves during a vote: the host takes their heroes, and the vote
+--needs nobody else
+HEROES[3].ownerId, HEROES[4].ownerId = "lisa", "lisa"
+server = server + 1
+Tick()
+m = N.GetState()
+check(m.phase == "done" and m.result.outcome == "deal", "a vote settles when its last voter leaves")
+HEROES[3].ownerId, HEROES[4].ownerId = "david", "david"
+
+--a player leaves with the dice out: the roll passes to the hero's new
+--controller, and the leaver's answer no longer counts
+dmhub.GetCharacterById = function(charid)
+    for _, hero in ipairs(HEROES) do
+        if hero.charid == charid then
+            return { ownerId = hero.ownerId }
+        end
+    end
+end
+m = Fresh()
+Send("david", "argue", { argumentId = CUT.id, heroid = "sael" })
+m = N.GetState()
+check(m.phase == "rolling" and m.turn.userid == "david", "david rolls")
+check(N.SyncTurnToOwners({ david = true }) == false, "the roll stays while the hero does")
+HEROES[3].ownerId, HEROES[4].ownerId = "lisa", "lisa"
+check(N.SyncTurnToOwners({}) == false, "a roll out stays with a player who is still here")
+check(N.SyncTurnToOwners({ david = true }) == true, "the roll follows the hero")
+m = N.GetState()
+check(m.turn.userid == "lisa", "lisa rolls it now")
+local rollSeq = m.turn.rollSeq
+Send("david", "rolled", { rollSeq = rollSeq, tier = 3 })
+check(N.GetState().phase == "rolling", "the leaver's roll is ignored")
+Send("lisa", "rolled", { rollSeq = rollSeq, tier = 2 })
+check(N.GetState().phase == "reply", "the new controller's roll resolves it")
+HEROES[3].ownerId, HEROES[4].ownerId = "david", "david"
 
 --interest 0 ends it with the "No, and"
 m = Fresh()

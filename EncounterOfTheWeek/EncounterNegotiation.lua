@@ -259,6 +259,7 @@ local function ResolveArgument(m, beat, argument, hero, tier, total, natural)
     m.spoke = m.spoke or {}
     m.spoke[hero.charid] = (tonumber(m.spoke[hero.charid]) or 0) + 1
     m.canRead = true
+    m.split = nil
 
     m.last = {
         kind = "argue",
@@ -300,6 +301,7 @@ local function ResolveRead(m, beat, hero, tier, total, wants)
     m.spoke = m.spoke or {}
     m.spoke[hero.charid] = (tonumber(m.spoke[hero.charid]) or 0) + 1
     m.canRead = false
+    m.split = nil
     m.last = {
         kind = "read",
         heroName = hero.name,
@@ -377,17 +379,21 @@ end
 local function SettleVote(m, doc, beat, heroes)
     local voters = EncounterNarrative.Voters(nil, heroes)
     local picks = {}
+    local agreed = true
     for _, voter in ipairs(voters) do
         local vote = (m.votes or {})[voter.key]
         if vote == nil then
             return
         end
-        picks[#picks + 1] = vote.choice
+        agreed = agreed and (#picks == 0 or picks[1].choice == vote.choice)
+        picks[#picks + 1] = { choice = vote.choice, name = voter.name }
     end
     if #picks == 0 then
         return
     end
-    local choice = picks[math.random(#picks)]
+    local pick = picks[math.random(#picks)]
+    local choice = pick.choice
+    m.split = cond(agreed, nil, pick.name)
     if choice == "talk" then
         m.phase = "choosing"
         m.votes = nil
@@ -396,6 +402,41 @@ local function SettleVote(m, doc, beat, heroes)
     else
         Finish(m, doc, beat, choice == "deal" and "deal" or "refused")
     end
+end
+
+--The players a vote is still waiting for, as display names.
+function EncounterNegotiation.PendingVoters(m)
+    local pending = {}
+    for _, voter in ipairs(EncounterNarrative.Voters(nil, EncounterMontage.Heroes())) do
+        if (m.votes or {})[voter.key] == nil then
+            pending[#pending + 1] = voter.name
+        end
+    end
+    return pending
+end
+
+--Host only. Heroes changed hands: as EncounterMontage.SyncTurnToOwners, a roll
+--out stays with its roller unless that player is in `away`, and the hero's new
+--controller then rolls it afresh. Returns true when the turn changed.
+function EncounterNegotiation.SyncTurnToOwners(away)
+    away = away or {}
+    local doc = EncounterNegotiation.GetDoc()
+    local m = doc.data.negotiation
+    if type(m) ~= "table" or type(m.turn) ~= "table" or not away[m.turn.userid] then
+        return false
+    end
+    local tok = dmhub.GetCharacterById(m.turn.heroid)
+    local owner = tok ~= nil and tok.ownerId or nil
+    if owner == nil or owner == "PARTY" or owner == m.turn.userid then
+        return false
+    end
+    doc:BeginChange()
+    m = doc.data.negotiation
+    printf("EotW negotiation: %s's roll passes from %s to %s", tostring(m.turn.heroName), tostring(m.turn.userid), owner)
+    m.turn.userid = owner
+    Bump(m)
+    doc:CompleteChange("Negotiation: the roll changes hands", { undoable = false })
+    return true
 end
 
 --- host: requests -------------------------------------------------------------
@@ -560,7 +601,6 @@ local function HandleRequest(m, doc, userid, req, beat, heroes)
         m.votes = m.votes or {}
         m.votes[key] = { choice = choice, userid = userid }
         Bump(m)
-        SettleVote(m, doc, beat, heroes)
         return nil
     end
 
@@ -658,6 +698,12 @@ function EncounterNegotiation.HostTick(script, beat, beatIndex)
                 printf("EotW negotiation: %s", tostring(result))
             end
         end
+    end
+
+    --every tick, not only on a vote: a player who leaves stops being a voter
+    --when the host takes their heroes, and that can complete the vote.
+    if m.phase == "voting" or m.phase == "final" then
+        SettleVote(m, doc, beat, heroes)
     end
 
     --the reply has been read: back to the table, or on to how it ended.

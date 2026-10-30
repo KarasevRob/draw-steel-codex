@@ -6876,21 +6876,34 @@ local function CreateNegotiationStage(args)
         end
         if m.phase == "rolling" and m.turn ~= nil then
             speaker, speech, roll = m.turn.heroName, T("stage.negotiation.rolling"), ""
-        elseif m.phase == "final" then
-            roll = T("stage.negotiation.final_offer")
-        elseif m.phase == "voting" then
-            roll = T("stage.negotiation.voting")
+        elseif m.phase == "final" or m.phase == "voting" then
+            roll = cond(m.phase == "final", T("stage.negotiation.final_offer"), T("stage.negotiation.voting"))
+            local key = EncounterNarrative.VoterKeyForUser(dmhub.loginUserid, EncounterMontage.Heroes())
+            local mine = key ~= nil and (m.votes or {})[key] or nil
+            if mine ~= nil then
+                local said = cond(mine.choice == "deal", T("stage.negotiation.vote_deal"),
+                    cond(mine.choice == "talk", T("stage.negotiation.vote_talk"), T("stage.negotiation.vote_refuse")))
+                roll = T("stage.negotiation.vote_yours", { text = roll, choice = said })
+            end
+            local waiting = EncounterNegotiation.PendingVoters(m)
+            if #waiting > 0 then
+                roll = T("stage.negotiation.vote_waiting", { text = roll, players = table.concat(waiting, ", ") })
+            end
         elseif m.phase == "done" and m.result ~= nil then
             roll = cond(m.result.outcome == "deal", T("stage.negotiation.deal"),
                 cond(m.result.outcome == "refused", T("stage.negotiation.refused"), T("stage.negotiation.no_deal")))
+        end
+        if m.split ~= nil and (m.phase == "choosing" or m.phase == "done") then
+            roll = T("stage.negotiation.split", { player = m.split, text = roll })
         end
         speakerLabel.text = speaker
         speechLabel.text = speech
         rollLabel.text = roll
         rollLabel:SetClass("collapsed", roll == "")
 
-        promptLabel.text = cond(m.phase ~= "choosing", T("stage.negotiation.prompt_wait"),
-            cond(m_selectedHero ~= nil, T("stage.negotiation.prompt_argument"), T("stage.negotiation.prompt_hero")))
+        promptLabel.text = cond(m.phase == "voting" or m.phase == "final", T("stage.negotiation.prompt_vote"),
+            cond(m.phase ~= "choosing", T("stage.negotiation.prompt_wait"),
+                cond(m_selectedHero ~= nil, T("stage.negotiation.prompt_argument"), T("stage.negotiation.prompt_hero"))))
         readButton:SetClass("collapsed", m.phase ~= "choosing" or not m.canRead)
         local mine = {}
         for _, hero in ipairs(EncounterMontage.Heroes()) do

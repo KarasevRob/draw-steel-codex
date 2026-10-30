@@ -6643,7 +6643,9 @@ local function ShowMontageRoll(args)
 
                 cancelRoll = function()
                     Finish()
-                    RetryLaunch()
+                    --not onNotShown: the host has not heard yet, and a launch
+                    --mark cleared now would reopen the roll just cancelled.
+                    m_launchedRollSeq = nil
                     Send(args.cancelKind, { rollSeq = rollSeq })
                 end,
             }
