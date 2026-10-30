@@ -2504,4 +2504,108 @@ Monster AI: be scary
     check(#unknown.warnings > 0 and unknown.beats[1].setup[1].kind == "unknown", "a Monster AI line with no on/off warns")
 end)()
 
+--A negotiation beat: its fields, traits, arguments, riders and offers.
+;(function()
+    local parsed = EncounterScript.Parse([==[
+# Negotiation: Hask, Toll Captain
+
+[[scene]]
+
+Played by: Human Bandit Chief
+Pronouns: he
+Attitude: Suspicious
+Language: Zaliac
+Impression: 2
+Renown: Famous
+Want: Get the party across.
+Opening: Bridge is closed.
+
+## Motivation: Greed
+Clue: He never takes his hand off the strongbox.
+
+## Pitfall: Higher Authority
+Start: Known
+
+## Pitfall: Justice
+Start: Unlocked by the ledger
+
+## Argument: Offer him a cut
+Appeals: Greed
+PC: There is more in this road.
+|Test: Presence (Persuade)
+|Edge: you speak Zaliac
+Lands: Now that is a sound I know.
+Falls short: Show me coin.
+
+## Argument: Show the writ
+Appeals: Higher Authority
+PC: By order of the baron.
+Fails: Mention him again and you can swim.
+
+## Argument: Share a drink
+Appeals: Nothing
+|Test: Presence (Flirt)
+Lands: Ha!
+Falls short: I am working.
+Backfires: Bought with bad wine?
+
+## Argument: Swear on the old road
+Appeals: Greed
+|Allow: you speak Zaliac
+|Test: Intuition (Persuade)
+
+## Offer: Yes, but...
+You may cross, for 20 gold a head.
+|+2 malice
+
+## Offer: No
+Nobody crosses tonight.
+]==])
+    check(#parsed.warnings == 0, "a clean negotiation has no warnings: " .. tostring(parsed.warnings[1]))
+    local b = parsed.beats[1]
+    check(b.kind == "negotiation" and b.name == "Hask, Toll Captain", "the beat and its name")
+    check(b.sceneTag == "scene", "its backdrop")
+    check(b.playedBy == "Human Bandit Chief" and b.pronouns == "he" and b.attitude == "suspicious", "NPC fields")
+    check(b.language == "Zaliac" and b.impression == 2 and b.renown == "famous", "more NPC fields")
+    check(b.want == "Get the party across." and b.opening == "Bridge is closed.", "want and opening")
+    check(#b.traits == 3 and b.traits[1].clue ~= "" and b.traits[1].start == "hidden", "a hidden motivation with a clue")
+    check(b.traits[2].start == "known", "a known pitfall")
+    check(b.traits[3].start == "unlock" and b.traits[3].unlock == "the ledger", "an unlockable pitfall")
+    local cut, writ, drink, oath = b.arguments[1], b.arguments[2], b.arguments[3], b.arguments[4]
+    check(cut.kind == "motivation" and cut.traitId == b.traits[1].id, "an argument ties to its motivation")
+    check(cut.roll.attr == "Presence (Persuade)" and cut.say ~= "" and cut.lands ~= "" and cut.fallsShort ~= "", "argument fields")
+    check(#cut.riders == 1 and cut.riders[1].effect == "edge", "an edge rider")
+    check(writ.kind == "pitfall" and writ.roll == nil and writ.backfires ~= "", "a pitfall argument needs no test")
+    check(drink.kind == "neutral" and drink.traitId == nil and drink.backfires ~= "", "a neutral argument")
+    check(oath.riders[1].effect == "allow", "a secret argument")
+    check(b.offers[4].text ~= "" and #b.offers[4].effects == 1 and b.offers[4].effects[1].kind == "malice", "an offer and its rules")
+    check(b.offers[2].text == "Nobody crosses tonight." and b.offers[1] == nil, "offers sit at interest + 1")
+
+    local bad = EncounterScript.Parse([==[
+# Negotiation: Hask
+
+Attitude: Grumpy
+Nonsense: here
+
+## Argument: One
+Appeals: Vanity
+
+## Offer: Maybe
+
+## Round 1
+]==])
+    local text = table.concat(bad.warnings, "\n")
+    check(string.find(text, "attitude 'Grumpy'", 1, true) ~= nil, "a bad attitude warns")
+    check(bad.beats[1].attitude == "suspicious", "and the default stands")
+    check(string.find(text, "'Vanity'", 1, true) ~= nil and bad.beats[1].arguments[1].kind == "neutral", "an unknown appeal warns and is neutral")
+    check(string.find(text, "no test line", 1, true) ~= nil, "a missing test warns")
+    check(string.find(text, "'## Offer: Maybe'", 1, true) ~= nil, "an unknown offer warns")
+    check(string.find(text, "'## Round 1'", 1, true) ~= nil, "a foreign heading warns")
+    check(string.find(text, "Unknown beat", 1, true) == nil, "the heading is a known beat")
+
+    check(EncounterScript.NegotiationOfferInterest("Yes but") == 3, "'Yes but' reads as 'Yes, but'")
+    check(EncounterScript.NegotiationOfferInterest("No, and...") == 0, "the ellipsis is dropped")
+    check(EncounterScript.NegotiationOfferInterest("Perhaps") == nil, "an unknown offer")
+end)()
+
 print(string.format("encounter_script_test: %d checks passed", passed))

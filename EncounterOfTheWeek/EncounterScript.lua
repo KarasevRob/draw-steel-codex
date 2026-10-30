@@ -2092,6 +2092,259 @@ function EncounterScript.ParseEffectSpans(text)
     return result
 end
 
+--A "# Negotiation: <Name>" beat. Heroes pick authored arguments, each secretly
+--tagged to a motivation, a pitfall or nothing, and NegotiationRules resolves
+--them. Everything here is pure: the runtime lives in EncounterNegotiation.
+--The six offers, indexed by interest + 1 like NegotiationRules.offerLabels.
+EncounterScript.NEGOTIATION_OFFERS = { "no, and", "no", "no, but", "yes, but", "yes", "yes, and" }
+EncounterScript.NEGOTIATION_ATTITUDES = {
+    hostile = true, suspicious = true, neutral = true, open = true, friendly = true, trusting = true,
+}
+EncounterScript.NEGOTIATION_PRONOUNS = { he = true, she = true, they = true, it = true }
+EncounterScript.NEGOTIATION_RENOWN = { unknown = true, famous = true, infamous = true }
+
+function EncounterScript.NewNegotiationBeat(beat, name)
+    beat.name = name
+    beat.intro = ""
+    beat.playedBy = ""
+    beat.pronouns = "they"
+    beat.attitude = "suspicious"
+    beat.language = ""
+    beat.impression = 1
+    beat.renown = "unknown"
+    beat.want = ""
+    beat.opening = ""
+    beat.traits = {}
+    beat.arguments = {}
+    beat.offers = {}
+end
+
+--Interest (0..5) of an "## Offer:" heading, or nil. "Yes, but...", "Yes but"
+--and "yes, but" are the same offer.
+function EncounterScript.NegotiationOfferInterest(title)
+    local key = lower(trim(string.gsub(title, "%.+%s*$", "")))
+    key = string.gsub(key, "%s+", " ")
+    key = string.gsub(key, "(%a) but$", "%1, but")
+    key = string.gsub(key, "(%a) and$", "%1, and")
+    for i, name in ipairs(EncounterScript.NEGOTIATION_OFFERS) do
+        if name == key then
+            return i - 1
+        end
+    end
+    return nil
+end
+
+--A "## ..." heading in a negotiation. Returns what the lines below it belong
+--to, or nil for the beat itself.
+function EncounterScript.StartNegotiationSection(beat, title, line, warn)
+    local kind, name = string.match(title, "^([%a]+):%s*(.+)$")
+    kind = kind ~= nil and lower(kind) or nil
+    name = name ~= nil and trim(name) or nil
+    if kind == "motivation" or kind == "pitfall" then
+        local trait = { kind = kind, name = name, line = line, clue = "", start = "hidden",
+            id = string.format("t%d-%s", #beat.traits + 1, Slug(name)) }
+        beat.traits[#beat.traits + 1] = trait
+        return trait
+    elseif kind == "argument" then
+        local argument = { name = name, line = line, kind = "neutral", say = "", lands = "", fallsShort = "",
+            backfires = "", riders = {}, id = string.format("a%d-%s", #beat.arguments + 1, Slug(name)) }
+        beat.arguments[#beat.arguments + 1] = argument
+        return argument
+    elseif kind == "offer" then
+        local interest = EncounterScript.NegotiationOfferInterest(name)
+        if interest == nil then
+            warn(line, "%s", T("author.script.negotiation.unknown_offer", { offer = name }))
+            return nil
+        end
+        local offer = { interest = interest, name = name, line = line, text = "", effects = {} }
+        if beat.offers[interest + 1] ~= nil then
+            warn(line, "%s", T("author.script.negotiation.second_offer", { offer = name }))
+        else
+            beat.offers[interest + 1] = offer
+        end
+        return offer
+    end
+    warn(line, "%s", T("author.script.negotiation.unknown_section", { title = title }))
+    return nil
+end
+
+local function ReadNegotiationBeatField(beat, label, rest, line, warn)
+    if label == "played by" then
+        beat.playedBy = rest
+    elseif label == "pronouns" then
+        if EncounterScript.NEGOTIATION_PRONOUNS[lower(rest)] then
+            beat.pronouns = lower(rest)
+        else
+            warn(line, "%s", T("author.script.negotiation.bad_pronouns", { value = rest }))
+        end
+    elseif label == "attitude" then
+        if EncounterScript.NEGOTIATION_ATTITUDES[lower(rest)] then
+            beat.attitude = lower(rest)
+        else
+            warn(line, "%s", T("author.script.negotiation.bad_attitude", { value = rest }))
+        end
+    elseif label == "language" then
+        beat.language = rest
+    elseif label == "impression" then
+        local n = tonumber(rest)
+        if n ~= nil and n >= 1 and n == math.floor(n) then
+            beat.impression = n
+        else
+            warn(line, "%s", T("author.script.negotiation.bad_impression", { value = rest }))
+        end
+    elseif label == "renown" then
+        if EncounterScript.NEGOTIATION_RENOWN[lower(rest)] then
+            beat.renown = lower(rest)
+        else
+            warn(line, "%s", T("author.script.negotiation.bad_renown", { value = rest }))
+        end
+    elseif label == "want" then
+        beat.want = rest
+    elseif label == "opening" then
+        beat.opening = rest
+    else
+        return false
+    end
+    return true
+end
+
+local function ReadNegotiationTraitField(trait, label, rest, line, warn)
+    if label == "clue" then
+        trait.clue = rest
+    elseif label == "start" then
+        local unlock = string.match(rest, "^[Uu]nlocked by%s+(.+)$")
+        if lower(rest) == "hidden" or lower(rest) == "known" then
+            trait.start = lower(rest)
+        elseif unlock ~= nil then
+            trait.start = "unlock"
+            trait.unlock = trim(unlock)
+        else
+            warn(line, "%s", T("author.script.negotiation.bad_start", { value = rest }))
+        end
+    else
+        return false
+    end
+    return true
+end
+
+local function ReadNegotiationArgumentField(argument, label, rest)
+    if label == "appeals" then
+        argument.appeals = rest
+    elseif label == "pc" then
+        argument.say = rest
+    elseif label == "lands" then
+        argument.lands = rest
+    elseif label == "falls short" then
+        argument.fallsShort = rest
+    elseif label == "backfires" or label == "fails" then
+        argument.backfires = rest
+    else
+        return false
+    end
+    return true
+end
+
+--One paragraph of a negotiation. `target` is what StartNegotiationSection
+--returned, or nil above the first "##".
+function EncounterScript.ReadNegotiationParagraph(beat, target, text, firstLine, warn)
+    local index = firstLine - 1
+    for _, raw in ipairs(EncounterScript.SplitLines(text)) do
+        index = index + 1
+        local l = trim(raw)
+        local label, rest = string.match(l, "^([%a][%a ]*):%s*(.*)$")
+        local key = label ~= nil and lower(trim(label)) or nil
+        local read = false
+        if target == nil then
+            read = key ~= nil and ReadNegotiationBeatField(beat, key, trim(rest), index, warn)
+            if not read and l ~= "" then
+                beat.intro = cond(beat.intro == "", l, beat.intro .. "\n" .. l)
+                read = true
+            end
+        elseif target.interest ~= nil then
+            target.text = cond(target.text == "", l, target.text .. "\n" .. l)
+            read = true
+        elseif target.kind == "motivation" or target.kind == "pitfall" then
+            read = key ~= nil and ReadNegotiationTraitField(target, key, trim(rest), index, warn)
+        else
+            read = key ~= nil and ReadNegotiationArgumentField(target, key, trim(rest))
+        end
+        if not read and l ~= "" then
+            warn(index, "%s", T("author.script.negotiation.unknown_line", { line = l }))
+        end
+    end
+end
+
+--A "|" line of a negotiation: an argument's test and riders, an offer's rules.
+function EncounterScript.ReadNegotiationRuleLine(target, line, index, warn)
+    local body = trim(string.gsub(string.match(line, "^|(.*)$") or "", "|%s*$", ""))
+    if target ~= nil and target.interest ~= nil then
+        if body ~= "" then
+            for _, effect in ipairs(EncounterScript.ParseEffects(body)) do
+                if effect.unrecognized then
+                    warn(index, "unrecognized effect '%s' (shown as text only)", effect.text)
+                end
+                target.effects[#target.effects + 1] = effect
+            end
+        end
+        return
+    end
+    if target == nil or target.riders == nil then
+        warn(index, "%s", T("author.script.negotiation.rule_outside_argument", { rule = body }))
+        return
+    end
+    local effect, requirementText, round = EncounterScript.ParseRiderLine(trim(line))
+    if effect ~= nil then
+        if requirementText == "" then
+            warn(index, "%s", T("author.script.rider_no_requirement", { rider = trim(line) }))
+            return
+        end
+        local requirement = EncounterScript.ParseRequirement(requirementText)
+        for _, problem in ipairs(EncounterScript.RequirementProblems(requirement)) do
+            warn(index, "%s", problem)
+        end
+        target.riders[#target.riders + 1] = { effect = effect, text = requirementText, requirement = requirement, round = round, line = index }
+        return
+    end
+    local name, attr = string.match(body, "^([^|:]+):%s*([^|]+)$")
+    if name ~= nil and EncounterScript.IsRollHeaderAttr(attr) then
+        target.roll = { name = trim(name), attr = trim(attr), line = index }
+        return
+    end
+    warn(index, "%s", T("author.script.negotiation.bad_rule", { rule = body }))
+end
+
+--Ties each argument to its trait, once the whole beat has been read. A pitfall
+--argument needs no test: the rules fail it whatever is rolled.
+function EncounterScript.FinishNegotiation(beat, warn)
+    if beat.name == "" then
+        warn(beat.line, "%s", T("author.script.negotiation.no_name"))
+    end
+    if #beat.arguments == 0 then
+        warn(beat.line, "%s", T("author.script.negotiation.no_arguments", { npc = beat.name }))
+    end
+    local byKey = {}
+    for _, trait in ipairs(beat.traits) do
+        byKey[EncounterScript.MatchKey(trait.name)] = trait
+    end
+    for _, argument in ipairs(beat.arguments) do
+        local appeals = argument.appeals
+        if appeals == nil or appeals == "" then
+            warn(argument.line, "%s", T("author.script.negotiation.no_appeals", { argument = argument.name }))
+        elseif lower(appeals) ~= "nothing" and lower(appeals) ~= "neutral" then
+            local trait = byKey[EncounterScript.MatchKey(appeals)]
+            if trait == nil then
+                warn(argument.line, "%s", T("author.script.negotiation.unknown_appeals", { argument = argument.name, appeals = appeals }))
+            else
+                argument.kind = trait.kind
+                argument.traitId = trait.id
+            end
+        end
+        if argument.roll == nil and argument.kind ~= "pitfall" then
+            warn(argument.line, "%s", T("author.script.negotiation.no_test", { argument = argument.name }))
+        end
+    end
+end
+
 --Parse a tier line (or a Consequence: line) into its effects.
 function EncounterScript.ParseEffects(text)
     local result = {}
@@ -3582,6 +3835,10 @@ function EncounterScript.Parse(text)
             beat.text = cond(beat.text == "", text, beat.text .. "\n\n" .. text)
             return
         end
+        if beat.kind == "negotiation" then
+            EncounterScript.ReadNegotiationParagraph(beat, section, text, spanFirst, Warn)
+            return
+        end
         if beat.kind == "narrative" then
             --"Unlock: Intelligence" turns on an optional feature of the game
             --mode. It is a line of the beat, not of an option -- the feature
@@ -3879,17 +4136,20 @@ function EncounterScript.Parse(text)
             local title = trim(h1)
             local kind = lower(title)
             local delveName = string.match(title, "^[Dd]elve:%s*(.+)$")
+            local negotiationName = string.match(title, "^[Nn]egotiation:%s*(.+)$")
             local storyKey = EncounterScript.STORY_SECTIONS[kind]
             local partNumber, partTitle = EncounterScript.ParsePartHeading(title)
             if delveName ~= nil then
                 kind = "delve"
+            elseif negotiationName ~= nil then
+                kind = "negotiation"
             elseif storyKey ~= nil then
                 kind = "story"
             elseif partNumber ~= nil then
                 kind = "part"
             elseif kind == "results" then
                 kind = "results"
-            elseif kind ~= "montage" and kind ~= "encounter" and kind ~= "narrative" then
+            elseif kind ~= "montage" and kind ~= "encounter" and kind ~= "narrative" and kind ~= "negotiation" then
                 Warn(i, "%s", T("author.script.unknown_beat", { title = title }))
                 kind = "unknown"
             end
@@ -3903,6 +4163,8 @@ function EncounterScript.Parse(text)
             elseif kind == "encounter" then
                 beat.setup = {}
                 beat.reinforcements = {}
+            elseif kind == "negotiation" then
+                EncounterScript.NewNegotiationBeat(beat, negotiationName ~= nil and trim(negotiationName) or "")
             end
             if kind == "delve" then
                 beat.name = trim(delveName)
@@ -3955,7 +4217,9 @@ function EncounterScript.Parse(text)
             FlushParagraph()
             sceneTarget = nil
             local title = trim(h2)
-            if beat ~= nil and beat.kind == "narrative" then
+            if beat ~= nil and beat.kind == "negotiation" then
+                section = EncounterScript.StartNegotiationSection(beat, title, i, Warn)
+            elseif beat ~= nil and beat.kind == "narrative" then
                 section = {
                     name = title,
                     line = i,
@@ -4109,7 +4373,9 @@ function EncounterScript.Parse(text)
             DropPendingGate()
             sceneTarget = nil
             local title = trim(h3)
-            if beat ~= nil and beat.kind == "narrative" then
+            if beat ~= nil and beat.kind == "negotiation" then
+                Warn(i, "%s", T("author.script.negotiation.option_heading", { title = title }))
+            elseif beat ~= nil and beat.kind == "narrative" then
                 if section == nil then
                     Warn(i, "%s", T("author.script.narrative.option_outside_section", { title = title }))
                 else
@@ -4155,7 +4421,7 @@ function EncounterScript.Parse(text)
                 --sceneLine says WHICH [[scene]] this is: its annotation lives
                 --on the document the line came from (see ExpandIncludes),
                 --keyed by how many of the same tag precede it there.
-                if (beat.kind == "montage" or beat.kind == "story") and tagName == "scene" and beat.sceneTag == nil then
+                if (beat.kind == "montage" or beat.kind == "story" or beat.kind == "negotiation") and tagName == "scene" and beat.sceneTag == nil then
                     beat.sceneTag = tagText
                     beat.sceneLine = i
                 end
@@ -4205,6 +4471,9 @@ function EncounterScript.Parse(text)
                     beat.encounterLine = i
                 end
             end
+        elseif string.match(line, "^|") and beat ~= nil and beat.kind == "negotiation" then
+            FlushParagraph()
+            EncounterScript.ReadNegotiationRuleLine(section, line, i, Warn)
         elseif string.match(line, "^|") and beat ~= nil and beat.kind == "narrative" then
             --a narrative option's rules text: one "|clause. clause" line per
             --line, the same clause grammar a montage tier line uses.
@@ -4617,6 +4886,8 @@ function EncounterScript.Parse(text)
                     Warn(e.line, "%s", T("author.script.montage.locked_never_unlocked", { kind = e.kind, entry = e.name }))
                 end
             end
+        elseif b.kind == "negotiation" then
+            EncounterScript.FinishNegotiation(b, Warn)
         elseif b.kind == "narrative" then
             if #b.sections == 0 then
                 Warn(b.line, "%s", T("author.script.narrative.no_sections"))
