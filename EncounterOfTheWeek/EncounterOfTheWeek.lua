@@ -2790,6 +2790,30 @@ local function OutcomeStory(outcome)
     return copy, script
 end
 
+--This client has seen an awarded outcome on the live queue: note it for the
+--conclusion watcher below, and once the Victory has landed, for the town.
+--Also called by the host just before it tears combat down for a relayed
+--Proceed, since that can happen before the 1s watcher ever sees the outcome
+--(8KRBSRC2: the host was then never sent home).
+function Series.NoteOutcome(live, outcome)
+    local awarded = false
+    pcall(function() awarded = live:try_get("victoriesAwarded", false) == true end)
+    if outcome ~= nil and not m_outcomeSeen then
+        m_outcomeSeen = true
+        m_outcomeKind = outcome
+        if outcome == "victory" then
+            OfferAbsentOutcomes(outcome)
+        end
+    end
+    --the Victory has landed: note it for the town now, not only on the
+    --way out, so a crash on the victory screen does not lose it. A
+    --defeat waits for the way out: a hero's Recovery on Death prompt can
+    --still be open under the defeat screen, and must not bury them.
+    if outcome == "victory" and awarded and not EncounterOfTheWeekGame.IsTestPlayer() then
+        RecordPendingOutcomes(outcome)
+    end
+end
+
 --Watch the encounter conclude: once this client has seen the victory/defeat
 --screen (an awarded outcome on the live queue), the local user has pressed
 --Proceed, and the queue has hidden (combat torn down), leave for the
@@ -2808,28 +2832,12 @@ local function UpdateEncounterConclusion()
 
     local queue = dmhub.initiativeQueue
     if queue ~= nil and not queue.hidden then
-        local outcome, awarded = nil, false
         pcall(function()
             local live = queue:try_get("liveEncounter")
             if type(live) == "table" then
-                outcome = live:GetAwardedOutcome()
-                awarded = live:try_get("victoriesAwarded", false) == true
+                Series.NoteOutcome(live, live:GetAwardedOutcome())
             end
         end)
-        if outcome ~= nil and not m_outcomeSeen then
-            m_outcomeSeen = true
-            m_outcomeKind = outcome
-            if outcome == "victory" then
-                OfferAbsentOutcomes(outcome)
-            end
-        end
-        --the Victory has landed: note it for the town now, not only on the
-        --way out, so a crash on the victory screen does not lose it. A
-        --defeat waits for the way out: a hero's Recovery on Death prompt can
-        --still be open under the defeat screen, and must not bury them.
-        if outcome == "victory" and awarded and not testing then
-            RecordPendingOutcomes(outcome)
-        end
         return
     end
 
@@ -5194,11 +5202,27 @@ local function CheckEncounterOutcome(queue)
         --full Director teardown on their behalf -- after the Victory award,
         --which must never be skipped by a quick Proceed.
         local doc = mod:GetDocumentSnapshot(STATE_DOC_ID)
-        if outcome == "victory" then
-            AutoAwardVictories(live, doc.data.proceedRequested ~= nil)
+        local requested = doc.data.proceedRequested
+        --a stamp from before this outcome was first met belongs to an earlier
+        --screen (a lagging client's late press on the last series part's
+        --victory, 8KRBSRC2); acting on it would end this fight unseen. Drop it.
+        --m_outcomeMetTime is nil after a host reload: trust the stamp then.
+        if type(requested) == "number" and m_outcomeMetTime ~= nil and requested < m_outcomeMetTime then
+            printf("EotW: ignoring a stale Proceed request (%.1fs before this outcome)", m_outcomeMetTime - requested)
+            doc:BeginChange()
+            doc.data.proceedRequested = nil
+            doc:CompleteChange("Encounter of the Week: stale proceed dropped", {undoable = false})
+            requested = nil
         end
-        if doc.data.proceedRequested ~= nil then
+        if outcome == "victory" then
+            AutoAwardVictories(live, requested ~= nil)
+        end
+        if requested ~= nil then
             printf("EotW: a player pressed Proceed; ending the encounter")
+            --the teardown below can come before this client's 1s conclusion
+            --watcher has seen the outcome; note it now, or the host is never
+            --sent home.
+            pcall(function() Series.NoteOutcome(live, outcome) end)
             pcall(function() DSVictoryScreen.ProceedEndCombat() end)
             doc:BeginChange()
             doc.data.proceedRequested = nil
