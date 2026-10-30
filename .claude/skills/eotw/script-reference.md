@@ -561,6 +561,10 @@ You may cross, for 20 gold a head.
   interest 3 about 1 time in 5 when the party knows nothing, and about 4 in 5 when
   it knows two of each and reads them. Give every motivation a clue, and let
   earlier beats uncover something.
+- **The builder:** Game > Encounter Builder has "+ Negotiation" and a form for
+  all of the above, with stock arguments and "Test this negotiation" (a rehearsal:
+  its deal applies nothing). The validator also checks that every `Unlocked by`
+  label has a `You uncover` somewhere in the script.
 - **Testing:** `/eotwnegotiation preview` plays a built-in scene on the real
   stage, and `endpreview` closes it.
 

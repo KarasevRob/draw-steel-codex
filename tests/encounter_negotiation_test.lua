@@ -383,6 +383,18 @@ Send("lisa", "rolled", { rollSeq = rollSeq, tier = 2 })
 check(N.GetState().phase == "reply", "the new controller's roll resolves it")
 HEROES[3].ownerId, HEROES[4].ownerId = "david", "david"
 
+--a rehearsal plays the same, and its deal applies nothing
+documents.data = {}
+applied = {}
+N.Begin({}, beat, 1, true)
+Tick()
+Argue(CUT, "brunna", 3)
+PassReply()
+Send("lisa", "takeDeal")
+Send("david", "vote", { choice = "deal" })
+m = N.GetState()
+check(m.result.outcome == "deal" and #applied == 0, "a rehearsed deal applies nothing")
+
 --interest 0 ends it with the "No, and"
 m = Fresh()
 Argue(THEFT, "brunna")

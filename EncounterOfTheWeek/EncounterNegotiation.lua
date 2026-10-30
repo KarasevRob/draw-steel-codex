@@ -336,7 +336,7 @@ local function Finish(m, doc, beat, outcome)
     local anchor = heroes[1]
     local offer = beat.offers[m.interest + 1]
     local applied = {}
-    if outcome ~= "refused" and offer ~= nil then
+    if outcome ~= "refused" and offer ~= nil and not m.rehearsal then
         local newAllies = nil
         applied, newAllies = EncounterMontage.ApplyEffects(PartyScoped(offer.effects), {
             heroEntry = anchor,
@@ -610,8 +610,9 @@ end
 --- host: the beat -------------------------------------------------------------
 
 --Seed the state for a negotiation beat. The beat opens in "arriving": nobody
---can act until the host tick, which runs once every player is in.
-function EncounterNegotiation.Begin(script, beat, beatIndex)
+--can act until the host tick, which runs once every player is in. A rehearsal
+--plays the same but its deal applies nothing.
+function EncounterNegotiation.Begin(script, beat, beatIndex, rehearsal)
     local attitude = NegotiationRules.AttitudeById(beat.attitude)
     local heroes = EncounterMontage.Heroes()
     local patience = math.min(NegotiationRules.MAX, attitude.patience + LanguageBonus(beat, heroes))
@@ -627,6 +628,7 @@ function EncounterNegotiation.Begin(script, beat, beatIndex)
     doc.data.negotiation = {
         beatIndex = beatIndex,
         phase = "arriving",
+        rehearsal = rehearsal,
         interest = attitude.interest,
         patience = patience,
         startPatience = attitude.patience,
@@ -946,16 +948,19 @@ function EncounterNegotiation.PreviewBeat()
     return m_previewBeat
 end
 
-function EncounterNegotiation.StartPreview()
-    local parsed = EncounterScript.Parse(PREVIEW_SCRIPT)
-    if #parsed.warnings > 0 then
-        printf("EotW negotiation: preview script: %s", tostring(parsed.warnings[1]))
+--`beat` plays that beat instead: the builder's "Test this negotiation".
+function EncounterNegotiation.StartPreview(beat)
+    if beat == nil then
+        local parsed = EncounterScript.Parse(PREVIEW_SCRIPT)
+        if #parsed.warnings > 0 then
+            printf("EotW negotiation: preview script: %s", tostring(parsed.warnings[1]))
+        end
+        beat = parsed.beats[1]
     end
-    local beat = parsed.beats[1]
     m_previewBeat = beat
     local driver = { running = true }
     m_devDriver = driver
-    EncounterNegotiation.Begin(nil, beat, 1)
+    EncounterNegotiation.Begin(nil, beat, 1, true)
     dmhub.Coroutine(function()
         while driver.running and not mod.unloaded and m_previewBeat == beat do
             local ok, status = pcall(EncounterNegotiation.HostTick, nil, beat, 1)

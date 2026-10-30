@@ -5934,7 +5934,7 @@ safe-zone tile (elevated `token:Move`, freeMovement); a hostage on a
 safe-zone tile is rescued. Victory: every living hostage rescued; defeat:
 every hostage dead.
 
-## Negotiation beats (BUILT 2026-10-30; one player only so far)
+## Negotiation beats (BUILT 2026-10-30; two players tested)
 
 User direction 2026-10-30 (Lisa, with David): a negotiation that plays with no
 Director, as a montage does, to fix the empty feeling of the journal stage. The
@@ -5957,6 +5957,18 @@ the grammar is in `.claude/skills/eotw/script-reference.md`.
 
 **Dev limit:** after `reload_lua`, the stage does not mount until a full app
 start. Cause not found; not known whether it is specific to negotiation.
+
+**The builder** is `S.NegotiationEditor` in `EncounterScriptBuilder.lua`, in the
+Encounter Builder's script view: one scrolling form (the NPC, traits, arguments,
+offers) rather than the mockup's list and detail panes, like the narrative editor.
+The parser records `fieldLines` on the beat, traits and arguments, and `textLines`
+and `ruleLines` on offers; `EncounterScriptEdit` has the writers. The test and
+knack rows are the montage builder's, as `ctx.AttrEditor` and `ctx.RiderRows`.
+"Test this negotiation" is `EncounterNegotiation.StartPreview(beat)`, a rehearsal:
+`m.rehearsal` makes `Finish` apply nothing. Not built: the mockup's quick odds,
+and knack coverage does not count negotiation arguments yet. To try the builder
+in a Director-less game, use a `--director` window on a throwaway document not
+filed under the map.
 
 ## Narrative beats
 

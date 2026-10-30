@@ -304,7 +304,7 @@ local function Report(parse)
                 counts.options = counts.options + 1
                 Row(1, "note", "%s", T("author.validator.negotiation.argument", { argument = argument.name, kind = argument.kind }))
             end
-            for _, problem in ipairs(EncounterScript.NegotiationProblems(beat)) do
+            for _, problem in ipairs(EncounterScript.NegotiationProblems(beat, parse)) do
                 Problem("%s", T("author.validator.negotiation.problem", { npc = beat.name, problem = problem }))
             end
             local found = beat.playedBy ~= "" and EncounterMontage.FindMonster(beat.playedBy) or nil
