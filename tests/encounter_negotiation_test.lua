@@ -65,6 +65,8 @@ EncounterMontage = {
         return effects, {}
     end,
     RecordAlly = function() end,
+    IsPresented = function() return true end,
+    Present = function() end,
 }
 EncounterScript.RequirementMet = function(_, facts) return speakers[facts.charid] == true end
 EncounterScript.EvaluateRiders = function(riders, facts)

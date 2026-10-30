@@ -63,6 +63,10 @@ function EncounterNegotiation.GetState()
 end
 
 function EncounterNegotiation.CurrentBeat()
+    local preview = EncounterNegotiation.PreviewBeat()
+    if preview ~= nil then
+        return preview, nil
+    end
     local m = EncounterNegotiation.GetState()
     if m == nil then
         return nil, nil
@@ -538,6 +542,7 @@ function EncounterNegotiation.Begin(script, beat, beatIndex)
     doc.data.stageDismissAt = nil
     doc:CompleteChange("Negotiation started", { undoable = false })
     printf("EotW negotiation: beat %d started with %s (interest %d, patience %d)", beatIndex, tostring(beat.name), attitude.interest, patience)
+    EncounterMontage.Present(beatIndex)
 end
 
 --Run the negotiation beat from the host tick. Returns "running" while it plays
@@ -548,6 +553,10 @@ function EncounterNegotiation.HostTick(script, beat, beatIndex)
     if type(m) ~= "table" or m.beatIndex ~= beatIndex then
         EncounterNegotiation.Begin(script, beat, beatIndex)
         return "running"
+    end
+
+    if not EncounterMontage.IsPresented() then
+        EncounterMontage.Present(beatIndex)
     end
 
     local heroes = EncounterMontage.Heroes()
@@ -730,6 +739,144 @@ function EncounterNegotiation.StopDevDriver()
     m_devDriver = nil
 end
 
+--- preview ---------------------------------------------------------------------
+
+--"/eotwnegotiation preview" plays this scene on the real stage with no journal
+--document, over whatever the map's script is doing.
+local PREVIEW_SCRIPT = [==[
+# Negotiation: Hask
+
+Played by: Bandit Chief
+Pronouns: he
+Attitude: Suspicious
+Language: Zaliac
+Want: Get the party across before the Golden Hand arrives.
+Opening: Bridge is closed. Toll is what I say it is. You have got until I lose interest, so talk.
+
+## Motivation: Greed
+Clue: He never takes his hand off the strongbox.
+
+## Motivation: Protection
+Clue: Two fresh graves by the bridgehead. He looks at them often.
+
+## Pitfall: Higher Authority
+Clue: Hask answers to no one. Lord or baron, he does not care.
+Start: Known
+
+## Pitfall: Justice
+
+## Argument: Offer him a cut of what the road earns
+Appeals: Greed
+PC: There is more in this road than you are collecting.
+|Test: Presence (Persuade)
+|Edge: you speak Zaliac
+Lands: Now that is a sound I know. Say it again, slower.
+Falls short: A share of what? Show me coin, not promises.
+
+## Argument: Promise to drive the Golden Hand off his road
+Appeals: Protection
+PC: They took two of your crew last month.
+|Test: Reason (Lead)
+Lands: You know about that? Then you know what it would mean to my people.
+Falls short: Plenty have promised that. They are buried by the ford.
+
+## Argument: Show him the baron's writ of passage
+Appeals: Higher Authority
+PC: By order of the baron, this bridge stands open to us.
+Fails: The baron is three days away and I am standing right here.
+
+## Argument: Call the toll what it is: theft
+Appeals: Justice
+PC: This is robbery with a gate on it.
+Fails: Justice is for people with walls. I have a bridge.
+
+## Argument: Share a drink with his crew
+Appeals: Nothing
+PC: Long night on a cold bridge.
+|Test: Presence (Flirt)
+Lands: Ha! All right, that earns you a hearing.
+Falls short: Drink your own. I am working.
+Backfires: You think I can be bought with a skin of bad wine?
+
+## Argument: Tell him how the songs will remember this
+Appeals: Nothing
+PC: One day they will sing of the captain who held this ford.
+|Test: Intuition (Brag)
+Lands: Heh. Nobody has ever sung about me.
+Falls short: The dead do not hear songs.
+Backfires: Save it for a tavern, poet.
+
+## Argument: Swear on the old road
+Appeals: Protection
+|Allow: you speak Zaliac
+|Test: Intuition (Persuade)
+Lands: I have not heard that oath since my father died. You mean it.
+Falls short: Old words. Nobody keeps those any more.
+
+## Offer: No, and
+He bars the bridge and sends word to the Golden Hand.
+
+## Offer: No
+Nobody crosses tonight.
+
+## Offer: No, but
+He will not open the bridge, but he will point out the ford upstream.
+
+## Offer: Yes, but
+You may cross, for 20 gold a head.
+
+## Offer: Yes
+You may cross, free of charge.
+
+## Offer: Yes, and
+You may cross, and two of his crew come with you as guides.
+]==]
+
+local m_previewBeat = nil
+
+function EncounterNegotiation.PreviewBeat()
+    return m_previewBeat
+end
+
+function EncounterNegotiation.StartPreview()
+    local parsed = EncounterScript.Parse(PREVIEW_SCRIPT)
+    if #parsed.warnings > 0 then
+        printf("EotW negotiation: preview script: %s", tostring(parsed.warnings[1]))
+    end
+    local beat = parsed.beats[1]
+    m_previewBeat = beat
+    local driver = { running = true }
+    m_devDriver = driver
+    EncounterNegotiation.Begin(nil, beat, 1)
+    dmhub.Coroutine(function()
+        while driver.running and not mod.unloaded and m_previewBeat == beat do
+            local ok, status = pcall(EncounterNegotiation.HostTick, nil, beat, 1)
+            if not ok then
+                printf("EotW negotiation: preview tick failed: %s", tostring(status))
+            elseif status == "done" then
+                break
+            end
+            coroutine.yield(0.5)
+        end
+        driver.running = false
+        if m_previewBeat == beat then
+            EncounterNegotiation.StopPreview()
+        end
+    end)
+end
+
+function EncounterNegotiation.StopPreview()
+    if m_previewBeat == nil then
+        return
+    end
+    m_previewBeat = nil
+    EncounterMontage.Hide()
+    local doc = EncounterNegotiation.GetDoc()
+    doc:BeginChange()
+    doc.data.negotiation = nil
+    doc:CompleteChange("Negotiation preview ended", { undoable = false })
+end
+
 --- dev commands --------------------------------------------------------------
 
 local function PrintState()
@@ -767,7 +914,7 @@ pcall(function()
     Commands.RegisterMacro{
         name = "eotwnegotiation",
         summary = "inspect, drive or reset the Encounter of the Week negotiation beat",
-        doc = "Usage: /eotwnegotiation start | stop | state | argue <n> <hero> | read <hero> | tier <1-3> | continue | deal | vote <choice> | reset\nstart runs this map's first negotiation beat here; argue and read skip the dice, and tier reports the roll.",
+        doc = "Usage: /eotwnegotiation preview | endpreview | start | stop | state | argue <n> <hero> | read <hero> | tier <1-3> | continue | deal | vote <choice> | reset\nstart runs this map's first negotiation beat here; argue and read skip the dice, and tier reports the roll.",
         command = function(str)
             local words = {}
             for word in string.gmatch(str or "", "%S+") do
@@ -776,6 +923,10 @@ pcall(function()
             local arg = string.lower(words[1] or "")
             if arg == "start" then
                 EncounterNegotiation.StartDevDriver()
+            elseif arg == "preview" then
+                EncounterNegotiation.StartPreview()
+            elseif arg == "endpreview" then
+                EncounterNegotiation.StopPreview()
             elseif arg == "stop" then
                 EncounterNegotiation.StopDevDriver()
             elseif arg == "argue" then
