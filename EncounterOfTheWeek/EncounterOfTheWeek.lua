@@ -187,6 +187,21 @@ setting{
 --Cached once true: a game cannot stop being an EotW game mid-session.
 local m_isEotwGame = false
 
+--A "no" is re-checked at most once a second, per game: the panel rail asks
+--many times per tick, and each full check fetches the state doc (a fresh
+--table when the doc does not exist yet). The host's stamp can still land
+--later, so the answer is not cached forever.
+--A field, not a local: this file's main chunk is at Lua's 200-local ceiling.
+EncounterOfTheWeekGame._notEotw = { gameid = nil, untilTime = 0 }
+
+function EncounterOfTheWeekGame._notEotw.ReadSlotGameid()
+    return lobby.eotwGameid
+end
+
+function EncounterOfTheWeekGame._notEotw.ReadStateMarked()
+    return mod:GetDocumentSnapshot(STATE_DOC_ID).data.eotw == true
+end
+
 --True in real EotW games only, on every member's client. Two signals, either
 --suffices: the game occupies this account's dedicated EotW slot (set by the
 --create/join flows on the titlescreen), or the host stamped the shared state
@@ -197,20 +212,23 @@ function EncounterOfTheWeekGame.IsEotwGame()
         return true
     end
 
-    local slotid = nil
-    pcall(function() slotid = lobby.eotwGameid end)
-    if slotid ~= nil and slotid == dmhub.gameid then
-        m_isEotwGame = true
-        return true
-    end
+    local now = dmhub.Time()
+    local check = EncounterOfTheWeekGame._notEotw
+    if check.gameid ~= dmhub.gameid or now >= check.untilTime then
+        local okSlot, slotid = pcall(check.ReadSlotGameid)
+        if okSlot and slotid ~= nil and slotid == dmhub.gameid then
+            m_isEotwGame = true
+            return true
+        end
 
-    local marked = false
-    pcall(function() marked = (mod:GetDocumentSnapshot(STATE_DOC_ID).data.eotw == true) end)
-    if marked then
-        m_isEotwGame = true
-    end
-    if m_isEotwGame then
-        return true
+        local okMarked, marked = pcall(check.ReadStateMarked)
+        if okMarked and marked then
+            m_isEotwGame = true
+            return true
+        end
+
+        check.gameid = dmhub.gameid
+        check.untilTime = now + 1
     end
 
     --an authoring test (see "the authoring test"): this client plays the

@@ -15663,6 +15663,12 @@ function RailRightColumnWidth()
     return result
 end
 
+--The tabletop asks this every tick (the Director's Screen measures the right
+--rail), and a full RailLayout() per call was most of the app's idle Lua
+--garbage. The answer is reused for up to a second; BuildIconRails clears it
+--so a rail edit shows at once. A global: the main chunk is at 200 locals.
+g_railOccupiedCache = { untilTime = 0, sides = {} }
+
 --Whether a rail side ("left" or "right") shows anything: panel buttons, or
 --a custom-interface widget (assumed present whenever one is active). An
 --empty rail still has a wrapper with a width, so RailRightColumnWidth alone
@@ -15673,8 +15679,14 @@ function RailSideOccupied(side)
     if GameHud.CustomInterface() ~= nil then
         return true
     end
-    local sides = RailLayout()
-    return #(sides[side] or {}) > 0
+    local cache = g_railOccupiedCache
+    local now = dmhub.Time()
+    if now >= cache.untilTime then
+        local sides = RailLayout()
+        cache.sides = { left = #(sides.left or {}) > 0, right = #(sides.right or {}) > 0 }
+        cache.untilTime = now + 1
+    end
+    return cache.sides[side] == true
 end
 
 --Whether a registered panel currently has a rail button.
@@ -25661,6 +25673,7 @@ PanelDocument.BuildCustomInterfaceRails = function(layer)
 end
 
 local function BuildIconRails()
+    g_railOccupiedCache.untilTime = 0
     local layer = DocumentsLayer()
     if layer == nil then
         return
