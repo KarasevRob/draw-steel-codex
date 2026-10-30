@@ -5934,6 +5934,30 @@ safe-zone tile (elevated `token:Move`, freeMovement); a hostage on a
 safe-zone tile is rescued. Victory: every living hostage rescued; defeat:
 every hostage dead.
 
+## Negotiation beats (BUILT 2026-10-30; one player only so far)
+
+User direction 2026-10-30 (Lisa, with David): a negotiation that plays with no
+Director, as a montage does, to fix the empty feeling of the journal stage. The
+plan and its decisions are `NEGOTIATION_SCRIPTED_PLAN.md` at the dmhub repo root;
+the grammar is in `.claude/skills/eotw/script-reference.md`.
+
+- `EncounterNegotiation.lua` is the runtime, on the montage's authority model:
+  host-written `data.negotiation`, player requests, and the acting player's
+  client rolls. The book's numbers stay in `NegotiationRules`, which it calls.
+- The body is `CreateNegotiationStage` in `EncounterMontageStage.lua`, swapped in
+  by the script stage like the narrative and prep bodies.
+- A roll reuses the montage's dialog through `EncounterMontage.BuildTestRoll` and
+  `ShowTestRoll`. Edge-style perks apply; the perks that rescue a failed test do
+  not.
+- Stopping and accepting use one vote per player. A split is settled by a random
+  player, with no flash yet.
+- `You uncover <label>` writes `data.negotiationClues`, read at `Begin`.
+- A negotiation in a Director game is not this: that is `NegotiationRules`'s own
+  stage and rail.
+
+**Dev limit:** after `reload_lua`, the stage does not mount until a full app
+start. Cause not found; not known whether it is specific to negotiation.
+
 ## Narrative beats
 
 ```

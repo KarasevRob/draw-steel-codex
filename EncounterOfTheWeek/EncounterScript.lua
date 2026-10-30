@@ -2370,6 +2370,42 @@ function EncounterScript.FinishNegotiation(beat, warn)
     end
 end
 
+--What the validator says about a negotiation beat: the problems that make it
+--play badly rather than fail to parse. The simulation in the plan is why clues
+--matter: a party that knows nothing reaches a "Yes" about one time in five.
+function EncounterScript.NegotiationProblems(beat)
+    local problems = {}
+    local argued, motivations = {}, 0
+    for _, argument in ipairs(beat.arguments) do
+        if argument.traitId ~= nil then
+            argued[argument.traitId] = true
+        end
+    end
+    for _, trait in ipairs(beat.traits) do
+        if trait.kind == "motivation" then
+            motivations = motivations + 1
+        end
+        if not argued[trait.id] then
+            problems[#problems + 1] = T("author.validator.negotiation.no_argument", { trait = trait.name })
+        end
+        if trait.clue == "" and trait.start == "hidden" then
+            problems[#problems + 1] = T("author.validator.negotiation.no_clue", { trait = trait.name })
+        end
+    end
+    if motivations < 2 then
+        problems[#problems + 1] = T("author.validator.negotiation.few_motivations")
+    end
+    if beat.opening == "" then
+        problems[#problems + 1] = T("author.validator.negotiation.no_opening")
+    end
+    for i, name in ipairs(EncounterScript.NEGOTIATION_OFFERS) do
+        if beat.offers[i] == nil then
+            problems[#problems + 1] = T("author.validator.negotiation.no_offer", { offer = name })
+        end
+    end
+    return problems
+end
+
 --Parse a tier line (or a Consequence: line) into its effects.
 function EncounterScript.ParseEffects(text)
     local result = {}

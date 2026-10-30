@@ -6650,6 +6650,7 @@ local function CreateNegotiationStage(args)
         width = "100%",
         height = 44,
         tmargin = 4,
+        valign = "top",
         text = T("stage.negotiation.read"),
         click = function(element)
             local heroid = m_selectedHero
@@ -6663,6 +6664,7 @@ local function CreateNegotiationStage(args)
         width = "100%",
         height = 44,
         tmargin = 4,
+        valign = "top",
         text = T("stage.negotiation.spend_clue"),
         click = function(element)
             EncounterNegotiation.SendRequest("spendClue")

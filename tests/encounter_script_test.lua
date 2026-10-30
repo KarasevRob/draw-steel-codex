@@ -2622,6 +2622,23 @@ Appeals: Nothing
     check(#charm.riders == 1 and charm.riders[1].effect == "edge" and charm.riders[1].renown, "famous: an edge on Flirt")
     check(#threaten.riders == 0, "famous: no edge on Intimidate")
 
+    --the validator's checks
+    local thin = EncounterScript.Parse([==[
+# Negotiation: Hask
+
+## Motivation: Greed
+
+## Argument: Cut
+Appeals: Nothing
+|Test: Presence (Persuade)
+]==]).beats[1]
+    local said = table.concat(EncounterScript.NegotiationProblems(thin), "\n")
+    check(string.find(said, "no argument appeals to Greed", 1, true) ~= nil, "a motivation with no argument")
+    check(string.find(said, "Greed has no clue", 1, true) ~= nil, "a motivation with no clue")
+    check(string.find(said, "at least two motivations", 1, true) ~= nil, "too few motivations")
+    check(string.find(said, "no 'Opening:' line", 1, true) ~= nil, "no opening")
+    check(string.find(said, "'## Offer: yes, but'", 1, true) ~= nil, "a missing offer")
+
     local uncover = EncounterScript.ParseEffects("You uncover the ledger")[1]
     check(uncover.kind == "uncover" and uncover.name == "the ledger", "the uncover clause")
 

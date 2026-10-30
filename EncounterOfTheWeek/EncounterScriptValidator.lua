@@ -296,6 +296,22 @@ local function Report(parse)
         if beat.intro ~= nil and trim(beat.intro) ~= "" then
             Row(1, "note", "%s", T("author.validator.report.intro", { intro = beat.intro }))
         end
+        if beat.kind == "negotiation" then
+            for _, trait in ipairs(beat.traits) do
+                Row(1, "note", "%s", T("author.validator.negotiation.trait", { kind = trait.kind, trait = trait.name, start = trait.start }))
+            end
+            for _, argument in ipairs(beat.arguments) do
+                counts.options = counts.options + 1
+                Row(1, "note", "%s", T("author.validator.negotiation.argument", { argument = argument.name, kind = argument.kind }))
+            end
+            for _, problem in ipairs(EncounterScript.NegotiationProblems(beat)) do
+                Problem("%s", T("author.validator.negotiation.problem", { npc = beat.name, problem = problem }))
+            end
+            local found = beat.playedBy ~= "" and EncounterMontage.FindMonster(beat.playedBy) or nil
+            if beat.playedBy ~= "" and found == nil then
+                Problem("%s", T("author.validator.negotiation.no_monster", { npc = beat.name, monster = beat.playedBy }))
+            end
+        end
         for _, u in ipairs(beat.unlocks or {}) do
             Row(1, "rule", "%s", T("author.validator.report.unlocks_beat", { feature = tostring(u.name) }))
         end
