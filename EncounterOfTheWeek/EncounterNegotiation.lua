@@ -746,7 +746,7 @@ end
 local PREVIEW_SCRIPT = [==[
 # Negotiation: Hask
 
-Played by: Bandit Chief
+Played by: Human Bandit Chief
 Pronouns: he
 Attitude: Suspicious
 Language: Zaliac

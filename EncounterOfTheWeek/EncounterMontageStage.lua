@@ -6463,9 +6463,9 @@ EncounterMontageStage.CreateNarrative = CreateNarrativeStage
 
 local NEGOTIATION_RAIL_WIDTH = 380
 local NEGOTIATION_SIDE_WIDTH = 320
-local NEGOTIATION_HEADER_HEIGHT = 112
-local NEGOTIATION_PORTRAIT_WIDTH = 240
-local NEGOTIATION_PORTRAIT_HEIGHT = 320
+local NEGOTIATION_HEADER_HEIGHT = 146
+local NEGOTIATION_PORTRAIT_WIDTH = 200
+local NEGOTIATION_PORTRAIT_HEIGHT = 270
 local NEGOTIATION_SELECT_MODE = "negotiation"
 
 local function NegotiationCanAct(charid)
@@ -6644,7 +6644,7 @@ local function CreateNegotiationStage(args)
         patienceLabel,
     }
 
-    local promptLabel = gui.Label{ classes = {"eotwNarrativePrompt"}, text = "", width = "100%" }
+    local promptLabel = gui.Label{ classes = {"eotwNarrativePrompt"}, text = "", width = "100%", vmargin = 2 }
     local cardList = gui.Panel{ width = "100%", height = "auto", flow = "vertical", valign = "top" }
     local readButton = gui.Button{
         width = "100%",
@@ -6743,11 +6743,11 @@ local function CreateNegotiationStage(args)
         pad = 12,
         borderBox = true,
         vscroll = true,
-        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.noticed"), width = "100%" },
+        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.noticed"), width = "100%", vmargin = 2 },
         clueList,
-        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.learned"), width = "100%", tmargin = 8 },
+        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.learned"), width = "100%", vmargin = 2, tmargin = 10 },
         learnedList,
-        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.so_far"), width = "100%", tmargin = 8 },
+        gui.Label{ classes = {"eotwNarrativePrompt"}, text = T("stage.negotiation.so_far"), width = "100%", vmargin = 2, tmargin = 10 },
         logList,
     }
 
@@ -6950,6 +6950,7 @@ local function CreateNegotiationStage(args)
             end
             pcall(EncounterNegotiation.ClientTick)
             Refresh(element)
+            element:FireEventTree("refreshCard")
         end,
     }
 
