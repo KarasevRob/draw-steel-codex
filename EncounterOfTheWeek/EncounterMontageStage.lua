@@ -6659,6 +6659,15 @@ local function CreateNegotiationStage(args)
             end
         end,
     }
+    local clueButton = gui.Button{
+        width = "100%",
+        height = 44,
+        tmargin = 4,
+        text = T("stage.negotiation.spend_clue"),
+        click = function(element)
+            EncounterNegotiation.SendRequest("spendClue")
+        end,
+    }
     local leftRail = gui.Panel{
         classes = {"eotwTurnPanel"},
         width = NEGOTIATION_RAIL_WIDTH,
@@ -6673,6 +6682,7 @@ local function CreateNegotiationStage(args)
         promptLabel,
         cardList,
         readButton,
+        clueButton,
     }
 
     local offerShape = gui.Label{ classes = {"eotwTurnText"}, text = "", halign = "center", textAlignment = "center" }
@@ -6842,7 +6852,10 @@ local function CreateNegotiationStage(args)
         --who is speaking: the NPC's reply, a read's result, or how it ended.
         local speaker, speech, roll = npc, beat.opening, ""
         local last = m.last
-        if last ~= nil and last.kind == "read" then
+        if last ~= nil and last.kind == "clue" then
+            local trait = EncounterNegotiation.Trait(beat, last.found)
+            roll = T("stage.negotiation.clue_found", { trait = trait ~= nil and trait.name or "" })
+        elseif last ~= nil and last.kind == "read" then
             speaker = last.heroName
             local trait = last.found ~= nil and EncounterNegotiation.Trait(beat, last.found) or nil
             if trait ~= nil then
@@ -6877,6 +6890,14 @@ local function CreateNegotiationStage(args)
         promptLabel.text = cond(m.phase ~= "choosing", T("stage.negotiation.prompt_wait"),
             cond(m_selectedHero ~= nil, T("stage.negotiation.prompt_argument"), T("stage.negotiation.prompt_hero")))
         readButton:SetClass("collapsed", m.phase ~= "choosing" or not m.canRead)
+        local mine = {}
+        for _, hero in ipairs(EncounterMontage.Heroes()) do
+            if hero.ownerId == dmhub.loginUserid or hero.ownerId == "PARTY" then
+                mine[#mine + 1] = hero.charid
+            end
+        end
+        clueButton:SetClass("collapsed", not EncounterNegotiation.CanSpendClue(m, beat)
+            or EncounterMontage.SpendableIntelligence(mine) < 1)
 
         local clues, learned, log = {}, {}, {}
         for _, trait in ipairs(beat.traits) do

@@ -6751,6 +6751,7 @@ end
 function EncounterMontage.BuildTestRoll(heroToken, attr, name, verdict)
     local c = heroToken.properties
     local characteristics, skills = EncounterScript.ParseAttr(attr, creature.attributesInfo, Skill.skillsDropdownOptions)
+    characteristics = EncounterMontage.PerkCharacteristics(c, heroToken.charid, characteristics, skills)
     local attrid, bestModifier = BestCharacteristic(c, characteristics)
     local title = string.format("%s: %s", name, attr)
     local rollType = "test_power_roll"
@@ -6761,6 +6762,7 @@ function EncounterMontage.BuildTestRoll(heroToken, attr, name, verdict)
     end
     ApplySkilledModifier(c, modifiers, skills)
     AppendRiderModifiers(modifiers, verdict, rollType)
+    EncounterMontage.AppendPerkModifiers(modifiers, c, heroToken.charid, nil, nil, skills, attrid)
     return { title = title, roll = roll, rollType = rollType, modifiers = modifiers }
 end
 

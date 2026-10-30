@@ -45,6 +45,10 @@ local DOC_ID = "eotwscript"
 local REPLY_SECONDS = 12
 --and how long the finished negotiation holds before the script moves on.
 local DONE_LINGER_SECONDS = 6
+--what a hint costs, before the first argument (see SpendClue).
+local CLUE_COST = 1
+--the book's discovery test: any of the three, whichever suits the hero.
+local READ_ATTR = "Reason, Intuition or Presence"
 
 --- the document ------------------------------------------------------------
 
@@ -396,8 +400,65 @@ end
 
 --- host: requests -------------------------------------------------------------
 
+--The next trait the party has not learned, motivations first.
+function EncounterNegotiation.NextHiddenTrait(m, beat)
+    for _, kind in ipairs({ "motivation", "pitfall" }) do
+        for _, trait in ipairs(beat.traits) do
+            if trait.kind == kind and not (m.learned or {})[trait.id] then
+                return trait
+            end
+        end
+    end
+    return nil
+end
+
+--May Intelligence buy a hint now? Before the first argument only: this is the
+--book's research ahead of the talk, not a way out of a bad one.
+function EncounterNegotiation.CanSpendClue(m, beat)
+    return m.phase == "choosing" and #(m.log or {}) == 0 and EncounterMontage.FeatureUnlocked("intelligence")
+        and EncounterNegotiation.NextHiddenTrait(m, beat) ~= nil
+end
+
+--Spend the player's Intelligence on what the party found out on the way here.
+local function SpendClue(m, doc, userid, beat, heroes)
+    if not EncounterNegotiation.CanSpendClue(m, beat) then
+        return nil
+    end
+    local heroids, names = {}, {}
+    for _, hero in ipairs(heroes) do
+        names[hero.charid] = hero.name
+        if UserControlsHero(userid, hero) then
+            heroids[#heroids + 1] = hero.charid
+        end
+    end
+    local ok, from = EncounterMontage.SpendIntelligence(doc, heroids, CLUE_COST, names)
+    if not ok then
+        return string.format("%s spent Intelligence they do not have", tostring(userid))
+    end
+    local trait = EncounterNegotiation.NextHiddenTrait(m, beat)
+    ---@cast trait -nil
+    m.learned = m.learned or {}
+    m.learned[trait.id] = true
+    local log = doc.data.intelligenceLog or {}
+    log[#log + 1] = {
+        value = tonumber(doc.data.intelligence) or 0,
+        amount = -CLUE_COST,
+        who = names[heroids[1]] or tostring(userid),
+        note = T("negotiation.intelligence_log", { npc = beat.name, heroes = table.concat(from or {}, ", ") }),
+        at = dmhub.serverTime,
+    }
+    doc.data.intelligenceLog = log
+    m.last = { kind = "clue", found = trait.id }
+    Bump(m)
+    return string.format("Intelligence revealed %s", trait.name)
+end
+
 local function HandleRequest(m, doc, userid, req, beat, heroes)
     local kind = req.kind
+
+    if kind == "spendClue" then
+        return SpendClue(m, doc, userid, beat, heroes)
+    end
 
     if kind == "argue" or kind == "read" then
         if m.phase ~= "choosing" then
@@ -655,7 +716,7 @@ function EncounterNegotiation.ClientTick()
     end
     m_launchedRollSeq = t.rollSeq
 
-    local attr = T("negotiation.roll.read_attr")
+    local attr = READ_ATTR
     local name = T("negotiation.roll.read_name")
     local verdict = nil
     if t.kind == "argue" then

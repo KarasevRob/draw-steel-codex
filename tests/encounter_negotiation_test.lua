@@ -54,6 +54,7 @@ local HEROES = {
 }
 local speakers = { brunna = true }
 local applied = {}
+local intelligenceOn, intelligenceHeld = false, 0
 
 EncounterMontage = {
     Heroes = function() return HEROES end,
@@ -66,6 +67,14 @@ EncounterMontage = {
     end,
     RecordAlly = function() end,
     IsPresented = function() return true end,
+    FeatureUnlocked = function() return intelligenceOn end,
+    SpendIntelligence = function(doc, heroids, qty)
+        if intelligenceHeld < qty then
+            return false
+        end
+        intelligenceHeld = intelligenceHeld - qty
+        return true, { "Brunna" }
+    end,
     Present = function() end,
 }
 EncounterScript.RequirementMet = function(_, facts) return speakers[facts.charid] == true end
@@ -192,6 +201,23 @@ documents.data.negotiationClues = { [EncounterScript.MatchKey("The Ledger")] = t
 N.Begin({}, beat, 1)
 check(N.GetState().learned[beat.traits[1].id] == true, "an uncovered clue starts learned")
 beat.traits[1].start = "hidden"
+
+--Intelligence buys a hint, motivations first, before the first argument only
+m = Fresh()
+Send("lisa", "spendClue")
+check(N.GetState().learned[beat.traits[1].id] == nil, "no hint until Intelligence is unlocked")
+intelligenceOn, intelligenceHeld = true, 1
+Send("lisa", "spendClue")
+m = N.GetState()
+check(m.learned[beat.traits[1].id] == true and intelligenceHeld == 0, "a hint reveals a motivation for its cost")
+Send("lisa", "spendClue")
+check(N.GetState().learned[beat.traits[2].id] == nil, "no hint without the Intelligence")
+intelligenceHeld = 1
+Argue(DRINK, "brunna", 2)
+PassReply()
+Send("lisa", "spendClue")
+check(intelligenceHeld == 1, "no hint once the talking has started")
+intelligenceOn, intelligenceHeld = false, 0
 
 --an appeal: tier 2 raises interest, costs patience, reveals the motivation
 m = Fresh()
