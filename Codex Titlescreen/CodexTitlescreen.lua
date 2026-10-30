@@ -9271,8 +9271,9 @@ function CreateTitlescreen(dialog, options)
                             end,
 
                             returnFromGame = function(element)
-                                --start monitoring, but give it a second to allow the game to exit.
-                                element:ScheduleEvent("startMonitoring", 1)
+                                --start the lobby game now: the engine holds it until the
+                                --game being left has been torn down.
+                                element:FireEvent("startMonitoring")
                             end,
 
                             startMonitoring = function(element)
