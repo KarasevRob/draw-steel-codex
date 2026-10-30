@@ -1687,8 +1687,8 @@ local RULES_COLOR_DIM = "#5d7a5d"
 --coloured the applied-effect green, so a player can see at a glance which
 --words the montage will actually act on and which are flavour. A teaser is
 --never marked: the grammar only ever parses the full text.
-local function TierText(roll, t, landed, dim)
-    local text = EncounterScript.TierDisplayText(roll, t, landed)
+local function TierText(roll, t, landed, dim, heroName)
+    local text = EncounterScript.TierDisplayText(roll, t, landed, heroName)
     local teaser = roll.teasers ~= nil and roll.teasers[t] or nil
     if (not landed) and teaser ~= nil then
         return text
@@ -1699,7 +1699,7 @@ end
 
 --The critical tier (4) gets no row until a critical has landed: every test
 --has one, and what it gives is a surprise until it is rolled.
-local function TierRows(roll, landedTier, dimOthers)
+local function TierRows(roll, landedTier, dimOthers, heroName)
     local rows = {}
     for t in ipairs(roll.tiers) do
         if t > 3 and landedTier ~= t then
@@ -1708,7 +1708,7 @@ local function TierRows(roll, landedTier, dimOthers)
         local range = TIER_RANGES[t] or ""
         local landed = landedTier == t
         local dim = dimOthers and landedTier ~= nil and not landed
-        local tierText = TierText(roll, t, landed, dim)
+        local tierText = TierText(roll, t, landed, dim, heroName)
         rows[#rows + 1] = gui.Panel{
             width = "100%",
             height = "auto",
@@ -1735,7 +1735,7 @@ local function TierRows(roll, landedTier, dimOthers)
                 end
             end,
         }
-        rows[#rows].data = { roll = roll, tier = t, shown = tierText }
+        rows[#rows].data = { roll = roll, tier = t, shown = tierText, heroName = heroName }
     end
     return rows
 end
@@ -1756,7 +1756,7 @@ local function SetLandedTier(rows, landedTier, reveal)
         local d = row.data
         if d ~= nil and d.roll ~= nil then
             local showFull = landed and reveal == true
-            local text = TierText(d.roll, t, showFull, dim)
+            local text = TierText(d.roll, t, showFull, dim, d.heroName)
             if text ~= d.shown then
                 local teaser = d.roll.teasers ~= nil and d.roll.teasers[t] or nil
                 d.shown = text
@@ -1785,8 +1785,8 @@ end
 --The roller's own client reads the same document it writes, so every
 --client runs the one code path. Falls back to plain rows on a core
 --without the share exports.
-local function LiveTierRows(roll)
-    local rows = TierRows(roll, nil, true)
+local function LiveTierRows(roll, heroName)
+    local rows = TierRows(roll, nil, true, heroName)
     if CharacterPanel.AbilityShareDocPath == nil or CharacterPanel.GetAbilityShareData == nil then
         return rows
     end
@@ -2513,8 +2513,11 @@ end
 
 --The rules of a free version (no roll), marked up like a landed tier once
 --they have been applied.
-local function FreeRulesRow(free, applied)
+local function FreeRulesRow(free, applied, heroName)
     local text = EncounterScript.VisibleText(free.text or "")
+    if heroName ~= nil then
+        text = EncounterScript.SubstitutePC(text, heroName)
+    end
     local markup = EncounterScript.MarkupRules(text, string.format("<color=%s>", RULES_COLOR), "</color>")
     return gui.Panel{
         width = "100%",
@@ -2539,6 +2542,8 @@ local function OptionCard(entry, option, index, m)
     --the version of the option the hero at the entry takes: once chosen,
     --the one the host fixed; before that, the first knack they meet.
     local heroid = m.turn ~= nil and m.turn.heroid or nil
+    --"PC" in the outcomes reads as that hero.
+    local heroName = m.turn ~= nil and m.turn.heroName or nil
     local version = option
     local knackReason = nil
     if chosen then
@@ -2590,9 +2595,9 @@ local function OptionCard(entry, option, index, m)
         end
         local rows
         if chosen and (m.turn.status == "rolling" or m.turn.status == "pardon") then
-            rows = LiveTierRows(version.roll)
+            rows = LiveTierRows(version.roll, heroName)
         else
-            rows = TierRows(version.roll, landed, true)
+            rows = TierRows(version.roll, landed, true, heroName)
         end
         for _, row in ipairs(rows) do
             children[#children + 1] = row
@@ -2602,7 +2607,7 @@ local function OptionCard(entry, option, index, m)
         for _, row in ipairs(RiderRows(EncounterScript.VersionRiders(option, version), verdict)) do
             children[#children + 1] = row
         end
-        children[#children + 1] = FreeRulesRow(version.free, chosen and m.turn.status == "resolved")
+        children[#children + 1] = FreeRulesRow(version.free, chosen and m.turn.status == "resolved", heroName)
     end
     local takeable = version.roll ~= nil or version.free ~= nil or (option.delve ~= nil and (m.turn == nil or m.turn.delve == nil))
     return gui.Panel{

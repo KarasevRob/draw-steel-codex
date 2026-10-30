@@ -5405,6 +5405,19 @@ return {
     --     check = function(ctx) return ctx.state.caravanDestroyed == true end,
     -- },
 
+    -- Uncomment to show a rule or countdown to everyone under the objective
+    -- on the initiative bar. Runs on the host each heartbeat while combat is
+    -- live; return nil to show nothing, one entry, or a list of entries.
+    -- timer (optional) draws a segmented clock: remaining of total segments lit,
+    -- spent ones darkening clockwise from twelve; color is an optional "#rrggbb".
+    -- status = function(ctx)
+    --     return {
+    --         title = "Collapsing Ceiling",
+    --         tooltip = "The ceiling falls in 2 rounds.",
+    --         timer = { remaining = 2, total = 3 },
+    --     }
+    -- end,
+
     onPrepare = function(ctx)
     end,
 
@@ -5579,6 +5592,11 @@ local function NormalizeDefinition(def)
         norm.defeat = { check = def.defeat.check, text = text }
     end
 
+    if def.status ~= nil and type(def.status) ~= "function" then
+        return nil, "status must be a function"
+    end
+    norm.status = def.status
+
     for _, handler in ipairs({ "onPrepare", "onStart", "onRound", "think", "onEnd", "onReset" }) do
         local fn = def[handler]
         if fn ~= nil and type(fn) ~= "function" then
@@ -5654,6 +5672,9 @@ function EncounterScript.DescribeDefinition(def)
     end
     if def.defeat ~= nil then
         parts[#parts + 1] = "custom defeat condition"
+    end
+    if def.status ~= nil then
+        parts[#parts + 1] = "initiative bar status"
     end
     local handlers = {}
     for _, handler in ipairs({ "onPrepare", "onStart", "onRound", "think", "onEnd", "onReset" }) do
@@ -6001,6 +6022,25 @@ function LiveEncounter:ScriptDefeatText()
         end
     end
     return text, instance
+end
+
+--- Every status entry the attached scripts' status functions last returned,
+--- in script order, for the initiative bar. These are the strings and numbers
+--- the host resolved and networked, so any client can read them.
+--- @return {title: string, tooltip: string|nil, timer: {remaining: number, total: number, color: string|nil}|nil}[]
+function LiveEncounter:GetScriptStatus()
+    local result = {}
+    for _, instance in ipairs(self:try_get("scripts", {})) do
+        local st = self:GetScriptState(instance:try_get("guid", ""))
+        if st ~= nil and type(st.status) == "table" then
+            for _, entry in ipairs(st.status) do
+                if type(entry) == "table" and type(entry.title) == "string" then
+                    result[#result + 1] = entry
+                end
+            end
+        end
+    end
+    return result
 end
 
 -- ---------------------------------------------------------------------------
@@ -6359,12 +6399,65 @@ function EncounterScript.ResetEncounter(encounter)
             ctx.Log = function(_, text)
                 print(string.format("EncounterScript '%s': %s", name, tostring(text)))
             end
+            --putting the water back is what onReset is for (Rising Waters drains).
+            ctx.SetWaterLevel = function(_, level, options)
+                local setOk, setErr = Encounter.SetWaterLevel(level, options)
+                if not setOk then
+                    print(string.format("EncounterScript '%s': SetWaterLevel: %s", name, tostring(setErr)))
+                end
+                return setOk
+            end
+            ctx.GetWaterLevel = function(_)
+                return Encounter.GetWaterLevel()
+            end
             local ok, err = pcall(def.onReset, ctx)
             if not ok then
                 PrintScriptError(instance, tostring(err))
             end
         end
     end
+end
+
+--Run a script's status function against the live host ctx and copy out only
+--the fields the initiative bar draws, so the networked state stays small and
+--plain. Returns a list of { title, tooltip, timer = { remaining, total, color } }
+--(possibly empty), or nil when the function errored.
+local function ResolveLiveStatus(instance, def, ctx)
+    if def.status == nil then
+        return {}
+    end
+    local ok, result = pcall(def.status, ctx)
+    if not ok then
+        PrintScriptError(instance, "status error: " .. tostring(result))
+        return nil
+    end
+    if type(result) ~= "table" then
+        return {}
+    end
+    --a single entry is the common case; accept it without a wrapping list.
+    if result.title ~= nil or result.tooltip ~= nil or result.timer ~= nil then
+        result = { result }
+    end
+    local list = {}
+    for _, entry in ipairs(result) do
+        if type(entry) == "table" and type(entry.title) == "string" and entry.title ~= "" then
+            local item = { title = entry.title }
+            if type(entry.tooltip) == "string" and entry.tooltip ~= "" then
+                item.tooltip = entry.tooltip
+            end
+            local timer = entry.timer
+            if type(timer) == "table" and type(timer.total) == "number" and timer.total >= 1 then
+                local total = math.min(24, math.floor(timer.total))
+                local remaining = math.max(0, math.min(total, math.floor(tonumber(timer.remaining) or 0)))
+                item.timer = { remaining = remaining, total = total }
+                if type(timer.color) == "string" and timer.color:match("^#%x%x%x%x%x%x$") then
+                    item.timer.color = timer.color
+                end
+            end
+            list[#list + 1] = item
+        end
+    end
+    return list
 end
 
 --Run one script instance for one heartbeat. Returns true when its persisted
@@ -6444,6 +6537,8 @@ local function RunInstanceTick(liveEncounter, instance, q, isLive)
     if isLive then
         st.victoryText = ResolveLiveConditionText(def.victory, ctx) or st.victoryText
         st.defeatText = ResolveLiveConditionText(def.defeat, ctx) or st.defeatText
+        --an erroring status keeps showing the last good one.
+        st.status = ResolveLiveStatus(instance, def, ctx) or st.status
     end
 
     local afterOk, after = pcall(dmhub.ToJson, st)
@@ -7207,6 +7302,28 @@ return {
         if ctx.params.banner then
             ctx:Banner("Rising Waters", string.format("The waters have risen by %s!", squares), "malice")
         end
+    end,
+
+    --the initiative bar's countdown: one pie segment per turn left before the
+    --next rise, using the same turn count as think.
+    status = function(ctx)
+        local st = ctx.state
+        local per = ctx.params.turnsPerRise
+        local risesLeft = ctx.params.rises - (st.rises or 0)
+        if risesLeft <= 0 then
+            return { title = "Rising Waters", tooltip = "The water has risen as high as it will go." }
+        end
+        local completed = math.max(0, (st.turnsStarted or 0) - 1)
+        local remaining = math.max(1, math.min(per, ((st.rises or 0) + 1) * per - completed))
+        local tooltip = string.format("The water will rise in %d turns", remaining)
+        if remaining == 1 then
+            tooltip = "The water will rise at the start of the next turn"
+        end
+        return {
+            title = "Rising Waters",
+            tooltip = tooltip,
+            timer = { remaining = remaining, total = per, color = "#62b6ff" },
+        }
     end,
 }
 ]==],

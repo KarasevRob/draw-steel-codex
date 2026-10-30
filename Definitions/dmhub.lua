@@ -857,8 +857,8 @@ function dmhub.SetAttackCrossSection(args) end
 --- Hides the attack cross-section diagram (see dmhub.SetAttackCrossSection) and releases its render texture. Safe to call when nothing is active.
 function dmhub.ClearAttackCrossSection() end
 
---- Installs a Movement Restriction Mode on this client: while installed, tokens can only be moved within the given tiles. Pathfinding treats any step ending outside the set as impassable, so the drag preview and movement-radius markers clip to the allowed area, and drops outside it are refused -- including for the DM (the dmillegalmoves setting does not bypass it). Forced movement (pushes/slides) is exempt. The restriction applies to all tokens on this client until dmhub.ClearMovementRestriction is called or the game session ends. Calling again replaces the previous set.
---- @param args {locs: Loc[]}
+--- Installs a Movement Restriction Mode on this client: while installed, tokens can only be moved within the given tiles. Pathfinding treats any step ending outside the set as impassable, so the drag preview and movement-radius markers clip to the allowed area, and drops outside it are refused -- including for the DM (the dmillegalmoves setting does not bypass it). Forced movement (pushes/slides) is exempt. With teleportBetweenAreas = true, a token dragged onto an allowed tile that no walk inside the set reaches (the set can be several separate areas) teleports there instead of the drop being refused; no teleport events fire. The restriction applies to all tokens on this client until dmhub.ClearMovementRestriction is called or the game session ends. Calling again replaces the previous set.
+--- @param args {locs: Loc[], teleportBetweenAreas?: boolean}
 function dmhub.SetMovementRestriction(args) end
 
 --- Clears the Movement Restriction Mode installed by dmhub.SetMovementRestriction, restoring normal token movement. Safe to call when no restriction is active.

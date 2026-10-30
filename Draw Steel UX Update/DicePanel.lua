@@ -623,7 +623,7 @@ do
 
 --[[
 ================================================================
-Physical Dice (GoDice + Pixels) — Codex integration
+Physical Dice (GoDice + Pixels) - Codex integration
 ================================================================
 
 Intercepts Codex roll dialogs and routes the dice through a local
@@ -631,7 +631,7 @@ HTTP service (the Python "Codex Dice Bridge"). The physical
 dice (GoDice, Pixels) pass their face values to the engine via
 rollArgs.forcedDice, 
 and the engine resolves the original roll expression as if it had 
-rolled those values itself — populating rollInfo.rolls, naturalRoll, 
+rolled those values itself, populating rollInfo.rolls, naturalRoll, 
 nat1/nat20, total, tier, and firing the crit audio cue when appropriate.
 
 PAIRED WITH: dice-bridge/ in the DMHub repo (Python). The HTTP
@@ -639,13 +639,16 @@ contract is documented in its README. Both must update together
 when the contract changes.
 
 USER SURFACE:
-  - Settings panel ("General" section) provides the toggle, the
-    bridge URL, and the bridge program path. These are the canonical
-    configuration.
-  - Ticking "Use Physical Dice" auto-starts the bridge process via
-    dmhub.StartDiceBridge (engine-side DiceBridgeProcess); unticking
+  - Settings panel ("General" section) provides the Physical Dice
+    mode (Off / Bluetooth Dice / Manual Input), the bridge URL, and
+    the bridge program path. These are the canonical configuration.
+  - Bluetooth mode auto-starts the bridge process via
+    dmhub.StartDiceBridge (engine-side DiceBridgeProcess); leaving it
     stops it. If the bridge dies mid-roll the mod falls back to a
     virtual roll rather than hanging the dialog.
+  - Manual Input mode needs no bridge: the player rolls real dice and
+    types each face into a box (runInputRoll). The typed faces travel
+    the same forcedDice path as Bluetooth faces.
   - /godice chat commands stay for diagnostics and runtime probing.
 
 SCOPE:
@@ -665,10 +668,23 @@ SCOPE:
 -- These create the persistent settings AND the entries in the
 -- Codex preferences UI. 
 
-local SETTING_ENABLED  = "externaldice:enabled"
+local SETTING_MODE     = "externaldice:mode"
+local SETTING_ENABLED  = "externaldice:enabled"  -- legacy checkbox, migrated to SETTING_MODE
 local SETTING_BRIDGE   = "externaldice:bridgeurl"
 local SETTING_BRIDGEPATH = "externaldice:bridgepath"
 local DEFAULT_BRIDGE   = "http://127.0.0.1:17211"
+
+-- "off", "bluetooth" or "input". Any other saved value counts as off.
+local function getPhysicalDiceMode()
+    local mode = dmhub.GetSettingValue(SETTING_MODE)
+    if mode ~= "bluetooth" and mode ~= "input" then return "off" end
+    return mode
+end
+
+-- True only when the bridge should be running.
+local function isBluetoothMode()
+    return getPhysicalDiceMode() == "bluetooth"
+end
 
 -- Start/stop the bridge process alongside the checkbox. The engine
 -- resolves the executable itself (the bridgepath preference below, or
@@ -697,17 +713,31 @@ local function syncBridgeProcess(enabled)
     end
 end
 
-local g_externalDiceEnabled = setting{
-    id = SETTING_ENABLED,
-    description = "Use Physical Dice",
-    help = "Route dice rolls through a localhost bridge to physical Bluetooth dice (GoDice, Pixels). The bridge program starts automatically when checked.",
+local g_externalDiceMode = setting{
+    id = SETTING_MODE,
+    description = "Physical Dice",
+    help = "Roll real dice instead of virtual ones. Bluetooth reads GoDice or Pixels dice through the dice bridge, which starts automatically. Manual Input asks you to type each die's result; your bonuses are still added for you.",
     storage = "preference",
     section = "General",
-    default = false,
-    editor = "check",
+    default = "off",
+    editor = "dropdown",
+    enum = {
+        { value = "off", text = "Off" },
+        { value = "bluetooth", text = "Bluetooth Dice" },
+        { value = "input", text = "Manual Input" },
+    },
     onchange = function()
-        syncBridgeProcess(dmhub.GetSettingValue(SETTING_ENABLED) == true)
+        syncBridgeProcess(isBluetoothMode())
     end,
+}
+
+-- The old on/off checkbox. No editor, so it is hidden; it stays registered
+-- only so the Init migration can read what a user saved before the mode
+-- dropdown existed.
+local g_externalDiceEnabled = setting{
+    id = SETTING_ENABLED,
+    storage = "preference",
+    default = false,
 }
 
 -- Where the bridge executable lives. Read by the ENGINE (DiceBridgeProcess),
@@ -722,6 +752,8 @@ local g_externalDiceBridgePath = setting{
     storage = "preference",
     section = "General",
     default = "",
+    visible = isBluetoothMode,
+    monitorVisible = {SETTING_MODE},
 }
 
 local g_externalDiceBridgeUrl = setting{
@@ -735,6 +767,8 @@ local g_externalDiceBridgeUrl = setting{
     storage = "preference",
     section = "General",
     default = DEFAULT_BRIDGE,
+    visible = isBluetoothMode,
+    monitorVisible = {SETTING_MODE},
 }
 
 ----------------------------------------------------------------
@@ -744,7 +778,7 @@ local g_externalDiceBridgeUrl = setting{
 -- Use rawget on _G so Codex's strict-globals metatable doesn't error
 -- on the read when CodexGoDiceBridge isn't initialized yet (which it
 -- won't be on the first of Codex's two load passes). Same trick is
--- used below for RollDialog / Commands / chat / json — any global we
+-- used below for RollDialog / Commands / chat / json: any global we
 -- test with `if X` first needs the rawget guard.
 CodexGoDiceBridge = rawget(_G, "CodexGoDiceBridge") or {
     -- Long-poll wait per round-trip. Bridge clamps to [0, 60].
@@ -768,10 +802,12 @@ function CGB.getBaseUrl()
     return url
 end
 
--- The "Use Physical Dice" toggle is the master switch. Interception
--- only happens when this is true.
+CGB.getMode = getPhysicalDiceMode
+CGB.isBluetooth = isBluetoothMode
+
+-- True in either physical mode: rolls get intercepted.
 function CGB.isEnabled()
-    return dmhub.GetSettingValue(SETTING_ENABLED) == true
+    return getPhysicalDiceMode() ~= "off"
 end
 
 ----------------------------------------------------------------
@@ -857,63 +893,274 @@ local function destroyWaitingNotice()
     end
 end
 
-local function showWaitingNotice(onUseVirtual)
+-- The few rules the stock theme classes don't cover. Colors are @ tokens so
+-- the notices follow the user's color scheme.
+local function BuildDiceNoticeStyles()
+    return {
+        {
+            selectors = {"diceNoticeSeam"},
+            width = "90%",
+            height = 1,
+            halign = "center",
+            bgimage = true,
+            bgcolor = "@border",
+            opacity = 0.35,
+        },
+        {
+            selectors = {"input", "diceEntryInvalid"},
+            color = "@danger",
+            borderColor = "@danger",
+            priority = 5,
+        },
+    }
+end
+
+-- Recolor an open notice when the user switches theme, scheme or font size.
+-- Subscribed on first use, not at load: ThemeEngine may not exist yet while
+-- this file loads.
+local m_themeSubscribed = false
+local function subscribeNoticeTheme()
+    if m_themeSubscribed then return end
+    m_themeSubscribed = true
+    ThemeEngine.OnThemeChanged(mod, function()
+        if m_waitingNotice ~= nil and m_waitingNotice.valid then
+            m_waitingNotice.styles = ThemeEngine.MergeStyles(BuildDiceNoticeStyles())
+        end
+    end)
+end
+
+-- Mounts a centered, draggable notice box on the hud, replacing any
+-- current one. Sizes are in sp so the box grows with the Font Size setting.
+-- Returns false when there is no hud to show it on.
+local function mountNotice(width, children)
     destroyWaitingNotice()
 
     local hudLib = rawget(_G, "GameHud")
     local hud = hudLib and hudLib.instance
-    if hud == nil then return end
+    if hud == nil then return false end
     -- dialog.sheet is the screen-space hud root; MainDialogPanel is NOT
     -- screen-anchored (a panel parented there renders off the bottom edge).
     local parent = hud.dialog and hud.dialog.sheet
     if parent == nil and hud.MainDialogPanel ~= nil then
         parent = hud:MainDialogPanel()
     end
-    if parent == nil then return end
+    if parent == nil then return false end
 
+    subscribeNoticeTheme()
     m_waitingNotice = gui.Panel{
+        styles = ThemeEngine.MergeStyles(BuildDiceNoticeStyles()),
+        classes = {"framedPanel"},
         floating = true,
         halign = "center",
         valign = "center",
-        width = 320,
+        width = width,
         height = "auto",
         flow = "vertical",
-        bgimage = "panels/square.png",
-        bgcolor = "#000000dd",
-        borderWidth = 1,
-        borderColor = "#999999",
-        cornerRadius = 8,
-        pad = 10,
+        pad = 20,
         borderBox = true,
+        draggable = true,
+        drag = function(element)
+            element.x = element.xdrag
+            element.y = element.ydrag
+        end,
+        children = children,
+    }
 
+    parent:AddChild(m_waitingNotice)
+    return true
+end
+
+local function createUseVirtualButton(onUseVirtual)
+    return gui.Button{
+        classes = {"sizeM"},
+        text = "Use Virtual Dice",
+        halign = "center",
+        click = function(element)
+            onUseVirtual()
+        end,
+    }
+end
+
+local function showWaitingNotice(onUseVirtual)
+    mountNotice("340sp", {
         gui.Label{
+            classes = {"sizeM"},
             text = "Waiting for physical dice...",
-            fontSize = 16,
             width = "100%",
             height = "auto",
             halign = "center",
             textAlignment = "center",
-            color = "white",
+            bmargin = 12,
         },
+        createUseVirtualButton(onUseVirtual),
+    })
+end
 
-        gui.Button{
-            text = "Use Virtual Dice",
-            fontSize = 14,
-            width = 150,
-            height = 26,
+-- Manual Input box: one input per die, each 1..faces. Confirm stays
+-- disabled until every die is valid; Enter jumps to the next empty input,
+-- or confirms when all are filled.
+-- Returns false when there is no hud to show it on.
+local function showInputNotice(diceList, onSubmit, onUseVirtual)
+    local m_inputs = {}
+    local m_rollButton
+    local m_totalLabel
+
+    local function readFace(index)
+        local sides = tonumber(string.match(diceList[index], "d(%d+)"))
+        local value = tonumber(m_inputs[index].text)
+        if value == nil or value ~= math.floor(value) or value < 1 or value > sides then
+            return nil, sides
+        end
+        return value, sides
+    end
+
+    local function refreshState()
+        local total = 0
+        local allValid = true
+        for i = 1, #m_inputs do
+            local value = readFace(i)
+            local hasText = m_inputs[i].text ~= ""
+            -- Red only for a wrong entry, not for a box not filled in yet.
+            m_inputs[i]:SetClass("diceEntryInvalid", hasText and value == nil)
+            if value == nil then
+                allValid = false
+            else
+                total = total + value
+            end
+        end
+        m_rollButton.interactable = allValid
+        m_rollButton:SetClass("disabled", not allValid)
+        m_totalLabel.text = allValid and string.format("Natural roll: %d", total) or ""
+        return allValid
+    end
+
+    local function trySubmit()
+        if not refreshState() then return end
+        local forcedDice = {}
+        for i = 1, #m_inputs do
+            local value, sides = readFace(i)
+            forcedDice[#forcedDice+1] = { numFaces = sides, result = value }
+        end
+        onSubmit(forcedDice)
+    end
+
+    local dieColumns = {}
+    for i, dieType in ipairs(diceList) do
+        local sides = string.match(dieType, "d(%d+)")
+        m_inputs[i] = gui.Input{
+            classes = {"bordered", "sizeXl"},
+            width = "40sp",
+            height = "40sp",
             halign = "center",
-            vmargin = 8,
-            click = function(element)
-                onUseVirtual()
+            textAlignment = "center",
+            numeric = true,
+            characterLimit = #sides,
+            selectAllOnFocus = true,
+            placeholderText = "-",
+            text = "",
+            edit = function(element)
+                refreshState()
             end,
-        },
+            submit = function(element)
+                if refreshState() then
+                    trySubmit()
+                    return
+                end
+                for j = 1, #m_inputs do
+                    if readFace(j) == nil then
+                        gui.SetFocus(m_inputs[j])
+                        return
+                    end
+                end
+            end,
+        }
+        dieColumns[i] = gui.Panel{
+            flow = "vertical",
+            width = "72sp",
+            height = "auto",
+            hmargin = 8,
+            gui.Label{
+                classes = {"sizeXs", "fgMuted"},
+                text = dieType,
+                width = "100%",
+                height = "auto",
+                textAlignment = "center",
+                bmargin = 4,
+            },
+            m_inputs[i],
+        }
+    end
+
+    m_totalLabel = gui.Label{
+        classes = {"sizeS", "fgMuted"},
+        text = "",
+        width = "100%",
+        height = "22sp",
+        textAlignment = "center",
+        vmargin = 10,
     }
 
-    parent:AddChild(m_waitingNotice)
+    m_rollButton = gui.Button{
+        classes = {"sizeL", "disabled"},
+        text = "Confirm",
+        halign = "center",
+        interactable = false,
+        click = function(element)
+            trySubmit()
+        end,
+    }
+
+    local shown = mountNotice(string.format("%dsp", math.max(400, #diceList * 88 + 56)), {
+        gui.Label{
+            classes = {"sizeL", "bold"},
+            text = "Enter Dice Results",
+            width = "100%",
+            height = "auto",
+            halign = "center",
+            textAlignment = "center",
+        },
+        gui.Label{
+            classes = {"sizeS", "fgMuted"},
+            text = "Enter just the dice. Your bonuses are added for you.",
+            width = "100%",
+            height = "auto",
+            halign = "center",
+            textAlignment = "center",
+            tmargin = 6,
+        },
+        gui.Panel{
+            flow = "horizontal",
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            tmargin = 18,
+            children = dieColumns,
+        },
+        m_totalLabel,
+        m_rollButton,
+        -- The divider keeps Use Virtual Dice from reading as a Confirm twin.
+        gui.Panel{
+            classes = {"diceNoticeSeam"},
+            tmargin = 20,
+            bmargin = 12,
+        },
+        createUseVirtualButton(onUseVirtual),
+    })
+
+    if shown then
+        -- Focus a frame later: a just-added input does not take focus yet.
+        dmhub.Schedule(0.01, function()
+            if mod.unloaded then return end
+            if m_inputs[1] ~= nil and m_inputs[1].valid then
+                gui.SetFocus(m_inputs[1])
+            end
+        end)
+    end
+    return shown
 end
 
 ----------------------------------------------------------------
--- Roll-string parsing — dice list extraction only
+-- Roll-string parsing: dice list extraction only
 ----------------------------------------------------------------
 -- We only need the ordered dice list to send to the bridge. The
 -- engine handles all modifiers, boons/banes, tier, and natural-roll
@@ -982,6 +1229,24 @@ local function logRollArgs(args)
     end
 end
 
+-- A roll must complete exactly once, or its dialog hangs. finish(fn) runs fn
+-- only on the first call and closes the notice; isFinished() lets late async
+-- replies see that the roll is already done.
+local function makeFinisher()
+    local finished = false
+    local function finish(fn)
+        if finished then return end
+        finished = true
+        CGB.activeCancel = nil
+        destroyWaitingNotice()
+        fn()
+    end
+    local function isFinished()
+        return finished
+    end
+    return finish, isFinished
+end
+
 -- Shared bridge-roll driver used by fresh rolls and rerolls. Owns the
 -- waiting notice, the single-completion guard, the dialog-cancel
 -- bookkeeping, and the poll loop. Exactly one of the callbacks fires:
@@ -992,14 +1257,7 @@ end
 -- OnRollCancelled) -- the dialog is gone, so no roll should happen;
 -- the pending bridge request is aborted so the dice stop flashing.
 local function runBridgeRoll(diceList, opts)
-    local m_finished = false
-    local function finish(fn)
-        if m_finished then return end
-        m_finished = true
-        CGB.activeCancel = nil
-        destroyWaitingNotice()
-        fn()
-    end
+    local finish, isFinished = makeFinisher()
 
     local function fallbackToVirtual(reason)
         finish(function()
@@ -1042,7 +1300,7 @@ local function runBridgeRoll(diceList, opts)
 
         local function continuePoll()
             CGB.pollRoll(requestId, function(pOk, pBody)
-                if m_finished then
+                if isFinished() then
                     return
                 end
 
@@ -1092,6 +1350,67 @@ local function runBridgeRoll(diceList, opts)
     end)
 end
 
+-- Manual Input counterpart of runBridgeRoll, with the same callback
+-- contract: the typed faces go to opts.onForced, so the virtual dice still
+-- tumble and land on them. No timeout: the player takes as long as they need.
+local function runInputRoll(diceList, opts)
+    -- A new box replaces any open one, and the old box's roll could then never
+    -- finish. Roll that one virtually first so its dialog does not hang.
+    if CGB.rollPendingInputVirtually ~= nil then
+        CGB.rollPendingInputVirtually()
+    end
+
+    local finishRoll = makeFinisher()
+    local function finish(fn)
+        finishRoll(function()
+            CGB.rollPendingInputVirtually = nil
+            fn()
+        end)
+    end
+
+    CGB.rollPendingInputVirtually = function()
+        finish(function()
+            log("another roll opened a dice entry box; rolling this one virtually")
+            opts.onVirtual()
+        end)
+    end
+
+    -- Dialog cancelled: close the entry box and roll nothing.
+    CGB.activeCancel = function()
+        finish(function() log("roll dialog cancelled; closing dice entry") end)
+    end
+
+    local shown = showInputNotice(diceList,
+        function(forcedDice)
+            log("manual input forcedDice=%d", #forcedDice)
+            finish(function() opts.onForced(forcedDice) end)
+        end,
+        function()
+            finish(function()
+                log("user chose virtual dice instead of manual input")
+                opts.onVirtual()
+            end)
+        end)
+
+    -- No hud to type into would hang the dialog, so roll virtually.
+    if not shown then
+        finish(function()
+            log("no hud for the dice entry box; rolling virtually")
+            opts.onVirtual()
+        end)
+    end
+end
+
+-- Both modes share one callback contract, so the hooks never need to know
+-- which one is on.
+local function runPhysicalRoll(diceList, opts)
+    if CGB.getMode() == "input" then
+        runInputRoll(diceList, opts)
+    else
+        runBridgeRoll(diceList, opts)
+    end
+end
+
 local function handleOnBeforeRoll(args)
     if not CGB.isEnabled() then return nil end
     logRollArgs(args)
@@ -1119,7 +1438,7 @@ local function handleOnBeforeRoll(args)
         end
     end
 
-    runBridgeRoll(diceList, {
+    runPhysicalRoll(diceList, {
         onForced = function(forcedDice)
             -- No instant/silent overrides: the virtual dice tumble and land
             -- showing the physical values (engine ForceResultFace), and the
@@ -1153,7 +1472,7 @@ local function handleOnReroll(args)
 
     log("intercepting reroll '%s' (%d dice)", tostring(rollStr), #diceList)
 
-    runBridgeRoll(diceList, {
+    runPhysicalRoll(diceList, {
         onForced = function(forcedDice)
             -- forcedDice only -- the dialog's own instant/silent settings
             -- apply, so its begin/completion flow runs exactly as a normal
@@ -1231,12 +1550,12 @@ local function cmdStatus()
     CGB.bridgeStatus(function(ok, body)
         if ok and body then
             chat.Send(string.format(
-                "Dice bridge: ok=%s version=%s dice=%d pending=%d (mod enabled=%s url=%s)",
+                "Dice bridge: ok=%s version=%s dice=%d pending=%d (mode=%s url=%s)",
                 tostring(body.ok),
                 tostring(body.version),
                 body.dice_count or 0,
                 body.pending_rolls or 0,
-                tostring(CGB.isEnabled()),
+                CGB.getMode(),
                 CGB.getBaseUrl()))
             local hooks = CGB.codexDeclaredHooks or {}
             for name, present in pairs(hooks) do
@@ -1254,11 +1573,11 @@ if commandsLib and commandsLib.RegisterMacro then
         name = "godice",
         summary = "control the dice bridge integration",
         doc = "Usage: /godice [status|on|off|debug on|debug off|probe|register]\n"
-            .. "  status     — show bridge health and registered hooks\n"
-            .. "  on / off   — enable/disable roll interception (writes the preference)\n"
-            .. "  debug on/off — toggle dump of rollArgs on each intercept\n"
-            .. "  probe      — check live state of RollDialog.OnBeforeRoll\n"
-            .. "  register   — re-register hooks",
+            .. "  status     - show bridge health and registered hooks\n"
+            .. "  on / off   - set Physical Dice to Bluetooth / Off (writes the preference)\n"
+            .. "  debug on/off - toggle dump of rollArgs on each intercept\n"
+            .. "  probe      - check live state of RollDialog.OnBeforeRoll\n"
+            .. "  register   - re-register hooks",
         completions = function(args, argIndex)
             if argIndex == 1 then
                 return {
@@ -1288,10 +1607,10 @@ if commandsLib and commandsLib.RegisterMacro then
             if sub == "status" then
                 cmdStatus()
             elseif sub == "on" then
-                dmhub.SetSettingValue(SETTING_ENABLED, true)
+                dmhub.SetSettingValue(SETTING_MODE, "bluetooth")
                 chat.Send("Dice bridge: ENABLED (preference saved)")
             elseif sub == "off" then
-                dmhub.SetSettingValue(SETTING_ENABLED, false)
+                dmhub.SetSettingValue(SETTING_MODE, "off")
                 chat.Send("Dice bridge: DISABLED (preference saved)")
             elseif sub == "debug" then
                 CGB.debugDump = (parts[2] == "on")
@@ -1357,7 +1676,7 @@ local function heartbeatLoop()
     if CGB._heartbeatGen ~= g_heartbeatGen then
         return  -- superseded by a newer load of this file
     end
-    if CGB.isEnabled() then
+    if CGB.isBluetooth() then
         CGB.sendHeartbeat()
         -- Self-heal: if the bridge died (crash, idle timeout) while the
         -- feature is on, bring it back rather than waiting for the user
@@ -1548,13 +1867,23 @@ end
 local function CreatePhysicalDicePanel()
     local m_statusLabel
     local m_diceList
+    local m_scanResults
+    local m_scanButton
 
     local resultPanel
 
     local function refresh()
-        if not CGB.isEnabled() then
-            m_statusLabel.text = "Physical dice are disabled."
+        -- Scanning and the paired-dice list are Bluetooth-only.
+        m_scanButton:SetClass("hidden", not CGB.isBluetooth())
+        local mode = CGB.getMode()
+        if mode ~= "bluetooth" then
+            if mode == "input" then
+                m_statusLabel.text = "Manual Input: when you roll, you'll be asked to type each die's result."
+            else
+                m_statusLabel.text = "Physical dice are disabled."
+            end
             m_diceList.children = {}
+            m_scanResults.children = {}
             return
         end
 
@@ -1613,13 +1942,12 @@ local function CreatePhysicalDicePanel()
     -- button. GoDice pair as d10 by default (the Draw Steel workhorse;
     -- adjust with the row's size dropdown afterwards). Pixels advertise
     -- their die type, so they pair as exactly what they are.
-    local m_scanResults = gui.Panel{
+    m_scanResults = gui.Panel{
         flow = "vertical",
         width = "100%",
         height = "auto",
     }
 
-    local m_scanButton
     m_scanButton = gui.Button{
         text = "Scan for Dice",
         fontSize = 14,
@@ -1629,7 +1957,7 @@ local function CreatePhysicalDicePanel()
         vmargin = 6,
         hover = gui.Tooltip("Searches for nearby GoDice and Pixels dice for ~8 seconds. Wake your dice first (give them a shake)."),
         click = function(element)
-            if not CGB.isEnabled() then return end
+            if not CGB.isBluetooth() then return end
             m_scanButton.text = "Scanning..."
             m_scanButton.interactable = false
             net.Post{
@@ -1732,7 +2060,7 @@ local function CreatePhysicalDicePanel()
     -- the panel still works if the helper is renamed upstream).
     local createEditor = rawget(_G, "CreateSettingsEditor")
     if createEditor ~= nil then
-        children[#children+1] = createEditor(SETTING_ENABLED)
+        children[#children+1] = createEditor(SETTING_MODE)
     end
     children[#children+1] = m_statusLabel
     children[#children+1] = m_diceList
@@ -1782,13 +2110,21 @@ registerDockablePanel()
 ----------------------------------------------------------------
 -- Init
 ----------------------------------------------------------------
-log("loaded; bridge=%s wait=%ds enabled=%s",
-    CGB.getBaseUrl(), CGB.waitSeconds, tostring(CGB.isEnabled()))
+-- One-time move from the old checkbox: anyone who had it ticked was using
+-- Bluetooth dice. Runs here, not at the setting, because the mode's
+-- onchange needs CGB to exist.
+if dmhub.GetSettingValue(SETTING_ENABLED) == true then
+    dmhub.SetSettingValue(SETTING_ENABLED, false)
+    dmhub.SetSettingValue(SETTING_MODE, "bluetooth")
+end
+
+log("loaded; bridge=%s wait=%ds mode=%s",
+    CGB.getBaseUrl(), CGB.waitSeconds, CGB.getMode())
 registerHooks()
 
--- If the user left the checkbox on last session, bring the bridge up now.
+-- If Bluetooth mode was left on last session, bring the bridge up now.
 -- EnsureRunning is idempotent, so the twice-per-startup file reload is fine.
-if CGB.isEnabled() then
+if CGB.isBluetooth() then
     syncBridgeProcess(true)
 end
 

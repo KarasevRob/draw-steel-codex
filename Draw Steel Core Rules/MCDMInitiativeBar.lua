@@ -4035,6 +4035,96 @@ local g_bossBarStyles = {
     },
 }
 
+-- Encounter-script status rows under the objective (LiveEncounter:GetScriptStatus):
+-- a title, a hover tooltip and an optional segmented clock countdown.
+local g_scriptStatusStyles = {
+    {
+        selectors = {"scriptStatusTimer"},
+        width = 20,
+        height = 20,
+        valign = "center",
+        rmargin = 6,
+        bgimage = "panels/square.png",
+        bgcolor = "@accent",
+        cornerRadius = 10,
+        borderWidth = 1,
+        borderColor = "@accent",
+    },
+}
+
+--Conic gradients for the clock, cached by "remaining/total". Lit segments are
+--white and spent ones dark grey; the panel's bgcolor tints both, so a spent
+--segment is a dark shade of the clock's colour. Spent turns darken clockwise
+--from twelve o'clock, like a clock hand sweeping round. The shader smooths the
+--segment edges and draws the dividers between segments.
+local g_timerGradients = {}
+
+--- @param remaining integer
+--- @param total integer
+local function TimerGradient(remaining, total)
+    local key = string.format("%d/%d", remaining, total)
+    local cached = g_timerGradients[key]
+    if cached ~= nil then
+        return cached
+    end
+    local lit = "#ffffffff"
+    local spent = "#2e2e2eff"
+    local edge = 0.0005
+    local stops = {}
+    for i = 0, total - 1 do
+        local color = (i >= total - remaining) and lit or spent
+        stops[#stops + 1] = { position = i / total + edge, color = color }
+        stops[#stops + 1] = { position = (i + 1) / total - edge, color = color }
+    end
+    local result = gui.Gradient{
+        type = "conic",
+        --clockwise from twelve o'clock (gradient y runs up: y = 1 is the top).
+        point_a = { x = 0.5, y = 0.5 },
+        point_b = { x = 0.5, y = 1 },
+        stops = stops,
+        dividers = (total > 1) and { count = total, width = 1.5, color = "#0b0f14" } or nil,
+    }
+    g_timerGradients[key] = result
+    return result
+end
+
+--One status row: the clock (collapsed when the entry has no timer) and the title.
+local function CreateScriptStatusRow()
+    local timer = gui.Panel{
+        classes = {"scriptStatusTimer"},
+        interactable = false,
+    }
+    local title = gui.Label{
+        classes = {"vaStripSubHeader"},
+        interactable = false,
+        text = "",
+    }
+    return gui.Panel{
+        classes = {"vaStripLabelRow"},
+        data = { tooltip = nil },
+        timer,
+        title,
+        setStatus = function(element, entry)
+            element.data.tooltip = entry.tooltip
+            title.text = entry.title
+            local t = entry.timer
+            timer:SetClass("collapsed", t == nil)
+            if t == nil then
+                return
+            end
+            timer.selfStyle.gradient = TimerGradient(t.remaining, t.total)
+            --nil falls back to the theme accent in g_scriptStatusStyles.
+            timer.selfStyle.bgcolor = t.color
+            timer.selfStyle.borderColor = t.color
+        end,
+        hover = function(element)
+            if element.data.tooltip ~= nil then
+                gui.Tooltip{ text = element.data.tooltip }(element)
+            end
+        end,
+    }
+end
+
 -- Award Victory strip: a band on the player side, analogous to the Reinforcements
 -- strip on the monster side and sharing its drawer styling. While the encounter is in
 -- progress it shows a short "Objective: Defeat X/Y monsters to win" label (full
@@ -4050,7 +4140,7 @@ local g_bossBarStyles = {
 -- (after a confirm) announces the outcome in chat and ends combat.
 local function CreateAwardVictoryStrip(self, info)
     local function strFor()
-        return { ThemeEngine.GetStyles(), ThemeEngine.MergeTokens(g_vaStripStyles), ThemeEngine.MergeTokens(g_victoryIconStyles) }
+        return { ThemeEngine.GetStyles(), ThemeEngine.MergeTokens(g_vaStripStyles), ThemeEngine.MergeTokens(g_victoryIconStyles), ThemeEngine.MergeTokens(g_scriptStatusStyles) }
     end
 
     local awardButton = gui.Panel{
@@ -4115,6 +4205,33 @@ local function CreateAwardVictoryStrip(self, info)
         classes = {"vaStripLabelRow"},
         defeatLabel,
     }
+
+    -- Rules and countdowns the encounter's scripts report (a script
+    -- definition's status function), one row per entry.
+    local statusRows = {}
+    local statusPanel = gui.Panel{
+        flow = "vertical",
+        width = "auto",
+        height = "auto",
+        halign = "left",
+    }
+
+    local function RefreshStatus(entries)
+        for i, entry in ipairs(entries) do
+            local row = statusRows[i]
+            if row == nil then
+                row = CreateScriptStatusRow()
+                statusRows[i] = row
+                statusPanel:AddChild(row)
+            end
+            row:SetClass("collapsed", false)
+            row:FireEvent("setStatus", entry)
+        end
+        for i = #entries + 1, #statusRows do
+            statusRows[i]:SetClass("collapsed", true)
+        end
+        statusPanel:SetClass("collapsed", #entries == 0)
+    end
 
     -- Eye icon: director-only; toggles objectiveVisible on the live encounter so the
     -- objective also shows on the players' bars.
@@ -4246,6 +4363,7 @@ local function CreateAwardVictoryStrip(self, info)
 
         objectivePanel,
         defeatRow,
+        statusPanel,
         victoryPanel,
         defeatPanel,
 
@@ -4259,23 +4377,31 @@ local function CreateAwardVictoryStrip(self, info)
             end
 
             local liveEncounter = q:try_get("liveEncounter")
+            if type(liveEncounter) ~= "table" then
+                element:SetClass("collapsed", true)
+                return
+            end
+            local status = liveEncounter:GetScriptStatus()
             --the objective strip is relevant when there are monsters to track, for the
             --"Destroy the Thing!" objective (which tracks objects, not monsters, so it can
             --have no onset monsters at all), or when an encounter script sets a
-            --victory/defeat condition (which need not involve monsters at all).
-            local hasObjective = type(liveEncounter) == "table" and (
+            --victory/defeat condition or a status (which need not involve monsters at all).
+            local hasObjective =
                 liveEncounter:try_get("onsetMonsterCount", 0) > 0 or
                 (liveEncounter:try_get("victoryCondition") == "destroy_thing" and
                  liveEncounter:try_get("onsetDestroyObjectCount", 0) > 0) or
                 liveEncounter:ScriptVictoryText() ~= nil or
-                liveEncounter:ScriptDefeatText() ~= nil)
+                liveEncounter:ScriptDefeatText() ~= nil or
+                #status > 0
             if not hasObjective then
                 element:SetClass("collapsed", true)
                 return
             end
 
             local isDM = GameHud.DirectorUIVisible()
-            local visible = liveEncounter:try_get("objectiveVisible", false)
+            --EotW has no Director to reveal the objective, so players always see it.
+            local eotw = IsEotwGame()
+            local visible = eotw or liveEncounter:try_get("objectiveVisible", false)
             local won = liveEncounter:CheckVictory()
             local lost = (not won) and liveEncounter:CheckDefeat()
             local defeatText = liveEncounter:GetDefeatText()
@@ -4290,6 +4416,7 @@ local function CreateAwardVictoryStrip(self, info)
                 element:SetClass("collapsed", false)
                 objectivePanel:SetClass("collapsed", false)
                 defeatRow:SetClass("collapsed", defeatText == nil)
+                RefreshStatus(status)
                 victoryPanel:SetClass("collapsed", true)
                 defeatPanel:SetClass("collapsed", true)
                 visibilityIcon:SetClass("collapsed", true)
@@ -4305,9 +4432,10 @@ local function CreateAwardVictoryStrip(self, info)
             element:SetClass("collapsed", false)
             objectivePanel:SetClass("collapsed", won)
             defeatRow:SetClass("collapsed", won or lost or defeatText == nil)
+            RefreshStatus(won and {} or status)
             victoryPanel:SetClass("collapsed", not won)
             defeatPanel:SetClass("collapsed", not lost or won)
-            visibilityIcon:SetClass("collapsed", won)
+            visibilityIcon:SetClass("collapsed", won or eotw)
             visibilityIcon:SetClass("shown", visible)
             if not won then
                 objectiveLabel.text = liveEncounter:GetObjectiveText()

@@ -2614,6 +2614,13 @@ function EncounterMontage.ApplyEffects(effects, ctx)
     --punctuation, runSep the punctuation the last clause added to it ended
     --on.
     local runIndex, runText, runSep = nil, nil, ""
+    --"PC" in a montage turn's prose (a tier, a delve obstacle, a chest)
+    --reads as the hero who took it, as it does in the scenes. A Consequence:
+    --has no hero and keeps the word.
+    local proseHeroName = nil
+    if ctx.montage ~= nil and ctx.heroEntry ~= nil and ctx.heroEntries == nil then
+        proseHeroName = ctx.heroEntry.name
+    end
 
     --dice the players rolled for this pass (EncounterMontage.PendingDice
     --names the keys); anything without one is rolled here.
@@ -3194,13 +3201,17 @@ function EncounterMontage.ApplyEffects(effects, ctx)
                 --off. Because that removal restores #applied, the prose on
                 --either side of it still joins -- which is what
                 --EncounterScript.VisibleText shows.
+                local prose = effect.text
+                if proseHeroName ~= nil then
+                    prose = EncounterScript.SubstitutePC(prose, proseHeroName)
+                end
                 if effect.hidden then
-                    applied[#applied + 1] = effect.text
+                    applied[#applied + 1] = prose
                 else
                     if runIndex ~= nil and runIndex == #applied then
-                        runText = string.format("%s%s %s", runText, runSep, effect.text)
+                        runText = string.format("%s%s %s", runText, runSep, prose)
                     else
-                        runText = effect.text
+                        runText = prose
                         applied[#applied + 1] = runText
                         runIndex = #applied
                     end
@@ -3468,12 +3479,12 @@ end
 --The tier table to hand the roll dialog: each tier's teaser where it has
 --one, its full text otherwise (EncounterScript.TierDisplayText). Only tiers
 --1-3: the critical is kept secret until one is rolled, and the stage
---reveals it then.
-function EncounterMontage.TeaserTiers(roll)
+--reveals it then. "PC" reads as `heroName`, the hero taking the test.
+function EncounterMontage.TeaserTiers(roll, heroName)
     local tiers = {}
     for t in ipairs(roll.tiers) do
         if t <= 3 then
-            tiers[t] = EncounterScript.TierDisplayText(roll, t, false)
+            tiers[t] = EncounterScript.TierDisplayText(roll, t, false, heroName)
         end
     end
     return tiers
@@ -3919,6 +3930,9 @@ local function ApplyResolution(m, doc, t, entry, option, tierIndex, heroes, user
         t.tierText = EncounterScript.VisibleText(option.roll.tiers[tierIndex])
     else
         t.tierText = EncounterScript.VisibleText((option.free or {}).text or "")
+    end
+    if t.heroName ~= nil then
+        t.tierText = EncounterScript.SubstitutePC(t.tierText, t.heroName)
     end
     t.applied = applied
     t.resolvedAt = dmhub.serverTime
@@ -6751,7 +6765,7 @@ local function LaunchRoll(turn, entry, option, heroToken)
         roll = roll,
         modifiers = modifiers,
         --the dialog's power table shows teasers, never the hidden text
-        tiers = EncounterMontage.TeaserTiers(option.roll),
+        tiers = EncounterMontage.TeaserTiers(option.roll, turn.heroName),
         rollSeq = turn.rollSeq,
         expectedStatus = "rolling",
         CurrentRollSeq = function(t) return t.rollSeq end,
@@ -6800,7 +6814,7 @@ local function LaunchPardonRoll(turn, entry, option, token)
         rollType = rollType,
         roll = roll,
         modifiers = modifiers,
-        tiers = EncounterMontage.TeaserTiers(option.roll),
+        tiers = EncounterMontage.TeaserTiers(option.roll, turn.heroName),
         rollSeq = p.rollSeq,
         expectedStatus = "pardon",
         CurrentRollSeq = function(t) return (t.pardon or {}).rollSeq end,

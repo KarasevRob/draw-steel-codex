@@ -1970,8 +1970,17 @@ function MonsterAI:MovementLocOverlapsCreature(token, loc)
         return false
     end
 
+    --Altitude 0 is ambiguous: absolute 0, or "on the ground" (charge segments and
+    --straight-line walks pass that). Span both readings. Reading it only as absolute
+    --missed a hero down in a pit at -1, and a charge ended on them (PJFTCBSE).
     local ourBottom = loc.altitude
-    local ourTop = ourBottom + movementToken.tileSize - 1
+    local ourTop = loc.altitude
+    if loc.altitude == 0 then
+        local groundAltitude = loc.withGroundAltitude.altitude
+        ourBottom = math.min(0, groundAltitude)
+        ourTop = math.max(0, groundAltitude)
+    end
+    ourTop = ourTop + movementToken.tileSize - 1
     for _,occupiedLoc in ipairs(movementToken:LocsOccupyingWhenAt(loc)) do
         for _,other in ipairs(dmhub.GetTokensAtLoc(occupiedLoc) or {}) do
             if other.valid and not other.isObject and other.properties ~= nil

@@ -214,6 +214,37 @@ function Aura:HasFlag(id)
     return self:try_get("flags", {})[id]
 end
 
+--- How far up and down this aura reaches, as picked in the editor's Height dropdown.
+--- "default": as far up and down as it reaches sideways.
+--- "unlimited": any height.
+--- "limited": auraHeight squares above the ground, so 0 means ground only.
+--- @return string
+function Aura:GetHeightMode()
+    if self:try_get("unlimitedHeight", false) == true then
+        return "unlimited"
+    end
+    if self:try_get("auraHeight") ~= nil then
+        return "limited"
+    end
+    return "default"
+end
+
+--- Sets the fields behind GetHeightMode. Limited keeps an existing height, else 0 (ground only).
+--- Limited is measured from the ground under each square, so it follows pits and ledges.
+--- @param mode string
+function Aura:SetHeightMode(mode)
+    local height = self:try_get("auraHeight", 0)
+    self.unlimitedHeight = nil
+    self.auraHeight = nil
+    self.auraGroundRelative = nil
+    if mode == "unlimited" then
+        self.unlimitedHeight = true
+    elseif mode == "limited" then
+        self.auraHeight = height
+        self.auraGroundRelative = true
+    end
+end
+
 --- Returns true if the creature passes this aura's GoblinScript creatureFilter.
 --- @param c creature The creature to evaluate.
 --- @param auraInstance AuraInstance The live aura instance (provides caster context).
@@ -1174,16 +1205,52 @@ function Aura:GenerateEditor(options)
                 end,
             },
 
-            gui.Check {
-                styles = ThemeEngine.GetStyles(),
-                halign = "left",
-                text = "Unlimited Height",
-                tooltip = "By default an aura reaches as far above and below its source as it does laterally. Check this to have it instead reach any distance up and down.",
-                value = self:try_get("unlimitedHeight", false),
-                change = function(element)
-                    self.unlimitedHeight = element.value
-                    resultPanel:FireEventTree("refreshAura")
-                end,
+            --Sub-auras always use their parent's height, so they get no control.
+            gui.Panel {
+                classes = { "formPanel", cond(options.childAura, 'collapsed') },
+                gui.Label {
+                    classes = "formLabel",
+                    text = "Height:",
+                },
+                gui.Dropdown {
+                    styles = ThemeEngine.GetStyles(),
+                    classes = "formDropdown",
+                    hover = gui.Tooltip("Default: reaches as far up and down as it reaches sideways (a map-wide burst reaches everything). Unlimited: any height. Limited: only creatures up to the number of squares you enter above the ground, so 0 is ground only."),
+                    options = {
+                        { id = "default", text = "Default" },
+                        { id = "unlimited", text = "Unlimited" },
+                        { id = "limited", text = "Limited" },
+                    },
+                    idChosen = self:GetHeightMode(),
+                    change = function(element)
+                        ---@cast element Dropdown
+                        self:SetHeightMode(element.idChosen --[[@as string]])
+                        resultPanel:FireEventTree("refreshAura")
+                    end,
+                },
+                gui.Input {
+                    classes = { 'input', 'form-input' },
+                    width = 60,
+                    height = 22,
+                    halign = "left",
+                    hmargin = 10,
+                    characterLimit = 4,
+                    text = tostring(self:try_get("auraHeight", 0)),
+                    events = {
+                        hover = gui.Tooltip("Squares above the ground the aura reaches. 0 means ground only."),
+                        refreshAura = function(element)
+                            element:SetClass("hidden", self:GetHeightMode() ~= "limited")
+                            element.text = tostring(self:try_get("auraHeight", 0))
+                        end,
+                        change = function(element)
+                            local num = tonumber(trim(element.text))
+                            if num ~= nil then
+                                self.auraHeight = math.max(0, math.floor(num))
+                            end
+                            resultPanel:FireEventTree("refreshAura")
+                        end,
+                    },
+                },
             },
 
             CharacterFeature.EditorPanel(self, {
@@ -1898,9 +1965,9 @@ end
 --follows a flying caster with no re-registration. nil means no caster-relative
 --band (the aura uses the absolute auraHeight band, or is unlimited). The aura
 --payload's unlimitedHeight flag is the author's opt-out back to the legacy
---infinite column.
+--infinite column, and an authored auraHeight (Limited) replaces this band.
 function AuraInstance:GetVerticalRadius()
-    if self.aura:try_get("unlimitedHeight", false) == true then
+    if self.aura:try_get("unlimitedHeight", false) == true or self.aura:try_get("auraHeight") ~= nil then
         return nil
     end
     return self:try_get("verticalRadius")
@@ -2382,11 +2449,15 @@ function ActivatedAbilityAuraBehavior:CastOnArea(ability, casterToken, targets, 
         --engine's GetHeight/GetAltitude reads pick it up in both the object and the
         --no-object registration paths. unlimitedHeight on the aura payload is the
         --author's opt-out back to the legacy infinite column, and an explicitly
-        --authored auraHeight is respected as-is.
+        --authored auraHeight is respected as-is, for cubes too: the spawned object
+        --then gets no height of its own, so the aura's own setting is used.
         local auraHeight = 0
+        local authoredHeight = auraDef:try_get("unlimitedHeight", false) == true or auraDef:try_get("auraHeight") ~= nil
         if targetArea ~= nil and targetArea.shape == "Cube" then
-            auraHeight = targetArea.radius
-        elseif auraDef:try_get("unlimitedHeight", false) ~= true and auraDef:try_get("auraHeight") == nil then
+            if not authoredHeight then
+                auraHeight = targetArea.radius
+            end
+        elseif not authoredHeight then
             local lateral = math.floor(tonumber(targetArea ~= nil and targetArea.radius or nil) or -1)
             if lateral >= 0 then
                 auraDef.auraHeight = lateral * 2

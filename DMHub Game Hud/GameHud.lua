@@ -1792,7 +1792,6 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 			--gamehud:CreateSidePanel(),
 			--gamehud:CreateSessionsPanel(),
 			--gamehud:CreateChatPanel(),
-			gamehud:CreateFrozenLabel(),
 			gamehud:CreateDocks(),
 
 			--ORDER IS Z-ORDER: panels have no z-index, so a later sibling draws
@@ -1822,6 +1821,9 @@ dmhub.CreateGameHud = function(dialog, tokenInfo)
 			--mode banners (e.g. the encounter builder's staging banner) sit over
 			--every window, so click-to-front on a map window cannot bury them.
 			gamehud:CreateBannerLayer(),
+			--the FROZEN label too: map windows live in the documents layer, so
+			--anywhere before it the live map window draws over the label.
+			gamehud:CreateFrozenLabel(),
 
 			--The action bar sits ABOVE the documents layer for the same reason.
 			--Everything the bar floats out of its strip -- the drawer menus, the

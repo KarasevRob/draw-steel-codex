@@ -2057,13 +2057,20 @@ end
 EncounterScript.AUTO_CRITICAL_BONUS = "The party gains an additional hero token."
 
 --What a tier row should read for a viewer: the full text when the tier has
---landed (or has no teaser), the teaser otherwise.
-function EncounterScript.TierDisplayText(roll, t, landed)
+--landed (or has no teaser), the teaser otherwise. With `heroName`, "PC"
+--reads as the hero taking the test, as it does in scenes.
+function EncounterScript.TierDisplayText(roll, t, landed, heroName)
     local teaser = roll.teasers ~= nil and roll.teasers[t] or nil
+    local text
     if landed or teaser == nil then
-        return EncounterScript.VisibleText(roll.tiers[t])
+        text = EncounterScript.VisibleText(roll.tiers[t])
+    else
+        text = EncounterScript.VisibleText(teaser)
     end
-    return EncounterScript.VisibleText(teaser)
+    if heroName ~= nil then
+        text = EncounterScript.SubstitutePC(text, heroName)
+    end
+    return text
 end
 
 --Parse a tier line (or a Consequence: line) into its effects, each with
