@@ -1113,6 +1113,39 @@ mod.shared.ImportMapDialog = function(paths, options)
         end
     end
 
+    -- Held directly rather than found with Get(): Get falls back to searching the
+    -- whole UI tree from the root, so a broken panel anywhere else could throw
+    -- here and leave the dialog with no way forward (8CMXRYPW).
+    local perfectFitTitle = gui.Label{
+        id = "perfectFitTitle",
+        width = 400,
+        height = "auto",
+        fontSize = 28,
+        bold = true,
+        color = "@success",
+        text = "A Perfect Fit!",
+        vmargin = 4,
+    }
+
+    local perfectFitDescription = gui.Label{
+        id = "perfectFitDescription",
+        width = 380,
+        height = "auto",
+        fontSize = 16,
+        wrap = true,
+        text = "",
+        vmargin = 8,
+    }
+
+    local perfectFitDimensions = gui.Label{
+        id = "perfectFitDimensions",
+        width = 380,
+        height = "auto",
+        fontSize = 20,
+        text = "",
+        vmargin = 4,
+    }
+
     -- The automatic grid panel: "A Perfect Fit!" (140 PPS) or a detected grid,
     -- with Accept and Set Grid by Hand.
     local perfectFitPanel
@@ -1126,35 +1159,9 @@ mod.shared.ImportMapDialog = function(paths, options)
 
         drawGridCheck,
 
-        gui.Label{
-            id = "perfectFitTitle",
-            width = 400,
-            height = "auto",
-            fontSize = 28,
-            bold = true,
-            color = "@success",
-            text = "A Perfect Fit!",
-            vmargin = 4,
-        },
-
-        gui.Label{
-            id = "perfectFitDescription",
-            width = 380,
-            height = "auto",
-            fontSize = 16,
-            wrap = true,
-            text = "",
-            vmargin = 8,
-        },
-
-        gui.Label{
-            id = "perfectFitDimensions",
-            width = 380,
-            height = "auto",
-            fontSize = 20,
-            text = "",
-            vmargin = 4,
-        },
+        perfectFitTitle,
+        perfectFitDescription,
+        perfectFitDimensions,
 
         gui.Panel{
             width = 1,
@@ -1240,18 +1247,21 @@ mod.shared.ImportMapDialog = function(paths, options)
             tileType = d.tileType
         end
         autoChoice = choice
-        perfectFitActive = true
-        SetAutoGridStyle(true)
         tileTypeChoice.value = tileType
         RefreshMapType()
 
         local words = MapGridDetection.Describe(choice, imgW, imgH)
-        perfectFitPanel:Get("perfectFitTitle").text = words.title
-        perfectFitPanel:Get("perfectFitDescription").text = words.text
-        perfectFitPanel:Get("perfectFitDimensions").text = string.format("%d x %d %s",
+        perfectFitTitle.text = words.title
+        perfectFitDescription.text = words.text
+        perfectFitDimensions.text = string.format("%d x %d %s",
             choice.tilesW, choice.tilesH, cond(choice.hex, "hexes", "tiles"))
         perfectFitPanel:SetClass("collapsed", false)
         instructionsPanel:SetClass("collapsed", true)
+
+        --Last: once set, the think handler hides Previous/Continue/Confirm, so an
+        --error above must leave the normal controls usable rather than none at all.
+        perfectFitActive = true
+        SetAutoGridStyle(true)
         return true
     end
 
@@ -1575,6 +1585,10 @@ mod.shared.ImportMapDialog = function(paths, options)
         vmargin = 4,
     }
 
+    --Set by the row's create handler; read by the think handler (see perfectFitTitle).
+    --- @type Panel|nil
+    local tileScalingRow = nil
+
     local statusPanel = gui.Panel{
         classes = {"hidden"},
         flow = "vertical",
@@ -1597,6 +1611,9 @@ mod.shared.ImportMapDialog = function(paths, options)
         gui.Panel{
             id = "tileScalingRow",
             classes = {cond(tileType == "squares", nil, "hidden")},
+            create = function(element)
+                tileScalingRow = element
+            end,
             flow = "horizontal",
             width = "auto",
             height = "auto",
@@ -1841,7 +1858,9 @@ mod.shared.ImportMapDialog = function(paths, options)
             else
                 statusPanel:SetClass("hidden", false)
                 --tile scaling is for squares only; the tile type can change by hand now.
-                statusPanel:Get("tileScalingRow"):SetClass("hidden", tileType ~= "squares")
+                if tileScalingRow ~= nil then
+                    tileScalingRow:SetClass("hidden", tileType ~= "squares")
+                end
 
                 -- Show the mode toggle only in gridless mode.
                 local isGridless = gridlessChoice.value == false
