@@ -175,6 +175,11 @@ check(Fresh().patience == 4, "three or more speakers add 2")
 speakers = {}
 check(Fresh().patience == 2, "no speakers, no bonus")
 speakers = { brunna = true }
+beat.language = "Caelian"
+speakers = { brunna = true, ives = true, sael = true }
+check(Fresh().patience == 2, "Caelian never counts")
+beat.language = "Zaliac"
+speakers = { brunna = true }
 
 --an appeal: tier 2 raises interest, costs patience, reveals the motivation
 m = Fresh()

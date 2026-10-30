@@ -117,9 +117,10 @@ function EncounterNegotiation.CanMakeArgument(charid, argument)
 end
 
 --The book's language rule: one speaker of the NPC's native language adds 1
---patience at the start, three or more add 2, to a maximum of 5.
+--patience at the start, three or more add 2, to a maximum of 5. Caelian, the
+--common tongue, never counts.
 local function LanguageBonus(beat, heroes)
-    if beat.language == "" then
+    if beat.language == "" or string.lower(beat.language) == "caelian" then
         return 0
     end
     local requirement = EncounterScript.ParseRequirement("you speak " .. beat.language)
