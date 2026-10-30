@@ -1088,6 +1088,31 @@ mod.shared.ImportMapDialog = function(paths, options)
         matchMapPanel,
     }
 
+    -- Unchecked, the automatic grid is hidden so the user can compare it with the bare map.
+    local drawGridCheck = gui.Check{
+        text = "Draw Grid",
+        value = true,
+        halign = "left",
+        vmargin = 4,
+        change = function(element)
+            importPanel.showGrid = element.value
+        end,
+    }
+
+    -- The automatic grid is drawn thick and yellow so it is easy to judge against
+    -- the map; sizing by hand goes back to the thin default lines.
+    local function SetAutoGridStyle(on)
+        if on then
+            importPanel.gridColor = "#ffd21f"
+            importPanel.gridThickness = 3
+            importPanel.showGrid = drawGridCheck.value
+        else
+            importPanel.gridColor = nil
+            importPanel.gridThickness = 1
+            importPanel.showGrid = true
+        end
+    end
+
     -- The automatic grid panel: "A Perfect Fit!" (140 PPS) or a detected grid,
     -- with Accept and Set Grid by Hand.
     local perfectFitPanel
@@ -1098,6 +1123,8 @@ mod.shared.ImportMapDialog = function(paths, options)
         height = "auto",
         halign = "left",
         valign = "top",
+
+        drawGridCheck,
 
         gui.Label{
             id = "perfectFitTitle",
@@ -1178,6 +1205,7 @@ mod.shared.ImportMapDialog = function(paths, options)
                 --ResetCalibration, not ClearMarkers: a detected grid marks every
                 --sizing step done, and sizing by hand must start from the first.
                 importPanel:ResetCalibration()
+                SetAutoGridStyle(false)
                 tileTypeChoice.value = tileType
                 gridlessChoice.value = true
             end,
@@ -1213,6 +1241,7 @@ mod.shared.ImportMapDialog = function(paths, options)
         end
         autoChoice = choice
         perfectFitActive = true
+        SetAutoGridStyle(true)
         tileTypeChoice.value = tileType
         RefreshMapType()
 
