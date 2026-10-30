@@ -1480,7 +1480,9 @@ local function UpdateStartZoneConfinement()
     m_restrictionZonesSeq = zonesSeq
     --pcall: an engine build without the Movement Restriction API degrades to
     --no confinement (the zone outline below still draws).
-    pcall(function() dmhub.SetMovementRestriction{ locs = locs } end)
+    --teleportBetweenAreas: when the start zones are separate areas, a hero
+    --dragged onto another one hops there (older engines ignore the flag).
+    pcall(function() dmhub.SetMovementRestriction{ locs = locs, teleportBetweenAreas = true } end)
     m_zoneMarker = dmhub.MarkLocs{
         locs = locs,
         color = START_ZONE_COLOR,

@@ -4981,8 +4981,12 @@ From arrival until the initiative queue first goes live (latched by
 `combatStarted`), each client's 1s driver:
 
 - installs the engine **movement restriction** (`dmhub.SetMovementRestriction{
-  locs}`): steps outside the Start zone are impassable for pathing, arrows,
-  and drags (forced movement exempt), with a commit backstop;
+  locs, teleportBetweenAreas = true}`): steps outside the Start zone are
+  impassable for pathing, arrows, and drags (forced movement exempt), with a
+  commit backstop. When the start area is several separate zones (Start plus
+  an unlocked Start2, or builder start tiles in two places), dragging a hero
+  onto a zone no walk reaches teleports it there (purple arrow, no teleport
+  events) -- added 2026-10-29 at David's ask, engine NB, UT;
 - outlines the zone with `dmhub.MarkLocs{locs, color, style = "dashed"}`;
 - holds `GameHud.SetTooltipsSuppressed("eotw", true)`: no tooltips and no
   movement cross-section anywhere -- **except while a stage beat is up**, so
