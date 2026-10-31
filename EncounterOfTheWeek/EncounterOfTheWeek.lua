@@ -4286,6 +4286,60 @@ function EncounterOfTheWeekGame.DeployMyCompanions(charids)
     end
 end
 
+--Seconds to wait for the encounter map's terrain before placing heroes anyway.
+EncounterOfTheWeekGame.TERRAIN_WAIT = 10
+
+--Wait until the current map's terrain (its heightmap) has reached this
+--client. A map just entered reads as flat ground at altitude 0 until then,
+--so heroes pasted onto a raised or sunken Start zone would float above it
+--or stand inside it. Yields; call from a coroutine.
+function EncounterOfTheWeekGame.WaitForMapTerrain()
+    local waited = 0
+    while not game.currentMap.terrainLoaded do
+        if mod.unloaded then
+            return
+        end
+        if waited >= EncounterOfTheWeekGame.TERRAIN_WAIT then
+            printf("EotW: the map's terrain has not loaded after %ds; placing heroes anyway", EncounterOfTheWeekGame.TERRAIN_WAIT)
+            return
+        end
+        coroutine.yield(0.1)
+        waited = waited + 0.1
+    end
+    if waited > 0 then
+        printf("EotW: waited %.1fs for the map's terrain", waited)
+    end
+end
+
+--Stand a token on the ground under it when it shows the terrain race: placed
+--while the map's terrain had not loaded, it sits at altitude 0 over ground
+--that is not at 0. Anything else is left alone -- a token flying, riding,
+--on a platform deck (a bridge) or over water is where it means to be, and
+--withGroundAltitude ignores decks and the water surface. Moving another
+--player's token needs the host's authority (ElevateToHostPermissions).
+--  tokens: CharacterToken[]; reason: for the log.
+function EncounterOfTheWeekGame.GroundTokens(tokens, reason)
+    local water = game.currentMap ~= nil and game.currentMap.water or nil
+    for _, token in ipairs(tokens or {}) do
+        if token ~= nil and token.valid and token.properties ~= nil and token.loc.isOnMap
+                and token.loc.altitude == 0
+                and (token.mountedOn == nil or token.mountedOn == "")
+                and token.loc.platformAltitude ~= 0
+                and not token.properties:IsFlying() then
+            local ground = token.loc.withGroundAltitude
+            local underWater = water ~= nil and ground.altitude < water.level
+            if ground.altitude ~= 0 and not underWater then
+                printf("EotW: %s (%s) stood at altitude %d over ground at %d; grounding it (%s)",
+                    tostring(token.name), token.charid, token.loc.altitude, ground.altitude, tostring(reason))
+                local ok, err = pcall(function() token:ChangeLocation(ground) end)
+                if not ok then
+                    printf("EotW: could not ground %s: %s", token.charid, tostring(err))
+                end
+            end
+        end
+    end
+end
+
 --Place the local player's claimed heroes into the Start zone.
 --  heroes:       full claim list, {kind, id, name} each, in claim order.
 --  clipboardIds: ids of the "lobby" heroes copied to the token clipboard at
@@ -4308,6 +4362,10 @@ local function PlaceMyHeroes(heroes, clipboardIds)
         local cam = dmhub.cameraPosition
         anchor = core.Loc{ x = round(cam.x), y = round(cam.y), floorIndex = game.currentFloorIndex }
     end
+
+    --the paste stands each hero on the ground under its tile, which reads as
+    --altitude 0 until the map's terrain arrives.
+    EncounterOfTheWeekGame.WaitForMapTerrain()
 
     local changed = false
     --every hero this call put on the map, for the stacking repair below.
@@ -4851,6 +4909,13 @@ local function StartEncounterCombat(sides, options)
     if not options.noArrange then
         holdBeforeQueue = HoldForArrangement
     end
+
+    --last chance to fix a hero left at the wrong height (placed before the
+    --map's terrain loaded, or moved by a resume repair): no one is flying
+    --or diving yet. Every player's tokens, so with the host's authority.
+    ElevateToHostPermissions()
+    EncounterOfTheWeekGame.GroundTokens(sides.playerTokens, "combat start")
+    DropHostPermissions()
 
     --elevated: the surprised condition goes on monsters too, and the host
     --is a player in an EotW game.
@@ -6441,6 +6506,13 @@ function EncounterOfTheWeekGame.SetupOnArrival(args)
 
         --a beastheart brings their companion.
         EncounterOfTheWeekGame.DeployMyCompanions(myPasted)
+
+        --heroes pasted after the terrain wait gave up stand at the wrong height.
+        local myTokens = {}
+        for _, charid in ipairs(myPasted) do
+            myTokens[#myTokens + 1] = dmhub.GetCharacterById(charid)
+        end
+        EncounterOfTheWeekGame.GroundTokens(myTokens, "arrival")
 
         --the loading screen stays up until the whole party is in. With an
         --opening stage, the stage releases it once the beat has opened
