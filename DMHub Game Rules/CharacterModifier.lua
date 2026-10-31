@@ -3834,6 +3834,23 @@ function CharacterModifier:HasResourcesAvailable(creature)
 	return creature:GetResourceUsage(self:GetResourceRefreshId(), refreshType) < self:GetNumberOfCharges(creature)
 end
 
+--- The most charges a "multicost" modifier can buy with what the creature has left
+--- once the ability itself is paid for (e.g. To the Uttermost End's extra Ferocity).
+--- @param creature creature
+--- @param expectedCostOfCurrentCast nil|table Resource id -> amount the ability itself costs.
+--- @return integer|nil nil when there is no per-charge cost to limit by.
+function CharacterModifier:MaxAffordableCharges(creature, expectedCostOfCurrentCast)
+    local costPerCharge = self:ResolveResourceCostAmount(creature)
+    if type(costPerCharge) ~= "number" or costPerCharge <= 0 then
+        return nil
+    end
+    local available = tonumber(creature:GetHeroicOrMaliceResourcesAvailableToSpend()) or 0
+    if expectedCostOfCurrentCast ~= nil and not self:try_get("overrideCost", false) then
+        available = available - (expectedCostOfCurrentCast[creature:GetHeroicOrMaliceId()] or 0)
+    end
+    return math.max(0, math.floor(available / costPerCharge))
+end
+
 function CharacterModifier:DescribeResourceAvailability(creature, charges, expectedCostOfCurrentCast)
     charges = charges or 1
 
