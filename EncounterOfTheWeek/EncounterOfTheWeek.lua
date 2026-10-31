@@ -5141,10 +5141,12 @@ end
 --the fight visibly settles (and any just-started prompt's busy stamp has
 --time to replicate) before the screen takes over. heldLoggedFor is the
 --m_outcomeMetTime whose held award was logged, so the "award held by" line
---prints once per met outcome rather than every tick. One table, not two
---locals: this file's main chunk is at Lua's 200-local limit.
----@type {holdTicks: integer, heldLoggedFor: number|nil}
-local m_award = {holdTicks = 0, heldLoggedFor = nil}
+--prints once per met outcome rather than every tick. metTime is when the
+--outcome now on screen was first met (m_outcomeMetTime, kept past the award),
+--so a Proceed stamped before it is known to be stale (8KRBSRC2). One table,
+--not more locals: this file's main chunk is at Lua's 200-local limit.
+---@type {holdTicks: integer, heldLoggedFor: number|nil, metTime: number|nil}
+local m_award = {holdTicks = 0, heldLoggedFor = nil, metTime = nil}
 local AWARD_HOLD_TICKS = 2
 
 --When the outcome condition was FIRST observed met (whether or not clients
@@ -5206,9 +5208,10 @@ local function CheckEncounterOutcome(queue)
         --a stamp from before this outcome was first met belongs to an earlier
         --screen (a lagging client's late press on the last series part's
         --victory, 8KRBSRC2); acting on it would end this fight unseen. Drop it.
-        --m_outcomeMetTime is nil after a host reload: trust the stamp then.
-        if type(requested) == "number" and m_outcomeMetTime ~= nil and requested < m_outcomeMetTime then
-            printf("EotW: ignoring a stale Proceed request (%.1fs before this outcome)", m_outcomeMetTime - requested)
+        --m_award.metTime is nil after a host reload: trust the stamp then.
+        local metTime = m_award.metTime
+        if type(requested) == "number" and metTime ~= nil and requested < metTime then
+            printf("EotW: ignoring a stale Proceed request (%.1fs before this outcome)", metTime - requested)
             doc:BeginChange()
             doc.data.proceedRequested = nil
             doc:CompleteChange("Encounter of the Week: stale proceed dropped", {undoable = false})
@@ -5299,6 +5302,7 @@ local function CheckEncounterOutcome(queue)
     end
 
     m_award.holdTicks = 0
+    m_award.metTime = m_outcomeMetTime
     m_outcomeMetTime = nil
 
     if victory then
@@ -6914,6 +6918,7 @@ function Series.OnNewPart(data)
     m_localProceeded = false
     m_victorySeenAt = nil
     m_award.holdTicks = 0
+    m_award.metTime = nil
     m_outcomeMetTime = nil
     m_absentOffered = false
     m_hallRecorded = false
@@ -7687,6 +7692,7 @@ local function TestTeardown()
     m_localProceeded = false
     m_victorySeenAt = nil
     m_award.holdTicks = 0
+    m_award.metTime = nil
     m_outcomeMetTime = nil
 end
 
