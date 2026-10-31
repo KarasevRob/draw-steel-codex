@@ -1350,6 +1350,17 @@ function CharacterFeature.ListEditor(document, fieldName, options)
 		end,
 	}
 
+	--Built once and kept across rebuilds. Wrapping the buttons in a fresh panel on every
+	--CalculateChildren orphaned the old wrapper while it still listed them as children,
+	--and under panel pooling its teardown recycled the live buttons (8CMXRYPW).
+	local buttonRow = gui.Panel{
+		width = "auto",
+		height = "auto",
+		flow = "horizontal",
+		addButton,
+		pasteButton,
+	}
+
 	CalculateChildren = function()
 		local children = {}
 		local items = document:try_get(fieldName, {})
@@ -1403,13 +1414,7 @@ function CharacterFeature.ListEditor(document, fieldName, options)
 			}
 		end
 
-		children[#children+1] = gui.Panel{
-			width = "auto",
-			height = "auto",
-			flow = "horizontal",
-			addButton,
-			pasteButton,
-		}
+		children[#children+1] = buttonRow
 		return children
 	end
 

@@ -5934,6 +5934,42 @@ safe-zone tile (elevated `token:Move`, freeMovement); a hostage on a
 safe-zone tile is rescued. Victory: every living hostage rescued; defeat:
 every hostage dead.
 
+## Negotiation beats (BUILT 2026-10-30; two players tested)
+
+User direction 2026-10-30 (Lisa, with David): a negotiation that plays with no
+Director, as a montage does, to fix the empty feeling of the journal stage. The
+plan and its decisions are `NEGOTIATION_SCRIPTED_PLAN.md` at the dmhub repo root;
+the grammar is in `.claude/skills/eotw/script-reference.md`.
+
+- `EncounterNegotiation.lua` is the runtime, on the montage's authority model:
+  host-written `data.negotiation`, player requests, and the acting player's
+  client rolls. The book's numbers stay in `NegotiationRules`, which it calls.
+- The body is `CreateNegotiationStage` in `EncounterMontageStage.lua`, swapped in
+  by the script stage like the narrative and prep bodies.
+- A roll reuses the montage's dialog through `EncounterMontage.BuildTestRoll` and
+  `ShowTestRoll`. Edge-style perks apply; the perks that rescue a failed test do
+  not.
+- Stopping and accepting use one vote per player. A split is settled by a random
+  player, with no flash yet.
+- `You uncover <label>` writes `data.negotiationClues`, read at `Begin`.
+- A negotiation in a Director game is not this: that is `NegotiationRules`'s own
+  stage and rail.
+
+**Dev limit:** after `reload_lua`, the stage does not mount until a full app
+start. Cause not found; not known whether it is specific to negotiation.
+
+**The builder** is `S.NegotiationEditor` in `EncounterScriptBuilder.lua`, in the
+Encounter Builder's script view: one scrolling form (the NPC, traits, arguments,
+offers) rather than the mockup's list and detail panes, like the narrative editor.
+The parser records `fieldLines` on the beat, traits and arguments, and `textLines`
+and `ruleLines` on offers; `EncounterScriptEdit` has the writers. The test and
+knack rows are the montage builder's, as `ctx.AttrEditor` and `ctx.RiderRows`.
+"Test this negotiation" is `EncounterNegotiation.StartPreview(beat)`, a rehearsal:
+`m.rehearsal` makes `Finish` apply nothing. Not built: the mockup's quick odds,
+and knack coverage does not count negotiation arguments yet. To try the builder
+in a Director-less game, use a `--director` window on a throwaway document not
+filed under the map.
+
 ## Narrative beats
 
 ```
@@ -6528,6 +6564,24 @@ the surface in either direction instead of only raising it; the three
 encounter fallback grids (`Encounter.SpawnGroupForReal`, the second grid in
 `EncounterPanel.lua`, `LiveEncounter:DeployWave`) and the montage's
 `SpawnAlly` pass it. Saved spawn positions keep their height (fliers).
+
+**Heroes still floated in a live run (2026-10-30, Dwarvish Bandits, 0.0.873):**
+the paste's ground snap was working, but it ran ~1s before the encounter
+map's heightmap arrived. Until a map's `/Maps/` record (rasters + heights)
+reaches the client, `MapMonitor.GetHeights` hands back an empty placeholder
+that reads altitude 0 everywhere, and the map switch waits only for the
+floors (`mapDetailsController`), never for that record. Fix (engine NEEDS
+BUILD, codex UNCOMMITTED): `MapMonitor.IsMapLoaded` / `map.terrainLoaded`
+(true once the record arrives from the cache or the server, or the server
+has none); `PlaceMyHeroes` waits for it
+(`EncounterOfTheWeekGame.WaitForMapTerrain`, 10s cap) before pasting; and
+`EncounterOfTheWeekGame.GroundTokens` re-grounds a token showing the race's
+signature only -- non-flying, unmounted, at altitude 0 over ground that is not
+at 0, not on a platform deck at 0 and not over water (`withGroundAltitude`
+ignores decks and the water surface, so a broader rule would drop heroes off
+bridges or to the bed at combat start; narrowed at release 0.0.874) -- each client's
+own heroes after arrival, and every player token at combat start (host,
+elevated), which also covers resumes and `MoveStrayHeroesIntoPlay`.
 
 **Known gaps:** a second Director in the authoring game could win the
 map-script election (the host tick still runs there, since it accepts

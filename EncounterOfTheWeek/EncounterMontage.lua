@@ -3050,6 +3050,13 @@ function EncounterMontage.ApplyEffects(effects, ctx)
                     printf("EotW montage: '%s' has no montage to unlock in", tostring(effect.text))
                 end
                 applied[#applied + 1] = EncounterScript.DescribeUnlock(effect.name)
+            elseif effect.kind == "uncover" then
+                --read when a negotiation begins (EncounterNegotiation.Begin).
+                if ctx.doc ~= nil then
+                    ctx.doc.data.negotiationClues = ctx.doc.data.negotiationClues or {}
+                    ctx.doc.data.negotiationClues[effect.key] = true
+                end
+                applied[#applied + 1] = EncounterScript.DescribeEffect(effect)
             elseif effect.kind == "testmod" then
                 --"Edge on Capture Them": a standing edge or bane on
                 --another test of this montage, for whoever takes it. Held
@@ -6495,11 +6502,19 @@ end
 --      rollSeq, expectedStatus (the turn status this roll is still wanted
 --      for), CurrentRollSeq (pulls the live rollSeq out of a turn),
 --      completeKind, cancelKind, extra (fields merged into the completion
---      request).
+--      request). Another beat's roll passes stillWanted (replacing the turn
+--      check), send (replacing EncounterMontage.SendRequest) and onNotShown.
 local function ShowMontageRoll(args)
     local c = args.creature
     local title = args.title
     local rollSeq = args.rollSeq
+    local Send = args.send or EncounterMontage.SendRequest
+    local function RetryLaunch()
+        m_launchedRollSeq = nil
+        if args.onNotShown ~= nil then
+            args.onNotShown()
+        end
+    end
     local rollProperties = RollPropertiesPowerTable.new {
         tiers = args.tiers,
         fullyImplemented = true,
@@ -6515,13 +6530,19 @@ local function ShowMontageRoll(args)
         if mod.unloaded or CharacterPanel.AnyRollDialogShown() then
             --could not show; let the turn be re-rolled by clearing the
             --launch mark so the next client tick tries again.
-            m_launchedRollSeq = nil
+            RetryLaunch()
             return
         end
         --the turn may have moved on while we waited.
-        local m = EncounterMontage.GetState()
-        if m == nil or m.turn == nil or m.turn.status ~= args.expectedStatus or args.CurrentRollSeq(m.turn) ~= rollSeq then
-            return
+        if args.stillWanted ~= nil then
+            if not args.stillWanted() then
+                return
+            end
+        else
+            local m = EncounterMontage.GetState()
+            if m == nil or m.turn == nil or m.turn.status ~= args.expectedStatus or args.CurrentRollSeq(m.turn) ~= rollSeq then
+                return
+            end
         end
 
         --The same presentation as a characteristic test clicked on the
@@ -6578,7 +6599,7 @@ local function ShowMontageRoll(args)
             end
             if dialog == nil or not dialog.valid then
                 Finish()
-                m_launchedRollSeq = nil
+                RetryLaunch()
                 return
             end
             dialog.data.ShowDialog {
@@ -6617,13 +6638,15 @@ local function ShowMontageRoll(args)
                     for k, v in pairs(args.extra or {}) do
                         req[k] = v
                     end
-                    EncounterMontage.SendRequest(args.completeKind, req)
+                    Send(args.completeKind, req)
                 end,
 
                 cancelRoll = function()
                     Finish()
+                    --not onNotShown: the host has not heard yet, and a launch
+                    --mark cleared now would reopen the roll just cancelled.
                     m_launchedRollSeq = nil
-                    EncounterMontage.SendRequest(args.cancelKind, { rollSeq = rollSeq })
+                    Send(args.cancelKind, { rollSeq = rollSeq })
                 end,
             }
         end
@@ -6723,6 +6746,30 @@ end
 --(TestRiders).
 local function AppendRiderModifiers(modifiers, verdict, rollType)
     TestRiders.AppendModifiers(modifiers, verdict, rollType)
+end
+
+--The montage's test roll for another beat: 2d10 + the best listed
+--characteristic, the Skilled chip, the hero's features and riders.
+function EncounterMontage.BuildTestRoll(heroToken, attr, name, verdict)
+    local c = heroToken.properties
+    local characteristics, skills = EncounterScript.ParseAttr(attr, creature.attributesInfo, Skill.skillsDropdownOptions)
+    characteristics = EncounterMontage.PerkCharacteristics(c, heroToken.charid, characteristics, skills)
+    local attrid, bestModifier = BestCharacteristic(c, characteristics)
+    local title = string.format("%s: %s", name, attr)
+    local rollType = "test_power_roll"
+    local roll = string.format("2d10 + %d", bestModifier)
+    local modifiers = {}
+    if attrid ~= nil then
+        modifiers = c:GetModifiersForPowerRoll(roll, rollType, { attribute = attrid, title = title, skills = skills })
+    end
+    ApplySkilledModifier(c, modifiers, skills)
+    AppendRiderModifiers(modifiers, verdict, rollType)
+    EncounterMontage.AppendPerkModifiers(modifiers, c, heroToken.charid, nil, nil, skills, attrid)
+    return { title = title, roll = roll, rollType = rollType, modifiers = modifiers }
+end
+
+function EncounterMontage.ShowTestRoll(args)
+    ShowMontageRoll(args)
 end
 
 --Show the roll dialog for the current turn's option: 2d10 + the best of
