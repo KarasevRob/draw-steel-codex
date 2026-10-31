@@ -496,6 +496,21 @@ function MapGridDetection.Choose(w, h, detection, minSquares)
     if d == nil then
         return nil
     end
+    -- The detector reads the file itself, but an image too big to load is shown
+    -- shrunk (8192 px at most): put its grid in the shown image's pixels.
+    if d.imageWidth ~= nil and d.imageWidth > 0 and d.imageHeight ~= nil and d.imageHeight > 0
+        and (math.abs(d.imageWidth - w) > 0.5 or math.abs(d.imageHeight - h) > 0.5) then
+        local sx, sy = w / d.imageWidth, h / d.imageHeight
+        local scaled = {}
+        for k, v in pairs(d) do
+            scaled[k] = v
+        end
+        scaled.cellWidth, scaled.cellHeight = d.cellWidth * sx, d.cellHeight * sy
+        scaled.periodX, scaled.periodY = d.periodX * sx, d.periodY * sy
+        scaled.originX, scaled.originY = d.originX * sx, d.originY * sy
+        scaled.imageWidth, scaled.imageHeight = w, h
+        d = scaled --[[@as ImageGridDetection]]
+    end
     local hex = d.tileType ~= "squares"
     local across, down
     if not hex then
@@ -1772,6 +1787,32 @@ mod.shared.ImportMapDialog = function(paths, options)
 
     }
 
+    -- Shown over the map preview while the engine shrinks an over-size image or
+    -- converts a video on a background thread, which takes a while on big files.
+    -- Left-aligned in a fixed width so the animated dots don't shift the text.
+    local processingLabel = gui.Label{
+        width = 280,
+        height = "auto",
+        halign = "center",
+        valign = "center",
+        fontSize = 26,
+        textAlignment = "left",
+        textWrap = false,
+        text = "",
+    }
+    -- Covers the preview, which is blank white until there is an image.
+    local processingOverlay = gui.Panel{
+        classes = {"hidden"},
+        width = 800,
+        height = 800,
+        halign = "right",
+        valign = "top",
+        y = 26,
+        bgimage = "panels/square.png",
+        bgcolor = "@bgAlt",
+        processingLabel,
+    }
+
     importPanel = gui.MapImport{
         paths = paths,
         width = 800,
@@ -1789,6 +1830,16 @@ mod.shared.ImportMapDialog = function(paths, options)
         thinkTime = 0.05,
 
         think = function(element)
+            local processing = element.processingMessage
+            processingOverlay:SetClass("hidden", processing == nil)
+            -- The sizing steps mean nothing until there is a map to size.
+            instructionsPanel:SetClass("hidden", processing ~= nil)
+            if processing ~= nil then
+                -- 0 to 3 dots, one step every 0.4 s, so it reads as still working.
+                local dots = math.floor(dmhub.Time() / 0.4) % 4
+                processingLabel.text = processing .. string.rep(".", dots)
+            end
+
             -- One-shot automatic grid, once the image has loaded: the 140 PPS
             -- perfect fit at once if the image is one, then whatever the grid
             -- detector finds (MapGridDetection.Choose decides between them).
@@ -1920,6 +1971,7 @@ mod.shared.ImportMapDialog = function(paths, options)
         zoomSlider,
         layersPagingPanel,
         importPanel,
+        processingOverlay,
         buttonsPanel,
         -- The left column: the sizing instructions or the automatic grid
         -- (one at a time), then the Map Type choice under either.

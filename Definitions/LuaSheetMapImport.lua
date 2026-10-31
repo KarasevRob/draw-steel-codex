@@ -12,6 +12,7 @@
 --- @field havePrevious any
 --- @field tileDim any
 --- @field error any
+--- @field processingMessage string|nil What the panel is busy with before the image can be shown: 'Optimizing Image' while an over-size image is shrunk in the background, 'Optimizing Video' while a video is checked or converted. Nil when idle.
 --- @field zoom any
 --- @field tileType any
 --- @field lockDimensions boolean
