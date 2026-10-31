@@ -22598,7 +22598,9 @@ local function CreateIconRail(side, entries, opts)
             end
             if GroupShadowHidden() then
                 groupShadow:SetClass("groupOpen", true)
-            else
+            elseif groupShadow:HasClass("groupOpen") then
+                --(nothing to clear otherwise: rails refresh many times a second,
+                --and an unneeded deferred clear is a scheduled call each time.)
                 --clears are deferred a frame and re-checked: a press that
                 --opens the group's window collapses the strip (clear) and
                 --refreshes the rails (set) in the same call stack, and the

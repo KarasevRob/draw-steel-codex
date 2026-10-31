@@ -195,8 +195,11 @@
 --- @field mouseWheel number Returns a positive or negative number if the mousewheel has been moved this frame, based on the direction. Returns 0 if the mousewheel has not been moved this frame.
 --- @field harnessMode nil|string (Read-only) The test-harness name passed via --harness on the command line, or nil when not launched in harness mode. Dev builds only. See TEST_HARNESS_PLAN.md.
 --- @field harnessArgs nil|string (Read-only) The raw string passed via --harness-args on the command line, or nil. Interpretation (typically JSON) is up to the Lua harness.
---- @field screenDimensions Vector2 (Read-only) The current screen dimensions in pixels as a Vector2 (width, height).
---- @field screenDimensionsBelowTitlebar Vector2 (Read-only) The screen dimensions in pixels below the title bar as a Vector2 (width, height).
+--- @field screenDimensions Vector2 (Read-only) The current screen dimensions in pixels as a Vector2 (width, height). Each read makes a new Vector2; per-frame code should read screenWidth and screenHeight instead.
+--- @field screenDimensionsBelowTitlebar Vector2 (Read-only) The screen dimensions in pixels below the title bar as a Vector2 (width, height). Each read makes a new Vector2; per-frame code should read screenWidth and screenHeightBelowTitlebar instead.
+--- @field screenWidth number (Read-only) The screen width in pixels. Unlike screenDimensions, reading it allocates nothing.
+--- @field screenHeight number (Read-only) The screen height in pixels. Unlike screenDimensions, reading it allocates nothing.
+--- @field screenHeightBelowTitlebar number (Read-only) The screen height in pixels below the title bar (screenDimensionsBelowTitlebar.y). Reading it allocates nothing.
 --- @field cursorIds string[] (Read-only) The ids of the registered mouse cursors, as an array of strings. Useful to feature-detect a cursor id before using it in hoverCursor: assigning an id not in this list silently falls back to the default cursor.
 --- @field cameraPosition Vector2 (Read-only) The camera's center position in world coordinates as a Vector2 (x, y). This is the point in the game world that the camera is looking at.
 --- @field cameraZoom number (Read-only) The camera's orthographic size (half the visible height in world units). Smaller values mean more zoomed in. The full visible height is cameraZoom * 2.
