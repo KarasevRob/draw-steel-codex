@@ -14,9 +14,11 @@
 #   .\deploy.ps1 -Check           dry run: report what would be deployed
 #   .\deploy.ps1 <paths...>       deploy specific repo-relative files
 
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$Check,
-    [Parameter(ValueFromRemainingArguments = $true)]
+    [string]$GitFolderOverride = "",
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]]$Paths
 )
 
@@ -25,7 +27,7 @@ $ErrorActionPreference = "Stop"
 $repo = $PSScriptRoot
 
 # Resolve the app's git folder from its settings; fall back to the known default.
-$gitFolder = "C:\Users\theli\codex-dev-mods"
+$gitFolder = Join-Path $env:USERPROFILE "codex-dev-mods"
 $settingsPath = Join-Path $env:USERPROFILE "AppData\LocalLow\MCDM\Codex\mods\settings.json"
 if (Test-Path $settingsPath) {
     try {
@@ -35,6 +37,7 @@ if (Test-Path $settingsPath) {
         }
     } catch {}
 }
+if ($GitFolderOverride) { $gitFolder = $GitFolderOverride }
 
 if (-not (Test-Path $gitFolder)) {
     Write-Host "Codex git folder not found: $gitFolder" -ForegroundColor Red

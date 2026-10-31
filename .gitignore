@@ -72,7 +72,8 @@ docs/superpowers/
 node_modules/
 
 # Agent scratch and local working files
-.agents/
+.agents/*
+!.agents/skills/
 .claude/acolyte-source.txt
 biglua.txt
 emmylua_patch.py

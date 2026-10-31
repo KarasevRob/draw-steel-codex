@@ -192,6 +192,7 @@ local function RegisterSpendBehavior()
     end
 
     if HTEHeroTokenSpendBehavior == nil then
+        ---@class HTEHeroTokenSpendBehavior : ActivatedAbilityBehavior
         HTEHeroTokenSpendBehavior = RegisterGameType(
             "HTEHeroTokenSpendBehavior",
             "ActivatedAbilityBehavior"
