@@ -25924,6 +25924,38 @@ function MapButtons.Unregister(id)
     MapButtons.Refresh()
 end
 
+--- Press a registered map button from code, wherever it is drawn (the
+--- MapButtons bar or a map rail), e.g. to open its popup. Returns true when
+--- the drawn button was found (and pressed, unless its popup is already
+--- up); false while it is not on screen yet, so callers can retry.
+--- @param id string
+--- @return boolean
+function MapButtons.Open(id)
+    local layer = DocumentsLayer()
+    if layer == nil or MapButtons.registry[id] == nil then
+        return false
+    end
+    --bar buttons carry data.mapButtonId; rail buttons carry their rail
+    --entry key (RailEntryTypes.mapbutton) in data.key.
+    local railKey = "mapbutton:" .. id
+    local button = layer:FindChildRecursive(function(p)
+        local data = p.data
+        return data ~= nil and (data.mapButtonId == id or data.key == railKey)
+    end)
+    if button == nil then
+        return false
+    end
+    if button.popup ~= nil then
+        return true
+    end
+    if button.data.mapButtonId == id then
+        button:FireEvent("click")
+    else
+        button:FireEvent("activateRailButton")
+    end
+    return true
+end
+
 --the entries this client shows, in display order: explicit ord first,
 --then registration order.
 function MapButtons.VisibleEntries()
