@@ -2163,6 +2163,10 @@ function dmhub.PanelInitProfileCalibrate() end
 --- @param enabled? boolean
 function dmhub.PoolSetEnabled(enabled) end
 
+--- Diagnostic: turns the Lua bridge's typed call stubs on or off at runtime. On (the default), calls from Lua into engine methods, property setters and fields read and write their values straight from the Lua stack without boxing; off, every call takes the general object[] path. For A/B measurement, and as an escape hatch if a stub ever behaves differently from the general path.
+--- @param enabled? boolean
+function dmhub.LuaTypedStubsSetEnabled(enabled) end
+
 --- DebugUserDataReport
 --- (Undocumented: engine-internal, not part of the modding API.)
 function dmhub:DebugUserDataReport() end
