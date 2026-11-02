@@ -35,6 +35,10 @@ MonsterAI.log = {}
 MonsterAI.active = false
 MonsterAI.reactionStatus = false
 MonsterAI.reactionFailure = false
+--When the AI started waiting on nothing but minion deaths (nil when it isn't).
+--The token HUD reads it.
+---@type number|nil
+MonsterAI.minionDeathWaitSince = nil
 
 --"The AI is waiting on a player" notice ----------------------------------
 --
@@ -133,6 +137,20 @@ Tip.notices = Tip.notices or {}
 local m_noticeText = nil
 local m_noticeSince = 0
 
+--Which ability a trigger prompt is for: its guid when it carries one, else
+--its ability name, else the card's text.
+--- @param trigger ActiveTrigger
+--- @return string
+local function AbilityKeyOfTrigger(trigger)
+    if trigger.abilityGuid then
+        return "guid:" .. tostring(trigger.abilityGuid)
+    end
+    if trigger.abilityName then
+        return "name:" .. tostring(trigger.abilityName)
+    end
+    return "text:" .. tostring(trigger:GetText())
+end
+
 --The banner buttons (see the notice channel in GameHud.lua). Only the player
 --who answers the waited-on hero's prompts gets any: "Select <hero>" while the
 --hero is not selected, and Dismiss when the wait is on a prompt they can
@@ -177,11 +195,29 @@ local function WaitingNoticeControls(doc)
                 undoable = false,
                 description = "Trigger",
                 execute = function()
-                    local live = token.properties:try_get("availableTriggers", {})[triggerid]
-                    if live ~= nil and not live.dismissed and not live.triggered then
-                        live.triggered = false
-                        live.dismissed = true
-                        token.properties:DispatchAvailableTrigger(live)
+                    local triggers = token.properties:try_get("availableTriggers", {})
+                    local live = triggers[triggerid]
+                    if live == nil or live.dismissed or live.triggered then
+                        return
+                    end
+                    live.triggered = false
+                    live.dismissed = true
+                    token.properties:DispatchAvailableTrigger(live)
+
+                    --one event can stack several prompts of the same ability on a
+                    --hero (4x The Breath of Dawn Remembered); the AI waits on each
+                    --in turn, so Dismiss clears them all, not just the one named
+                    --in the banner (ERRA5PCR). Hidden members of a merged prompt
+                    --are left to their front card.
+                    local key = AbilityKeyOfTrigger(live)
+                    for id,other in pairs(triggers) do
+                        if id ~= triggerid and not other.dismissed and not other.triggered
+                            and not other.mergedInto and other:CanDismiss()
+                            and AbilityKeyOfTrigger(other) == key then
+                            other.triggered = false
+                            other.dismissed = true
+                            token.properties:DispatchAvailableTrigger(other)
+                        end
                     end
                 end,
             }
@@ -365,6 +401,12 @@ local PREVIEW_DOC = "monsterAIPreview"
 --It lapses when that user leaves or restarts the app, so pauses come back on
 --each session. (Games from before this held {queue = guid}; that is ignored.)
 local PREVIEW_OFF_DOC = "monsterAIPreviewOff"
+
+--These four documents are read only by the AI and its UI, never by a creature's modifiers,
+--so their frequent writes must not rebuild every creature (ZQ6SMF8D).
+for _,docid in ipairs{WAITING_DOC, STATUS_DOC, PREVIEW_DOC, PREVIEW_OFF_DOC} do
+    CreatureCache.RegisterRulesNeutralDocument(docid)
+end
 
 --Tells this run of the app apart from earlier ones (a Lua reload makes a new one too).
 local g_runId = dmhub.GenerateGuid()
@@ -2693,6 +2735,8 @@ function MonsterAI:WaitForActivityReactions(activityId)
     local ok, err = self:RunYieldingFunction(function()
         completed, reason = self:WaitForActivityReactionsUnguarded(activityId)
     end)
+    --Cleared here so every way out of the wait, error or not, clears it.
+    MonsterAI.minionDeathWaitSince = nil
     if not ok then
         MonsterAI.reactionStatus = false
         MonsterAI.ClearWaiting()
@@ -2779,6 +2823,7 @@ function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
 
     local startedAt = dmhub.Time()
     local idleSince = nil
+    local deathsOnlySince = nil
     local answeredTriggers = {}
     local isAIRunning = rawget(MonsterAI, "IsAIRunning")
     local cancelWhenAIStops = MonsterAI.active and isAIRunning ~= nil
@@ -2818,8 +2863,17 @@ function MonsterAI:WaitForActivityReactionsUnguarded(activityId)
             idleSince = nil
             if pending == 0 then
                 self:AnswerMinionTriggersDuringWait(answeredTriggers)
+                --Choose which minions our attacks killed now: this wait can't end
+                --until someone chooses them.
+                self:ResolvePendingMinionDeaths(0)
+                deathsOnlySince = deathsOnlySince or dmhub.Time()
+            else
+                deathsOnlySince = nil
             end
         end
+        --After a few seconds of waiting only on minion deaths, the token HUD
+        --offers "Choose for me".
+        MonsterAI.minionDeathWaitSince = deathsOnlySince
         coroutine.yield(0.1)
     end
 

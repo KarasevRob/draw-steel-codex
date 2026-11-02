@@ -90,6 +90,7 @@ end
 --- @field OnFinishCast? fun(ability: ActivatedAbility, options: table) Runtime hook run when the cast finishes.
 --- @field invoker? creature Creature that invoked this ability clone (invoke-ability behavior).
 --- @field invokerActionResourceId? string Action resource of the invoking ability, on an invoked clone.
+--- @field invokerCanCriticalHit? boolean If true, this free invoked clone's power roll can be its invoker's Critical Hit. Only Critical Hit reads it; the clone still is not a main action for other rules.
 --- @field baseActionResourceId? string The strike's own action resource, saved when an augment (e.g. Make Free Strike) replaces actionResourceId with its own cost.
 --- @field rangeUsesInvoker? boolean If true, an invoked clone measures range from the invoker.
 --- @field disableSquadCoordination? boolean If true, an invoked clone does not coordinate with the minion squad.
@@ -4090,6 +4091,9 @@ function ActivatedAbility.CastCoroutine(self, casterToken, targets, options)
                         outcome = tier,
                         roll = castInfo:try_get("total", 0),
                         attacker = GenerateSymbols(attackerProperties),
+                        --effects this strike applied stay on. Without this, a strike that
+                        --gives "the next attack against the target has an edge" ended it at once.
+                        keepOngoingEffects = castInfo:try_get("appliedOngoingEffects"),
                     })
                 end
 			end
@@ -5836,6 +5840,10 @@ function ActivatedAbilityApplyOngoingEffectBehavior:Cast(ability, casterToken, t
                             sourceDescription = sourceDescription,
 						})
 						if newEffect ~= nil then
+							if options.symbols.cast ~= nil then
+								options.symbols.cast:RecordAppliedOngoingEffect(newEffect)
+							end
+
 							if ongoingDC ~= nil then
 								newEffect.ongoingDC = ongoingDC
 							end
@@ -5999,12 +6007,15 @@ function ActivatedAbilityApplyOngoingEffectBehavior:CastFromFormula(ability, cas
                     target.token:ModifyProperties{
                         description = "Applied Ongoing Effect",
                         execute = function()
-                            targetCreature:ApplyOngoingEffect(effectId, applyDuration, casterInfo, {
+                            local newEffect = targetCreature:ApplyOngoingEffect(effectId, applyDuration, casterInfo, {
                                 guid = dmhub.GenerateGuid(),
                                 untilEndOfTurn = applyUntilEot,
                                 stacks = stacks,
                                 sourceDescription = sourceDescription,
                             })
+                            if newEffect ~= nil and options.symbols.cast ~= nil then
+                                options.symbols.cast:RecordAppliedOngoingEffect(newEffect)
+                            end
                         end
                     }
                 end
