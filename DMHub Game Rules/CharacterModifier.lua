@@ -1527,7 +1527,8 @@ CharacterModifier.RegisterType('conditionimmunity', "Condition Immunity")
 --a non-empty string, creature:GetConditionImmunityMessage reads it (via try_get) so
 --the immunity-blocked speech can be overridden with a context-specific line instead
 --of the generic "I can't be <Name>!". Used e.g. by Olothec transformation effects
---that block hiding.
+--that block hiding. Optional field: modifier.silent -- when true the immunity blocks
+--the condition with no speech at all (bookkeeping immunities; see MCDMCreature.lua).
 CharacterModifier.TypeInfo.conditionimmunity = {
 	init = function(modifier)
 		modifier.conditions = {}
@@ -2143,6 +2144,12 @@ CharacterModifier.TypeInfo.activated = {
 
 	fillActivatedAbilities = function(modifier, creature, result)
 		result[#result+1] = modifier.activatedAbility
+	end,
+
+	--modifyAbility below only acts for suppressOthers, so the ability passes skip the rest
+	--(see CharacterModifier.AbilityModifiers). A hero has ~25 of these modifiers.
+	leavesAbilitiesUnchanged = function(modifier)
+		return not modifier:try_get("suppressOthers", false)
 	end,
 
     modifyAbility = function(modifier, creature, ability)
@@ -4345,6 +4352,42 @@ function CharacterModifier:ModifyAbility(modContext, creature, ability)
 	end
 
 	return ability
+end
+
+--- The entries of a modifier list (as from creature:GetActiveModifiers) whose ModifyAbility
+--- can change an ability, in their original order. Every other entry hands back any ability
+--- it is given untouched, so the passes that run each ability through every modifier
+--- (GetActivatedAbilities, GetTriggeredAbilities) loop over this list instead: a hero has
+--- ~100 modifiers and usually 1-3 of them do anything to abilities. A type whose
+--- modifyAbility does nothing for some of its modifiers says so with
+--- typeInfo.leavesAbilitiesUnchanged(modifier), which must then be true only when
+--- modifyAbility returns every ability unchanged.
+--- @param modifiers table[]
+--- @param excludeKitModifications nil|boolean also leave out "kitmodifyability" modifiers
+--- @return table[]
+function CharacterModifier.AbilityModifiers(modifiers, excludeKitModifications)
+	local result = {}
+	local baseModifyAbility = CharacterModifier.ModifyAbility
+	for _,entry in ipairs(modifiers) do
+		local mod = entry.mod
+		local behavior = mod.behavior
+		local typeInfo = CharacterModifier.TypeInfo[behavior]
+		local keep
+		if excludeKitModifications and behavior == "kitmodifyability" then
+			keep = false
+		elseif not rawequal(mod.ModifyAbility, baseModifyAbility) then
+			--a type with its own ModifyAbility could do anything: always run it.
+			keep = true
+		elseif typeInfo == nil or typeInfo.modifyAbility == nil then
+			keep = false
+		else
+			keep = typeInfo.leavesAbilitiesUnchanged == nil or not typeInfo.leavesAbilitiesUnchanged(mod)
+		end
+		if keep then
+			result[#result+1] = entry
+		end
+	end
+	return result
 end
 
 function CharacterModifier:AlterBaseArmorClass(modContext, creature, armorClass)

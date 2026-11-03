@@ -733,7 +733,7 @@ local g_conditionHiddenId = "31daf7f6-f77c-4f73-8eab-43e2d0f123c0"
 local g_settingHiddenInvisible = setting{
     id = "strict:hiddeninvisible",
     description = "Hidden Creatures are Invisible",
-    help = "While a creature the director controls has the Hidden condition, players do not see it at all: no token, HUD, auras or targeting. It reappears the moment it stops being Hidden, and acting reveals it as the ability begins. It cannot stay Hidden adjacent to a hero: a hero moving next to it finds it. Heroes always remain visible.",
+    help = "While a creature the director controls has the Hidden condition, players do not see it at all: no token, HUD, auras or targeting. It reappears the moment it stops being Hidden, and acting reveals it as the ability begins. It cannot stay Hidden while Grabbed or adjacent to a hero: a hero moving next to it finds it. Heroes always remain visible.",
     storage = "game",
     editor = "check",
     default = false,
@@ -867,13 +867,17 @@ end
 --version of this setting (invisibleToPlayers) on tokens it left invisible.
 local g_legacyHiddenClearPending = {}
 local g_adjacentRevealPending = {}
+local g_conditionGrabbedId = "70504ebe-3899-41d3-9f60-74b52ce35e39"
 
---True while a hero (a creature a player or party owns that is not this token's friend)
---is adjacent to this token. A creature cannot stay Hidden next to one. Ownership, not
+--True while this creature cannot stay Hidden: it is Grabbed, or a hero (a creature a
+--player or party owns that is not its friend) is adjacent. Ownership, not
 --playerControlled: that reads false for heroes outside the default party.
 --- @param token CharacterToken
 --- @return boolean
-local function AdjacentToHero(token)
+local function CannotStayHidden(token)
+    if token.properties:HasCondition(g_conditionGrabbedId) ~= false then
+        return true
+    end
     for _, nearby in ipairs(token:GetNearbyTokens(1) or {}) do
         local ownerId = nearby.ownerId
         if ownerId ~= nil and ownerId ~= "" and (not nearby.isObject) and (not nearby:IsFriend(token)) then
@@ -887,9 +891,9 @@ local function RefreshHiddenFromPlayers(c, token)
     local hiddenFromPlayers = g_settingHiddenInvisible:Get() == true and (not token.playerControlled)
         and (not token.isObject) and c:HasCondition(g_conditionHiddenId) ~= false
 
-    --Next to a hero: every client shows it at once, and the host strips Hidden for real
-    --(6JVBTDAJ: an invisible adjacent slink gave a hero's ranged strike a bane).
-    if hiddenFromPlayers and AdjacentToHero(token) then
+    --Grabbed or next to a hero: every client shows it at once, and the host strips Hidden
+    --for real (6JVBTDAJ: an invisible adjacent slink gave a hero's ranged strike a bane).
+    if hiddenFromPlayers and CannotStayHidden(token) then
         hiddenFromPlayers = false
         if IsDMOrPlayerHost() and not g_adjacentRevealPending[token.charid] then
             local charid = token.charid
@@ -902,11 +906,11 @@ local function RefreshHiddenFromPlayers(c, token)
                 end
                 local tok = dmhub.GetTokenById(charid)
                 if tok == nil or (not tok.valid) or tok.properties == nil
-                    or (not tok.properties:IsHidden()) or (not AdjacentToHero(tok)) then
+                    or (not tok.properties:IsHidden()) or (not CannotStayHidden(tok)) then
                     return
                 end
                 tok:ModifyProperties{
-                    description = "Found by an adjacent hero",
+                    description = "Revealed: grabbed or next to a hero",
                     undoable = false,
                     execute = function()
                         --being found is not an ambush: no Ambush banner for this reveal.
@@ -3612,25 +3616,25 @@ function creature:GetActivatedAbilities(options)
     --the companion when it pulls abilities from its summoner -- the companion
     --doesn't get the kit's full bonus pile, only a chosen melee-damage bonus
     --that gets applied on the companion side instead.
+    --Only the modifiers that can change an ability run (CharacterModifier.AbilityModifiers):
+    --for a hero that is 1-3 of ~100, and calling the rest on every ability cost more than
+    --cloning the abilities did.
+    local abilityModifiers = CharacterModifier.AbilityModifiers(modifiers, options.excludeKitModifications)
     local j = 1
     local nitems = #result
     for i = 1, #result do
         local ability = result[i]
         if ability._tmp_temporaryClone or (not options.characterSheet) then
-            for i, mod in ipairs(modifiers) do
-                if options.excludeKitModifications and mod.mod.behavior == "kitmodifyability" then
-                    --skip
-                else
-                    ability = mod.mod:ModifyAbility(mod, self, ability)
-                    if ability == nil then
-                        break
-                    end
+            for _, mod in ipairs(abilityModifiers) do
+                ability = mod.mod:ModifyAbility(mod, self, ability)
+                if ability == nil then
+                    break
+                end
 
-                    local variations = ability:GetVariations()
-                    if variations ~= nil then
-                        for i = 1, #variations do
-                            mod.mod:ModifyAbility(mod, self, variations[i])
-                        end
+                local variations = ability:GetVariations()
+                if variations ~= nil then
+                    for v = 1, #variations do
+                        mod.mod:ModifyAbility(mod, self, variations[v])
                     end
                 end
             end
@@ -4431,6 +4435,22 @@ local g_conditionImmunitySpeech = {
     ["weakened"] = "I won't be weakened; not by you, not by anybody!",
 }
 
+--A conditionimmunity modifier with `silent: true` blocks the condition without the
+--"I can't be X!" speech. For bookkeeping immunities that exist only to keep an ability
+--from re-applying a condition the target already has (Hampering Roots on a prone target).
+--- @param c creature
+--- @param conditionid string
+--- @return boolean
+local function ConditionImmunityIsSilent(c, conditionid)
+    for _,mod in ipairs(c:GetActiveModifiers()) do
+        local m = mod.mod
+        if m.behavior == "conditionimmunity" and m:try_get("silent", false) and table.contains(m:try_get("conditions", {}), conditionid) then
+            return true
+        end
+    end
+    return false
+end
+
 --- Inflict a condition on a creature. (Or purge the condition using the 'purge' argument.)
 --- @param conditionid string
 --- @param args {duration:string, force: nil|boolean, purge: nil|boolean, silent: nil|boolean, riders: nil|(string[]), sourceDescription: string, casterInfo:nil|{tokenid:string, timestamp: string|number|nil}, cast: ActivatedAbilityCast}
@@ -4443,8 +4463,9 @@ function creature:InflictCondition(conditionid, args)
         --give feedback that immunity blocked the condition: the creature "speaks"
         --in character, e.g. "I can't be Slowed!". Falls back to floating text when
         --the creature has no spoken language. Skipped when the application is
-        --silent (e.g. internal bookkeeping) via args.silent.
-        if not args.silent then
+        --silent (e.g. internal bookkeeping) via args.silent, or when the immunity
+        --itself is marked silent (see ConditionImmunityIsSilent).
+        if not args.silent and not ConditionImmunityIsSilent(self, conditionid) then
             local conditionsTable = dmhub.GetTable(CharacterCondition.tableName)
             local conditionInfo = conditionsTable[conditionid]
             if conditionInfo ~= nil then
