@@ -112,8 +112,16 @@ Before selecting or playing a turn, the background process also waits for
 player combatants' end-of-turn saving throws. Save prompts carry the shared
 `end-turn-save` activity ID: the card blocks while unanswered, and its reaction
 marker blocks after acceptance until the invocation's cast finishes on the
-accepting client. Dismissal completes the marker. This wait has no timer and
-does not stop monster trigger polling or cooperative AI shutdown. Run
+accepting client (however `AbilityInvocation:Invoke` ends, an error included).
+Dismissal completes the marker. This wait has no timer and does not stop
+monster trigger polling or cooperative AI shutdown. A cast that never reports
+back (its client crashed or disconnected mid-roll, EMHPEMCY) would hold the
+table for good, so accepting stamps the marker with `resolvingSince`,
+`resolvingBy` and `resolvingLaunch` (`g_appLaunchId`, new each app launch):
+after 30s with no card the banner offers the host and the hero's controller
+"Skip save" (`StuckSaveSkip` in `MonsterAI.lua`), and the accepter's client
+completes a marker its previous launch left (`CompleteReactionsOrphanedByRestart`).
+Skipping only releases the AI; the effect stays for the next save. Run
 `../dependencies/lua/bin/lua.exe tests/ai_end_turn_save_test.lua` from the codex
 root for prompt lifecycle and process wait/resume/stop coverage.
 
@@ -792,6 +800,35 @@ MonsterAI:RegisterMove{
 ```
 
 Use `ai:SetTargetsForExpectedPrompt{}` if the first ability triggers a prompt that should be auto-resolved for the combo.
+
+## "Similar to": borrowing another monster's AI
+
+A monster's properties can name another monster type in `aiSimilarTo` (a
+`monster_type` string). The AI then plays it with that monster's hand-written
+AI, for every ability the two share by name. It is for reskinned or homebrew
+monsters built from a book stat block. Authors set it in the **Monster AI** tab
+of the character sheet in an EotW authoring game
+(`EncounterOfTheWeek/EncounterMonsterAssessment.lua`). The tab also lists what
+the AI will do with each part of the kit.
+
+The helpers are at the "Similar to" section of `MonsterAI.lua`:
+
+- `MonsterAI.AIMonsterTypes(props)` returns `{own, similar}`. Registrations
+  listing either type apply: moves, Malice, villain actions, tactics and
+  behaviors (through `MoveMatchesMonster` / `HasBehavior`), plus the
+  monster-qualified trigger and prompt lookups (own type first).
+- `MonsterAI.AIMonsterType(props)` returns the similar type, or the monster's
+  own type when it has none. Band code that asks "which monster is this?" must
+  use it, not `monster_type` (the band `MonsterType` helpers already do).
+- The Monster AI panel's per-type switches (`disabledForMonsters`) stay keyed
+  by the monster's own type.
+- `AssessSupport` counts the similar type's registrations as the monster's
+  own, and never reports them as stale. Its result carries `similarTo`.
+
+Not covered: `monsterGroups` Malice registrations match the monster's own
+group, so a reskin in a different monster group does not use the base's band
+Malice. Run `../dependencies/lua/bin/lua.exe tests/ai_behavior_modules_test.lua`
+and `tests/ai_support_assessment_test.lua` for coverage.
 
 ## Bestiary support assessment
 

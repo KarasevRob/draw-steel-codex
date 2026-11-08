@@ -457,29 +457,42 @@ local function ExecuteDamage(behavior, ability, casterToken, targetToken, option
 end
 
 local g_tablesLookup = {}
+local g_concat = table.concat
 
 local function GetTableNameRegex(tableName, key, nameKey)
     nameKey = nameKey or "name"
     local table = dmhub.GetTable(tableName) or {}
     --rows of whichever table was named; only their name fields are read.
     ---@cast table table<string, table>
-    g_tablesLookup[tableName] = {}
-    local pattern = ""
+    local lookup = {}
+    g_tablesLookup[tableName] = lookup
+    --names gathered into a list and joined once: appending to one string per
+    --row copied the growing pattern every time (quadratic; ~90 ms for the
+    --~1000 ongoing effects on every refresh). string.gsub strips the same
+    --characters as the old regex.ReplaceAll without a C# call per row.
+    local names = {}
     for k,v in pairs(table) do
         if not v:try_get("hidden", false) and (key == nil or v:try_get(key, false)) then
-            local name = regex.ReplaceAll(string.lower(v[nameKey]), "[^a-z0-9 ]", "")
+            local name = string.gsub(string.lower(v[nameKey]), "[^a-z0-9 ]", "")
             if name ~= "" then
-                if pattern ~= "" then
-                    pattern = pattern .. "|"
-                end
-
-                pattern = pattern .. name
-                g_tablesLookup[tableName][name] = k
+                names[#names + 1] = name
+                lookup[name] = k
             end
         end
     end
 
-    return pattern
+    --g_concat: `table` is the data table here (it shadows the library).
+    return g_concat(names, "|")
+end
+
+--- "(end of next turn)" on a condition is EoT that always lasts through the
+--- target's next full turn. Plain EoT ends with the current turn when imposed
+--- on the target's own turn (the book's rule); this is for abilities whose text
+--- spells out "until the end of their next turn" (e.g. Glamor of Terror).
+--- @param duration string The lowercased duration from the rule text.
+--- @return boolean
+local function ParseFullNextTurnDuration(duration)
+    return duration == "end of next turn"
 end
 
 
@@ -969,7 +982,7 @@ local g_rulePatterns = {
         end,
     },
     {
-        pattern = "^(?<condition>bleeding|dazed|frightened( of you)?|restrained|slowed|taunted|taunt|weakened)(?<additionalConditions>( and |,)[a-z ]+)? \\((?<duration>eot|EoT|save ends)?\\)",
+        pattern = "^(?<condition>bleeding|dazed|frightened( of you)?|restrained|slowed|taunted|taunt|weakened)(?<additionalConditions>( and |,)[a-z ]+)? \\((?<duration>eot|EoT|save ends|end of next turn)?\\)",
         knownConditions = {"bleeding", "dazed", "frightened", "frightened of you", "grabbed", "restrained", "slowed", "taunted", "taunt", "weakened"},
         validate = function(entry, match)
             if match.additionalConditions == nil then
@@ -1008,6 +1021,10 @@ local g_rulePatterns = {
             if string.starts_with(duration, "save") then
                 duration = "save"
             end
+            local fullNextTurn = ParseFullNextTurnDuration(duration)
+            if fullNextTurn then
+                duration = "eot"
+            end
 
             local conditions = {match.condition}
 
@@ -1041,6 +1058,7 @@ local g_rulePatterns = {
                                 local riders = ability:GetRidersForCondition(k, casterToken, targetToken, options)
                                 targetToken.properties:InflictCondition(k, {
                                     duration = duration,
+                                    fullNextTurn = fullNextTurn,
                                     sourceDescription = string.format("Inflicted by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name),
                                     casterInfo = {
                                         tokenid = casterToken.charid,
@@ -1759,7 +1777,7 @@ dmhub.RegisterEventHandler("refreshTables", function(keys)
         -- parenthetical is only accepted for indefinite-duration conditions
         -- (e.g. "Grabbed"), enforced by validate below; conditions that need a
         -- duration must still carry a "(eot)" / "(save ends)" / "(eoe)" suffix.
-        pattern = "^(?<condition>" .. GetTableNameRegex(CharacterCondition.tableName, "powertable") .. ")(?<parens> \\((?<duration>eot|EoT|save ends|eoe)?\\))?",
+        pattern = "^(?<condition>" .. GetTableNameRegex(CharacterCondition.tableName, "powertable") .. ")(?<parens> \\((?<duration>eot|EoT|save ends|eoe|end of next turn)?\\))?",
         validate = function(entry, match)
             -- A parenthetical was present (even an empty "()"): always allow,
             -- preserving the prior behavior where parens were mandatory.
@@ -1785,6 +1803,10 @@ dmhub.RegisterEventHandler("refreshTables", function(keys)
             if string.starts_with(duration, "save") then
                 duration = "save"
             end
+            local fullNextTurn = ParseFullNextTurnDuration(duration)
+            if fullNextTurn then
+                duration = "eot"
+            end
 
 
             local cond = match.condition
@@ -1804,6 +1826,7 @@ dmhub.RegisterEventHandler("refreshTables", function(keys)
                             local riders = ability:GetRidersForCondition(k, casterToken, targetToken, options)
                             targetToken.properties:InflictCondition(k, {
                                 duration = appliedDuration,
+                                fullNextTurn = fullNextTurn and appliedDuration == "eot",
                                 sourceDescription = string.format("Inflicted by %s's <b>%s</b> ability", creature.GetTokenDescription(casterToken), ability.name),
                                 riders = riders,
                                 casterInfo = {
@@ -3409,6 +3432,7 @@ local function SegmentHasDurationSuffix(segment)
     if lowered:find("%(%s*save%s+ends%s*%)") then return true end
     if lowered:find("%(%s*eot%s*%)") then return true end
     if lowered:find("%(%s*eoe%s*%)") then return true end
+    if lowered:find("%(%s*end of next turn%s*%)") then return true end
     return false
 end
 

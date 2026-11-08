@@ -139,6 +139,12 @@ TriggeredAbility.TargetTypes = {
 		text = 'Burst',
 	},
 	{
+		--every creature in the encounter passing the target filter, ignoring range
+		--and line of effect. Resolved in TriggeredAbility:Trigger (targetType 'map').
+		id = 'map',
+		text = 'All Creatures in Encounter',
+	},
+	{
 		id = 'attacker',
 		text = 'Creature Attacking Me',
 		condition = function(ability)
@@ -1076,7 +1082,7 @@ local g_departureTriggers = {
 --location before draining its triggeredEvents queue -- so measure from
 --path.steps[1], the square it left. No path, or any other trigger, uses the
 --live token.
-local function SubjectRangeDistance(triggerName, subjectToken, casterToken, symbols)
+local function RawSubjectRangeDistance(triggerName, subjectToken, casterToken, symbols)
     if not g_departureTriggers[triggerName] then
         return subjectToken:Distance(casterToken)
     end
@@ -1113,6 +1119,21 @@ local function SubjectRangeDistance(triggerName, subjectToken, casterToken, symb
     end
 
     return result
+end
+
+--Safe wrapper: token:Distance can raise or return nil when either token's
+--map object is gone or not yet built (a minion Explosive Parade just removed,
+--a monster EotW is still spawning). Treat that as out of range, so the
+--trigger is skipped instead of erroring and aborting the caller (it used to
+--kill the EotW host beat that spawns the next part's monsters).
+---@return number
+local function SubjectRangeDistance(triggerName, subjectToken, casterToken, symbols)
+    local ok, distance = pcall(RawSubjectRangeDistance, triggerName, subjectToken, casterToken, symbols)
+    distance = ok and tonumber(distance) or nil
+    if distance == nil then
+        return math.huge
+    end
+    return distance
 end
 
 --- Options for TriggeredAbility:Trigger. Every field is optional (nil options = {}).
@@ -1379,6 +1400,25 @@ function TriggeredAbility:Trigger(characterModifier, creature, symbols, auraCont
 		local candidates = cond(self.objectTarget, dmhub.allTokensIncludingObjects, dmhub.allTokens)
 		for i,tok in ipairs(candidates) do
 			if (tok.id ~= casterToken.charid or self:try_get("selfTarget", false)) and self:TargetPassesFilter(casterToken, tok, symbols) and range >= tok:Distance(casterToken) then
+				targets[#targets+1] = {
+					loc = tok.loc,
+					token = tok,
+				}
+			end
+		end
+	elseif self.targetType == 'map' then
+		--"All Creatures in Encounter": every creature passing the target filter,
+		--with no range or line of effect (Ravenous Horde's end-of-round zombies
+		--beside each marked hero). In combat only creatures in initiative count,
+		--the same rule the action bar applies to a cast "map" ability.
+		targets = {}
+		local q = dmhub.initiativeQueue
+		if q ~= nil and q.hidden then
+			q = nil
+		end
+		for _,tok in ipairs(dmhub.allTokens) do
+			local inEncounter = q == nil or q:HasInitiative(InitiativeQueue.GetInitiativeId(tok))
+			if inEncounter and (tok.id ~= casterToken.charid or self:try_get("selfTarget", false)) and self:TargetPassesFilter(casterToken, tok, symbols) then
 				targets[#targets+1] = {
 					loc = tok.loc,
 					token = tok,
@@ -2608,6 +2648,12 @@ function TriggeredAbility:TriggerCo(targets, characterModifier, casterToken, cre
             token = casterToken,
             range = 0,
             radius = self:GetRange(creature),
+        }
+    elseif self.targetType == 'map' then
+        --the same whole-map area a cast "map" ability uses.
+        targetArea = dmhub.CalculateShape{
+            shape = "map",
+            token = casterToken,
         }
     end
 

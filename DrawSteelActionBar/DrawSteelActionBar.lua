@@ -1573,6 +1573,44 @@ function DrawSteelActionBar.GetOperation()
     return DrawSteelActionBar._operate.operation
 end
 
+--- Warning text for a channeled-resource chip (e.g. Call Forth's essence) when
+--- spending that much would summon a Summoner past their minion limit, else nil.
+--- Warn only: the chip stays selectable. Strict rules cap the summons at placement.
+--- On the global table: this file is at the 200-local limit.
+--- @param ability ActivatedAbility the ability being cast.
+--- @param caster creature the casting creature.
+--- @param symbols table the cast's current symbols (mode etc.).
+--- @param charges number the charges this chip would spend.
+--- @return string|nil
+function DrawSteelActionBar.MinionLimitWarning(ability, caster, symbols, charges)
+    local maxMinions = caster:CalculateNamedCustomAttribute("MaximumMinions") or 0
+    if maxMinions <= 0 then
+        return nil
+    end
+
+    --Only fixed counts are checked; a rolled number of summons is unknown until cast.
+    local summonCount = 0
+    for _, behavior in ipairs(ability:try_get("behaviors") or {}) do
+        --Same mode filter the cast uses: a behavior tied to other modes won't run.
+        local behaviorModes = behavior:try_get("modesSelected", {})
+        local inMode = (not ability.multipleModes) or #behaviorModes == 0 or table.contains(behaviorModes, symbols.mode)
+        if inMode and behavior.typeName == "ActivatedAbilitySummonBehavior" and not behavior:try_get("ignoreSummonerLimits", false) then
+            local chipSymbols = { mode = symbols.mode, charges = charges }
+            local result = dmhub.EvalGoblinScript(behavior:try_get("numSummons", "1"), GenerateSymbols(caster, chipSymbols), "Minion limit preview for " .. ability.name)
+            summonCount = summonCount + math.floor(tonumber(result) or 0)
+        end
+    end
+    if summonCount <= 0 then
+        return nil
+    end
+
+    local limitInfo = caster:GetSummonerLimitInfo(0, summonCount)
+    if not limitInfo.exceededMinions then
+        return nil
+    end
+    return string.format("You have a minion limit of %d.", limitInfo.maxMinions)
+end
+
 --An object caster turning to face its target while an ability with "Turn to
 --Face Target" is aimed (a Field Ballista's Release Bolt). The engine eases the
 --turn at the object's Turn Speed and streams it live to the other players; the
@@ -3441,7 +3479,9 @@ local function ActionBarDrawer(args)
                 return
             end
 
-            if args.type ~= "trigger" and (not DrawSteelActionBar._operate.ResourceToken().properties:IsOurTurn()) then
+            local resourceProps = DrawSteelActionBar._operate.ResourceToken().properties
+            if args.type ~= "trigger" and (not resourceProps:IsOurTurn())
+                and not (args.type == "action" and resourceProps:GetImmediateActionGrant(CharacterResource.actionResourceId) ~= nil) then
                 if newToken then
                     resultPanel:SetClassTreeImmediate("available", false)
                 else
@@ -3847,6 +3887,164 @@ local function CreateTriggerReactionPanel()
     }
 end
 
+--- Opens the given drawer's ability menu (e.g. "action" for Main Action),
+--- reopening it if it is already open so its chips are re-evaluated.
+--- @param drawerType string
+function DrawSteelActionBar.OpenDrawerMenu(drawerType)
+    if g_actionBar == nil or not g_actionBar.valid then
+        return
+    end
+    for _, drawer in ipairs(g_actionBar:GetChildrenWithClassRecursive("actionBarDrawer")) do
+        if drawer.data ~= nil and drawer.data.drawerType == drawerType and not drawer:HasClass("collapsed") then
+            if drawer:HasClass("active") then
+                --the menu refuses a second open in the same frame.
+                drawer:FireEvent("press")
+                dmhub.Schedule(0.05, function()
+                    if not mod.unloaded and drawer.valid and not drawer:HasClass("active") then
+                        drawer:FireEvent("press")
+                    end
+                end)
+            else
+                drawer:FireEvent("press")
+            end
+            return
+        end
+    end
+end
+
+--- The prompt shown above the bar while the selected creature has an
+--- immediate action grant (an off-turn critical hit, see creature:GrantImmediateAction
+--- in MCDMActivatedAbility.lua): choose a main action to use now, or decline.
+--- @return Panel
+function DrawSteelActionBar.CreateImmediateActionPrompt()
+    local titleLabel = gui.Label {
+        classes = { "sizeL" },
+        bold = true,
+        width = "auto",
+        height = "auto",
+        halign = "center",
+        text = "",
+    }
+    local bodyLabel = gui.Label {
+        classes = { "sizeS" },
+        width = "auto",
+        maxWidth = 420,
+        height = "auto",
+        halign = "center",
+        textAlignment = "center",
+        textWrap = true,
+        vmargin = 4,
+        text = "Take a main action now, even though it isn't your turn.",
+    }
+
+    local resultPanel
+    --- The selected creature's live main-action grant, with its token.
+    --- @return CharacterToken|nil, ImmediateActionGrant|nil
+    local function Grant()
+        local token = resultPanel.data.token --[[@as CharacterToken|nil]]
+        if token == nil or not token.valid or token.properties == nil then
+            return nil, nil
+        end
+        return token, token.properties:GetImmediateActionGrant(CharacterResource.actionResourceId)
+    end
+
+    --The outer panel is never collapsed or hidden: those stop its think, which
+    --is what notices a grant arriving. Only the frame inside is toggled.
+    local frame
+    resultPanel = gui.Panel {
+        classes = { "immediateActionPrompt" },
+        floating = true,
+        width = "auto",
+        height = "auto",
+        halign = "center",
+        valign = "top",
+        --clear of the drawers and the last-used ability icon above them.
+        y = -250,
+        data = { key = false, token = nil },
+        thinkTime = 0.25,
+        think = function(element)
+            element.data.token = DrawSteelActionBar._operate.SelectedBoardToken()
+            local token, grant = Grant()
+            local key = nil
+            if token ~= nil and grant ~= nil then
+                key = token.charid .. ":" .. grant.id
+            end
+            --out of the way while casting, and while a drawer menu is open (the
+            --menu hides the trigger prompts too, so that is the signal).
+            frame:SetClass("hidden", g_currentAbility ~= nil or (g_triggerPanel ~= nil and g_triggerPanel:HasClass("hidden")))
+            if key == element.data.key then
+                return
+            end
+            element.data.key = key
+            frame:SetClass("collapsed", grant == nil)
+            if grant ~= nil then
+                titleLabel.text = grant.source ~= "" and grant.source or "Immediate Action"
+            end
+            --re-light the Main Action drawer, unless a cast is in progress.
+            if g_currentAbility == nil and #g_casterTokenStack == 0 and g_actionBar ~= nil and g_actionBar.valid then
+                g_actionBar:FireEventTree("refresh")
+            end
+        end,
+    }
+
+    frame = gui.Panel {
+        classes = { "collapsed" },
+        width = "auto",
+        height = "auto",
+        gui.TooltipFrame(gui.Panel {
+            flow = "vertical",
+            width = "auto",
+            height = "auto",
+            halign = "center",
+            pad = 8,
+            borderBox = true,
+            titleLabel,
+            bodyLabel,
+            gui.Panel {
+                flow = "horizontal",
+                width = "auto",
+                height = "auto",
+                halign = "center",
+                vmargin = 4,
+                gui.Button {
+                    classes = { "sizeS" },
+                    text = "Choose Main Action",
+                    width = "auto",
+                    height = "auto",
+                    hpad = 12,
+                    vpad = 4,
+                    borderBox = true,
+                    hmargin = 4,
+                    press = function(element)
+                        local _, grant = Grant()
+                        if grant ~= nil then
+                            DrawSteelActionBar.OpenDrawerMenu("action")
+                        end
+                    end,
+                },
+                gui.Button {
+                    classes = { "sizeS" },
+                    text = "Decline",
+                    width = "auto",
+                    height = "auto",
+                    hpad = 12,
+                    vpad = 4,
+                    borderBox = true,
+                    hmargin = 4,
+                    press = function(element)
+                        local token, grant = Grant()
+                        if token ~= nil and grant ~= nil then
+                            ActivatedAbility.DeclineImmediateAction(token, grant.resourceid)
+                        end
+                    end,
+                },
+            },
+        }, {}),
+    }
+    resultPanel:AddChild(frame)
+    return resultPanel
+end
+
 
 local function CreateActionBar()
     local resultPanel
@@ -4239,6 +4437,8 @@ local function CreateActionBar()
         resultPanel,
         --Outside resultPanel so it survives the bar hiding itself (no token selected).
         g_castHintPanel,
+        --"Critical Hit! Take a main action now" off turn.
+        DrawSteelActionBar.CreateImmediateActionPrompt(),
     }
 
     return m_containerPanel
@@ -4389,6 +4589,10 @@ local function AbilityHeading(args)
         --An operated object never has a turn; its operator's turn is what counts.
         local caster = ability:GetOperatorToken() or CasterToken(ability)
         if caster == nil or not caster.valid or caster.properties == nil then
+            return false
+        end
+        --an immediate action grant (an off-turn critical hit) lets it act now.
+        if caster.properties:GetImmediateActionGrant(ability:try_get("actionResourceId")) ~= nil then
             return false
         end
         return not caster.properties:IsOurTurn()
@@ -11889,6 +12093,14 @@ CreateAbilityController = function()
                 borderColor = "#ff999955",
                 bgcolor = "#ff999922",
             },
+            --Essence amounts that would put the Summoner over their minion limit. Still
+            --selectable; amber so it doesn't look like the light red used for going below zero.
+            {
+                selectors = { "levelPanel", "overMinionLimit" },
+                color = "#ffcc66",
+                borderColor = "#ffcc6655",
+                bgcolor = "#ffcc6622",
+            },
             {
                 selectors = { "levelPanel", "~invalid", "hover" },
                 borderColor = "#ffffffaa",
@@ -11960,10 +12172,17 @@ CreateAbilityController = function()
                     data = {
                         nresources = nresources,
                         ncharges = ncharges,
+                        limitWarning = nil,
                     },
                     press = function(element)
                         if element:HasClass("invalid") == false then
                             g_channeledResourcePanel:FireEventTree("select", element.data.ncharges)
+                        end
+                    end,
+                    hover = function(element)
+                        if element.data.limitWarning ~= nil then
+                            --valign top: the default sits below the chip, under the cursor.
+                            gui.Tooltip{ text = element.data.limitWarning, valign = "top" }(element)
                         end
                     end,
                 }
@@ -11983,6 +12202,14 @@ CreateAbilityController = function()
                 children[i]:SetClass("collapsed", (i - 1) * channelIncrement > resourcesSpendable or (i - 1) * channelIncrement > maxChannel)
                 children[i]:SetClass("negative", (i - 1) * channelIncrement > resourcesAvailable)
                 children[i]:SetClass("selected", (i - 1) == g_currentSymbols.charges)
+
+                --Hidden chips can't be picked, so skip the minion-limit check for them.
+                local limitWarning = nil
+                if not children[i]:HasClass("collapsed") then
+                    limitWarning = DrawSteelActionBar.MinionLimitWarning(g_currentAbility, g_token.properties, g_currentSymbols, i - 1)
+                end
+                children[i].data.limitWarning = limitWarning
+                children[i]:SetClass("overMinionLimit", limitWarning ~= nil)
             end
 
             if added then
@@ -13431,7 +13658,7 @@ CreateAbilityController = function()
                         --A vertical move's dialed altitude is absolute; the engine wants it above the ground.
                         movementInfo = g_token:MarkMovementArrow(
                             cond(ActivatedAbility.IsVerticalForcedMovement(g_currentSymbols.forcedmovement or g_currentAbility:try_get("forcedMovement")),
-                                ActivatedAbility.VerticalForcedMovementEngineLoc(loc), loc),
+                                ActivatedAbility.VerticalForcedMovementEngineLoc(loc, g_token.loc.altitude), loc),
                             markOptions)
                         --MarkMovementArrow's declared return omits the charge-jump fields the engine
                         --adds when charge options are passed (CharacterToken.cs MarkMovementArrow).

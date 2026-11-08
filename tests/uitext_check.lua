@@ -26,6 +26,7 @@ local DEFAULT_TEXT = {
 
 local DEFAULT_CODE = {
     "Codex Titlescreen/EncounterOfTheWeek.lua",
+    "Codex Titlescreen/EotwAbout.lua",
     "Codex Titlescreen/EotwAnalytics.lua",
     "Codex Titlescreen/EotwBuild.lua",
     "Codex Titlescreen/EotwBuilder.lua",
@@ -37,6 +38,7 @@ local DEFAULT_CODE = {
     "Codex Titlescreen/EotwMarket.lua",
     "Codex Titlescreen/EotwModeration.lua",
     "Codex Titlescreen/EotwRoster.lua",
+    "Codex Titlescreen/EotwSocialRail.lua",
     "Codex Titlescreen/EotwTownHall.lua",
     "Codex Titlescreen/EotwTrainingGrounds.lua",
     --EotW's build engine, shared with the main game's Builder.
@@ -44,6 +46,7 @@ local DEFAULT_CODE = {
     --the main game's Hero Builder and its Skills & Languages, which EotW runs too.
     "Draw Steel Character Builder/HeroBuilder.lua",
     "Draw Steel Character Builder/HeroSkillsLanguages.lua",
+    "EncounterOfTheWeek/EncounterGauntlet.lua",
     "EncounterOfTheWeek/EncounterMontage.lua",
     "EncounterOfTheWeek/EncounterMontageBuilder.lua",
     "EncounterOfTheWeek/EncounterMontageStage.lua",

@@ -151,10 +151,48 @@ local function AbilityKeyOfTrigger(trigger)
     return "text:" .. tostring(trigger:GetText())
 end
 
+--Seconds an accepted save may go unfinished before the banner offers Skip.
+local STUCK_SAVE_SKIP_SECONDS = 30
+
+--"Skip save" for a save that was accepted but whose cast never reported back
+--(its client crashed, disconnected or errored mid-roll). The card is already
+--gone, so without this nobody has a button and the AI waits forever
+--(EMHPEMCY). Offered to the host and the hero's controller. Skipping only
+--releases the AI: the effect stays, and a roll still running resolves normally.
+---@param doc table the monsterAIWaiting document snapshot
+---@param token CharacterToken the hero being waited on
+---@return nil|{text: string, press: fun()}
+local function StuckSaveSkip(doc, token)
+    local reactionId = doc.data.triggerid
+    if doc.data.key ~= "save" or type(reactionId) ~= "string" then
+        return nil
+    end
+    if not (IsDMOrPlayerHost() or token.canControlAsUser) then
+        return nil
+    end
+    local entry = token.properties:try_get("pendingAIActivityReactions", {})[reactionId]
+    if type(entry) ~= "table" or entry.state ~= "resolving"
+        or token.properties:try_get("availableTriggers", {})[reactionId] ~= nil then
+        return nil
+    end
+    --Markers from before resolvingSince existed only carry the card's post time.
+    local age = EventTimestampAge(entry.resolvingSince or entry.timestamp)
+    if age == nil or age < STUCK_SAVE_SKIP_SECONDS then
+        return nil
+    end
+    return {
+        text = "Skip save",
+        press = function()
+            token.properties:CompletePendingAIActivityReaction(entry.activityId, reactionId)
+        end,
+    }
+end
+
 --The banner buttons (see the notice channel in GameHud.lua). Only the player
 --who answers the waited-on hero's prompts gets any: "Select <hero>" while the
 --hero is not selected, and Dismiss when the wait is on a prompt they can
---dismiss, which dismisses the prompt itself. Everyone else gets no buttons.
+--dismiss, which dismisses the prompt itself. Everyone else gets no buttons,
+--except "Skip save" on a stuck save (StuckSaveSkip).
 local function WaitingNoticeControls(doc)
     local controls = {}
     local charid = doc.data.charid
@@ -162,11 +200,18 @@ local function WaitingNoticeControls(doc)
         return controls
     end
     local token = dmhub.GetTokenById(charid)
+    if token == nil or not token.valid or token.properties == nil then
+        return controls
+    end
+    local skip = StuckSaveSkip(doc, token)
+    if skip ~= nil then
+        controls.action = skip
+        return controls
+    end
     --activeControllerId is nil when this user is the one best suited to
     --answer the token's prompts; canControlAsUser rules out a player host
     --whose control comes only from hosting the game.
-    if token == nil or not token.valid or token.properties == nil
-        or not token.canControlAsUser or token.activeControllerId ~= nil then
+    if not token.canControlAsUser or token.activeControllerId ~= nil then
         return controls
     end
 
@@ -236,6 +281,14 @@ Tip.notices["monster-ai-waiting"] = {
             return nil
         end
         local doc = mod:GetDocumentSnapshot(WAITING_DOC)
+        --Every client polls this, so the hero's own client is the one to notice
+        --that the save the AI waits on was accepted by its previous run.
+        if doc.data.key == "save" and type(doc.data.charid) == "string" then
+            local waitedOn = dmhub.GetTokenById(doc.data.charid)
+            if waitedOn ~= nil and waitedOn.valid and waitedOn.properties ~= nil then
+                waitedOn.properties:CompleteReactionsOrphanedByRestart()
+            end
+        end
         local text = doc.data.text
         if type(text) ~= "string" or text == "" then
             m_noticeText = nil
@@ -3185,22 +3238,27 @@ function MonsterAI:HandlePrompt(invokerToken, casterToken, abilityClone, symbols
         end
     end
 
-    --try_get: the invoker can be an object token (e.g. a wall voxel
-    --prompting for a target near it), whose TargetableObject
-    --properties have no monster_type field.
-    local qualifiedPrompt = string.format("%s:%s", invokerMonsterType, abilityClone.name)
+    --The invoker can be an object token (e.g. a wall voxel prompting for a
+    --target near it), whose TargetableObject properties have no monster_type
+    --field; AIMonsterTypes copes with that.
     --Monster-qualified handlers get the first chance to answer shared wrapper
-    --names. A nil result can then fall through to the generic handler.
+    --names (the invoker's own type, then its "similar to" type). A nil result
+    --can then fall through to the generic handler.
     local handlers = {}
-    local qualifiedHandler = self.prompts[qualifiedPrompt]
-    local genericHandler = self.prompts[abilityClone.name]
-    if qualifiedHandler ~= nil then
-        handlers[#handlers+1] = {
-            handler = qualifiedHandler,
-            name = qualifiedHandler.id or qualifiedPrompt,
-        }
+    local qualifiedHandlers = {}
+    for _,monsterType in ipairs(MonsterAI.AIMonsterTypes(invokerToken.properties)) do
+        local qualifiedPrompt = string.format("%s:%s", monsterType, abilityClone.name)
+        local qualifiedHandler = self.prompts[qualifiedPrompt]
+        if qualifiedHandler ~= nil and not qualifiedHandlers[qualifiedHandler] then
+            qualifiedHandlers[qualifiedHandler] = true
+            handlers[#handlers+1] = {
+                handler = qualifiedHandler,
+                name = qualifiedHandler.id or qualifiedPrompt,
+            }
+        end
     end
-    if genericHandler ~= nil and genericHandler ~= qualifiedHandler then
+    local genericHandler = self.prompts[abilityClone.name]
+    if genericHandler ~= nil and not qualifiedHandlers[genericHandler] then
         handlers[#handlers+1] = {
             handler = genericHandler,
             name = genericHandler.id or abilityClone.name,
@@ -3255,7 +3313,7 @@ function MonsterAI:HandlePrompt(invokerToken, casterToken, abilityClone, symbols
     else
         self:LogDecision("PROMPT DEFERRED", {
             ability = abilityClone.name,
-            prompt = qualifiedPrompt,
+            prompt = string.format("%s:%s", invokerMonsterType, abilityClone.name),
             reason = "no registered AI prompt handler",
             result = "Director prompt",
         })
@@ -3377,14 +3435,16 @@ function MonsterAI:FindTriggerHandler(token, triggerInfo)
     --which would miss the handler registered under the plain name.
     if type(triggerInfo.abilityName) == "string" then
         local abilityName = string.match(triggerInfo.abilityName, "^%s*(.-)%s*$")
-        local monsterType = token.properties:try_get("monster_type", "")
-        local qualifiedName = string.format("%s:%s", monsterType, abilityName)
-        local handler = MatchingHandler(self.triggerHandlersByMonsterAbility[qualifiedName])
-        if handler ~= nil then
-            return handler
+        --own monster type first, then its "similar to" type.
+        for _,monsterType in ipairs(MonsterAI.AIMonsterTypes(token.properties)) do
+            local qualifiedName = string.format("%s:%s", monsterType, abilityName)
+            local handler = MatchingHandler(self.triggerHandlersByMonsterAbility[qualifiedName])
+            if handler ~= nil then
+                return handler
+            end
         end
 
-        handler = MatchingHandler(self.triggerHandlersByAbility[abilityName])
+        local handler = MatchingHandler(self.triggerHandlersByAbility[abilityName])
         if handler ~= nil then
             return handler
         end
@@ -3393,11 +3453,12 @@ function MonsterAI:FindTriggerHandler(token, triggerInfo)
     local triggerText = triggerInfo:GetText()
     if type(triggerText) == "string" then
         triggerText = string.match(triggerText, "^%s*(.-)%s*$")
-        local monsterType = token.properties:try_get("monster_type", "")
-        local qualifiedText = string.format("%s:%s", monsterType, triggerText)
-        local handler = MatchingHandler(self.triggerHandlersByMonsterText[qualifiedText])
-        if handler ~= nil then
-            return handler
+        for _,monsterType in ipairs(MonsterAI.AIMonsterTypes(token.properties)) do
+            local qualifiedText = string.format("%s:%s", monsterType, triggerText)
+            local handler = MatchingHandler(self.triggerHandlersByMonsterText[qualifiedText])
+            if handler ~= nil then
+                return handler
+            end
         end
 
         return MatchingHandler(self.triggerHandlersByText[triggerText])
@@ -4111,12 +4172,30 @@ function MonsterAI.LiveHeroCast()
     return nil
 end
 
+--A hero (not AI run) holding an immediate action grant -- a critical hit off
+--turn lets them take a main action now (creature:GrantImmediateAction in
+--MCDMActivatedAbility.lua). Shaped like LiveHeroCast's info, or nil. Synced
+--through the token, so it also covers heroes played on other clients.
+function MonsterAI.PendingHeroImmediateAction()
+    for _,token in ipairs(dmhub.allTokens) do
+        if token.playerControlled and token.valid and token.properties ~= nil
+            and not creature.IsTokenAIControlled(token.charid) then
+            local grants = token.properties:GetImmediateActionGrants(true)
+            if #grants > 0 then
+                local source = grants[1].source
+                return {casterToken = token, ability = {name = (source ~= nil and source ~= "") and source or "extra action"}}
+            end
+        end
+    end
+    return nil
+end
+
 --After an AI cast, wait while a hero's cast it set off is still running here,
 --so the next monster does not act, and roll dice, under the hero's target
 --prompt or roll. A player can take their time, so the limit is generous, as
 --for end-of-turn casts. Returns false, reason when the AI is stopped meanwhile.
 function MonsterAI:WaitForHeroCasts(timeout)
-    if MonsterAI.LiveHeroCast() == nil then
+    if MonsterAI.LiveHeroCast() == nil and MonsterAI.PendingHeroImmediateAction() == nil then
         return true
     end
 
@@ -4137,7 +4216,7 @@ function MonsterAI:WaitForHeroCasts(timeout)
                 or "Monster AI stop requested"
         end
 
-        local info = MonsterAI.LiveHeroCast()
+        local info = MonsterAI.LiveHeroCast() or MonsterAI.PendingHeroImmediateAction()
         if info == nil then
             idleSince = idleSince or dmhub.Time()
             if dmhub.Time() - idleSince >= 0.3 then
@@ -6754,6 +6833,76 @@ function MonsterAI:MovesInScoringOrder()
     return uncapped
 end
 
+--"Similar to" ------------------------------------------------------------
+--A monster's properties can name another monster type in `aiSimilarTo`, and
+--the AI then plays it like that monster: a reskinned or homebrew stat block
+--borrows the hand-written AI of the one it is based on. Registrations listing
+--either the monster's own type or the similar type apply, and band code that
+--asks "what is this monster?" gets the similar type (AIMonsterType). The
+--Monster AI panel's per-type switches stay keyed by the monster's own type.
+--Set in the Monster AI tab of the character sheet in an EotW authoring game.
+
+--- The monster type this creature's properties are similar to for AI
+--- purposes, or nil when they name none.
+--- @param props any creature properties (a bestiary entry's work too)
+--- @return string|nil
+function MonsterAI.SimilarMonsterType(props)
+    if props == nil then
+        return nil
+    end
+    local similar = nil
+    --try_get: object tokens' properties are not creatures.
+    pcall(function() similar = props:try_get("aiSimilarTo") end)
+    if type(similar) == "string" and similar ~= "" then
+        return similar
+    end
+    return nil
+end
+
+--- The monster type the AI plays this creature as: its "similar to" type when
+--- it has one, else its own monster_type ("" when it has neither).
+--- @param props any
+--- @return string
+function MonsterAI.AIMonsterType(props)
+    local similar = MonsterAI.SimilarMonsterType(props)
+    if similar ~= nil then
+        return similar
+    end
+    local monsterType = ""
+    pcall(function() monsterType = props:try_get("monster_type", "") end)
+    return monsterType or ""
+end
+
+--- The monster types registrations are matched against: the creature's own
+--- monster_type first, then its "similar to" type when it differs.
+--- @param props any
+--- @return string[]
+function MonsterAI.AIMonsterTypes(props)
+    local own = ""
+    pcall(function() own = props:try_get("monster_type", "") end)
+    own = own or ""
+    local similar = MonsterAI.SimilarMonsterType(props)
+    if similar ~= nil and similar ~= own then
+        return {own, similar}
+    end
+    return {own}
+end
+
+--- Does a registration's `monsters` list name any of these types?
+--- @param monsters string[]
+--- @param types string[]
+--- @return boolean
+function MonsterAI.ListsAnyMonsterType(monsters, types)
+    for i=1,#monsters do
+        for j=1,#types do
+            if monsters[i] == types[j] then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function MonsterAI.MoveMatchesMonster(token, move, includeDisabled)
     if move.id == "Minion Signature Ability" then
         --minion signatures cannot be disabled.
@@ -6770,16 +6919,10 @@ function MonsterAI.MoveMatchesMonster(token, move, includeDisabled)
         end
     end
     if move.monsters ~= nil then
-        for i=1,#move.monsters do
-            if move.monsters[i] == monster_type then
-                return true
-            end
-        end
+        return MonsterAI.ListsAnyMonsterType(move.monsters, MonsterAI.AIMonsterTypes(token.properties))
     else
         return true
     end
-
-    return false
 end
 
 --Initiative choice --------------------------------------------------------
@@ -8292,7 +8435,7 @@ function MonsterAI:StrikePairIsLegal(ability, actor, target, symbols)
     end
     local range = ability:GetRange(actor.properties, symbols)
     return MonsterAI.TargetDistance(ability:GetRangeSource(actor), target) <= range
-        and ability:TargetPassesFilter(actor, target, symbols)
+        and ability:TargetPassesFilter(actor, target, symbols or {})
         and actor:GetLineOfSight(target, actor.properties:GetPierceWalls()) > 0
 end
 
@@ -9189,12 +9332,7 @@ function MonsterAI.HasBehavior(token, behaviorId, includeDisabled)
     local on = BehaviorSourceSetting(token, behaviorId)
     if on == nil then
         on = behavior.allMonsters == true
-        for _,listed in ipairs(behavior.monsters or {}) do
-            if listed == monsterType then
-                on = true
-                break
-            end
-        end
+            or MonsterAI.ListsAnyMonsterType(behavior.monsters or {}, MonsterAI.AIMonsterTypes(token.properties))
     end
     if not on then
         return false
