@@ -1546,6 +1546,77 @@ function EncounterScript.ParseVictoryInstruction(text)
     return { kind = "victory", condition = "clearmap", who = singular, whoText = shown }
 end
 
+--"Parallax: <level>" under "# Encounter": the game's Parallax setting
+--(parallaxratio) while this encounter or series part is played, from the
+--moment the heroes arrive. The levels are the setting's own dropdown values
+--(Settings.lua): "None" (also "off"), "Slight", "Normal", "Pronounced".
+--Returns { kind = "parallax", ratio = 0.3, level = "Slight" } or nil. A
+--player's own "Disable Parallax" preference still wins on their screen.
+local PARALLAX_LEVELS = {
+    none = { ratio = 0, level = "None" },
+    off = { ratio = 0, level = "None" },
+    slight = { ratio = 0.3, level = "Slight" },
+    normal = { ratio = 0.6, level = "Normal" },
+    pronounced = { ratio = 1, level = "Pronounced" },
+}
+
+function EncounterScript.ParseParallaxInstruction(text)
+    local lc = lower(trim(text or ""))
+    lc = string.gsub(lc, "[%.!]+$", "")
+    local entry = PARALLAX_LEVELS[trim(lc)]
+    if entry == nil then
+        return nil
+    end
+    return { kind = "parallax", ratio = entry.ratio, level = entry.level }
+end
+
+--The parallax instruction of a parsed script's "# Encounter" beat, or nil.
+function EncounterScript.FindParallaxInstruction(parse)
+    for _, beat in ipairs((parse and parse.beats) or {}) do
+        if beat.kind == "encounter" then
+            for _, ins in ipairs(beat.setup or {}) do
+                if ins.kind == "parallax" then
+                    return ins
+                end
+            end
+        end
+    end
+    return nil
+end
+
+--"Level: <n>" under "# Encounter" (also "Hero Level:" / "Party Level:"):
+--the hero Level this encounter or series part is balanced for. The game
+--levels its monsters up or down by the party's average Level minus this
+--(EncounterOfTheWeekGame.LevelDelta). No line means Level 1.
+EncounterScript.LEVEL_LABELS = { level = true, ["hero level"] = true, ["party level"] = true, ["heroes level"] = true }
+EncounterScript.DEFAULT_HERO_LEVEL = 1
+EncounterScript.MAX_HERO_LEVEL = 10
+
+--Returns { kind = "herolevel", level = n } or nil. Takes the first whole
+--number in the text, so "2", "Level 2" and "2 heroes" all work.
+function EncounterScript.ParseHeroLevelInstruction(text)
+    local n = tonumber(string.match(text or "", "%d+"))
+    if n == nil or n < 1 or n > EncounterScript.MAX_HERO_LEVEL then
+        return nil
+    end
+    return { kind = "herolevel", level = math.floor(n) }
+end
+
+--The hero Level a parsed script's "# Encounter" beat is balanced for:
+--its "Level:" line, else DEFAULT_HERO_LEVEL.
+function EncounterScript.FindHeroLevel(parse)
+    for _, beat in ipairs((parse and parse.beats) or {}) do
+        if beat.kind == "encounter" then
+            for _, ins in ipairs(beat.setup or {}) do
+                if ins.kind == "herolevel" then
+                    return ins.level
+                end
+            end
+        end
+    end
+    return EncounterScript.DEFAULT_HERO_LEVEL
+end
+
 --The player-facing line for a clear-the-map victory.
 function EncounterScript.DescribeVictory(instruction)
     if instruction == nil or instruction.condition ~= "clearmap" then
@@ -4579,6 +4650,8 @@ function EncounterScript.Parse(text)
     local reinforcement = nil
     local paragraph = {}  --accumulating prose lines
     local paragraphLine = 0
+    --lines read as "Secret result:" (any other one gets a warning).
+    local secretLines = {}
     --where scene lines go while one is being read (an entry's scene after
     --its "---", or a scripted entry's option above / below its roll); nil
     --when lines are ordinary prose.
@@ -4618,7 +4691,19 @@ function EncounterScript.Parse(text)
             --"Rest does not lock this part": a win of the part before
             --unlocks this one for good, even after the party rests.
             local restFree = string.match(lower(t), "^rest does not lock this part%.?$") ~= nil
-            if soonText ~= nil then
+            --"Secret result: <text>": the line a montage result shows when
+            --its only rules are hidden. Replaces the general line.
+            local secretText = string.match(t, "^[Ss]ecret [Rr]esult:%s*(.-)%s*$")
+            if secretText ~= nil then
+                secretLines[lineIndex] = true
+                if secretText == "" then
+                    Warn(lineIndex, "'Secret result:' needs the line to show (write 'Secret result: You learn something about her.'); ignored")
+                elseif result.secretResult ~= nil then
+                    Warn(lineIndex, "a second 'Secret result:' line; the first one counts")
+                else
+                    result.secretResult = secretText
+                end
+            elseif soonText ~= nil then
                 local mark = { text = cond(soonText ~= "", soonText, nil), line = lineIndex }
                 if result.part ~= nil then
                     result.part.comingSoon = mark
@@ -5009,6 +5094,23 @@ function EncounterScript.Parse(text)
                     local instruction
                     if lower(trim(label)) == "victory" then
                         instruction = EncounterScript.ParseVictoryInstruction(rest)
+                    elseif lower(trim(label)) == "parallax" then
+                        instruction = EncounterScript.ParseParallaxInstruction(rest)
+                        if instruction == nil then
+                            Warn(lineIndex, "%s", T("author.script.encounter.parallax_not_understood", { parallax = rest }))
+                            instruction = { kind = "unknown" }
+                        end
+                    elseif EncounterScript.LEVEL_LABELS[lower(trim(label))] then
+                        --a label is otherwise free text ("Trap: Place ..."),
+                        --so a "Level:" line that is not a Level stays one.
+                        instruction = EncounterScript.ParseHeroLevelInstruction(rest)
+                        if instruction == nil then
+                            instruction = EncounterScript.ParseSetupInstruction(rest)
+                            if instruction == nil then
+                                Warn(lineIndex, "%s", T("author.script.encounter.level_not_understood", { level = rest, max = EncounterScript.MAX_HERO_LEVEL }))
+                                instruction = { kind = "unknown" }
+                            end
+                        end
                     elseif EncounterScript.IsAIBehaviorLabel(label) then
                         instruction = EncounterScript.ParseAIBehaviorInstruction(rest)
                     else
@@ -6190,6 +6292,12 @@ function EncounterScript.Parse(text)
     if pendingComingSoon ~= nil then
         Warn(pendingComingSoon.line, "'Coming soon' only works in a series part (a document with a '# Part N' heading); ignored")
     end
+    --a "Secret result:" line anywhere else is read as prose.
+    for i, l in ipairs(lines) do
+        if not secretLines[i] and string.match(trim(l), "^[Ss]ecret [Rr]esult:") then
+            Warn(i, "'Secret result:' goes above the first heading or under '# Part N'; here it is shown as text")
+        end
+    end
     EncounterScript.CheckStory(result, Warn)
 
     --implicit encounter: no beats at all, but an [[encounter]] island
@@ -6313,6 +6421,23 @@ function EncounterScript.ResolveStoryText(holder, story)
         return holder.text or ""
     end
     return EncounterScript.ResolveStoryBlocks(holder.storyBlocks, story)
+end
+
+--True when every rule in a result is hidden (a hidden story track, a
+--{braced} clause), so players would see no reward. Prose does not count,
+--and neither does a hidden "the threat is vanquished": the threat leaving
+--shows that.
+function EncounterScript.OnlyHiddenRules(effects)
+    local hiddenRule = false
+    for _, effect in ipairs(effects or {}) do
+        if effect.kind ~= "narrative" and effect.kind ~= "vanquish" then
+            if not effect.hidden then
+                return false
+            end
+            hiddenRule = true
+        end
+    end
+    return hiddenRule
 end
 
 --Evaluate a condition made only of story atoms (When lines, gates, "#
@@ -6871,6 +6996,10 @@ function EncounterScript.Describe(parse)
                     line("  %s: %s", ins.label, EncounterScript.DescribeVictory(ins) or "?")
                 elseif ins.kind == "aibehavior" then
                     line("  setup %s: %s", ins.label, EncounterScript.DescribeAIBehavior(ins))
+                elseif ins.kind == "parallax" then
+                    line("  %s: %s (parallaxratio %s)", ins.label, ins.level, tostring(ins.ratio))
+                elseif ins.kind == "herolevel" then
+                    line("  %s: balanced for Level %d heroes", ins.label, ins.level)
                 else
                     line("  setup %s: UNRECOGNIZED '%s'", ins.label, ins.text)
                 end
