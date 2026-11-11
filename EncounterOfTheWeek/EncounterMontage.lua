@@ -1069,7 +1069,9 @@ local function PartSummaries(parts)
     local result = {}
     for _, script in ipairs(parts or {}) do
         local part = script.parse.part
-        result[#result + 1] = { number = part.number, title = part.title, comingSoon = part.comingSoon ~= nil, restFree = part.restFree == true }
+        --comingSoonMark: the mark itself, for EncounterScript.ComingSoonLocks.
+        result[#result + 1] = { number = part.number, title = part.title, comingSoon = part.comingSoon ~= nil,
+            comingSoonMark = part.comingSoon, restFree = part.restFree == true }
     end
     return result
 end
@@ -2563,7 +2565,11 @@ end
 --"refreshTables" event, so an asset uploaded in the same breath as the grant
 --is invisible to creature:ApplyOngoingEffect. Doing it at the start of the
 --beat puts thousands of frames between the upload and the first grant.
-function EncounterMontage.PrepareBoonAssets(beat)
+--With `script`, it also covers every beat's "When" lines and "# Results":
+--those apply at a beat's start or the part's end, too soon to make the
+--asset then (a When line's foe weakness was skipped in a 2026-11-10 test).
+--`beat` may be nil when only the script's lines are wanted.
+function EncounterMontage.PrepareBoonAssets(beat, script)
     local amounts = {}
     local damageAmounts = {}
     local staminaAmounts = {}
@@ -2590,21 +2596,34 @@ function EncounterMontage.PrepareBoonAssets(beat)
             end
         end
     end
-    for _, entry in ipairs(EncounterScript.MontageEntries(beat)) do
-        if entry.consequence ~= nil then
-            Collect(entry.consequence.effects)
-        end
-        for _, option in ipairs(entry.options) do
-            if option.roll ~= nil then
-                for _, effects in pairs(option.roll.effects) do
-                    Collect(effects)
+    if beat ~= nil then
+        for _, entry in ipairs(EncounterScript.MontageEntries(beat)) do
+            if entry.consequence ~= nil then
+                Collect(entry.consequence.effects)
+            end
+            for _, option in ipairs(entry.options) do
+                if option.roll ~= nil then
+                    for _, effects in pairs(option.roll.effects) do
+                        Collect(effects)
+                    end
+                end
+            end
+            for _, tableRoll in pairs(entry.tables or {}) do
+                for _, row in ipairs(tableRoll.rows or {}) do
+                    Collect(row.effects)
                 end
             end
         end
-        for _, tableRoll in pairs(entry.tables or {}) do
-            for _, row in ipairs(tableRoll.rows or {}) do
-                Collect(row.effects)
+    end
+    local parse = script ~= nil and script.parse or nil
+    if parse ~= nil then
+        for _, b in ipairs(parse.beats or {}) do
+            for _, line in ipairs(b.when or {}) do
+                Collect(line.effects)
             end
+        end
+        for _, line in ipairs((parse.results or {}).lines or {}) do
+            Collect(line.effects)
         end
     end
     if not any then
@@ -3405,18 +3424,21 @@ function EncounterMontage.ApplyEffects(effects, ctx)
         printf("EotW montage: effect application failed: %s", tostring(err))
         applied[#applied + 1] = T("montage.effect.failed")
     end
-    --a result whose only rules are hidden would show players nothing: tell
-    --them they learned something. Not for a threat's consequence, which
-    --is something that happened to them, not something they found out.
-    if not ctx.consequence and EncounterScript.OnlyHiddenRules(effects) then
-        --the script's own "Secret result:" line, else the general one.
-        --Montage effects always belong to the current map's script.
-        local line = nil
-        pcall(function()
-            local script = EncounterMontage.FindMapScript()
-            line = script ~= nil and script.parse ~= nil and script.parse.secretResult or nil
-        end)
-        applied[#applied + 1] = line or T("montage.effect.secret")
+    --a result that raises a track marked Secret tells players they learned
+    --something (the track itself is hidden). Not for a threat's
+    --consequence, which happened to them rather than being found out.
+    local secret = not ctx.consequence and EncounterScript.SecretResultLine(effects) or nil
+    if secret ~= nil then
+        --a table row that already said it (a nested call) is not repeated.
+        local said = false
+        for _, text in ipairs(applied) do
+            if text == secret then
+                said = true
+            end
+        end
+        if not said then
+            applied[#applied + 1] = secret
+        end
     end
     return applied, newAllies
 end
@@ -6632,7 +6654,7 @@ function EncounterMontage.Begin(script, beat, beatIndex)
         doc.data.narrative = nil
     end
     doc:CompleteChange("Montage started", { undoable = false })
-    pcall(EncounterMontage.PrepareBoonAssets, beat)
+    pcall(EncounterMontage.PrepareBoonAssets, beat, script)
     printf("EotW montage: beat %d started (%d rounds)", beatIndex, EncounterScript.RoundCount(beat))
     EncounterMontage.Present(beatIndex)
 end

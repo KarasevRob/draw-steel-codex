@@ -148,9 +148,9 @@ Witch is alert
 PC: Good morrow! We seek help.
 
 |Negotiation Test: Presence (Empathize, Persuade, Lie)
-|You fail. The witch is unimpressed.
-|You gain one Healing Potion
-|Each party member gains one Healing Potion
+|Unimpressed => You fail
+|A small gift => You gain one Healing Potion
+|Generous => Each party member gains one Healing Potion
 |Edge: You speak Hyrallic
 
 if tier1 then
@@ -162,7 +162,7 @@ end
 ### Search the garden
 
 |Search Test: Intuition (Search, Alertness)
-|You lose 3 stamina; nettles
+|Nettles => You lose 3 stamina
 |a small find => You gain 1 Healing Potion
 |a great find => You gain 1 Healing Potion. +1 hero token
 
@@ -230,6 +230,19 @@ is a journal power-roll block:
   header -- is taken without a test: its clauses apply at once. Lines above
   its rules are its own scene; lines below are its outcome scene.
 - Tier text is clauses (see the table). Make every tier say something.
+- **A tier line is a short label plus effects. The narration goes in the
+  scene block.** Write `|<Label> => <effects>`, for example
+  `|Shaken => {The threat is vanquished}. You lose 1d3 stamina`. The label
+  is the teaser players see before the roll. Say what happens in story terms
+  in the test's `if tier1 then ... elseif tier2 then ... else ... end` scene
+  block. It plays in the central montage box and is written with `PC` and
+  the pronoun tokens. Do not put a prose sentence in the tier line. It is
+  said a second time next to the scene, and each prose clause is an
+  unrecognized-effect warning. Put `{The threat is vanquished}` first, then
+  costs (stamina, recoveries, malice), then rewards. A knack version with its
+  own roll gets its own scene block. The one exception is a timing phrase
+  that belongs to an effect, such as
+  `At the start of the next combat, each party member gains 1 surge`.
 - **Every test has a critical** (natural 19 or 20). Leave the 4th line out
   and it is built for you: tier 3's full text plus "The party gains an
   additional hero token." Write a 4th line only when a critical should give
@@ -761,6 +774,13 @@ time).
   feature do not offer it at all. A series can ship with its first parts
   playable and the rest as placeholders. Remove the line and publish an update
   to open it.
+- **Locked at the Town Gate only**: `Coming soon at the Town Gate` (or
+  `Coming soon at the Town Gate: <text>`) locks the part at the Gate, where the
+  weekly Encounter of the Week is played, but the Proving Pits can play it,
+  unlocked by a Pits win of the part before as usual. Use it to test later
+  parts in the Pits before they release at the Gate. The publisher treats the
+  part as playable (a missing `# Encounter` is an error), and apps older than
+  this feature still show it locked on both boards.
 - **Rests and later parts**: by default a part is playable only while the
   part before it is still fresh: won since the account last rested at the
   inn (Catching Breath keeps it). A rest locks it again until that part is won
@@ -822,16 +842,21 @@ a condition (the parser warns).
   changes it is stripped from what they read, as if it were in `{...}`, and the
   recap leaves it out. Players only notice what it causes (more Malice, a
   different paragraph, a harder fight).
-- **Secret result line**: when a test or choice result's only rules are
-  hidden, the result shows one extra line so players know they gained
-  something (by default "You learned something. It may matter later."). A
-  threat's consequence never shows it. Set a part's own line with
-  `Secret result: <text>` above the first heading or under `# Part N`, next to
-  the `Track:` lines (`Secret result: You learn something about Velkhara.`).
-  The parser warns about an empty one, a second one (the first counts), or
-  one anywhere else.
+- **Secret track** (`(Hidden, Secret)`, or just `(Secret)`): hidden like
+  any hidden track, but a test or choice result that **raises** it also shows
+  one line so players know they learned something (by default "You learned
+  something that may matter later."). It shows on the landed tier and in the
+  result, whatever else the result gives. Lowering the track, a threat's
+  consequence, and a hidden track without the mark never show it, so a
+  looming threat like Rite's Progress stays plain `(Hidden)`.
+- **Secret result line**: set a part's own line with `Secret result: <text>`
+  above the first heading or under `# Part N`, next to the `Track:` lines
+  (`Secret result: You learn something about Velkhara.`). It is used for
+  every Secret track in that document. The parser warns about an empty one,
+  a second one (the first counts), one anywhere else, or one in a document
+  with no Secret track.
 - The town shows no track values. The validator panel lists each declared
-  track (and whether it is hidden), and the app log prints every change
+  track (and whether it is hidden or secret), and the app log prints every change
   ("EotW story: Alarm +1 -> 2").
 
 **Change** a track with a clause anywhere clauses go (tiers, consequences,
