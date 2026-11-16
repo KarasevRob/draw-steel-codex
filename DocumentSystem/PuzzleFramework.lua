@@ -46,6 +46,7 @@ local mod = dmhub.GetModLoading()
 ---@field HostTick? fun(id: string) runs about once a second on the host for every puzzle of this type
 ---@field HandleRequest? PuzzleRequestHandler the host applies players' requests (Puzzle.Request); types with their own HostTick call Puzzle.ProcessRequests instead
 ---@field noTimeLimit? boolean the framework's time limit is not offered for this type
+---@field howToPlay? string|fun(config: table): string the frame's "?" popup; paragraphs split by blank lines
 
 ---@class PuzzleStatus
 ---@field solved boolean|nil
@@ -297,13 +298,24 @@ function Puzzle.Exists(id)
     return Puzzle.GetType(id) ~= nil
 end
 
----@class PuzzleIndexEntry
----@field kind "lock"|"journal"|"standalone"|nil standalone: made in the Puzzles panel, lives only there
+--One place a puzzle lives. A puzzle can live in several (a lock and a page).
+--table and rail are the Director's own table item and rail button.
+---@class PuzzleHome
+---@field kind "lock"|"journal"|"table"|"rail"
 ---@field floorid string|nil a lock's floor
 ---@field objid string|nil a lock's object
 ---@field docid string|nil a journal puzzle's page
+---@field tag string|nil a journal puzzle's tag key on its page ("puzzle:Vault")
+---@field placed "component"|"object"|nil what placing it added; removing the home takes that away too
 
---Where every puzzle lives: id -> entry.
+---@class PuzzleIndexEntry
+---@field kind "lock"|"journal"|"standalone"|nil standalone: made in the Puzzles panel. lock/journal: an old entry's one home
+---@field floorid string|nil an old entry's lock floor
+---@field objid string|nil an old entry's lock object
+---@field docid string|nil an old entry's page
+---@field homes table<string, PuzzleHome>|nil home key -> home
+
+--Every puzzle the index knows: id -> entry. Read homes with Puzzle.Homes.
 ---@return table<string, PuzzleIndexEntry>
 function Puzzle.Index()
     local result = {}
@@ -315,23 +327,73 @@ function Puzzle.Index()
     return result
 end
 
---Record a puzzle (and where it lives) in the index. Writes only when something
---is new, so surfaces can call it every time they show a puzzle.
----@param id string
----@param info PuzzleIndexEntry|nil
-function Puzzle.IndexPuzzle(id, info)
-    local current = mod:GetDocumentSnapshot(INDEX_DOC).data[id]
-    local changed = type(current) ~= "table"
-    if not changed and info ~= nil then
-        for k, v in pairs(info) do
-            if current[k] ~= v then
-                changed = true
+---@param home PuzzleHome|PuzzleIndexEntry
+---@return string|nil
+function Puzzle.HomeKey(home)
+    if home.kind == "lock" and home.floorid ~= nil and home.objid ~= nil then
+        return Puzzle.SafeId(string.format("lock_%s_%s", home.floorid, home.objid))
+    elseif home.kind == "journal" and home.docid ~= nil then
+        return Puzzle.SafeId(string.format("journal_%s_%s", home.docid, tostring(home.tag or "")))
+    elseif home.kind == "table" or home.kind == "rail" then
+        return home.kind
+    end
+    return nil
+end
+
+--The key of a home already listed for the same lock or page. An old entry's
+--page home has no tag, so it matches any tag on that page.
+---@param homes table<string, PuzzleHome>
+---@param home PuzzleHome
+---@return string|nil
+local function SameHome(homes, home)
+    for key, h in pairs(homes) do
+        if h.kind == home.kind then
+            if home.kind == "lock" and h.floorid == home.floorid and h.objid == home.objid then
+                return key
+            elseif home.kind == "journal" and h.docid == home.docid and (h.tag == nil or home.tag == nil or h.tag == home.tag) then
+                return key
+            elseif home.kind == "table" or home.kind == "rail" then
+                return key
             end
         end
     end
-    if not changed then
-        return
+    return nil
+end
+
+---@param entry PuzzleIndexEntry
+---@return PuzzleHome|nil
+local function LegacyHome(entry)
+    if entry.kind ~= "lock" and entry.kind ~= "journal" then
+        return nil
     end
+    return { kind = entry.kind, floorid = entry.floorid, objid = entry.objid, docid = entry.docid }
+end
+
+--Every place a puzzle lives: home key -> home.
+---@param id string
+---@return table<string, PuzzleHome>
+function Puzzle.Homes(id)
+    local entry = mod:GetDocumentSnapshot(INDEX_DOC).data[id]
+    local result = {}
+    if type(entry) ~= "table" then
+        return result
+    end
+    for key, home in pairs(entry.homes or {}) do
+        if type(home) == "table" then
+            result[key] = home
+        end
+    end
+    local legacy = LegacyHome(entry)
+    local key = legacy ~= nil and Puzzle.HomeKey(legacy) or nil
+    if key ~= nil and SameHome(result, legacy --[[@as PuzzleHome]]) == nil then
+        result[key] = legacy
+    end
+    return result
+end
+
+---@param id string
+---@param fn fun(entry: PuzzleIndexEntry)
+local function WriteIndex(id, fn)
     local doc = mod:GetDocumentSnapshot(INDEX_DOC)
     doc:BeginChange()
     local entry = doc.data[id]
@@ -339,10 +401,77 @@ function Puzzle.IndexPuzzle(id, info)
         entry = {}
         doc.data[id] = entry
     end
-    for k, v in pairs(info or {}) do
-        entry[k] = v
+    --an old entry's one home moves into homes, so homes is the only list.
+    local legacy = LegacyHome(entry)
+    if legacy ~= nil then
+        entry.homes = entry.homes or {}
+        local key = Puzzle.HomeKey(legacy)
+        if key ~= nil and SameHome(entry.homes, legacy) == nil then
+            entry.homes[key] = legacy
+        end
+        entry.kind, entry.floorid, entry.objid, entry.docid = nil, nil, nil, nil
     end
+    fn(entry)
     doc:CompleteChange("Index puzzle", {undoable = false})
+end
+
+--Record a puzzle in the index, and one more place it lives when info is a
+--lock or a page. Writes only when something is new, so surfaces can call it
+--every time they show a puzzle. A page home recorded without its tag gains it.
+---@param id string
+---@param info PuzzleHome|{kind: "standalone"}|nil
+function Puzzle.IndexPuzzle(id, info)
+    local current = mod:GetDocumentSnapshot(INDEX_DOC).data[id]
+    local home = nil
+    if info ~= nil and info.kind ~= "standalone" then
+        home = info --[[@as PuzzleHome]]
+    end
+    local standalone = info ~= nil and info.kind == "standalone"
+    if type(current) == "table" then
+        if home == nil then
+            if not standalone or current.kind ~= nil then
+                return
+            end
+        else
+            local homes = Puzzle.Homes(id)
+            local key = SameHome(homes, home)
+            if key ~= nil and (home.tag == nil or homes[key].tag == home.tag) then
+                return
+            end
+        end
+    end
+    WriteIndex(id, function(entry)
+        if home == nil then
+            if standalone and entry.kind == nil then
+                entry.kind = "standalone"
+            end
+            return
+        end
+        entry.homes = entry.homes or {}
+        local old = SameHome(entry.homes, home)
+        if old ~= nil then
+            entry.homes[old] = nil
+        end
+        local copy = {}
+        for k, v in pairs(home) do
+            copy[k] = v
+        end
+        entry.homes[Puzzle.HomeKey(home) or Puzzle.SafeId(dmhub.GenerateGuid())] = copy
+    end)
+end
+
+--Take one place out of a puzzle's homes. The puzzle itself stays.
+---@param id string
+---@param key string
+function Puzzle.RemoveHome(id, key)
+    if Puzzle.Homes(id)[key] == nil then
+        return
+    end
+    WriteIndex(id, function(entry)
+        if entry.homes ~= nil then
+            entry.homes[key] = nil
+        end
+    end)
 end
 
 --Forget a puzzle whose lock or page is gone: clear its board, status, presence
@@ -865,16 +994,46 @@ end
 ---@field editing boolean the page holding the puzzle is in edit mode
 ---@field solved boolean
 ---@field failed boolean
----@field readonly boolean solved, failed or editing: the board takes no moves
+---@field readonly boolean solved, failed, editing or away: the board takes no moves
+---@field away boolean a player opened it away from its lock, and it is solved only there
 ---@field role string|nil the role id the Director gave this player
 ---@field panel Panel|nil the panel Render returned, once built
 PuzzleContext = {}
 PuzzleContext.__index = PuzzleContext
 
---Build a context for a puzzle. opts.seed seeds ctx.random; opts.editing marks a
---page in edit mode.
+--True when a puzzle with a lock can only be solved at the lock (players who
+--open it anywhere else see it but cannot move), unless the Director allowed
+--solving from anywhere in the lock's setup.
 ---@param id string
----@param opts {seed: string|nil, config: table|nil, editing: boolean|nil}|nil
+---@return boolean
+function Puzzle.SolveOnlyAtLock(id)
+    local config = Puzzle.ReadConfig(id)
+    if config.solveAnywhere == true or type(config.locks) ~= "table" then
+        return false
+    end
+    return next(config.locks) ~= nil
+end
+
+--The name of the first of a puzzle's lock objects still on the map, or nil.
+---@param id string
+---@return string|nil
+function Puzzle.LockObjectName(id)
+    local locks = Puzzle.ReadConfig(id).locks
+    for _, lock in pairs(type(locks) == "table" and locks or {}) do
+        if type(lock) == "table" and lock.floorid ~= nil and lock.objid ~= nil then
+            local obj = game.LookupObject(lock.floorid, lock.objid)
+            if obj ~= nil and obj.valid and type(obj.description) == "string" and obj.description ~= "" then
+                return obj.description
+            end
+        end
+    end
+    return nil
+end
+
+--Build a context for a puzzle. opts.seed seeds ctx.random; opts.editing marks a
+--page in edit mode; opts.away marks a player who opened it away from its lock.
+---@param id string
+---@param opts {seed: string|nil, config: table|nil, editing: boolean|nil, away: boolean|nil}|nil
 ---@return PuzzleContext
 function Puzzle.Context(id, opts)
     opts = opts or {}
@@ -896,10 +1055,11 @@ function Puzzle.Context(id, opts)
         solved = status.solved == true,
         failed = status.failed == true,
         readonly = false,
+        away = opts.away == true,
         role = roles[dmhub.userid],
         panel = nil,
     }, PuzzleContext)
-    ctx.readonly = ctx.solved or ctx.failed or ctx.editing
+    ctx.readonly = ctx.solved or ctx.failed or ctx.editing or ctx.away
     return ctx
 end
 
@@ -990,12 +1150,18 @@ local function PresenceEntry(id)
     return entry
 end
 
---Record (or clear) that this player has the puzzle open. Windows call this as a
---heartbeat; a client that drops simply stops renewing and goes stale.
+--Record (or clear) that this player has the puzzle open, and where from ("at
+--the Chest", "from chat"). Windows call this as a heartbeat; a client that drops
+--simply stops renewing and goes stale.
 ---@param id string
 ---@param present boolean
-function Puzzle.MarkPresent(id, present)
+---@param where string|nil
+function Puzzle.MarkPresent(id, present, where)
     local doc = mod:GetDocumentSnapshot(PRESENCE_DOC)
+    --leaving a puzzle with no entry (a deleted one) must not create one.
+    if not present and type(doc.data[id]) ~= "table" then
+        return
+    end
     doc:BeginChange()
     local entry = doc.data[id]
     if type(entry) ~= "table" then
@@ -1006,7 +1172,35 @@ function Puzzle.MarkPresent(id, present)
         entry.users = {}
     end
     entry.users[dmhub.userid] = cond(present, dmhub.serverTime, nil)
+    if type(entry.where) ~= "table" then
+        entry.where = {}
+    end
+    entry.where[dmhub.userid] = cond(present, where, nil)
     doc:CompleteChange("Puzzle presence", {undoable = false})
+end
+
+--Where a present player has the puzzle open from ("at the Chest"), or nil.
+---@param id string
+---@param userid string
+---@return string|nil
+function Puzzle.PresentWhere(id, userid)
+    local where = PresenceEntry(id).where
+    if type(where) == "table" and type(where[userid]) == "string" then
+        return where[userid]
+    end
+    return nil
+end
+
+--A player's name with where they are, for presence lines: "Ana (at the Chest)".
+---@param id string
+---@param userid string
+---@return string
+function Puzzle.UserNameWhere(id, userid)
+    local where = Puzzle.PresentWhere(id, userid)
+    if where ~= nil then
+        return string.format("%s (%s)", Puzzle.UserName(userid), where)
+    end
+    return Puzzle.UserName(userid)
 end
 
 --Userids with the puzzle open right now, this player included.
@@ -1242,7 +1436,8 @@ end
 ---@param stillWanted fun(): boolean
 ---@param onDone fun(tier: integer, natural: number|nil)
 ---@param onCancel fun()|nil
-function Puzzle.RollTest(tok, attrid, skill, name, tiers, stillWanted, onDone, onCancel)
+---@param bane string|nil why this roll has a bane (shown on the roll), or nil for none
+function Puzzle.RollTest(tok, attrid, skill, name, tiers, stillWanted, onDone, onCancel, bane)
     local info = (creature.attributesInfo or {})[attrid]
     local attrName = info ~= nil and info.description or "Intuition"
     local attr = attrName
@@ -1251,7 +1446,12 @@ function Puzzle.RollTest(tok, attrid, skill, name, tiers, stillWanted, onDone, o
     end
     local montage = rawget(_G, "EncounterMontage")
     if montage ~= nil and montage.BuildTestRoll ~= nil and montage.ShowTestRoll ~= nil then
-        local parts = montage.BuildTestRoll(tok, attr, name, nil)
+        --a bane rides in as a test rider, as the montage's own banes do.
+        local verdict = nil
+        if bane ~= nil then
+            verdict = { applied = { { rider = { effect = "bane" }, why = bane } } }
+        end
+        local parts = montage.BuildTestRoll(tok, attr, name, verdict)
         montage.ShowTestRoll{
             creature = tok.properties,
             heroToken = tok,
@@ -1278,6 +1478,9 @@ function Puzzle.RollTest(tok, attrid, skill, name, tiers, stillWanted, onDone, o
     end
     local bonus = 0
     pcall(function() bonus = tok.properties:GetAttribute(attrid):Modifier() end)
+    if bane ~= nil then
+        bonus = bonus - 2
+    end
     dmhub.Roll{
         roll = string.format("2d10 + %d", bonus),
         description = string.format("%s: %s", name, attr),

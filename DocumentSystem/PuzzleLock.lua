@@ -63,6 +63,8 @@ local POINT_OUT_EVENT = "puzzleLockTargets"
 local function LockKey(floorid, objid)
     return Puzzle.SafeId(tostring(floorid) .. "_" .. tostring(objid))
 end
+Puzzle.LockKey = LockKey
+Puzzle.DEFAULT_LOCK_RANGE = DEFAULT_RANGE
 
 --------------------------------------------------------------------------------
 -- Targets: doors and objects on the lock's floor
@@ -106,6 +108,27 @@ local function WhereText(fromX, fromY, x, y)
         return "right here"
     end
     return string.format("%d %s %s", squares, cond(squares == 1, "square", "squares"), dir)
+end
+
+--An "Unlock this door" effect for a lock at (fromX, fromY): a drawn door found
+--by its middle, or a door object.
+---@param floorid string
+---@param fromX number
+---@param fromY number
+---@param doorX number
+---@param doorY number
+---@param doorObjid string|nil
+---@return table
+function Puzzle.DoorEffect(floorid, fromX, fromY, doorX, doorY, doorObjid)
+    return {
+        kind = cond(doorObjid ~= nil, "doorobj", "door"),
+        floorid = floorid,
+        x = doorX,
+        y = doorY,
+        objid = doorObjid,
+        open = false,
+        label = "Door " .. WhereText(fromX, fromY, doorX, doorY),
+    }
 end
 
 ---@class PuzzleLockTarget
@@ -603,7 +626,24 @@ local function OpenSetup(id, floorid, objid)
             flow = "horizontal",
             width = "auto",
             height = "auto",
+            tmargin = 2,
         }
+        --the second step sits under the kind dropdown (side by side is wider than
+        --the window), with an X that abandons the half-made effect.
+        local function SetTarget(control)
+            targetRow.children = {
+                control,
+                gui.DeleteItemButton{
+                    width = 16,
+                    height = 16,
+                    valign = "center",
+                    lmargin = 6,
+                    click = function(element)
+                        Rebuild()
+                    end,
+                },
+            }
+        end
         local function AddEffect(effect)
             local current = ReadLock()
             table.insert(current[listName], effect)
@@ -611,7 +651,7 @@ local function OpenSetup(id, floorid, objid)
             Rebuild()
         end
         rows[#rows + 1] = gui.Panel{
-            flow = "horizontal",
+            flow = "vertical",
             width = "auto",
             height = "auto",
             vmargin = 2,
@@ -627,24 +667,22 @@ local function OpenSetup(id, floorid, objid)
                         return
                     end
                     if kind == "chat" then
-                        targetRow.children = {
-                            gui.Input{
-                                width = 260,
-                                height = 26,
-                                bgimage = "panels/square.png",
-                                bgcolor = "#00000059",
-                                border = 1,
-                                borderColor = "#ffffff47",
-                                hpad = 6,
-                                borderBox = true,
-                                placeholderText = "Message...",
-                                change = function(input)
-                                    if input.text ~= "" then
-                                        AddEffect({ kind = "chat", text = input.text })
-                                    end
-                                end,
-                            },
-                        }
+                        SetTarget(gui.Input{
+                            width = 260,
+                            height = 26,
+                            bgimage = "panels/square.png",
+                            bgcolor = "#00000059",
+                            border = 1,
+                            borderColor = "#ffffff47",
+                            hpad = 6,
+                            borderBox = true,
+                            placeholderText = "Message...",
+                            change = function(input)
+                                if input.text ~= "" then
+                                    AddEffect({ kind = "chat", text = input.text })
+                                end
+                            end,
+                        })
                         return
                     end
                     local doors, objects = ListTargets(floorid, fromX, fromY, objid)
@@ -654,39 +692,35 @@ local function OpenSetup(id, floorid, objid)
                         options[#options + 1] = { id = tostring(i), text = t.label }
                     end
                     if #options == 0 then
-                        targetRow.children = {
-                            gui.Label{
-                                classes = {"sizeS", "warning"},
-                                width = "auto",
-                                height = "auto",
-                                valign = "center",
-                                text = cond(kind == "unlock" or kind == "open", "No doors on this floor.", "No other objects on this floor."),
-                            },
-                        }
+                        SetTarget(gui.Label{
+                            classes = {"sizeS", "warning"},
+                            width = "auto",
+                            height = "auto",
+                            valign = "center",
+                            text = cond(kind == "unlock" or kind == "open", "No doors on this floor.", "No other objects on this floor."),
+                        })
                         return
                     end
-                    targetRow.children = {
-                        gui.Dropdown{
-                            width = 260,
-                            options = options,
-                            textDefault = "Choose...",
-                            change = function(d)
-                                ---@cast d Dropdown
-                                local t = list[math.tointeger(tonumber(d.idChosen)) or 0]
-                                if t == nil then
-                                    return
-                                end
-                                local effect = { floorid = floorid, x = t.x, y = t.y, objid = t.objid, label = t.label }
-                                if kind == "unlock" or kind == "open" then
-                                    effect.kind = cond(t.kind == "doorobj", "doorobj", "door")
-                                    effect.open = kind == "open"
-                                else
-                                    effect.kind = kind
-                                end
-                                AddEffect(effect)
-                            end,
-                        },
-                    }
+                    SetTarget(gui.Dropdown{
+                        width = 260,
+                        options = options,
+                        textDefault = "Choose...",
+                        change = function(d)
+                            ---@cast d Dropdown
+                            local t = list[math.tointeger(tonumber(d.idChosen)) or 0]
+                            if t == nil then
+                                return
+                            end
+                            local effect = { floorid = floorid, x = t.x, y = t.y, objid = t.objid, label = t.label }
+                            if kind == "unlock" or kind == "open" then
+                                effect.kind = cond(t.kind == "doorobj", "doorobj", "door")
+                                effect.open = kind == "open"
+                            else
+                                effect.kind = kind
+                            end
+                            AddEffect(effect)
+                        end,
+                    })
                 end,
             },
             targetRow,
@@ -732,7 +766,15 @@ local function OpenSetup(id, floorid, objid)
                 end
             end
             Rebuild()
-        end)
+        end, nil, {
+            own = nil,
+            ownText = "A new puzzle for this lock",
+            choose = function(otherId)
+                local newId = PuzzlePlace.MoveLock(id, floorid, objid, otherId)
+                window:DestroySelf()
+                OpenSetup(newId, floorid, objid)
+            end,
+        })
 
         children[#children + 1] = gui.Label{ classes = {"sizeM", "bold"}, width = "auto", height = "auto", tmargin = 10, text = "When solved:" }
         for _, row in ipairs(EffectSection("onSolve")) do
@@ -743,6 +785,20 @@ local function OpenSetup(id, floorid, objid)
             children[#children + 1] = row
         end
 
+        children[#children + 1] = gui.Check{
+            classes = {"sizeS"},
+            width = "auto",
+            height = 22,
+            fontSize = 14,
+            halign = "left",
+            tmargin = 10,
+            text = "Can be solved from anywhere",
+            value = Puzzle.ReadConfig(id).solveAnywhere == true,
+            change = function(element)
+                Puzzle.SetConfig(id, { solveAnywhere = element.value == true })
+            end,
+            hover = gui.Tooltip("Off: players who open it from a page, the table or chat can look but must come to the lock to solve it."),
+        }
         children[#children + 1] = gui.Label{ classes = {"sizeS"}, width = "auto", height = "auto", tmargin = 10, text = "Players can use it from (squares):" }
         children[#children + 1] = gui.Slider{
             width = 200,
@@ -815,6 +871,7 @@ local function OpenSetup(id, floorid, objid)
             classes = {"sizeS"},
             width = "auto",
             height = 24,
+            fontSize = 14,
             text = "Hide this object when solved",
             value = lock.hideWhenSolved == true,
             change = function(element)
@@ -854,10 +911,13 @@ local function OpenSetup(id, floorid, objid)
         body.children = children
     end
 
+    --scrolls rather than growing the window off the screen.
     body = gui.Panel{
         flow = "vertical",
-        width = "auto",
+        width = "100%",
         height = "auto",
+        maxHeight = 820,
+        vscroll = true,
     }
 
     window = gui.Panel{
@@ -922,6 +982,18 @@ local function OpenSetup(id, floorid, objid)
     gui.ShowDialog(mod, window)
     g_setupWindows[lockKey] = window
     Rebuild()
+end
+
+Puzzle.OpenLockSetup = OpenSetup
+
+--Close a lock's setup window if it is open (an Undo took the lock away).
+---@param floorid string
+---@param objid string
+function Puzzle.CloseLockSetup(floorid, objid)
+    local window = g_setupWindows[LockKey(floorid, objid)]
+    if window ~= nil and window.valid then
+        window:DestroySelf()
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -1124,12 +1196,40 @@ local function DirectorHeader(floorid, objid)
     end
 end
 
+--Where a player at this lock is, for presence lines: "at the Chest".
+---@param floorid string
+---@param objid string
+---@return string|nil
+local function AtObjectText(floorid, objid)
+    local obj = game.LookupObject(floorid, objid)
+    local name = obj ~= nil and obj.valid and obj.description or nil
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+    return "at the " .. name
+end
+
+--What a puzzle's locks do on solve ("onSolve") or fail, as lines, for the
+--confirms that name them.
+---@param id string
+---@param listName "onSolve"|"onFail"
+---@return string[]
+function Puzzle.LockEffectLines(id, listName)
+    local lines = {}
+    for _, lock in pairs(Locks(id)) do
+        for _, effect in ipairs(type(lock) == "table" and lock[listName] or {}) do
+            lines[#lines + 1] = DescribeEffect(effect)
+        end
+    end
+    return lines
+end
+
 --Open a lock's puzzle with its title-bar buttons (the Director's puzzle list).
 ---@param id string
 ---@param floorid string
 ---@param objid string
 function Puzzle.OpenLockWindow(id, floorid, objid)
-    Puzzle.OpenWindow(id, { header = DirectorHeader(floorid, objid) })
+    Puzzle.OpenWindow(id, { header = DirectorHeader(floorid, objid), atLock = true, where = AtObjectText(floorid, objid) })
 end
 
 Puzzle.OpenForJoin = function(id)
@@ -1187,7 +1287,7 @@ function PuzzleLockInteractive:Interact(controller, token)
             return nil
         end
         Puzzle.IndexPuzzle(id, { kind = "lock", floorid = floorid, objid = objid })
-        Puzzle.OpenWindow(id, { header = DirectorHeader(floorid, objid) })
+        Puzzle.OpenWindow(id, { header = DirectorHeader(floorid, objid), atLock = true, where = AtObjectText(floorid, objid) })
         return nil
     end
 
@@ -1203,7 +1303,7 @@ function PuzzleLockInteractive:Interact(controller, token)
         Toast("Too far away. Move closer.")
         return nil
     end
-    Puzzle.OpenWindow(id, { header = DirectorHeader(floorid, objid) })
+    Puzzle.OpenWindow(id, { header = DirectorHeader(floorid, objid), atLock = true, where = AtObjectText(floorid, objid) })
     return nil
 end
 
@@ -1218,15 +1318,15 @@ dmhub.RegisterEventHandler("lockedDoorClicked", function(info)
         return
     end
     local controllers = {}
-    for id, entry in pairs(Puzzle.Index()) do
-        if entry.kind == "lock" and not Puzzle.Status(id).solved then
+    for id in pairs(Puzzle.Index()) do
+        if Puzzle.Exists(id) and not Puzzle.Status(id).solved then
             for _, lock in pairs(Locks(id)) do
                 for _, effect in ipairs(lock.onSolve or {}) do
                     if effect.kind == "door" and effect.floorid == info.floorid
                         and math.abs((effect.x or 0) - (info.x or 0)) <= DOOR_MATCH_TILES
                         and math.abs((effect.y or 0) - (info.y or 0)) <= DOOR_MATCH_TILES then
                         local obj = game.LookupObject(lock.floorid, lock.objid)
-                        if obj ~= nil and obj.valid and not obj.inactive then
+                        if obj ~= nil and obj.valid and not obj.inactive and PuzzlePlace.HasLock(lock.floorid, lock.objid, id) then
                             controllers[#controllers + 1] = { floorid = lock.floorid, objid = lock.objid, x = obj.x, y = obj.y, kind = "object" }
                         end
                     end

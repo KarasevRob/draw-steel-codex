@@ -16,6 +16,7 @@ local mod = dmhub.GetModLoading()
 ---@field log string|nil a line for the game log
 ---@field chat string|nil a line for the chat
 ---@field round "win"|"lose"|nil this challenge decided a round
+---@field final boolean|nil with round: it also decides the game (every gambler out of dice)
 ---@field bettor {user: string, tokenid: string}|nil who the stake belongs to (the champion)
 
 ---@class ChanceTurnsView
@@ -33,14 +34,17 @@ local mod = dmhub.GetModLoading()
 ---@field id string
 ---@field name string
 ---@field flow "turns"
+---@field howToPlay? string|fun(config: table): string the puzzle frame's "?" text (PuzzleTypeDef.howToPlay)
 ---@field presets table<string, table> preset id -> setup values
 ---@field presetOptions {id: string, text: string}[] the setup's first choice
 ---@field fields? PuzzleField[] the game's own setup, shown under Customize
----@field startLabel string the button that starts a challenge
+---@field startLabel fun(g: table): string the button that starts a challenge
+---@field CanStart? fun(g: table, eff: table, req: table, userid: string): boolean may this request start a challenge?
 ---@field NewGame fun(eff: table, random: (fun(k: integer): integer)): table public data for a new game
----@field Start fun(g: table, eff: table, random: (fun(k: integer): integer), secret: table, events: ChanceTurnsEvent[]) begin a challenge
----@field Move fun(g: table, eff: table, secret: table, req: table, userid: string, random: (fun(k: integer): integer), events: ChanceTurnsEvent[]): boolean apply a player's move; true if anything changed
----@field HostStep fun(g: table, eff: table, secret: table, now: number, random: (fun(k: integer): integer), events: ChanceTurnsEvent[]): boolean run turns that are due; true if anything changed
+---@field Start fun(g: table, eff: table, random: (fun(k: integer): integer), secret: table, events: ChanceTurnsEvent[], req: table, userid: string) begin a challenge
+---@field Move fun(g: table, eff: table, secret: table, req: table, userid: string, random: (fun(k: integer): integer), events: ChanceTurnsEvent[], phase: string): boolean apply a player's move (any phase but "over"); true if anything changed
+---@field HostStep fun(g: table, eff: table, secret: table, now: number, random: (fun(k: integer): integer), events: ChanceTurnsEvent[], pace: number): boolean run turns that are due; pace scales NPC timing (2 = twice as slow, below 1 = quicker); true if anything changed
+---@field EndNow? fun(g: table, secret: table) the Director ended the game mid-challenge: lift the cups
 ---@field Status fun(g: table, eff: table, phase: string, viewer: string): string the step line
 ---@field Board fun(): Panel built once; receives the "chanceTurns" event with a ChanceTurnsView
 
@@ -168,6 +172,32 @@ end
 -- The host
 --------------------------------------------------------------------------------
 
+--NPC turns run at the slowest present player's pace; quicker only when every player
+--there chose not to watch.
+local MAX_PACE = 3
+
+---@param id string
+---@param state table
+---@return number
+local function Pace(id, state)
+    local views = state.views or {}
+    local slowest = nil
+    for _, userid in ipairs(Puzzle.PresentUsers(id)) do
+        local factor = tonumber(views[userid])
+        if factor == nil then
+            factor = 1
+        end
+        slowest = math.max(slowest or 0, factor)
+    end
+    if slowest == nil then
+        return 1
+    end
+    if slowest <= 0 then
+        return 0.25
+    end
+    return math.min(MAX_PACE, slowest)
+end
+
 --Apply what a game step reported: log and chat lines, and a decided round.
 ---@param state table
 ---@param eff table
@@ -183,6 +213,14 @@ local function ApplyEvents(state, eff, events, effects)
         end
         if e.round ~= nil and state.phase == "playing" then
             state.round = (state.round or 0) + 1
+            if e.final then
+                --this round settles the game whatever the count.
+                if e.round == "win" then
+                    state.wins = math.max(state.wins or 0, eff.wins - 1)
+                else
+                    state.losses = math.max(state.losses or 0, eff.losses - 1)
+                end
+            end
             S.FinishRound(state, eff, e.round, e.bettor, effects)
         end
     end
@@ -212,13 +250,22 @@ local function HostTick(game, id)
                 return true
             end
             if kind == "start" then
-                if state.phase == "ready" or state.phase == "revealed" then
+                if (state.phase == "ready" or state.phase == "revealed")
+                    and (game.CanStart == nil or game.CanStart(state.g, eff, req, userid)) then
                     state.phase = "playing"
-                    game.Start(state.g, eff, random, secret, events)
+                    game.Start(state.g, eff, random, secret, events, req, userid)
                     changed = true
                 end
             elseif kind == "move" then
-                if state.phase == "playing" and game.Move(state.g, eff, secret, req, userid, random, events) then
+                if state.phase ~= "over" and game.Move(state.g, eff, secret, req, userid, random, events, state.phase) then
+                    changed = true
+                end
+            elseif kind == "view" then
+                --how slowly this player watches (shell #43): 0 = doesn't watch, 2 = slowly.
+                state.views = state.views or {}
+                local factor = math.max(0, math.min(MAX_PACE, tonumber(req.factor) or 1))
+                if state.views[userid] ~= factor then
+                    state.views[userid] = factor
                     changed = true
                 end
             elseif kind == "playagain" then
@@ -250,7 +297,7 @@ local function HostTick(game, id)
         end
         if state.phase == "playing" then
             local events = {}
-            if game.HostStep(state.g, eff, secret, dmhub.serverTime, random, events) then
+            if game.HostStep(state.g, eff, secret, dmhub.serverTime, random, events, Pace(id, state)) then
                 changed = true
             end
             if #events > 0 then
@@ -284,6 +331,7 @@ end
 ---@return Panel
 local function Render(game, ctx)
     local m_ctx = ctx
+    local m_viewSent = nil ---@type string|nil
     local resultPanel
     local board
     local stepLabel
@@ -322,6 +370,14 @@ local function Render(game, ctx)
         local eff = Eff(game, m_ctx.config or {})
         local phase = state.phase or "ready"
         local readonly = m_ctx.readonly == true
+        --tell the host how this player watches, once per change: what this window last
+        --sent, not the saved state, so the write this causes can't send it again.
+        local factor = S.skipSetting:Get() == true and 0 or (S.slowSetting:Get() == true and 2 or 1)
+        local viewKey = string.format("%s:%s", tostring(state.game), tostring(factor))
+        if not readonly and phase ~= "over" and m_viewSent ~= viewKey and (state.views or {})[dmhub.userid] ~= factor then
+            m_viewSent = viewKey
+            Request({ kind = "view", factor = factor })
+        end
         board:FireEventTree("chanceTurns", {
             g = state.g or {},
             phase = phase,
@@ -344,6 +400,8 @@ local function Render(game, ctx)
         elseif phase == "over" then
             if state.result == "won" then
                 step = "The party won the game."
+            elseif state.result == "ended" then
+                step = "The Director ended the game."
             else
                 step = cond(eff.onLoss == "again", "The party lost. Another game is on offer.", "The party lost the game.")
             end
@@ -359,6 +417,7 @@ local function Render(game, ctx)
         logLabel.text = LogTail(state.log, 8)
         logLabel:SetClass("collapsed", logLabel.text == "")
 
+        startButton.text = game.startLabel(state.g or {})
         startButton:SetClass("collapsed", readonly or not (phase == "ready" or phase == "revealed"))
         againButton:SetClass("collapsed", readonly or not (phase == "over" and state.result ~= "won" and eff.onLoss == "again"))
     end
@@ -382,7 +441,10 @@ local function Render(game, ctx)
     stepLabel = gui.Label{ classes = {"sizeM", "bold"}, width = 700, height = "auto", halign = "left", tmargin = 4, text = "" }
     scoreLabel = gui.Label{ classes = {"sizeS"}, width = 700, height = "auto", halign = "left", text = "" }
     logLabel = gui.Label{ classes = {"sizeS", "collapsed"}, width = 700, height = "auto", halign = "left", tmargin = 4, text = "" }
-    startButton = Button(game.startLabel, function() Request({ kind = "start" }) end)
+    startButton = Button("", function()
+        local tok = Puzzle.MyHero()
+        Request({ kind = "start", tokenid = tok ~= nil and tok.charid or nil })
+    end)
     againButton = Button("Play again", function() Request({ kind = "playagain" }) end)
 
     resultPanel = gui.Panel{
@@ -449,14 +511,48 @@ end
 -- Registration
 --------------------------------------------------------------------------------
 
+---@type table<string, ChanceTurnsGameDef>
+local g_turnsGames = {}
+
+--The Director solved or bypassed a game mid-challenge: lift the cups, log it, move no
+--stake (C16). Runs on the host.
+Puzzle.RegisterOutcomeHandler("gameofchanceturns", {
+    apply = function(id, outcome, status)
+        local typeid = Puzzle.GetTypeId(id)
+        local game = typeid ~= nil and g_turnsGames[typeid] or nil
+        if game == nil then
+            return
+        end
+        local state = Puzzle.ReadState(id)
+        if state == nil or state.phase ~= "playing" then
+            return
+        end
+        local secret = GameOfChanceTurns.ReadSecret(id)
+        Puzzle.Change(id, function(st)
+            if st.phase ~= "playing" then
+                return false
+            end
+            if game.EndNow ~= nil then
+                game.EndNow(st.g, secret)
+            end
+            st.phase = "over"
+            st.result = "ended"
+            S.AppendLog(st, "The Director ends the game.")
+        end, "Game of chance ended")
+    end,
+    undo = function(id, status) end,
+})
+
 --Called by GameOfChance.Register for a game with flow = "turns".
 ---@param game ChanceTurnsGameDef
 function GameOfChanceTurns.Register(game)
+    g_turnsGames[game.id] = game
     PuzzleType.Register{
         id = game.id,
         name = game.name,
         fields = Fields(game),
         noTimeLimit = true,
+        howToPlay = game.howToPlay,
         NewState = function(config, ctx)
             return NewState(game, Eff(game, config))
         end,
