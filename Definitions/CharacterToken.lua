@@ -119,6 +119,7 @@
 --- @field floorIndex number
 --- @field initiativeStatus InitiativeStatus (Read-only) the initiative status of the token.
 --- @field countFloorsWithVisionAbove number The number of floors above this token that the token can 'look up' at. Generally this requires there being a hole directly above the token.
+--- @field coveredOverhead boolean (Read-only) True if something is overhead between this token and the sky: the ground of a floor above any square it occupies (a roof's art or an upper storey; canopies don't count), or else its floor's ceiling setting or being underground. Per square, so a token in a courtyard beside a roofed building is not covered.
 --- @field countFloorsAbove number The number of floors above this token, regardless of whether there are holes above them.
 CharacterToken = {}
 
@@ -390,7 +391,7 @@ function CharacterToken:GetLineOfSightToSpace(loc, pierceSurfacesArg) end
 --- @return {cover: number, obstructionDist: number}
 function CharacterToken:GetLineOfSightToSpaceInfo(loc, pierceSurfacesArg) end
 
---- The distance in native units to a loc, path, or another token.
+--- The distance in native units to a loc, path, or another token. nil when either token no longer has a map token (deleted, or not built yet).
 --- @param otherTokenOrLoc CharacterToken|LuaPath|Loc
 --- @return number
 function CharacterToken:Distance(otherTokenOrLoc) end
