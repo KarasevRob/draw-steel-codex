@@ -1195,6 +1195,9 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                         standardAbility = self.standardAbility,
                         standardAbilityParams = self:try_get("standardAbilityParams"),
                         targeting = self.targeting,
+                        --Formula targeting needs the formula on the other machine too
+                        --(Grabbed's Escape Grab free strike: "Target = Invoker", N5).
+                        targetingFormula = self:try_get("targetingFormula", ""),
                         invokerid = invokeSource.id,
                         casterid = cond(self.invokeOnCaster, casterToken.id, target.token.charid),
                         targetid = target.token.charid,
@@ -1882,7 +1885,12 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
             local monsterAI = rawget(_G, "MonsterAI")
             local fallback = monsterAI ~= nil and rawget(monsterAI, "PromptCallbackForCreature") or nil
             if fallback ~= nil then
-                aiPromptCallback = fallback(invokerToken) or false
+                --A hero's ability can make a monster act: To the Death! has its
+                --target free strike the hero. The monster is then the caster, and
+                --its choice is the AI's, not the hero's player's (SASGFH6V).
+                aiPromptCallback = fallback(invokerToken)
+                    or (casterToken ~= nil and casterToken ~= invokerToken and fallback(casterToken))
+                    or false
             end
         end
         print("AI:: PUSH:: IN INVOKE token", creature.GetTokenDescription(invokerToken), "targeting =", targeting, "ai", creature.IsTokenAIControlled(invokerToken.charid), "promptCallback =", aiPromptCallback, "for", abilityClone.name, coroutine.running())
@@ -1974,7 +1982,9 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
             elseif targeting == "formula" then
                 targets = {}
                 local allTokens = dmhub.allTokens
-                local formulaSymbols = table.shallow_copy(options.symbols)
+                --A remote invocation (AbilityInvocation:Invoke) has no parent cast, so
+                --no options.symbols: use the symbols it carried instead (N5).
+                local formulaSymbols = table.shallow_copy(options.symbols or symbols or {})
                 formulaSymbols.invoker = invokerToken.properties
                 formulaSymbols.caster = casterToken.properties
                 formulaSymbols.parenttarget = symbols.parenttarget
@@ -3004,8 +3014,9 @@ function AbilityInvocation:Invoke()
     }
 	--ExecuteInvoke returns once the cast finishes or the player cancels it; a
 	--cancel never reaches the OnFinishCast above. An error must release the AI
-	--too: it waits on an end-turn save with no timer (EMHPEMCY). pcall yields.
-	local ok, err = pcall(ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke,
+	--too: it waits on an end-turn save with no timer (EMHPEMCY). xpcall yields,
+	--and debug.traceback keeps where it failed in the rethrown message.
+	local ok, err = xpcall(ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke, debug.traceback,
 		invokerToken, abilityClone, casterToken, self.targeting, self.symbols, options)
 	CompleteAIReaction()
 	if not ok then

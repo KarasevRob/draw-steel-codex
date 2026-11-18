@@ -32,6 +32,11 @@ creature.minion = false
 
 creature.minionDead = false
 
+--The damage type of the blow that killed this creature ("" until it dies).
+--Persisted, unlike _tmp_lastdamagetype, so Encounter of the Week can tell a
+--Revenant burned to death after its token was despawned.
+creature.killingDamageType = ""
+
 creature.initiativeGrouping = false
 
 creature.skipTurnInitiativeId = ""
@@ -1114,9 +1119,7 @@ function monster.OnCreateFromBestiary(self, token, groupid)
                 assignToSquad = true
                 minionName = monsterInfo.properties.monster_type
 
-                if quantity >= 8 and (group.squadSize or 4) < quantity then
-                    numSquads = math.ceil(quantity / (group.squadSize or 4))
-                end
+                numSquads = Encounter.MinionSquadCount(quantity, group.squadSize)
                 break
             end
         end
@@ -1504,12 +1507,42 @@ function creature:Moved(path)
     --self:TryClaimTurn()
 end
 
+--Above zero while ActivatedAbility:ConsumeResources pays for a triggered or
+--invoked cast. Such a cast reacts to something else (Metakinetic Mastery's
+--Knockback after Inertial Shield, N3/6BP3KFZ6), so its Action or Maneuver
+--must not start the hero's turn.
+local g_payingForReactionCast = 0
+
+--- @param ability ActivatedAbility
+--- @param options table|nil
+--- @return boolean
+local function IsTriggeredOrInvokedCast(ability, options)
+    if ability.typeName == "TriggeredAbility" or ability:try_get("invoker") ~= nil then
+        return true
+    end
+    local symbols = options ~= nil and options.symbols or nil
+    return type(symbols) == "table" and rawget(symbols, "invoker") ~= nil
+end
+
+local g_baseConsumeResources = ActivatedAbility.ConsumeResources
+function ActivatedAbility:ConsumeResources(casterToken, options)
+    if mod.unloaded or not IsTriggeredOrInvokedCast(self, options) then
+        return g_baseConsumeResources(self, casterToken, options)
+    end
+    g_payingForReactionCast = g_payingForReactionCast + 1
+    local ok, err = xpcall(g_baseConsumeResources, debug.traceback, self, casterToken, options)
+    g_payingForReactionCast = g_payingForReactionCast - 1
+    if not ok then
+        error(err, 0)
+    end
+end
+
 --when using an action or a maneuver we also are claiming the turn if
 local g_baseConsumeResource = creature.ConsumeResource
 function creature:ConsumeResource(key, refreshType, quantity, note)
     g_baseConsumeResource(self, key, refreshType, quantity, note)
 
-    if mod.unloaded then
+    if mod.unloaded or g_payingForReactionCast > 0 then
         return
     end
 
@@ -5267,7 +5300,17 @@ local g_pendingQueuedRoll = {}
 --entries for the roll dialog's modifier list, in the same shape
 --GetModifiersForPowerRoll returns ({ modifier, hint, context }). The
 --journal uses it for a power roll's rider chips (TestRiders).
+--onComplete(tier, naturalRoll) is called when the roll lands; onCancel when
+--it is cancelled or never shown (puzzle tests use both).
+---@param options {modifiers: table[]|nil, onComplete: fun(tier: integer, natural: number|nil)|nil, onCancel: fun()|nil}|nil
 function creature:RollCustomPowerTableTest(title, characteristics, skills, tiers, options)
+    local onComplete = options ~= nil and options.onComplete or nil
+    local onCancel = options ~= nil and options.onCancel or nil
+    local function Cancelled()
+        if onCancel ~= nil then
+            pcall(onCancel)
+        end
+    end
     local attrid = nil
     local bestModifier = nil
     for id, _ in pairs(characteristics) do
@@ -5283,6 +5326,7 @@ function creature:RollCustomPowerTableTest(title, characteristics, skills, tiers
 
     if attrid == nil then
         printf("RollCustomPowerTableTest: no matching characteristic for '%s'", title)
+        Cancelled()
         return
     end
 
@@ -5325,13 +5369,14 @@ function creature:RollCustomPowerTableTest(title, characteristics, skills, tiers
         modifiers[#modifiers + 1] = extra
     end
 
-    --Respect the global roll gate. This drives the singleton rollDialog
-    --directly, which only serializes against itself, so without this it would
-    --pop on top of an in-flight embedded/standalone roll (e.g. a start-of-turn
-    --damage or prayer roll). We cannot yield in this synchronous UI handler, so
-    --wait for every surface to clear inside a coroutine before showing. The
-    --pending registry stops repeated link clicks from stacking waiters.
+    --Respect the global roll gate: showing the card displaces whatever roll is
+    --embedded in the sidebar, so without this it would destroy an in-flight
+    --roll (e.g. a start-of-turn damage or prayer roll). We cannot yield in this
+    --synchronous UI handler, so wait for every surface to clear inside a
+    --coroutine before showing. The pending registry stops repeated link clicks
+    --from stacking waiters.
     if g_pendingQueuedRoll[self] then
+        Cancelled()
         return
     end
     g_pendingQueuedRoll[self] = true
@@ -5352,38 +5397,115 @@ function creature:RollCustomPowerTableTest(title, characteristics, skills, tiers
         --roll still up (showing now would overlap). The click is dropped and the
         --user can retry; nothing stays queued.
         if mod.unloaded or CharacterPanel.AnyRollDialogShown() then
+            Cancelled()
             return
         end
 
-        GameHud.instance.rollDialog.data.ShowDialog {
-            title = title,
-            description = title,
-            creature = self,
+        --Shown as ShowCharacteristicRollDialog shows a test: a synthetic test
+        --ability in the sidebar with the roll dialog embedded in its card, and
+        --the roller as the single target so post-roll edges/banes refresh the tier.
+        local syntheticAbility = ActivatedAbility.Create{ isTest = true, name = title }
+        local token = dmhub.LookupToken(self)
+        local multitargets = nil
+        local displaying = false
+        if token ~= nil then
+            multitargets = {
+                {
+                    token = token,
+                    boons = 0,
+                    banes = 0,
+                    modifiers = modifiers,
+                    triggers = {},
+                },
+            }
+            CharacterPanel.ForceUnlockDisplayAbility()
+            displaying = CharacterPanel.DisplayAbility(token, syntheticAbility, nil, {lock = true, renderAsAbility = true})
+        end
 
-            type = rollType,
-            roll = roll,
-            modifiers = modifiers,
+        local function HideCard()
+            if displaying then
+                CharacterPanel.HideAbility(syntheticAbility)
+            end
+        end
 
-            rollProperties = rollProperties,
-            PopulateCustom = ActivatedAbilityPowerRollBehavior.GetPowerTablePopulateCustom(rollProperties),
+        local function ShowRollDialog(dialog)
+            if dialog == nil or not dialog.valid then
+                dialog = GameHud.instance.rollDialog
+            end
+            if not dialog.valid then
+                HideCard()
+                Cancelled()
+                return
+            end
 
-            completeRoll = function(rollInfo)
-            end,
+            local settled = false
+            dialog.data.ShowDialog {
+                title = title,
+                description = title,
+                creature = self,
+                ability = syntheticAbility,
 
-            cancelRoll = function()
-            end,
-        }
+                type = rollType,
+                roll = roll,
+                modifiers = modifiers,
+                multitargets = multitargets,
+                targetCreature = cond(multitargets ~= nil, self, nil),
+                showDialogDuringRoll = true,
+                amendable = true,
+                --once the dice are thrown the result stands: no close (X) or
+                --ESC back to the options, where a failed test could be retried.
+                noCancelOnceThrown = true,
+
+                rollProperties = rollProperties,
+                PopulateCustom = ActivatedAbilityPowerRollBehavior.GetPowerTablePopulateCustom(rollProperties),
+
+                completeRoll = function(rollInfo)
+                    settled = true
+                    HideCard()
+                    if onComplete ~= nil then
+                        local tier = 1
+                        pcall(function() tier = RollUtils.DiceResultToTier(rollInfo) end)
+                        pcall(onComplete, tier, rollInfo.naturalRoll)
+                    end
+                end,
+
+                cancelRoll = function()
+                    if settled then
+                        return
+                    end
+                    settled = true
+                    HideCard()
+                    Cancelled()
+                end,
+            }
+        end
+
+        local embeddedDialog = CharacterPanel.EmbedDialogInAbility()
+        if embeddedDialog ~= nil then
+            dmhub.Schedule(0.05, function()
+                if mod.unloaded then
+                    HideCard()
+                    Cancelled()
+                    return
+                end
+                ShowRollDialog(embeddedDialog)
+            end)
+        else
+            ShowRollDialog(nil)
+        end
     end)
 end
 
 --options (optional): onComplete(tier) is called with 1-3 when the roll lands,
---for callers that act on the result (a puzzle lock's bypass test).
+--for callers that act on the result (a puzzle lock's bypass test). autoroll
+--throws the dice as soon as the card is up (a quick roll).
 ---@param attrid string
----@param options {onComplete: fun(tier: integer)|nil}|nil
+---@param options {onComplete: fun(tier: integer)|nil, autoroll: boolean|nil}|nil
 function creature:ShowCharacteristicRollDialog(attrid, options)
     local attrInfo = creature.attributesInfo[attrid]
     local title = string.format("%s Test", attrInfo.description)
     local onComplete = options ~= nil and options.onComplete or nil
+    local autoroll = options ~= nil and options.autoroll == true or nil
 
     local rollProperties = RollPropertiesPowerTable.new {
         tiers = {
@@ -5426,6 +5548,7 @@ function creature:ShowCharacteristicRollDialog(attrid, options)
             targetCreature = cond(multitargets ~= nil, self, nil),
             showDialogDuringRoll = true,
             amendable = true,
+            autoroll = autoroll,
 
             rollProperties = rollProperties,
             PopulateCustom = ActivatedAbilityPowerRollBehavior.GetPowerTablePopulateCustom(rollProperties),
@@ -7020,6 +7143,7 @@ function creature.TakeDamage(self, amount, note, info)
         end
 
         if self:IsDead() then
+            self.killingDamageType = string.lower(tostring(eventArg.damagetype or "untyped"))
             self:RemoveAurasOnDeath()
 
             if self:IsDead() then
@@ -7243,6 +7367,8 @@ function creature.SetStaminaDirect(self, amount, note)
     end
 
     if (not isDeadAtStart) and isDeadNow then
+        --set directly, not by a blow: never fire.
+        self.killingDamageType = "untyped"
         self:RemoveAurasOnDeath()
         if self:IsDead() then
             self:ResetDeathSavingThrowStatus()
