@@ -83,8 +83,12 @@ local TABLE_SURFACES = {
 --table, not locals: this file is at Lua's 200-local limit.
 TABLE_SURFACES.owned = {}
 TABLE_SURFACES.Offered = function(surface)
+    --unpublished in the Table Studio (Who Gets It: Nobody): only admins still see it.
+    if surface.unpublished then
+        return dmhub.isAdminAccount and not TABLE_SURFACES.ViewingAsPlayer()
+    end
     local assetid = surface.dice
-    if assetid == nil or TABLE_SURFACES.owned[assetid] or dmhub.isAdminAccount then
+    if assetid == nil or TABLE_SURFACES.owned[assetid] or (dmhub.isAdminAccount and not TABLE_SURFACES.ViewingAsPlayer()) then
         return true
     end
     local now = dmhub.Time()
@@ -99,6 +103,79 @@ TABLE_SURFACES.Offered = function(surface)
     end
     return TABLE_SURFACES.owned[assetid] == true
 end
+
+--The Table Studio's View as Player switch: an admin sees the menus a player would.
+TABLE_SURFACES.ViewingAsPlayer = function()
+    local studio = rawget(_G, "tablestudio")
+    if studio == nil then
+        return false
+    end
+    local ok, value = pcall(function() return studio.viewAsPlayer end)
+    return ok and value == true
+end
+
+--The surfaces to offer, in menu order: each built-in, or its live Table Studio version (its menu
+--name and who gets it) if it has one, then the live tables made in the studio. Leather is
+--everyone's fallback, so it is never locked or unpublished. Rebuilt at most every two seconds:
+--SyncSurface asks every frame. Entries are {id, text, dice, position, unpublished}.
+TABLE_SURFACES.List = function()
+    local now = dmhub.Time()
+    if TABLE_SURFACES.listed ~= nil and now - TABLE_SURFACES.listedAt < 2 then
+        return TABLE_SURFACES.listed
+    end
+
+    local byBuiltin = {}
+    local extra = {}
+    local ok, tables = pcall(function() return dmhub.GetLiveTables() end)
+    if ok and type(tables) == "table" then
+        for _, live in ipairs(tables) do
+            if live.builtin ~= nil then
+                byBuiltin[live.builtin] = live
+            else
+                extra[#extra+1] = live
+            end
+        end
+    end
+
+    local result = {}
+    for i, surface in ipairs(TABLE_SURFACES) do
+        local live = byBuiltin[surface.id]
+        local entry = {id = surface.id, text = surface.text, dice = surface.dice, position = i}
+        if live ~= nil then
+            entry.text = live.name or surface.text
+            entry.dice = (live.access == "dice") and live.dice or nil
+            entry.position = live.position or i
+            entry.unpublished = live.access == "nobody"
+        end
+        if surface.id == "leather" then
+            entry.dice = nil
+            entry.unpublished = nil
+        end
+        result[#result+1] = entry
+    end
+    for _, live in ipairs(extra) do
+        result[#result+1] = {
+            id = live.id,
+            text = live.name,
+            dice = (live.access == "dice") and live.dice or nil,
+            position = live.position or 10,
+            unpublished = live.access == "nobody",
+        }
+    end
+    table.sort(result, function(a, b)
+        if a.position ~= b.position then
+            return a.position < b.position
+        end
+        return a.text < b.text
+    end)
+
+    TABLE_SURFACES.listed = result
+    TABLE_SURFACES.listedAt = now
+    return result
+end
+
+--The built-in surfaces, for the Table Studio (which shows who gets each).
+Tabletop.surfaces = TABLE_SURFACES
 
 local g_surfaceImageSetting = setting{
     id = "tabletop:surfaceimage",
@@ -129,7 +206,7 @@ local g_surfaceSetting = setting{
                 end
             end
         end
-        Add(TABLE_SURFACES)
+        Add(TABLE_SURFACES.List())
         if dmhub.GetSettingValue("tabletop:surfaceimage") ~= "" then
             result[#result+1] = {value = "custom", text = "Table Image"}
         end
@@ -6662,6 +6739,21 @@ local function BuildCard(card)
                 ShowCardMenu(element)
             end
         end,
+        --a hero card turned to its back grows over its titlebar, grips and
+        --sheet buttons, which sit on the card's resting size and would take
+        --the clicks meant for the back's tabs (HeroCardBack). The back has its
+        --own Full sheet link.
+        heroCardTurned = function(element, turned)
+            titlebar:SetClass("collapsed", turned)
+            for _, grip in ipairs(card.grips or {}) do
+                grip:SetClass("collapsed", turned)
+            end
+            for _, button in ipairs({card.sheetButton, card.heroSheetButton}) do
+                if button ~= nil and button.valid then
+                    button:SetClass("collapsed", turned)
+                end
+            end
+        end,
         beginDrag = function(element)
             g_cs.BeginCardGroup(card)
             if dmhub.isDM then
@@ -12387,23 +12479,26 @@ dmhub.RegisterEventHandler("ChangeCurrentFloor", function()
 end)
 
 --Keeps the engine's table surface in step with this user's choice. A
---surface no longer offered (Wood and Slate were removed) is changed to the
---default once, so the settings dropdown and the menu show what is drawn. One
---whose dice set this account doesn't own draws as leather but stays chosen:
---the inventory may just not have loaded yet.
+--retired surface (Wood and Slate were removed) is changed to the default
+--once, so the settings dropdown and the menu show what is drawn. Any other
+--surface this copy doesn't know (a Table Studio table it can't draw) draws as
+--leather but stays chosen, as does one whose dice set this account doesn't
+--own: the inventory may just not have loaded yet.
 SyncSurface = function()
     local surface = g_surfaceSetting:Get()
     if surface ~= "custom" then
         local known = nil
-        for _, entry in ipairs(TABLE_SURFACES) do
+        for _, entry in ipairs(TABLE_SURFACES.List()) do
             if entry.id == surface then
                 known = entry
                 break
             end
         end
         if known == nil then
+            if surface == "wood" or surface == "slate" then
+                g_surfaceSetting:Set("leather")
+            end
             surface = "leather"
-            g_surfaceSetting:Set(surface)
         elseif not TABLE_SURFACES.Offered(known) then
             surface = "leather"
         end
@@ -12875,7 +12970,7 @@ local function ShowTableMenu()
         disabled = #characterEntries == 0,
     }
 
-    --Background: the built-in surfaces. Only the current one carries a check
+    --Background: the surfaces (TABLE_SURFACES.List). Only the current one carries a check
     --(check = false would draw an empty box on every other row).
     local current = g_surfaceSetting:Get()
     local surfaceEntries = {}
@@ -12892,7 +12987,7 @@ local function ShowTableMenu()
             end
         end
     end
-    AddSurfaces(TABLE_SURFACES)
+    AddSurfaces(TABLE_SURFACES.List())
     entries[#entries+1] = {
         text = "Background",
         submenu = surfaceEntries,
