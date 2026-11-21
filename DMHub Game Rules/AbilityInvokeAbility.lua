@@ -1498,6 +1498,12 @@ function ActivatedAbilityInvokeAbilityBehavior:Cast(ability, casterToken, target
                                 adjustments[#adjustments+1] = string.format("Stability: -%d", stability)
                             end
 
+                            --Nothing else matters once the target can't be moved, so this replaces the other notes.
+                            if target.token.properties:CannotBeForceMoved() then
+                                adjustedRange = 0
+                                adjustments = {"Immune to Forced Movement"}
+                            end
+
                             abilityClone.range = adjustedRange * dmhub.unitsPerSquare
                             local description = string.format("You may %s the target %d square%s", baseMoveType, adjustedRange, adjustedRange > 1 and "s" or "")
                             --A constrained pull names its anchor ("toward the nearest enemy within 3 squares") and keeps the real distance.
@@ -2052,12 +2058,16 @@ function ActivatedAbilityInvokeAbilityBehavior.ExecuteInvoke(invokerToken, abili
                 --almost always free custom abilities); callers that invoke a REAL costed ability
                 --stamp _tmp_payInvokedCost so its own resource cost is actually charged.
                 --The selected area is cast state and must survive this invoke boundary.
+                --invokeMarkLineOfSight: targeting arrows the invoker drew (the Monster
+                --AI), handed to the cast so its roll dialog can badge them. Not
+                --markLineOfSight, which nested invokes inherit from their parent cast.
                 local castOptions = {
                     symbols = symbols,
                     targetArea = options.targetArea,
                     targetAreaList = options.targetAreaList,
                     pay = abilityClone:try_get("_tmp_payInvokedCost", false),
                     OnFinishCastHandlers = { finishHandler },
+                    markLineOfSight = options.invokeMarkLineOfSight,
                 }
                 abilityClone:Cast(casterToken, targets, castOptions)
             end
@@ -3014,6 +3024,12 @@ function AbilityInvocation:Invoke()
 
 		if stability > 0 then
 			adjustments[#adjustments+1] = string.format("Stability: -%d", stability)
+		end
+
+		--Nothing else matters once the target can't be moved, so this replaces the other notes.
+		if targetToken.properties:CannotBeForceMoved() then
+			adjustedRange = 0
+			adjustments = {"Immune to Forced Movement"}
 		end
 
 		abilityClone.range = adjustedRange * dmhub.unitsPerSquare

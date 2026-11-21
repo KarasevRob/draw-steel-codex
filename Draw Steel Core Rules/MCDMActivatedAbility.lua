@@ -1,5 +1,13 @@
 local mod = dmhub.GetModLoading()
 
+--Player-facing ability card text lives in UIText so it can be reworded without code changes.
+local g_text = UIText.Define("MCDMActivatedAbility")
+g_text("ability.oppositeSquareOccupied", [[The opposite adjacent square is occupied, so you cannot push the target.]])
+
+--Set in the ability's data (there is no editor field). When true, the ability card warns
+--if another creature stands in the square on the far side of the caster from a target.
+ActivatedAbility.warnOppositeSquareOccupied = false
+
 --effectImplemented is deprecated. Use the 'implementation' field instead.
 --kept as a default so old serialized data doesn't error on access.
 ActivatedAbility.effectImplemented = true
@@ -2156,6 +2164,7 @@ function ActivatedAbility:Render(options, params)
 
     --if we have a specific token and there is an aura associated with this ability, add some information about the aura.
     local tokenDependentInfoPanel = nil
+    local oppositeWarningPanel = nil
     if params.token ~= nil and params.token.properties ~= nil then
         local tokenDependentChildren = {}
 
@@ -2254,6 +2263,37 @@ function ActivatedAbility:Render(options, params)
             end
         end
 
+        --Abilities flagged warnOppositeSquareOccupied (Phase Inversion Strike) warn when the
+        --square opposite the caster is taken, since the target then can't be teleported or
+        --pushed. Kept out of tokenDependentInfoPanel because that collapses in the roll dialog.
+        if self.warnOppositeSquareOccupied then
+            local cast = params.symbols ~= nil and params.symbols.cast or nil
+            local castTargets = cast ~= nil and cast:try_get("targets") or nil
+            for _, target in ipairs(castTargets or {}) do
+                if target.token ~= nil and ActivatedAbility.OppositeSquareOccupied(params.token, target.token) then
+                    oppositeWarningPanel = gui.Panel {
+                        classes = { "bgDanger" },
+                        width = "100%-16",
+                        height = "auto",
+                        flow = "vertical",
+                        halign = "center",
+                        tmargin = 6,
+                        borderBox = true,
+                        hpad = 6,
+                        vpad = 4,
+                        gui.Label {
+                            classes = { "sizeS", "fgStrong" },
+                            width = "100%",
+                            height = "auto",
+                            textWrap = true,
+                            text = UIText.T("ability.oppositeSquareOccupied"),
+                        },
+                    }
+                    break
+                end
+            end
+        end
+
         self:RenderTokenDependent(params.token, tokenDependentChildren)
 
         if #tokenDependentChildren > 0 then
@@ -2269,6 +2309,20 @@ function ActivatedAbility:Render(options, params)
                 children = tokenDependentChildren,
             }
         end
+    end
+
+    --One panel holding the token info and the warning, so the card gets a single entry.
+    local infoAndWarningPanel = nil
+    if tokenDependentInfoPanel ~= nil or oppositeWarningPanel ~= nil then
+        local extras = {}
+        if tokenDependentInfoPanel ~= nil then extras[#extras + 1] = tokenDependentInfoPanel end
+        if oppositeWarningPanel ~= nil then extras[#extras + 1] = oppositeWarningPanel end
+        infoAndWarningPanel = gui.Panel {
+            width = "100%",
+            height = "auto",
+            flow = "vertical",
+            children = extras,
+        }
     end
 
     local description = self.description
@@ -3563,7 +3617,7 @@ function ActivatedAbility:Render(options, params)
                 },
             },
 
-            tokenDependentInfoPanel,
+            infoAndWarningPanel,
 
 
             gui.Panel {
@@ -5854,13 +5908,17 @@ local function IncludedTargetCharids(ability, casterToken, symbols, floorIndex)
         local cache = g_includedInAreaCache
         local frame = dmhub.FrameCount()
         if cache.frame ~= frame or cache.area ~= targetArea or cache.ability ~= ability or cache.caster ~= casterToken then
+            --Fill the cache entry before the loop, not after: for an ability with custom target
+            --filters the base filter calls back into TargetPassesFilter and so into this
+            --function for the same area, which would otherwise miss the cache and recurse
+            --until the stack overflows. The nested call sees the set as filled so far.
             local charids = {}
+            cache.frame, cache.area, cache.ability, cache.caster, cache.charids = frame, targetArea, ability, casterToken, charids
             for _, tok in pairs(dmhub.tokenInfo.TokensInShape(targetArea) or {}) do
                 if tok.valid and tok.properties ~= nil and g_baseTargetPassesFilter(ability, casterToken, tok, symbols) then
                     charids[tok.charid] = true
                 end
             end
-            cache.frame, cache.area, cache.ability, cache.caster, cache.charids = frame, targetArea, ability, casterToken, charids
         end
         included = cache.charids
     end
