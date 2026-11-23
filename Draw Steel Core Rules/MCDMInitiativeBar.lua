@@ -323,6 +323,7 @@ end
 --- @field round number
 --- @field guid string The combat (initiative queue) the snapshot belongs to.
 --- @field seq number dmhub.checkpointContentSeq when taken.
+--- @field t number dmhub.serverTimeMilliseconds when taken: History marks what came after it Reverted.
 TurnCheckpoint = {
 	--- @type TurnCheckpointRecord|nil
 	current = nil,
@@ -344,6 +345,7 @@ function TurnCheckpoint.Capture(q)
 		round = q.round,
 		guid = q.guid,
 		seq = dmhub.checkpointContentSeq,
+		t = dmhub.serverTimeMilliseconds,
 	}
 end
 
@@ -416,6 +418,12 @@ end
 --Restores checkpoint, telling the user when it could not be done.
 --- @param checkpoint CombatCheckpoint
 function TurnCheckpoint.Revert(checkpoint)
+	--the turn being undone, read before the restore puts the queue back between turns.
+	local queue = dmhub.initiativeQueue
+	local turn = nil
+	if queue ~= nil and not queue.hidden then
+		turn = {encounter = queue.guid, round = queue.round, turn = queue.turnNumber}
+	end
 	local err = checkpoint:Restore()
 	if err ~= nil then
 		gui.ModalMessage{
@@ -425,6 +433,11 @@ function TurnCheckpoint.Revert(checkpoint)
 		return
 	end
 	audio.DispatchSoundEvent("Notify.Director_Undo")
+	--a record of play (History) marks what the turn did Reverted, on this client only.
+	local cur = TurnCheckpoint.current
+	if cur ~= nil and cur.checkpoint == checkpoint then
+		GameSystem.NotifyPlayObservers("turnreverted", {since = cur.t, turn = turn})
+	end
 end
 
 --Turn Rewind (prototype), on by default; the hidden dev:rewind preference turns it off (/toggle dev:rewind).
@@ -450,6 +463,7 @@ local g_rewindSetting = setting{
 --- @field label string What had just happened (or was about to), e.g. "After Move"; the button's tooltip.
 --- @field checkpoint CombatCheckpoint
 --- @field seq number dmhub.checkpointContentSeq while the board matched this entry.
+--- @field t number dmhub.serverTimeMilliseconds when the checkpoint was taken.
 --- @field actions TurnRewindAction[] What happened between the previous entry and this one.
 
 TurnRewind = {
@@ -669,19 +683,23 @@ end
 --(which then already describes it).
 --- @param label string
 --- @param checkpoint CombatCheckpoint|nil a snapshot already taken of exactly this state
-local function RewindAddEntry(label, checkpoint)
+--- @param takenAt number|nil when that snapshot was taken (dmhub.serverTimeMilliseconds)
+local function RewindAddEntry(label, checkpoint, takenAt)
 	RewindTruncateForward()
 	local seq = dmhub.checkpointContentSeq
 	local cur = TurnRewind.entries[TurnRewind.position]
 	if cur ~= nil and cur.seq == seq then
 		return
 	end
-	TurnRewind.entries[#TurnRewind.entries+1] = {
+	local point = {
 		label = label,
 		checkpoint = checkpoint or backup.CreateCombatCheckpoint(),
 		seq = seq,
+		t = (checkpoint ~= nil and takenAt) or dmhub.serverTimeMilliseconds,
 		actions = TurnRewind.pendingActions,
 	}
+	TurnRewind.entries[#TurnRewind.entries+1] = point
+	GameSystem.NotifyPlayObservers("rewindpoint", point)
 	TurnRewind.pendingActions = {}
 	TurnRewind.position = #TurnRewind.entries
 end
@@ -725,12 +743,14 @@ function TurnRewind.BeforeSelectTurn(q, initiativeid)
 
 	--Revert Turn has usually just snapshotted this exact state; reuse it.
 	local reuse = nil
+	local reuseTime = nil
 	local tc = TurnCheckpoint.current
 	if tc ~= nil and tc.seq == dmhub.checkpointContentSeq and tc.guid == q.guid and tc.round == q.round and tc.turn == q.turn then
 		reuse = tc.checkpoint
+		reuseTime = tc.t
 	end
 
-	RewindAddEntry("Before the turn started", reuse)
+	RewindAddEntry("Before the turn started", reuse, reuseTime)
 	RewindNoteAction("Turn started")
 	TurnRewind.pendingAfter = "Start of turn"
 	TurnRewind.seenTime = dmhub.Time()
@@ -860,6 +880,9 @@ function TurnRewind.Poll()
 					local err = entry.checkpoint:Restore{quiet = true}
 					if err ~= nil then
 						print("TurnRewind:: cancel pass restore failed:", err)
+					else
+						--the cancelled casts' own lines came after the first report: mark them too.
+						GameSystem.NotifyPlayObservers("turnreverted", {since = entry.t, turnkey = TurnRewind.turnKey, point = entry})
 					end
 				end
 				--Rolls and actions noted while the casts unwound were cancelled with them.
@@ -1033,6 +1056,9 @@ function TurnRewind.GoTo(index)
 		print(string.format("TurnRewind:: rewinding to %d cancels %d resolving cast(s)", index, ActivatedAbility.CountActiveCasts()))
 	end
 	audio.DispatchSoundEvent("Notify.Director_Undo")
+	--a record of play (History) marks what came after this point Reverted, and clears the
+	--mark from what rolling forward brings back. One line for the whole turn's rewinds.
+	GameSystem.NotifyPlayObservers("turnreverted", {since = entry.t, turnkey = TurnRewind.turnKey, point = entry})
 	return nil
 end
 
@@ -2399,7 +2425,7 @@ local function AddInitiativeEntryPanel (element, info, playerControlled)
 		local ord = 0
 
 		local tok = list[1]
-		local text = tok.name
+		local text = creature.TokenDisplayName(tok)
 		if (text == nil or text == "") and tok.properties:GetMonsterType() ~= nil then
 			text = tok.properties:GetMonsterType()
 		end
@@ -3807,7 +3833,8 @@ end
 -- Buttons with a malice cost (button.malice > 0) show the action bar's malice
 -- cost diamond overlapping the drawer's top edge; the strip's refresh hides
 -- them entirely while the Director cannot afford the cost, and clicking spends
--- the malice (before running the command).
+-- the malice (before running the command). Buttons with `confirm` set ask
+-- Confirm / Cancel in a dialog before doing any of that.
 local function CreateEncounterActionButton(info, button)
     local function RemoveAndRefresh(element)
         local q = info.initiativeQueue
@@ -3821,6 +3848,48 @@ local function CreateEncounterActionButton(info, button)
         local strip = element:FindParentWithClass("encounterActionsStrip")
         if strip ~= nil then
             strip:FireEvent("refresh")
+        end
+    end
+
+    --Runs the button. It is looked up again here, so a confirmation answered
+    --late still runs the current version, or nothing if the button is gone.
+    local function Activate(element)
+        local q = info.initiativeQueue
+        if q == nil then return end
+        local liveEncounter = q:try_get("liveEncounter")
+        if type(liveEncounter) ~= "table" then return end
+
+        local current = liveEncounter:GetCustomButton(button.id)
+        if current == nil then return end
+
+        --re-check affordability at click time (the strip hides
+        --unaffordable malice buttons, but malice can change between
+        --refreshes).
+        local cost = tonumber(current.malice) or 0
+        if cost > 0 and not CharacterResource.CanSpendMalice(cost) then
+            return
+        end
+
+        if not current.sticky then
+            liveEncounter:RemoveCustomButton(current.id)
+            info.UploadInitiative()
+        end
+
+        if cost > 0 then
+            CharacterResource.SpendMalice(cost, current.name or "Encounter action")
+        end
+
+        if current.command ~= nil and current.command ~= "" then
+            dmhub.Execute(current.command)
+        end
+
+        --the strip may have rebuilt (and destroyed this button) while a
+        --confirmation was open.
+        if element.valid then
+            local strip = element:FindParentWithClass("encounterActionsStrip")
+            if strip ~= nil then
+                strip:FireEvent("refresh")
+            end
         end
     end
 
@@ -3901,37 +3970,30 @@ local function CreateEncounterActionButton(info, button)
             if q == nil then return end
             local liveEncounter = q:try_get("liveEncounter")
             if type(liveEncounter) ~= "table" then return end
-
-            --re-resolve the button so we execute the current version, not the
-            --one captured when the strip was last rebuilt.
             local current = liveEncounter:GetCustomButton(button.id)
             if current == nil then return end
 
-            --re-check affordability at click time (the strip hides
-            --unaffordable malice buttons, but malice can change between
-            --refreshes).
-            local cost = tonumber(current.malice) or 0
-            if cost > 0 and not CharacterResource.CanSpendMalice(cost) then
+            --Opt-in (off by default): a button with `confirm` set asks first.
+            --confirm = true asks "Are you sure?"; a string asks that instead.
+            local question = current.confirm
+            if question == true then
+                question = "Are you sure?"
+            end
+            if type(question) ~= "string" or question == "" then
+                Activate(element)
                 return
             end
-
-            if not current.sticky then
-                liveEncounter:RemoveCustomButton(current.id)
-                info.UploadInitiative()
-            end
-
-            if cost > 0 then
-                CharacterResource.SpendMalice(cost, current.name or "Encounter action")
-            end
-
-            if current.command ~= nil and current.command ~= "" then
-                dmhub.Execute(current.command)
-            end
-
-            local strip = element:FindParentWithClass("encounterActionsStrip")
-            if strip ~= nil then
-                strip:FireEvent("refresh")
-            end
+            GameHud.instance:ModalMessage{
+                title = current.name or "Encounter Action",
+                message = question,
+                owner = element,
+                width = 520,
+                height = "auto",
+                options = {
+                    { text = "Confirm", execute = function() Activate(element) end },
+                    { text = "Cancel" },
+                },
+            }
         end,
 
         rightClick = function(element)
@@ -8036,7 +8098,7 @@ function GameHud.CreateInitiativeEntry(self, info, initiativeid, options)
 				local tooltip = nil
 				if token ~= nil then
 					if token.canLocalPlayerSeeName then
-						tooltip = token.name
+						tooltip = creature.TokenDisplayName(token)
 					end
 
 					if tooltip == nil or tooltip == '' or token.properties:MinionSquad() ~= nil then

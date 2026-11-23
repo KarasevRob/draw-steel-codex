@@ -1470,7 +1470,7 @@ function TriggeredAbility:TriggerUnguarded(characterModifier, creature, symbols,
                 return
             end
         elseif subjectTarget == "enemy" then
-            if casterToken:IsFriend(subjectToken) then
+            if not IsEnemyOf(casterToken, subjectToken) then
                 if argOptions.debugLog then
                     argOptions.debugLog[#argOptions.debugLog+1] = {
                         name = self.name,
@@ -2440,6 +2440,10 @@ function TriggeredAbility:ExecuteTriggerCast(args)
 	local options = { symbols = symbols, alreadyPaid = argOptions.alreadyPaid, dismiss = isDismissExec, modContext = args.modContext }
 	local needCoroutine = self:CastInstantPortion(casterToken, targets, options)
 	if not needCoroutine then
+		--an all-instant trigger never reaches Cast or FinishCast; its observers still hear of it.
+		GameSystem.NotifyPlayObservers("began", self, casterToken, targets, options)
+		GameSystem.NotifyPlayObservers("finished", self, casterToken, options)
+
 		--A dismissed trigger never costs resources, even when On Dismiss
 		--behaviors run -- the player declined to use the reaction.
 		if not options.alreadyPaid and not isDismissExec then

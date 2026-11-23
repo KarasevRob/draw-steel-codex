@@ -3865,16 +3865,20 @@ local g_summon = {key = nil, name = "", pending = {}, repaint = nil}
 --- as on the old sheet), then restyle the Hero's live summons of that kind. An emptied
 --- look is removed: the summon is back to its stat block's.
 --- @param mutate fun(look: table)
-local function SaveSummonLook(mutate)
-    local key = g_summon.key
+--- @param lookKey? string the summon to save to, if not the one being edited
+local function SaveSummonLook(mutate, lookKey)
+    local key = lookKey or g_summon.key
     if key == nil then
         return
     end
+    --the look's name before this save, so live summons still showing it follow the change.
+    local previousName = nil
     local saved = HeroSheetWrite.Save{
         description = "Change summon appearance",
         execute = function(props)
             local all = props:get_or_add("summonAppearances", {})
             local look = all[key] or {}
+            previousName = look.name
             mutate(look)
             if next(look) == nil then
                 look = nil
@@ -3886,7 +3890,7 @@ local function SaveSummonLook(mutate)
     }
     local token = Token()
     if saved and token ~= nil then
-        ActivatedAbilitySummonBehavior.RestyleLiveSummons(token, key)
+        ActivatedAbilitySummonBehavior.RestyleLiveSummons(token, key, previousName)
     end
     HeroSheetRefresh.Changed()
 end
@@ -6700,8 +6704,9 @@ function AnthemMGS.ConnectWindow()
 end
 
 --- How to get a Michael Ghelfi Studios track you can only listen to: what includes it
---- (a Patreon tier or an album) with a button to their page, and Connect for someone
---- who has it already but has not connected their account here.
+--- (a Patreon tier or an album). Like a locked map pack, the account is linked first:
+--- until it is connected the only action is Connect account; after that it is the
+--- button to their Patreon or album page.
 --- @param track MGSTrack
 function AnthemMGS.AccessWindow(track)
     local frame
@@ -6721,20 +6726,24 @@ function AnthemMGS.AccessWindow(track)
     local connected = MGSAudio.IsConnected()
     local after = cond(connected,
         "Once your account includes it, it is ready to use here.",
-        "Already have it? Connect your account to use it here.")
-    local footerLeft = nil
-    if not connected then
-        local connect = SmallButton{
-            text = "Connect account",
-            click = function()
-                HeroSheetWindow.ClosePopup(frame)
-                AnthemMGS.ConnectWindow()
-            end,
-        }
-        connect.selfStyle.valign = "center"
-        footerLeft = connect
-    end
+        "Connect your account first.")
     local url = track.accessUrl
+    local saveText = nil
+    local onSave = nil
+    if not connected then
+        saveText = "Connect account"
+        onSave = function()
+            HeroSheetWindow.ClosePopup(frame)
+            AnthemMGS.ConnectWindow()
+            --closed above, before the connect window opens.
+            return false
+        end
+    elseif url ~= nil and go ~= nil then
+        saveText = go
+        onSave = function()
+            dmhub.OpenURL(url)
+        end
+    end
     frame = HeroSheetWindow.ShowDialog{
         title = "Michael Ghelfi Studios",
         width = 520,
@@ -6772,11 +6781,8 @@ function AnthemMGS.AccessWindow(track)
                 textWrap = true,
             },
         },
-        footerLeft = footerLeft,
-        saveText = (url ~= nil and go ~= nil) and go or nil,
-        onSave = (url ~= nil and go ~= nil) and function()
-            dmhub.OpenURL(url)
-        end or nil,
+        saveText = saveText,
+        onSave = onSave,
     }
 end
 
@@ -9527,6 +9533,10 @@ local function BuildSummons(bus, Row)
     local MakeRow
     local listHolder, countPill
     local revertButton, chooseHint
+    --- @type Input
+    local nameField
+    --- @type nil|string the summon whose name nameField shows, which is where a typed name saves
+    local nameKey = nil
     local picks = {}
     local picksFit = SUGGEST_MAX
     local paintToken, dragTag, zoomRow, zoomSlider, circleRow, circleSlider
@@ -9611,10 +9621,22 @@ local function BuildSummons(bus, Row)
         end)
     end
 
+    --- Save a name still being typed and free the field. Call it before the look
+    --- changes under the field: its own leave event can come a frame late, and
+    --- would then save the typed name over the change.
+    local function CommitNameField()
+        if nameField.hasInputFocus then
+            nameField:FireEvent("defocus")
+            gui.SetFocus(nil)
+        end
+    end
+
     --- Revert to default: the whole saved look goes; the summon stays listed.
     local function Revert()
+        CommitNameField()
         local key = g_summon.key
-        if key == nil or SavedLook() == nil then
+        local look = SavedLook()
+        if key == nil or look == nil then
             return
         end
         g_summon.pending = {}
@@ -9627,9 +9649,11 @@ local function BuildSummons(bus, Row)
                 end
             end,
         }
+        --a late leave event from the Name field now finds it empty and saves nothing.
+        nameField.text = ""
         local token = Token()
         if saved and token ~= nil then
-            ActivatedAbilitySummonBehavior.RestyleLiveSummons(token, key)
+            ActivatedAbilitySummonBehavior.RestyleLiveSummons(token, key, look.name)
         end
         HeroSheetRefresh.Changed()
     end
@@ -9675,7 +9699,7 @@ local function BuildSummons(bus, Row)
         view = Summons.View(token, entry, true)
         local now = view
         local custom = saved[entry.key] ~= nil
-        chooseHint.text = string.format("The picture for %s's token.", entry.name)
+        chooseHint.text = string.format("The name and picture for %s's token.", entry.name)
         --Suggested: its stat block's picture, then recent ones.
         local shown = {}
         local seen = {}
@@ -9728,6 +9752,15 @@ local function BuildSummons(bus, Row)
         local frame = now.portraitFrame
         local framed = frame ~= nil and frame ~= ""
         local look = saved[entry.key]
+
+        --the field keeps what is being typed. Left empty, it shows the stat block's
+        --name in grey, and the summon is left unnamed, as when first summoned.
+        if not nameField.hasInputFocus then
+            nameField.text = look ~= nil and look.name or ""
+            nameKey = entry.key
+        end
+        nameField.placeholderText = entry.monster.info.name or entry.name
+        nameField.interactable = writable
 
         backgroundLine:SetClass("collapsed", not popout)
         local back = now.portraitBackground
@@ -9782,6 +9815,7 @@ local function BuildSummons(bus, Row)
         if key == g_summon.key then
             return
         end
+        CommitNameField()
         CommitPending()
         g_summon.key = key
         g_summon.pending = {}
@@ -10409,6 +10443,33 @@ local function BuildSummons(bus, Row)
         picks[i] = pick
     end
 
+    --Name: what the summon is called on the map, saved when the field is left. It saves
+    --to the summon it showed (nameKey), since a click on another summon can be handled first.
+    nameField = Field({
+        text = "",
+        limit = NAME_LIMIT,
+        selectAll = true,
+        defocus = function(text)
+            local key = nameKey
+            local token = Token()
+            if key == nil or token == nil or not HeroSheetWrite.CanWrite() then
+                return
+            end
+            local name = trim(text)
+            local current = token.properties:GetSummonAppearance(key)
+            if name == (current ~= nil and current.name or "") then
+                return
+            end
+            SaveSummonLook(function(look)
+                if name == "" then
+                    look.name = nil
+                else
+                    look.name = name
+                end
+            end, key)
+        end,
+    }) --[[@as Input]]
+
     local chooseStep
     --the hint names the summon, so it is painted.
     chooseStep, chooseHint = Step(1, "Choose the art", "",
@@ -10416,6 +10477,17 @@ local function BuildSummons(bus, Row)
             width = "100%",
             height = "auto",
             flow = "vertical",
+            FieldName("Name"),
+            --a name is short, so the field stops well short of a wide plate's edge.
+            gui.Panel{
+                width = "100%",
+                maxWidth = 280,
+                height = 30,
+                tmargin = 4,
+                bmargin = 12,
+                halign = "left",
+                nameField,
+            },
             gui.Panel{
                 width = "100%",
                 height = 26,
@@ -10509,6 +10581,10 @@ local function BuildSummons(bus, Row)
         Row(FitParts.Hold(fitStep), fitStep, FitParts.Hold(mapStep), mapStep, true),
     }, {
         name = "appearance summons",
+        --while the Name field is typed into, keys go to it, not to the sheet's shortcuts.
+        holdsKeyboard = function(panel)
+            return nameField.valid and nameField.hasInputFocus
+        end,
         signature = function(token)
             local keys = {}
             for _, entry in ipairs(Summons.Entries(token)) do

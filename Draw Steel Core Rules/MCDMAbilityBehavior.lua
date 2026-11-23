@@ -660,6 +660,7 @@ local g_rulePatterns = {
             if targetToken.properties:CannotBeForceMoved() then
                 print("Target is immune to forced movement, not executing")
                 ShowFailMessage("Immune to Forced Movement")
+                ActivatedAbilityInvokeAbilityBehavior.NoteImmune(targetToken, match.movement)
                 return
             end
 
@@ -731,8 +732,10 @@ local g_rulePatterns = {
             if match.ignorestabilityifally then
                 ignoreForAlly = casterToken:IsFriend(targetToken)
             end
+            local stabilityIgnored = false
             if stability ~= 0 and (match.ignorestability or ignoreForCompanion or ignoreForAlly or casterToken.properties:CalculateNamedCustomAttribute("Ignore Stability") > 0) then
                 stability = 0
+                stabilityIgnored = true
                 adjustments[#adjustments+1] = "Ignoring Stability"
             else
                 --Monster Info: a hero pushing, pulling or sliding a monster
@@ -773,6 +776,11 @@ local g_rulePatterns = {
                 ShowFailMessage("Forced Movement Negated")
                 return
             end
+
+            --History hears what stability did; a push it stops entirely is reported now.
+            local stabilityFacts = ActivatedAbilityInvokeAbilityBehavior.NoteStability(targetToken,
+                cond(match.vertical, "vertical_", "") .. match.movement,
+                tonumber(match.distance) + sizeDifferenceBonus + forcedMovementIncrease + forcedMovementBonus, stability, stabilityIgnored)
 
             if range <= 0 then
                 --don't execute forced movement of 0?
@@ -877,6 +885,7 @@ local g_rulePatterns = {
                     end
                 end
                 abilityClone.forcedMovementStraightUp = true
+                abilityClone._tmp_forcedMoveStability = stabilityFacts
 
                 options.targetArgs = {
                     {
@@ -894,6 +903,7 @@ local g_rulePatterns = {
                 for k,v in pairs(abilityAttr) do
                     abilityClone[k] = v
                 end
+                abilityClone._tmp_forcedMoveStability = stabilityFacts
 
                 InvokeAbility(ability, abilityClone, targetToken, casterToken, options)
                 options.targetArgs = nil
@@ -1432,7 +1442,11 @@ local g_rulePatterns = {
                 --scales with charges. Multiplying by it zeroed the roll when the
                 --parent ability was channeled -- its Charges defaults to 0 and is
                 --forwarded below in symbols. See MCDMMonster:FillFreeStrikes.
-                abilityClone.behaviors[1].roll = freeStrikeDamage
+                --Multiply by the free strikes landed on this target (2 for a Sprite
+                --Dandeknight, otherwise 1) so they deal one combined hit. separateRolls
+                --works the count out per target.
+                abilityClone.behaviors[1].roll = freeStrikeDamage .. "*Cast.NumAttackers(Target)"
+                abilityClone.behaviors[1].separateRolls = true
 
                 local symbols = {
                     invoker = GenerateSymbols(casterToken.properties),
@@ -2078,6 +2092,10 @@ function ActivatedAbilityDrawSteelCommandBehavior:ExecuteCommandInternal(ability
     end
 
     --print("Rule:: Before normalize:  " .. rule)
+    --the text after a "#" stop marker is applied by another behavior (an ongoing
+    --effect), so it is cut from what runs here. Kept for the "resisted" observers, so
+    --a resisted potency can still say what the target escaped ("M<2 #weakened").
+    local stoppedText = string.match(rule, "<alpha=#00><alpha=#ff>([^;]*)")
     rule = rule:gsub("<alpha=#00><alpha=#ff>.*", "")
     rule = regex.ReplaceAll(rule, "<[^<>]*?>", "")
     --Mirror the name normalization done by GetTableNameRegex, which strips
@@ -2162,10 +2180,24 @@ function ActivatedAbilityDrawSteelCommandBehavior:ExecuteCommandInternal(ability
         --reveals that characteristic to the players (self-guarding).
         MonsterKnowledge.RecordCharacteristicTest(targetToken, attrid)
 
+        --every potency test, either way, for a record of play: what was tested, against what.
+        if options.powerRollPass == "target" then
+            GameSystem.NotifyPlayObservers("potency", targetToken.properties, {
+                attrid = attrid,
+                letter = string.upper(gateMatch.attr),
+                value = resistanceValue,
+                gate = gate,
+                resisted = result,
+                text = gateMatch.tail,
+                stopped = stoppedText,
+            })
+        end
+
         if result then
 
             if options.powerRollPass == "target" then
                 ability.RecordTokenMessage(targetToken, options, string.format("Resisted potency: %s(%d)<%d", string.upper(gateMatch.attr), resistanceValue, gate))
+                GameSystem.NotifyPlayObservers("resisted", targetToken.properties, gateMatch.tail, stoppedText)
             end
 
             --resisted don't do the gated part, but keep anything after the semicolon.
@@ -4207,9 +4239,96 @@ local function ShowMaliceBannerForCast(ability, casterToken, targets, options)
     }
 end
 
+--- Merges the picks of a free strike made by a creature with extra free strikes
+--- (the "Extra Free Strikes" attribute, e.g. Sprite Dandeknight). Each pick is one
+--- strike; picks on the same creature become one target entry whose numAttackers
+--- counts them, so the free strike roll (damage * Cast.NumAttackers(Target)) lands
+--- as a single combined strike. A cast with only one target (an opportunity
+--- attack, or a strike the AI or another ability makes) puts every strike on it.
+--- Each entry also gets numAttackingCreatures, so damage triggers that count
+--- attackers (Number of Attackers) count creatures, not strikes.
+--- Returns a new list; the caller's target tables are never changed.
+--- @param ability ActivatedAbility
+--- @param casterToken CharacterToken|nil
+--- @param targets {loc: Loc, token: CharacterToken|nil, numAttackers: integer|nil, numAttackingCreatures: integer|nil}[]
+--- @param symbols table|nil
+--- @return {loc: Loc, token: CharacterToken|nil, numAttackers: integer|nil, numAttackingCreatures: integer|nil}[]
+local function MergeFreeStrikeTargets(ability, casterToken, targets, symbols)
+    if casterToken == nil or casterToken.properties == nil or ability.categorization ~= "Basic Attack" then
+        return targets
+    end
+
+    local strikeCount = casterToken.properties:FreeStrikeCount()
+    if strikeCount <= 1 then
+        return targets
+    end
+
+    local result = {}
+    local entryByTokenId = {}
+    for _, target in ipairs(targets) do
+        local tokenid = target.token ~= nil and target.token.charid or nil
+        local existing = tokenid ~= nil and entryByTokenId[tokenid] or nil
+        if existing ~= nil then
+            existing.numAttackers = existing.numAttackers + (target.numAttackers or 1)
+        else
+            local entry = table.shallow_copy(target)
+            entry.numAttackers = target.numAttackers or 1
+            result[#result + 1] = entry
+            if tokenid ~= nil then
+                entryByTokenId[tokenid] = entry
+            end
+        end
+    end
+
+    local isSquad = ability:UsesSquadStrike(casterToken)
+    if #result == 1 and result[1].token ~= nil then
+        --A lone target takes every strike of each minion aimed at it. An opportunity
+        --attack is one minion acting alone, so it counts as one attacker.
+        local attackerCount = 1
+        local targetPairs = symbols ~= nil and symbols.targetPairs or nil
+        if isSquad and targetPairs ~= nil then
+            local assigned = {}
+            attackerCount = 0
+            for _, pair in ipairs(targetPairs) do
+                if pair.b == result[1].token.charid and not assigned[pair.a] then
+                    assigned[pair.a] = true
+                    attackerCount = attackerCount + 1
+                end
+            end
+            attackerCount = math.max(1, attackerCount)
+        end
+
+        local strikes = attackerCount * strikeCount
+        --Same stacking cap as picking the target repeatedly by hand.
+        local stackLimit = isSquad and ActivatedAbility.SquadStackLimit(casterToken, strikeCount) or nil
+        if stackLimit ~= nil then
+            strikes = math.min(strikes, stackLimit)
+        end
+        result[1].numAttackers = math.max(result[1].numAttackers, strikes)
+    end
+
+    --A lone creature is one attacker however many strikes it lands. In a squad
+    --every minion makes strikeCount strikes, so divide to get the minions.
+    for _, entry in ipairs(result) do
+        if isSquad then
+            entry.numAttackingCreatures = math.ceil(entry.numAttackers / strikeCount)
+        else
+            entry.numAttackingCreatures = 1
+        end
+    end
+
+    return result
+end
+
 local g_baseActivatedAbilityCast = ActivatedAbility.Cast
 function ActivatedAbility:Cast(casterToken, targets, options)
     options = options or {}
+    --Free strikes from a creature with extra free strikes (Sprite Dandeknight):
+    --picks on one creature combine into a single hit. Skipped once this file has
+    --been reloaded, so an old copy of this function cannot merge a second time.
+    if not mod.unloaded then
+        targets = MergeFreeStrikeTargets(self, casterToken, targets, options.symbols)
+    end
     ShowMaliceBannerForCast(self, casterToken, targets, options)
 
     local chosenType = options ~= nil and options.symbols ~= nil and options.symbols.forcedmovement or nil
