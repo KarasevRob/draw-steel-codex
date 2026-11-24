@@ -51,8 +51,8 @@ text("encounter.arrange.intro", [[You have won the initiative. Choose starting l
 text("encounter.arrange.intro_lost", [[You have lost the initiative; the enemy acts first. Choose starting locations, then press Ready.]])
 --A smaller line under the intro: what heroes may do while they arrange.
 text("encounter.arrange.prepare_hint", [[Before the fight you can Catch Breath, and a Null can raise their Null Field.]])
---Shown on any other ability (greyed in the action bar) while the heroes arrange.
-text("encounter.arrange.cast_blocked", [[While you arrange your heroes you can only use Catch Breath and Null Field.]])
+--Shown on any other ability (greyed in the action bar) until combat starts.
+text("encounter.arrange.cast_blocked", [[Until combat starts you can only use Catch Breath and Null Field.]])
 
 --The button. Short: it is a button.
 text("encounter.arrange.ready_button", [[Ready]])
@@ -85,6 +85,11 @@ text("encounter.victory.already_completed", [[Already Completed]])
 text("encounter.victory.treasure_note", [[Treasure: {treasure}]])
 --On every hero's card after a Proving Pits game, which awards nothing.
 text("encounter.victory.practice_note", [[Proving Pits: practice only]])
+--On a dead hero's card when the encounter's consequence is Retreat: they go
+--home healed, with no Victory.
+text("encounter.victory.retreat_note", [[Retreats to Blackbottom]])
+--On a dead hero's card when the consequence is Lost: in the Graveyard for good.
+text("encounter.victory.lost_note", [[Lost]])
 
 --A hero's name in the town's Hall of Heroes when the game cannot find it.
 text("encounter.hall.hero_fallback", [[Hero]])
