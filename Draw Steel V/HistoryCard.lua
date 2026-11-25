@@ -486,7 +486,10 @@ local function AddKid(rows, kid)
     end
     for _, who in ipairs(kid.targets or {}) do
         local name = History.ShownName(who)
-        if OnlyDamage(who) and (who.types == nil or SingleType(who) ~= nil) then
+        --"then hit" is for a trigger that hits someone else: one that hurts its own owner (the
+        --Collision rule) reads "Orc's Collision: Orc took 3 damage", as when it is killed.
+        local hitsOwner = kid.actor ~= nil and who.id == kid.actor.id
+        if OnlyDamage(who) and not hitsOwner and (who.types == nil or SingleType(who) ~= nil) then
             local damagetype = SingleType(who)
             rows[#rows + 1] = {
                 who = {who},
@@ -1093,34 +1096,180 @@ local g_canDrawPaths = g_pathsRead and g_pathsFound == true
 --- The squares a creature was moved through, start first, as dmhub.CreatePath takes them,
 --- or nil. History saves them as plain {x, y, floor, altitude} lists.
 --- @param moved table|nil
---- @return nil|{x: integer, y: integer, floor: integer, altitude: integer}[]
+--- @return nil|{x: integer, y: integer, floor: integer, altitude: integer, fall: boolean|nil}[] steps
+--- @return boolean fell The move ended in a fall.
 local function MovedSteps(moved)
     local path = moved ~= nil and moved.path or nil
     if type(path) ~= "table" or #path < 2 then
-        return nil
+        return nil, false
     end
     local steps = {}
     for i, step in ipairs(path) do
         steps[i] = {x = step[1], y = step[2], floor = step[3], altitude = step[4]}
     end
-    return steps
+    --A fall is saved with its landing as a last step straight down. Dropping it ends the path in
+    --the air, as the targeting preview's does, so the side view draws the push and then the drop
+    --instead of one diagonal line to the landing.
+    local last, previous = steps[#steps], steps[#steps - 1]
+    if #steps > 2 and last.x == previous.x and last.y == previous.y and last.floor == previous.floor
+        and (previous.altitude or 0) - (last.altitude or 0) > 1 then
+        steps[#steps] = nil
+        return steps, true
+    end
+    --A fall to a lower floor keeps its landing, with those steps marked as a fall, so the side
+    --view draws the drop through the floors.
+    local fell = false
+    for i = #steps, 2, -1 do
+        local step, above = steps[i], steps[i - 1]
+        if step.floor == steps[1].floor or step.x ~= above.x or step.y ~= above.y then
+            break
+        end
+        step.fall = true
+        fell = true
+    end
+    return steps, fell
+end
+
+--- A creature whose recorded move the side view can draw.
+--- @class HistoryMover
+--- @field id string The creature's charid.
+--- @field token CharacterToken Draws the arrow: the creature's token, or its corpse once it has died.
+--- @field dead CharacterToken|nil The dead creature, when token is its corpse.
+--- @field steps table[] The squares it was moved through, start first (see MovedSteps).
+--- @field fell boolean The move ended in a fall.
+--- @field moved table The move as History saved it.
+
+--- A creature as it is on the map now: its own token, or its corpse once it has died (the
+--- corpse keeps the creature, so it can be raised). nil when neither is on the map or this
+--- user can't see it: drawing it would give a hidden one away.
+--- @param charid string
+--- @return CharacterToken|nil token
+--- @return CharacterToken|nil dead The dead creature, when token is its corpse.
+local function LiveToken(charid)
+    local token = dmhub.GetTokenById(charid)
+    local dead = nil
+    if token == nil or not token.valid then
+        dead = dmhub.GetCharacterById(charid)
+        token = dead ~= nil and dead:FindCorpse() or nil --[[@as CharacterToken|nil]]
+    end
+    if token == nil or not token.valid or not token.canSee then
+        return nil, nil
+    end
+    return token, dead
+end
+
+--- A moved creature as it is on the map now (see LiveToken), or nil.
+--- @param charid string
+--- @param steps table[]
+--- @param fell boolean
+--- @param moved table
+--- @return HistoryMover|nil
+local function LiveMover(charid, steps, fell, moved)
+    local token, dead = LiveToken(charid)
+    if token == nil then
+        return nil
+    end
+    return {id = charid, token = token, dead = dead, steps = steps, fell = fell, moved = moved}
+end
+
+--- The squares the side view draws other creatures on, as "x,y,floor" keys: those the mover
+--- covered at each step, and one square past either end along the path (the engine's
+--- MovementCrossSection does the same). A fall's steps below the start floor are left out.
+--- @param steps table[] From MovedSteps.
+--- @param size integer The mover's size in squares.
+--- @return table<string, boolean>
+local function SideViewSquares(steps, size)
+    local squares = {}
+    local function Cover(x, y, floor)
+        for dx = 0, size - 1 do
+            for dy = 0, size - 1 do
+                squares[string.format("%d,%d,%d", x + dx, y + dy, floor)] = true
+            end
+        end
+    end
+    local last = #steps
+    while last > 1 and steps[last].fall do
+        last = last - 1
+    end
+    for i = 1, last do
+        Cover(steps[i].x, steps[i].y, steps[i].floor)
+    end
+    if last >= 2 then
+        local first, second = steps[1], steps[2]
+        Cover(2 * first.x - second.x, 2 * first.y - second.y, first.floor)
+        local final, before = steps[last], steps[last - 1]
+        Cover(2 * final.x - before.x, 2 * final.y - before.y, final.floor)
+    end
+    return squares
+end
+
+--- How many squares wide a creature is. tileSize reads 1 for a dead creature (it has no token),
+--- so this reads the size itself: "1M" is 1 square, "2" is 2.
+--- @param token CharacterToken
+--- @return integer
+local function SquaresWide(token)
+    return math.max(1, tonumber(string.match(token.creatureSize or "", "^%d+")) or 1)
+end
+
+--- The creatures the side view draws for a recorded move, at the squares they stood on then.
+--- One that has moved or died since also gets a ghost on the map there, so the map
+--- matches the side view (a dead one needs it to be drawn at all); ghosts go in shown, to be
+--- destroyed. nil for moves saved before History kept the creatures around them.
+--- @param mover HistoryMover
+--- @param shown LuaMultiObjectReference[]
+--- @return nil|{token: CharacterToken, x: integer, y: integer, floor: integer, altitude: integer}[]
+local function OthersThen(mover, shown)
+    local moved = mover.moved
+    if moved.near == nil then
+        return nil
+    end
+    local squares = SideViewSquares(mover.steps, SquaresWide(mover.dead or mover.token))
+    local forPlayers = not dmhub.isDM
+    local others = {}
+    for _, near in ipairs(moved.near) do
+        local charid, x, y, floor, altitude, unseen = near[1], near[2], near[3], near[4], near[5], near[6]
+        local token, dead = nil, nil
+        if not (forPlayers and unseen) then
+            token, dead = LiveToken(charid)
+        end
+        local drawn = false
+        if token ~= nil then
+            local size = SquaresWide(dead or token)
+            for dx = 0, size - 1 do
+                for dy = 0, size - 1 do
+                    drawn = drawn or squares[string.format("%d,%d,%d", x + dx, y + dy, floor)] == true
+                end
+            end
+        end
+        if drawn and token ~= nil then
+            local loc = token.loc
+            local movedSince = dead ~= nil or loc.x ~= x or loc.y ~= y or loc.floor ~= floor or loc.altitude ~= altitude
+            if movedSince then
+                local ghost = (dead or token):CreateGhost(core.Loc{x = x, y = y, floorIndex = floor}:WithAltitude(altitude))
+                if ghost ~= nil then
+                    shown[#shown + 1] = ghost
+                end
+            end
+            others[#others + 1] = {token = dead or token, x = x, y = y, floor = floor, altitude = altitude}
+        end
+    end
+    return others
 end
 
 --- The creatures in a row whose move can be drawn, with their tokens. Only on the map shown.
 --- @param row HistoryStoryRow
 --- @param mapid string|nil
---- @return {token: CharacterToken, steps: table[], moved: table}[]
+--- @return HistoryMover[]
 local function RowMovers(row, mapid)
     local movers = {}
     if not g_canDrawPaths or mapid == nil or mapid ~= game.currentMapId then
         return movers
     end
     for _, who in ipairs(row.who or {}) do
-        local steps = MovedSteps(who.moved)
-        local token = steps ~= nil and dmhub.GetTokenById(who.id) or nil
-        --only a token this user can see now: the ghost and arrow would give a hidden one away.
-        if token ~= nil and token.valid and token.canSee then
-            movers[#movers + 1] = {token = token, steps = steps, moved = who.moved}
+        local steps, fell = MovedSteps(who.moved)
+        local mover = steps ~= nil and LiveMover(who.id, steps, fell, who.moved) or nil
+        if mover ~= nil then
+            movers[#movers + 1] = mover
         end
     end
     return movers
@@ -1128,7 +1277,7 @@ end
 
 --- Draws each mover's recorded move on the map. Returns the markers and ghosts to destroy,
 --- and the first mover's path for the side view.
---- @param movers {token: CharacterToken, steps: table[], moved: table}[]
+--- @param movers HistoryMover[]
 --- @return LuaMultiObjectReference[] shown
 --- @return LuaPath|nil firstPath
 local function ShowMoves(movers)
@@ -1144,7 +1293,12 @@ local function ShowMoves(movers)
                 shown[#shown + 1] = arrow.marker
             end
             --the path's own first step keeps the altitude it started at (a ledge, a flight).
-            local ghost = mover.token:CreateGhost(path.steps[1])
+            --a dead creature's ghost is drawn from the creature itself; on engines without
+            --that, from its corpse (whose picture is blank, so no ghost shows).
+            local ghost = mover.dead ~= nil and mover.dead:CreateGhost(path.steps[1]) or nil
+            if ghost == nil then
+                ghost = mover.token:CreateGhost(path.steps[1])
+            end
             if ghost ~= nil then
                 shown[#shown + 1] = ghost
             end
@@ -1190,12 +1344,14 @@ local function SideViewButton(row, mapid)
         valign = "top",
         hover = function(element)
             Clear()
-            --the card outlives its tokens: one may be gone, or the map changed, since it was built.
+            --the card outlives its tokens: one may have died, been raised or gone, or the
+            --map changed, since it was built. Look each up again.
             local live = {}
             if mapid == game.currentMapId then
                 for _, mover in ipairs(movers) do
-                    if mover.token.valid and mover.token.canSee then
-                        live[#live + 1] = mover
+                    local now = LiveMover(mover.id, mover.steps, mover.fell, mover.moved)
+                    if now ~= nil then
+                        live[#live + 1] = now
                     end
                 end
             end
@@ -1205,12 +1361,39 @@ local function SideViewButton(row, mapid)
             local path
             shown, path = ShowMoves(live)
             local mover = live[1]
-            local collision = mover.moved.collision or 0
-            local view = path ~= nil and dmhub.SetMovementCrossSection{
-                token = mover.token,
-                path = path,
-                collisionDamage = collision > 0 and collision or nil,
-            } or nil
+            --the damage the collision dealt it. Moves saved before History kept that show the
+            --squares left, plus 2 for an object (a wall counts).
+            local collision = mover.moved.collisiondamage
+            if collision == nil then
+                collision = mover.moved.collision or 0
+                if collision > 0 and (mover.moved.collidedobject or mover.moved.collidedwith == nil) then
+                    collision = collision + 2
+                end
+            end
+            --the damage the fall did, as the live preview's badge shows it.
+            local fall = mover.moved.falldamage or 0
+            local others = OthersThen(mover, shown)
+            local function Section(token)
+                return dmhub.SetMovementCrossSection{
+                    token = token,
+                    path = path,
+                    collisionDamage = collision > 0 and collision or nil,
+                    fallDamage = fall > 0 and fall or nil,
+                    others = others,
+                    --whether it could fly then, judged by whether it fell: a creature that has
+                    --since gained flight is still drawn falling.
+                    canFly = not mover.fell,
+                }
+            end
+            local view = nil
+            if path ~= nil then
+                --a dead creature draws as itself where the engine can (from its ghost above),
+                --else as its corpse.
+                view = mover.dead ~= nil and Section(mover.dead) or nil
+                if view == nil then
+                    view = Section(mover.token)
+                end
+            end
             sectioned = view ~= nil
             --framed as the drag tooltip frames it; the bare name only when the
             --engine can't draw this move side-on (it crosses floors).
@@ -3374,17 +3557,27 @@ function History.Why(entry, kids)
             if left > 0 and (moved.collidedobject or moved.collidedwith ~= nil) then
                 local kind = string.lower(string.gsub(moved.kind or "push", "_", " "))
                 local squares = UIText.Plural("history.story.squares", left, {count = Int(left)})
+                --what the pushed creature's damage reduction took off, on moves saved since History kept it.
+                local reduction = moved.collisionreduction or 0
+                local reduced = reduction > 0 and (" " .. T("history.why.collision_reduced", {amount = Int(reduction)})) or ""
                 Add("collision|" .. who.id, function()
                     if moved.collidedobject or moved.collidedwith == nil then
+                        local text
+                        if (moved.pushbonus or 0) > 0 and moved.pusher ~= nil then
+                            text = T("history.why.hit_object_bonus", {name = name, squares = squares, kind = kind, amount = Int(left),
+                                bonus = Int(moved.pushbonus), pusher = History.ShownName(moved.pusher)})
+                        else
+                            text = T("history.why.hit_object", {name = name, squares = squares, kind = kind, amount = Int(left)})
+                        end
                         return {
                             lead = T("history.why.lead.hit_object"),
-                            text = T("history.why.hit_object", {name = name, squares = squares, kind = kind, amount = Int(left)}),
+                            text = text .. reduced,
                         }
                     end
                     local other = History.ShownName(moved.collidedwith)
                     return {
                         lead = T("history.why.lead.hit_creature", {other = other}),
-                        text = T("history.why.hit_creature", {name = name, squares = squares, kind = kind, other = other, amount = Int(left)}),
+                        text = T("history.why.hit_creature", {name = name, squares = squares, kind = kind, other = other, amount = Int(left)}) .. reduced,
                     }
                 end, who)
             end

@@ -398,6 +398,7 @@ end
 --- @field eotwBaseLevel? integer Encounter of the Week: the Level this monster spawned at, before level balancing (ApplyLevelBoost).
 --- @field eotwBaseEV? number Encounter of the Week: this monster's EV when it spawned, for level balancing's strongest-first order.
 --- @field eotwMarket? table|false Encounter of the Week town heroes: the hero's Arcane Market visit since their last encounter (EotwMarket.lua).
+--- @field eotwPerished? table<string, boolean> Encounter of the Week town heroes: the games whose consumables have already perished.
 --- @field followers? table Characters: follower entries (legacy shape, migrated by validation).
 --- @field levelOverride? integer Characters: minimum character level (slow start / level picker).
 --- @field levelUpSeen? integer Heroes: Level up has shown pages up to this Level; it shows one for each Level above (set when a respite raises the Level; HeroBuildPools.lua).
@@ -823,6 +824,32 @@ function creature:PredictedFallDamage(fallDist, inWater)
         damage = 0
     end
     return damage
+end
+
+--- The damage the Collision global rule deals this creature when forced movement slams it
+--- into something with `speed` squares of the move left: 1 a square, 2 more against an object
+--- or wall plus the pusher's bonus for pushing into objects, less its forced movement damage
+--- reduction. Used by previews and the Monster AI; the damage itself is dealt by the rule.
+--- @param speed number Squares of the move left at the collision
+--- @param withObject boolean It hit an object or a wall rather than a creature
+--- @param pusher nil|creature Who made the move
+--- @param movementType nil|string "push", "pull", "slide"...; the pusher's bonus is only for "push"
+--- @return number
+function creature:PredictedCollisionDamage(speed, withObject, pusher, movementType)
+    if self:CalculateNamedCustomAttribute("No Damage From Forced Movement") >= 1 then
+        return 0
+    end
+    if withObject and self:CalculateNamedCustomAttribute("NoDamageFromForcedMovementWithObjects") >= 1 then
+        return 0
+    end
+    local damage = speed
+    if withObject then
+        damage = damage + 2
+        if pusher ~= nil and movementType == "push" then
+            damage = damage + pusher:CalculateNamedCustomAttribute("BonusPushDamageIntoObjects")
+        end
+    end
+    return math.max(0, damage - self:CalculateNamedCustomAttribute("Forced Movement Damage Reduction"))
 end
 
 --- Plays a single footstep sound matching the landing surface type.
@@ -8395,7 +8422,7 @@ function creature:OnMove(path)
                     local notImmuneForThisObserver = (not immuneFromOpportunityAttacks) or anyMovementObserver
                     local departureNotImmuneForThisObserver = (not immuneFromDeparture) or anyMovementObserver
 
-                    --A creature under Guise provokes no free strikes from anyone who isn't its ally.
+                    --Only a creature that regards the mover as an enemy gets a free strike (see ALLEGIANCE).
                     if withinVerticalReach and IsEnemyOf(tok, ourToken) and tok.properties._tmp_grabbedby ~= ourCharid and not tok.properties:HasBanesOnGenericFreeStrike(ourToken) and tok.properties:CanOpportunityAttack(tok, ourToken) then
                         if notImmuneForThisObserver and tok.properties:CanMakeOpportunityAttacks() then
                             tok.properties:DispatchEvent("leaveadjacent", MovementEventInfo{ movingcreature = self })
@@ -9463,111 +9490,132 @@ function creature:GetCustomAttribute(attrInfo)
 	return result
 end
 
---- True when targetToken has a positive "Not Treated As Enemy" attribute (Guise) and
---- viewerToken is not already its ally: to that viewer it is neither friend nor enemy.
---- @param viewerToken CharacterToken|nil
---- @param targetToken CharacterToken|nil
---- @return boolean
-function IsShieldedFromEnmity(viewerToken, targetToken)
-    if viewerToken == nil or targetToken == nil or targetToken.properties == nil then
-        return false
+--[[ ALLEGIANCE: who counts as an ally or an enemy
+
+Allegiance(viewerToken, otherToken) says how viewerToken regards otherToken: "ally",
+"enemy" or "neither". Every rules check that asks "is that my ally / my enemy?" should
+go through it (or the wrappers below), so an effect that changes allegiance works the
+same for targeting, triggers and free strikes. Auras and flanking are the exceptions:
+both start from plain IsFriend (same side), so an effect can take a creature out of
+an Enemies aura or stop it flanking (e.g. Guise), but can never put an ally into an
+Enemies aura or make an ally a flanker.
+
+It starts from the engine's IsFriend (same side), then applies these custom attributes:
+
+  On the creature being looked at (otherToken):
+    "Count As Ally To Enemies"  > 0   everyone regards it as an ally.
+    "Not Treated As Enemy"      > 0   anyone not already its ally regards it as neither
+                                      (Guise).
+  On the creature doing the looking (viewerToken); the value is a range in squares:
+    "Count Allies as Enemies"   N     its allies within N squares are its enemies
+                                      (Memory Thief, tiers 2-3).
+    "Count Allies as Neutral"   N     its allies within N squares are neither
+                                      (Memory Thief, tier 1).
+
+A creature is always its own ally, and "as enemies" wins over "as neutral". New
+content gets these rules by giving a creature one of the attributes in data. Add any
+new kind of allegiance change here, not at a single call site.
+
+Which helper to call:
+  IsAllyOf(viewer, other)              ally-only checks ("ally" trigger subjects).
+  IsEnemyOf(viewer, other)             enemy-only checks ("enemy" trigger subjects,
+                                       free strikes, flanking, Enemies auras).
+  IsFriendForTargeting(caster, target) choosing targets: true / false / nil (neither).
+]]
+
+--- Value of a named custom attribute on a token's creature, 0 when it has none.
+--- @param token CharacterToken
+--- @param attributeName string
+--- @return number
+local function AllegianceAttribute(token, attributeName)
+    local props = token.properties
+    if props == nil then
+        return 0
     end
-    if viewerToken.charid == targetToken.charid then
-        return false
-    end
-    if targetToken.properties:CalculateNamedCustomAttribute("Not Treated As Enemy") <= 0 then
-        return false
-    end
-    return not viewerToken:IsFriend(targetToken)
+    return props:CalculateNamedCustomAttribute(attributeName) or 0
 end
 
---- True when viewerToken treats otherToken as an enemy: not its friend, and not shielded
---- from it by Guise (see IsShieldedFromEnmity).
+--- True when the viewer's range attribute (e.g. "Count Allies as Enemies") reaches otherToken.
 --- @param viewerToken CharacterToken
 --- @param otherToken CharacterToken
+--- @param attributeName string
 --- @return boolean
-function IsEnemyOf(viewerToken, otherToken)
-    return (not viewerToken:IsFriend(otherToken)) and (not IsShieldedFromEnmity(viewerToken, otherToken))
+local function WithinAllegianceRange(viewerToken, otherToken, attributeName)
+    local range = AllegianceAttribute(viewerToken, attributeName)
+    if range <= 0 then
+        return false
+    end
+    local viewerLoc = viewerToken.loc
+    local otherLoc = otherToken.loc
+    return viewerLoc ~= nil and otherLoc ~= nil and viewerLoc:DistanceInTiles(otherLoc) <= range
 end
 
--- TRI-STATE: how casterToken views targetToken for TARGETING purposes.
---   true  = a friend (valid ally target)
---   false = an enemy (valid enemy target)
---   nil   = NEITHER -- not targetable as an ally, but not an enemy either
--- Callers must treat "enemy" as a strict == false check and "friend" as a strict
--- == true check; `not result` wrongly reads neutral (nil) as an enemy.
--- Mirrors casterToken:IsFriend, with four attribute-driven overrides: the target-side
--- "Count As Ally To Enemies" forces friend and runs first since the target is
--- actively protecting itself; the target-side "Not Treated As Enemy" (Guise) makes it
--- neither to anyone who isn't its ally; caster-side "Count Allies as Enemies" makes allies within
--- N squares read as enemies; caster-side "Count Allies as Neutral" (Memory Thief tier 1)
--- makes allies within N squares read as neither. Enemies wins over Neutral when a
--- creature somehow carries both.
+--- How viewerToken regards otherToken; see ALLEGIANCE above.
+--- @param viewerToken CharacterToken|nil
+--- @param otherToken CharacterToken|nil
+--- @return "ally"|"enemy"|"neither"
+function Allegiance(viewerToken, otherToken)
+    if viewerToken == nil or otherToken == nil then
+        return "neither"
+    end
+    if viewerToken.charid == otherToken.charid then
+        return "ally"
+    end
+
+    --Runs first: a creature protecting itself this way beats the viewer's own effects.
+    if AllegianceAttribute(otherToken, "Count As Ally To Enemies") > 0 then
+        return "ally"
+    end
+
+    if not viewerToken:IsFriend(otherToken) then
+        if AllegianceAttribute(otherToken, "Not Treated As Enemy") > 0 then
+            return "neither"
+        end
+        return "enemy"
+    end
+
+    if WithinAllegianceRange(viewerToken, otherToken, "Count Allies as Enemies") then
+        return "enemy"
+    end
+    if WithinAllegianceRange(viewerToken, otherToken, "Count Allies as Neutral") then
+        return "neither"
+    end
+    return "ally"
+end
+
+--- True when viewerToken regards otherToken as an ally (see ALLEGIANCE).
+--- @param viewerToken CharacterToken|nil
+--- @param otherToken CharacterToken|nil
+--- @return boolean
+function IsAllyOf(viewerToken, otherToken)
+    return Allegiance(viewerToken, otherToken) == "ally"
+end
+
+--- True when viewerToken regards otherToken as an enemy (see ALLEGIANCE).
+--- @param viewerToken CharacterToken|nil
+--- @param otherToken CharacterToken|nil
+--- @return boolean
+function IsEnemyOf(viewerToken, otherToken)
+    return Allegiance(viewerToken, otherToken) == "enemy"
+end
+
+--- Allegiance for choosing targets, as a tri-state: true = ally, false = enemy,
+--- nil = neither (not a valid ally target, not an enemy either). Compare strictly
+--- (== true / == false): `not result` would read "neither" as an enemy.
+--- @param casterToken CharacterToken|nil
+--- @param targetToken CharacterToken|nil
+--- @return boolean|nil
 function IsFriendForTargeting(casterToken, targetToken)
     if casterToken == nil or targetToken == nil then
         return false
     end
-
-    if targetToken.properties ~= nil then
-        local forcedFriend = targetToken.properties:CalculateNamedCustomAttribute("Count As Ally To Enemies")
-        if forcedFriend ~= nil and forcedFriend > 0 then
-            return true
-        end
-    end
-
-    --Guise: only abilities that target any creature can reach it.
-    if IsShieldedFromEnmity(casterToken, targetToken) then
-        return nil
-    end
-
-    local isFriend = casterToken:IsFriend(targetToken)
-    if not isFriend then
-        return false
-    end
-
-    -- Never treat self as an enemy or as neutral.
-    if casterToken.properties == targetToken.properties then
+    local allegiance = Allegiance(casterToken, targetToken)
+    if allegiance == "ally" then
         return true
-    end
-
-    local n = casterToken.properties:CalculateNamedCustomAttribute("Count Allies as Enemies")
-    if n ~= nil and n > 0 then
-        local casterLoc = casterToken.loc
-        local targetLoc = targetToken.loc
-        if casterLoc ~= nil and targetLoc ~= nil and casterLoc:DistanceInTiles(targetLoc) <= n then
-            return false -- nearby ally is treated as an enemy
-        end
-    end
-
-    if IsNeutralizedAlly(casterToken, targetToken) then
-        return nil -- an ally, but not treatable as one: neither friend nor enemy
-    end
-
-    return true
-end
-
--- True when casterToken's "Count Allies as Neutral" attribute (Memory Thief tier 1)
--- covers targetToken: within N squares (N = attribute value), casterToken cannot treat
--- targetToken as an ally -- but targetToken does not become an enemy either. Self is
--- never neutralized. IsFriendForTargeting returns nil off this. Targeting only for
--- now: trigger eligibility, flanking, and auras stay on raw IsFriend by design.
-function IsNeutralizedAlly(casterToken, targetToken)
-    if casterToken == nil or targetToken == nil
-            or casterToken.properties == nil or targetToken.properties == nil
-            or casterToken.properties == targetToken.properties then
+    elseif allegiance == "enemy" then
         return false
     end
-
-    local n = casterToken.properties:CalculateNamedCustomAttribute("Count Allies as Neutral")
-    if n ~= nil and n > 0 then
-        local casterLoc = casterToken.loc
-        local targetLoc = targetToken.loc
-        if casterLoc ~= nil and targetLoc ~= nil and casterLoc:DistanceInTiles(targetLoc) <= n then
-            return true
-        end
-    end
-
-    return false
+    return nil
 end
 
 --Derived states like "winded" that aren't conditions, but which we still want to be
@@ -11543,14 +11591,12 @@ end
 
 creature.AuraTokenOnlyAdjacent = AuraTokenOnlyAdjacent
 
---Guise: an "Enemies" aura passes over a creature its caster can't treat as an enemy.
---Returns the auras that still apply, or nil when none do.
-local function WithoutEnemyAurasShieldedByGuise(token, auras)
-    if token.properties == nil or token.properties:CalculateNamedCustomAttribute("Not Treated As Enemy") <= 0 then
-        return auras
-    end
-    local kept = {}
-    for _,aura in ipairs(auras) do
+--An "Enemies" aura passes over a creature its caster doesn't regard as an enemy (see
+--ALLEGIANCE; e.g. Guise). Returns the auras that still apply, or nil when none do.
+local function WithoutEnemyAurasForNonEnemies(token, auras)
+    --Stays nil until an aura is dropped, so the usual case hands back the same list.
+    local kept = nil
+    for index,aura in ipairs(auras) do
         local instance = aura.auraInstance
         local casterToken = nil
         if instance ~= nil and instance:GetApplyTo() == "enemies" then
@@ -11560,9 +11606,19 @@ local function WithoutEnemyAurasShieldedByGuise(token, auras)
                 casterToken = dmhub.GetTokenById(casterid) or dmhub.GetCharacterById(casterid)
             end
         end
-        if casterToken == nil or not IsShieldedFromEnmity(casterToken, token) then
-            kept[#kept+1] = aura
+        if casterToken == nil or IsEnemyOf(casterToken, token) then
+            if kept ~= nil then
+                kept[#kept+1] = aura
+            end
+        elseif kept == nil then
+            kept = {}
+            for earlier = 1, index - 1 do
+                kept[earlier] = auras[earlier]
+            end
         end
+    end
+    if kept == nil then
+        return auras
     end
     if #kept == 0 then
         return nil
@@ -11609,7 +11665,7 @@ function creature:GetAurasAffecting(token, options)
         end
     end
 
-    auras = WithoutEnemyAurasShieldedByGuise(token, auras)
+    auras = WithoutEnemyAurasForNonEnemies(token, auras)
     if auras == nil then
         return nil
     end
