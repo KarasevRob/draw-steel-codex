@@ -235,10 +235,24 @@ function ActivatedAbility:ObjectTargetingReason(casterToken, targetToken, symbol
     end
 
     local objectMode = self:GetTargetingMode()
-    if objectMode == false then
+    if objectMode == false and not ActivatedAbility.ObjectShownWithCreatures(targetToken) then
         return "Object Targeting is Off. Select correct Targeting in Roll Dialog."
     end
     return nil
+end
+
+--- True for an object flagged "Show With Creatures" on its Targetable
+--- component (a scenario objective): an ability that can target objects offers
+--- it under every slider position, so players need not switch to "Objects".
+--- It changes no rules: an ability that cannot target objects still cannot.
+--- @param targetToken CharacterToken
+--- @return boolean
+function ActivatedAbility.ObjectShownWithCreatures(targetToken)
+    if not (targetToken.isObject and targetToken.isAttackableObject) then
+        return false
+    end
+    local props = targetToken.properties
+    return props ~= nil and props:try_get("showWithCreatures", false) == true
 end
 
 -- Custom rules for the spellInfo / roll-dialog panel. Plain rule tables (NOT
@@ -5999,14 +6013,16 @@ local function IncludedTargetCharids(ability, casterToken, symbols, floorIndex)
     return included
 end
 
-function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, filterOverride)
-    local result, reason = g_baseTargetPassesFilter(self, casterToken, targetToken, symbols, filterOverride)
-    if not result then
-        return result, reason
+function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, filterOverride, rankReasons)
+    local result, reason, warningKind = g_baseTargetPassesFilter(self, casterToken, targetToken, symbols, filterOverride, rankReasons)
+    --When the reason will be shown, a Hidden target still gets the line-of-effect checks
+    --below: "no line of effect" matters more than "hidden", so it is the reason the player sees.
+    if not result and (warningKind ~= "hidden" or not rankReasons) then
+        return result, reason, warningKind
     end
 
     if casterToken == nil or targetToken == nil or targetToken.isObject then
-        return result, reason
+        return result, reason, warningKind
     end
 
     --Area abilities are exempt from the caster's own line-of-effect denial: they need line
@@ -6042,7 +6058,7 @@ function ActivatedAbility:TargetPassesFilter(casterToken, targetToken, symbols, 
     local blocker = RuleUtils.LineOfEffectBlocker(casterToken, targetToken, originLoc,
         IncludedTargetCharids(self, casterToken, symbols, floorIndex))
     if blocker == nil then
-        return result, reason
+        return result, reason, warningKind
     end
 
     return false, string.format("%s blocks line of effect to this creature.", RuleUtils.LineOfEffectBlockerName(blocker))

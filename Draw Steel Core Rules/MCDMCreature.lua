@@ -444,7 +444,15 @@ function creature:GetSurgePoolOwner()
     return self
 end
 
-function creature:ConsumeSurges(ncount, note)
+-- History note for surge counts typed into the character sheet. ConsumeSurges skips
+-- the Use Resource trigger for this note, so pass it from any manual surge edit.
+creature.manualSurgeNote = "Manually Set"
+
+--- Spends surges (a negative count gains them) and fires the Use Resource trigger for a spend.
+--- @param ncount number surges to spend
+--- @param note nil|string|table line for the surge history
+--- @param spentOn nil|"damage"|"potency"|"other" what the surges bought, shown to triggers as Spent On; defaults to "other"
+function creature:ConsumeSurges(ncount, note, spentOn)
     local surgeid = CharacterResource.nameToId["Surges"]
     if surgeid == nil then
         return
@@ -453,6 +461,7 @@ function creature:ConsumeSurges(ncount, note)
     -- Retainers spend from their mentor's pool, matching where Resource.lua sends their surge gains.
     local mentor = self:GetSurgeSharingMentor()
     local mentorToken = mentor ~= nil and dmhub.LookupToken(mentor) or nil
+    local summonerToken = self:GetSurgeSharingSummonerToken()
     if mentorToken ~= nil then
         mentorToken:ModifyProperties{
             description = "Consume Surges",
@@ -460,21 +469,27 @@ function creature:ConsumeSurges(ncount, note)
                 mentorToken.properties:AddUnboundedResource(surgeid, -ncount, note or "Consumed Surges")
             end,
         }
-        return
-    end
-
-    local summonerToken = self:GetSurgeSharingSummonerToken()
-    if summonerToken ~= nil then
+    elseif summonerToken ~= nil then
         summonerToken:ModifyProperties{
             description = "Consume Surges",
             execute = function()
                 summonerToken.properties:AddUnboundedResource(surgeid, -ncount, note or "Consumed Surges")
             end,
         }
-        return
+    else
+        self:AddUnboundedResource(surgeid, -ncount, note or "Consumed Surges")
     end
 
-    self:AddUnboundedResource(surgeid, -ncount, note or "Consumed Surges")
+    -- Fire the Use Resource trigger on the creature that spent the surges, even when
+    -- they came from a shared pool. Gaining surges or editing the count on the sheet doesn't count.
+    local resourceInfo = dmhub.GetTable(CharacterResource.tableName)[surgeid]
+    if ncount > 0 and note ~= creature.manualSurgeNote and resourceInfo ~= nil then
+        self:DispatchEvent("useresource", {
+            resource = string.lower(resourceInfo.name),
+            quantity = ncount,
+            spenton = spentOn or "other",
+        })
+    end
 end
 
 function creature:GetAvailableSurges()
@@ -550,6 +565,23 @@ function character:GetHeroicOrMaliceResources()
         return summonerToken.properties:GetHeroicOrMaliceResources()
     end
     return g_baseCharacterGetHeroicOrMaliceResources(self)
+end
+
+--Any ancestry without names of its own uses human names. A Revenant still
+--waiting on a former life gets none, so the sheet asks for one first.
+local g_baseCharacterGetNameGeneratorTable = character.GetNameGeneratorTable
+function character:GetNameGeneratorTable()
+    local result = g_baseCharacterGetNameGeneratorTable(self)
+    if result ~= nil or self:Race():IsInherited() then
+        return result
+    end
+    for _, race in unhidden_pairs(GetTableCached(Race.tableName) or {}) do
+        if race.name == "Human" then
+            local key = race:try_get("nameGenerator")
+            return key ~= nil and GetTableCached("nameGenerators")[key] or nil
+        end
+    end
+    return nil
 end
 
 --A summon that shares its summoner's heroic resource surfaces the summoner's

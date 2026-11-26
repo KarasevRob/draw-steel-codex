@@ -2071,6 +2071,186 @@ Commands.RegisterMacro{
     end,
 }
 
+--Director chat command /archivistknown (Fighting the Archivist): a list of the heroes on the
+--map to tick the ones who revealed a criminal backstory, or were revealed as part of the
+--resistance, during the negotiation. Applying gives exactly the ticked heroes the Known to
+--the Archivist effect for the encounter (his He Knows You edge); ticking nobody is a valid
+--answer. It then sets the archivist_known variable, which tells the encounter script to take
+--its Known to the Archivist button away. A journal button can run it to add a hero later.
+--Kept in a block: this file's main chunk is close to Lua's 200-local limit.
+do
+    local KNOWN_EFFECT = "338a5a55-02bb-45bf-aa11-024da242867f"
+    --The Fighting the Archivist encounter script (Condemned repo) watches this shared
+    --variable to take its button away; renaming it breaks that button.
+    local KNOWN_DONE_VAR = "archivist_known"
+    local CHAT_TITLE, CHAT_COLOR = "Fighting the Archivist", "#e8a030"
+
+    ---@param token CharacterToken
+    ---@return boolean
+    local function IsKnown(token)
+        local found = false
+        pcall(function()
+            for _, effect in ipairs(token.properties:ActiveOngoingEffects()) do
+                if effect.ongoingEffectid == KNOWN_EFFECT then
+                    found = true
+                end
+            end
+        end)
+        return found
+    end
+
+    --Gives or takes away the effect so the heroes ticked are exactly the ones known, then
+    --tells the Directors who is known and lets the encounter script drop its button.
+    ---@param picks {token: CharacterToken, check: Panel}[]
+    local function ApplyKnown(picks)
+        local names = {}
+        for _, pick in ipairs(picks) do
+            local token = pick.token
+            local wanted = pick.check.value == true
+            if token.valid and wanted ~= IsKnown(token) then
+                token:ModifyProperties{
+                    description = wanted and "Known to the Archivist" or "No longer known to the Archivist",
+                    execute = function()
+                        if wanted then
+                            token.properties:ApplyOngoingEffect(KNOWN_EFFECT, "eoe")
+                        else
+                            token.properties:RemoveOngoingEffect(KNOWN_EFFECT)
+                        end
+                    end,
+                }
+            end
+            if wanted then
+                names[#names + 1] = creature.GetTokenDescription(token)
+            end
+        end
+        Commands.setvar(KNOWN_DONE_VAR .. " done")
+        local text = "Known to the Archivist: nobody."
+        if #names > 0 then
+            text = "Known to the Archivist (he has an edge on power rolls against them): " .. table.concat(names, ", ") .. "."
+        end
+        SendTitledChatMessage(text, CHAT_TITLE, CHAT_COLOR, SafetyTools.DirectorUserIds())
+    end
+
+    local function ShowKnownDialog()
+        local heroes = {}
+        for _, token in ipairs(dmhub.allTokens) do
+            local hero = false
+            pcall(function() hero = token.properties:IsHero() end)
+            if hero then
+                heroes[#heroes + 1] = token
+            end
+        end
+        table.sort(heroes, function(first, second)
+            return creature.GetTokenDescription(first) < creature.GetTokenDescription(second)
+        end)
+
+        local picks = {}
+        local rows = {}
+        for _, token in ipairs(heroes) do
+            local check = gui.Check{
+                text = creature.GetTokenDescription(token),
+                value = IsKnown(token),
+                width = "auto",
+                height = 24,
+                minWidth = 0,
+                fontSize = 14,
+                vmargin = 2,
+            }
+            picks[#picks + 1] = { token = token, check = check }
+            rows[#rows + 1] = check
+        end
+        if #heroes == 0 then
+            rows[#rows + 1] = gui.Label{
+                text = "There are no heroes on this map.",
+                width = "auto",
+                height = "auto",
+                fontSize = 14,
+                italics = true,
+            }
+        end
+
+        --A dialog opened with gui.ShowModal doesn't get the theme's styles from the screen
+        --behind it, so it brings its own.
+        local dialog = gui.Panel{
+            styles = ThemeEngine.GetStyles(),
+            width = "auto",
+            height = "auto",
+            children = {
+                gui.Panel{
+                    classes = { "framedPanel" },
+                    width = 460,
+                    height = "auto",
+                    flow = "vertical",
+                    borderBox = true,
+                    pad = 16,
+                    children = {
+                        gui.Label{
+                            text = "Known to the Archivist",
+                            width = "100%",
+                            height = "auto",
+                            fontSize = 20,
+                            bold = true,
+                        },
+                        gui.Label{
+                            text = "Who revealed a criminal backstory during the negotiation, or was revealed as part of the resistance? He has an edge on power rolls against them for the rest of the encounter. Tick nobody if no one did.",
+                            width = "100%",
+                            height = "auto",
+                            fontSize = 14,
+                            textWrap = true,
+                            vmargin = 8,
+                        },
+                        gui.Panel{
+                            flow = "vertical",
+                            width = "100%",
+                            height = "auto",
+                            children = rows,
+                        },
+                        gui.Panel{
+                            flow = "horizontal",
+                            width = "auto",
+                            height = "auto",
+                            halign = "right",
+                            tmargin = 12,
+                            children = {
+                                gui.Button{
+                                    text = "Cancel",
+                                    rmargin = 8,
+                                    press = function()
+                                        gui.CloseModal()
+                                    end,
+                                },
+                                gui.Button{
+                                    text = "Apply",
+                                    press = function()
+                                        --read the ticks before closing: a closed dialog's
+                                        --checkboxes can no longer be read
+                                        ApplyKnown(picks)
+                                        gui.CloseModal()
+                                    end,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        gui.ShowModal(dialog)
+    end
+
+    Commands.RegisterMacro{
+        name = "archivistknown",
+        summary = "pick the heroes Known to the Archivist",
+        doc = "Usage: /archivistknown\nOpens a list of the heroes on the map. Tick the ones who revealed a criminal backstory, or were revealed as part of the resistance, during the negotiation, then Apply: exactly those heroes are Known to the Archivist for the encounter (he has an edge on power rolls against them). Applying with nobody ticked is fine. Director only.",
+        command = function(str)
+            if not dmhub.isDM then
+                SendTitledChatMessage("Only a Director can use /archivistknown.", CHAT_TITLE, CHAT_COLOR, { dmhub.userid })
+                return
+            end
+            ShowKnownDialog()
+        end,
+    }
+end
+
 --The centre of the squares a token covers, in floor space (square centres are whole numbers).
 ---@param token CharacterToken
 ---@return number, number
@@ -3417,8 +3597,30 @@ local mapButtons = rawget(_G, "MapButtons")
             icon = "phosphor/lock-simple-fill.png",
             popup = CreateCollarPanel,
         },
+        --the Director's Patrol Fight popup; the button appears once the story reaches Entering the Crysopolis.
+        patrol = {
+            name = "Set Up a Crysopolis Patrol Fight",
+            icon = "phosphor/sword.png",
+            stage = "hub",
+            popup = function(owner)
+                local campaign = rawget(_G, "CondemnedCampaign")
+                if campaign == nil or campaign.CreatePatrolPanel == nil then
+                    return nil
+                end
+                return campaign.CreatePatrolPanel(owner)
+            end,
+        },
     }
-    local ORDER = { "campaign", "collars" }
+    local ORDER = { "campaign", "collars", "patrol" }
+
+    --A button with a stage shows only once the story has reached it.
+    local function StageReached(button)
+        if button.stage == nil then
+            return true
+        end
+        local campaign = rawget(_G, "CondemnedCampaign")
+        return campaign ~= nil and campaign.Reached ~= nil and campaign.Reached(button.stage)
+    end
     local RAIL_TYPE = "condemned"
 
     --ids this Director took off the rail: never put back automatically (/condemnedbuttons does).
@@ -3427,6 +3629,10 @@ local mapButtons = rawget(_G, "MapButtons")
         storage = "pergamepreference",
         default = {},
     }
+
+    --the button whose popup was opened last, so a rail redraw can wait until that popup is closed
+    ---@type Panel|nil
+    local popupOwner = nil
 
     local function OpenPopup(id, element)
         if mod.unloaded then
@@ -3437,13 +3643,14 @@ local mapButtons = rawget(_G, "MapButtons")
             return
         end
         element.popup = button.popup(element)
+        popupOwner = element
     end
 
     local railTypes = rawget(_G, "RailEntryTypes")
     if railTypes ~= nil then
         railTypes[RAIL_TYPE] = {
             available = function(id)
-                return dmhub.isDM and BUTTONS[id] ~= nil
+                return dmhub.isDM and BUTTONS[id] ~= nil and StageReached(BUTTONS[id])
             end,
             name = function(id)
                 local button = BUTTONS[id]
@@ -3487,7 +3694,9 @@ local mapButtons = rawget(_G, "MapButtons")
         local removed = removedSetting:Get() or {}
         for _, id in ipairs(ORDER) do
             local key = RAIL_TYPE .. ":" .. id
-            if not removed[id] and slotOf(key) == nil then
+            --a locked button is added when it unlocks; added early, the rail would only park it
+            --out of sight and every session would add it again
+            if not removed[id] and StageReached(BUTTONS[id]) and slotOf(key) == nil then
                 add(key, "right")
             end
         end
@@ -3498,7 +3707,7 @@ local mapButtons = rawget(_G, "MapButtons")
         commands.RegisterMacro{
             name = "condemnedbuttons",
             summary = "put the Condemned buttons back on the rail",
-            doc = "Usage: /condemnedbuttons\nPuts the Condemned campaign buttons (Campaign, Loyalty Collars) back on your icon rail.",
+            doc = "Usage: /condemnedbuttons\nPuts the Condemned campaign buttons (Campaign, Loyalty Collars, and from Entering the Crysopolis on, Set Up a Crysopolis Patrol Fight) back on your icon rail.",
             command = function(str)
                 removedSetting:Set({})
                 SeedRail()
@@ -3516,18 +3725,48 @@ local mapButtons = rawget(_G, "MapButtons")
 
     dmhub.Coroutine(function()
         local seeded = false
+        --true while the buttons sit on the map's button bar; nil forces the loop below to add them again
+        ---@type boolean|nil
         local fallback = false
+        --a 1 or 0 per button in ORDER for whether the story has reached it; a change redraws the rail
+        local reachedBefore = nil
         while not mod.unloaded do
             local railMode = rawget(_G, "RailModeActive") ~= nil and RailModeActive()
-            if dmhub.isDM and railMode and not seeded then
+            if not railMode then
+                --seed again when the rail comes back, in case a button unlocked while it was off
+                seeded = false
+            elseif dmhub.isDM and not seeded then
                 seeded = true
                 SeedRail()
+            end
+            local reached = ""
+            for _, id in ipairs(ORDER) do
+                reached = reached .. (StageReached(BUTTONS[id]) and "1" or "0")
+            end
+            --a redraw closes any open Condemned popup, and the Campaign popup is where the story
+            --gets moved on, so the redraw waits until that popup is closed
+            local popupOpen = popupOwner ~= nil and popupOwner.valid and popupOwner.popup ~= nil
+            if not popupOpen then
+                --only Directors have these buttons, so players' rails are left alone
+                if reachedBefore ~= nil and reached ~= reachedBefore and dmhub.isDM then
+                    if railMode then
+                        SeedRail()
+                        local rebuild = rawget(_G, "IconRailRebuildSoon")
+                        if rebuild ~= nil then
+                            rebuild()
+                        end
+                    end
+                    --the button-bar loop below only runs when fallback changes; nil makes it register
+                    --the bar again now, so a button that just unlocked or locked shows or goes
+                    fallback = nil
+                end
+                reachedBefore = reached
             end
             local wantFallback = mapButtons ~= nil and not railMode
             if wantFallback ~= fallback then
                 fallback = wantFallback
                 for _, id in ipairs(ORDER) do
-                    if fallback then
+                    if fallback and StageReached(BUTTONS[id]) then
                         mapButtons.Register("condemned:" .. id, {
                             name = BUTTONS[id].name,
                             icon = BUTTONS[id].icon,
