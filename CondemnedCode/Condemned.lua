@@ -2419,6 +2419,8 @@ local WINDOW = {
     outsideY = 9,
     wallY = 8.5,
     damage = 5,
+    --the sound event Draw Steel Audio plays for breaking glass objects
+    sound = "Obj.Break_GlassGnrcMed",
     wallName = "Stained-Glass Window (breakable)",
     artName = "Stained-Glass Window Art",
     brokenArtName = "Stained-Glass Window Art (Broken)",
@@ -2512,6 +2514,8 @@ local function ShatterWindow(charid)
     end
     glass.inactive = true
     glass:Upload()
+    --every client hears it; this code runs only on the map host.
+    audio.DispatchSoundEvent(WINDOW.sound)
 
     --the push broke only the edges it went through; open the whole window.
     EraseWindowWall(floor)
@@ -2549,37 +2553,77 @@ local function RequestShatter(charid)
     end
 end
 
---Every forced move, on the client that made it: a push that broke a wall with its path
---beside the glass shatters the window. The glass is the only breakable wall there.
-GameSystem.RegisterPlayObserver("condemnedwindow", {
-    forcedmove = function(props, info)
-        if mod.unloaded or type(info) ~= "table" or (info.walls or 0) <= 0 then
-            return
-        end
-        local floor = FindWindow()
-        if floor == nil then
-            return
-        end
-        local token = dmhub.LookupToken(props)
-        if token == nil then
-            return
-        end
-        for _, step in ipairs(info.path or {}) do
-            local stepX, stepY, floorIndex = step[1], step[2], step[3]
-            if floorIndex == floor.floorIndex and stepX >= WINDOW.minX and stepX <= WINDOW.maxX
-                and (stepY == WINDOW.insideY or stepY == WINDOW.outsideY) then
-                --after this move has finished uploading, not inside it.
-                local charid = token.charid
-                dmhub.Schedule(0.1, function()
-                    if not mod.unloaded then
-                        RequestShatter(charid)
-                    end
-                end)
-                return
+--Which side of the glass a creature standing at loc is on, judged from every square it
+--covers: "outside" if any is in the row beyond the glass, else "inside" if any is in the
+--row before it, else nil (not next to the glass).
+---@param token CharacterToken
+---@param loc Loc
+---@param floorIndex number
+---@return string|nil
+local function SideOfGlass(token, loc, floorIndex)
+    local side = nil
+    for _, square in ipairs(token:LocsOccupyingWhenAt(loc) or {}) do
+        local underGlass = square.x >= WINDOW.minX and square.x <= WINDOW.maxX
+        if square.floor == floorIndex and underGlass then
+            if square.y == WINDOW.outsideY then
+                return "outside"
+            end
+            if square.y == WINDOW.insideY then
+                side = "inside"
             end
         end
-    end,
-})
+    end
+    return side
+end
+
+--True if the token's path takes it through the glass, either way. Only neighbouring steps
+--are compared, so a long drag out of a door and round to the far side doesn't count.
+---@param token CharacterToken
+---@param path LuaPath
+---@param floorIndex number
+---@return boolean
+local function PathCrossesGlass(token, path, floorIndex)
+    local previousSide = nil
+    for _, step in ipairs(path.steps or {}) do
+        local side = SideOfGlass(token, step, floorIndex)
+        if previousSide ~= nil and side ~= nil and side ~= previousSide then
+            return true
+        end
+        previousSide = side
+    end
+    return false
+end
+
+--A creature force-moved through the glass shatters the window: pushed by an ability or
+--ALT-dragged by the Director. This runs before the move lands, so it waits for the token
+--to stop. Asking twice is safe: the second shatter finds the window already gone.
+local g_baseOnMove = creature.OnMove
+---@param path LuaPath
+function creature:OnMove(path)
+    if not mod.unloaded and path.forced then
+        local ok, err = pcall(function()
+            local floor = FindWindow()
+            local token = dmhub.LookupToken(self)
+            if floor == nil or token == nil or not PathCrossesGlass(token, path, floor.floorIndex) then
+                return
+            end
+            local charid = token.charid
+            dmhub.Coroutine(function()
+                local deadline = dmhub.Time() + 8
+                repeat
+                    coroutine.yield(0.1)
+                until mod.unloaded or not token.valid or not token.isMoving or dmhub.Time() > deadline
+                if not mod.unloaded then
+                    RequestShatter(charid)
+                end
+            end)
+        end)
+        if not ok then
+            print("Condemned: window push check failed:", err)
+        end
+    end
+    return g_baseOnMove(self, path)
+end
 
 --Map host, every upkeep: an attack that brought the window object to 0 Stamina shatters it.
 --Once the glass is gone from the wall, the window object and art are kept hidden in case
@@ -2595,6 +2639,9 @@ local function WatchWindow()
         if glass ~= nil and not glass.inactive then
             glass.inactive = true
             glass:Upload()
+            --if the wall went before ShatterWindow ran, ShatterWindow finds the glass
+            --gone and plays nothing, so the sound is played here.
+            audio.DispatchSoundEvent(WINDOW.sound)
         end
         SetWindowArt(true)
         return
@@ -4445,4 +4492,143 @@ end)()
             end
         end)
     end
+end)()
+
+--------------------------------------------------------------------------------
+-- Thorns: the Vampire Class pregen
+--------------------------------------------------------------------------------
+--Thorns is an extra pregen for tables that own the Vampire Class, a premium Hero
+--module sold separately. When someone who owns it (Director or player) is in a
+--Condemned game, their client installs Vampire Class into the game if it is
+--missing, then adds Thorns, unclaimed and off the map, beside the other pregens.
+--Each game gets Thorns once: the "condemnedThorns" document remembers it, so a
+--Director who deletes Thorns does not get them back.
+
+--(a function of its own: the file's main chunk is at Lua's 200-local limit. The
+--leading ; stops Lua reading this as a call on the section above's "end)()".)
+;(function()
+    local THORNS_CHARID = "f28b9a95-fadc-45b3-a476-b8a489d07939"
+    local THORNS_DOC_ID = "condemnedThorns"
+    local VAMPIRE_MODULE_ID = "triglavgames-vampire_class"
+
+    --Games made from these modules are Condemned games. The adventure's source game
+    --publishes the module rather than installing it, so it never gains Thorns (who
+    --would otherwise ship in the next publish). mcdm-condemnedtest is a test copy.
+    local CONDEMNED_MODULE_IDS = { "codex-condemned", "mcdm-condemnedtest" }
+
+    --how long to wait for the game's modules to load before deciding this is not a
+    --Condemned game.
+    local THORNS_GIVE_UP_SECONDS = 60
+
+    --Thorns as dmhub.ExportCharacter gives them, from the "Vampire Pregen" game
+    --(CraftyFeralTrimGnoll), with the map location cleared, ownerId PARTY and the
+    --Condemned pregens' party.
+    local THORNS_RECORD = [==[{"locInfo":{"mountedOn":null,"mountedOnObject":null,"mountedSaddle":0,"floor":null,"map":null,"loc":{"0":-3,"1":2,"2":1},"pos":{"x":-3,"y":2},"rotation":0},"appearance":{"portraitId":"4b4d6a17-cd8e-4e7c-a771-bb32b688ea9b","offtokenPortraitId":null,"portraitFrameId":"928698a5-1bde-4274-8c84-e7c41c390652","portraitRibbon":null,"backgroundId":null,"anthem":null,"anthemVolume":1,"tokenScaling":1,"tokenZoom":1.04918,"portraitOffset":{"x":-0.01591146,"y":0.04101568},"frameHueShift":0,"frameSaturation":1,"frameBrightness":1,"characterName":"Thorns","characterNamePrivate":false,"flip":false,"saddlePositions":{}},"disguise":null,"settings":{"canRotate":false,"useLight":false,"lightColor":{"r":1,"g":1,"b":1,"a":1},"lightIntensity":0.1,"lightRadius":10,"lightFalloff":0.1,"lightAngle":360},"mountedBy":{},"properties":{"__typeName":"character","skillProficiencies":{"_luaTable":false},"attributes":{"mgt":{"__typeName":"CharacterAttribute","id":"mgt","_luaTable":true,"baseValue":1},"agl":{"__typeName":"CharacterAttribute","id":"agl","_luaTable":true,"baseValue":2},"inu":{"__typeName":"CharacterAttribute","id":"inu","_luaTable":true,"baseValue":-1},"prs":{"__typeName":"CharacterAttribute","id":"prs","_luaTable":true,"baseValue":2},"rea":{"__typeName":"CharacterAttribute","id":"rea","_luaTable":true,"baseValue":1},"_luaTable":true},"characterDescription":{"__typeName":"CharacterDescription","build":"","weight":"","pronouns":"They/them","hair":"","skinTone":"","mt":{"typeName":"CharacterDescription","_luaTable":true},"physicalFeatures":"","typeName":"CharacterDescription","genderPresentation":"","eyes":"","CHARACTER_KEY":"characterDescription","height":"","_luaTable":true},"chartypeid":"be5f5f52-b2cc-4033-ae16-6a4d25e10c2e","ctime":1791873319731,"levelChoices":{"5ad9ac2e-14cf-46f0-b642-dd43791c05e7":{"1":"eb9f71ba-ffae-4065-b90c-0bbdff48d2b0","2":"01cfcdfb-5ae1-463f-8787-dbdbf4b59628","_luaTable":false},"raceid":"e3ef91f8-4781-4a95-8a70-c4bc403a1a87","_luaTable":true,"cultureLanguageChoice":{"1":"f3951673-4de6-42ad-be86-d3158c40365c","_luaTable":false},"ba5569ea-2457-4fbe-9a15-144b246d005b":{"1":"28573ee3-e9df-47fe-98f1-2ac0bfee797a","_luaTable":false},"ec5b839b-afc0-4cb9-9ca0-47452995aaf1":{"1":"a27ca113-bc01-49d0-9864-3316e6f525f4","_luaTable":false},"49c14d4f-e212-4625-99f1-784854df9a02":{"1":"57101165-410a-4734-98ee-d4e5b656d3df","_luaTable":false},"c2fe5348-6939-477d-a62c-4fc9cc6d11a3":{"_luaTable":false},"b831297c-e585-4e51-a014-aa080936444a":{"1":"192827b0-ef39-4d5f-840a-b3c654e7b158","2":"078b501f-e549-4725-993f-7ed8d57fc2ae","_luaTable":false},"8f509549-501d-48f5-a9df-8b60a1d403b7":{"1":"69e19c1a-9919-422c-a61f-ead6702360ed","_luaTable":false},"e00e1bda-e0ac-4b49-aabc-3961532f2364":{"1":"5d2e4c37-0cde-4b28-8fb2-7b0ba704bab3","_luaTable":false},"ecbc426d-c729-4388-a2c2-111ab65ae9bd":{"1":"ba5581c6-eb2e-4ed1-bcc9-20ca52da49dd","_luaTable":false},"d6988bba-4a9f-4d49-b799-e062d464b57d":{"1":"dcda09a4-dfce-4bd8-915f-1df0b37c72c0","_luaTable":false},"725934c0-4022-4641-ad66-ebdd32c43672":{"1":"2099c22e-599a-4ea4-abfa-428f472db159","_luaTable":false},"61c40ee7-5231-4698-b41f-9b9046fcb58c":{"1":"3f9f5e03-59fb-45be-b84b-bb1d09b6adba","_luaTable":false},"2adee597-cc28-4b83-aece-456af1d0493f":{"1":"dd0b235d-2606-4168-a039-e6e16d4201cc","_luaTable":false},"e7d2238f-33e2-44de-8f11-0417d087988d":{"1":"0df23459-ab2f-4659-8a2d-ae5820dc889f","_luaTable":false}},"innateAttacks":{"_luaTable":false},"inventory":{"_luaTable":false},"equipment":{"_luaTable":false},"damage_taken":0,"savingThrowProficiencies":{"_luaTable":false},"_luaTable":true,"downtimeInfo":{"__typeName":"DTInfo","downtimeProjects":{"_luaTable":false},"followerRolls":{"_luaTable":false},"_luaTable":true},"inflictedConditions":{"_luaTable":false},"followers":{"_luaTable":false},"culture":{"__typeName":"Culture","aspects":{"environment":"a9b1b9dd-ca6e-48b2-ae4d-2729da664804","organization":"023d4580-acbc-4955-b623-518308dd3890","upbringing":"afc08d55-ddae-4863-8fcd-d09e053f90bf","_luaTable":true},"aggregate":"759af0cd-7108-4f09-95af-6d0a5ebb0480","_luaTable":true},"resources":{"_luaTable":false},"notes":{"1":{"text":"Almost a thousand years ago, The Exquisite Allure of a Writhing Maze of Thorns was an archaeologist and artificer in the fallen city of Irranys, acquiring and cataloguing magical artifacts for study and reverse-engineer. While hunting for the origin of a cursed emerald skull, they accidentally released a millennia-old mycological parasite, transforming them into a creature of the night. They soon realized that the trees and ivies of the wood seemed drawn to their new form, stalking their footsteps as though waiting for a command.\n\nCenturies of hunger and isolation eventually necessitated the search for acceptable prey; no one particularly minds if Thorns feeds on the dastards and villains who terrorize the common folk, as long as their terror is put to an end. Thorns recently reached the tipping point where they've been undead longer than they were alive, and they're even beginning to enjoy hero work for its own sake \u2014 as something to break up the monotony of immortality, if nothing else.","title":"Backstory","_luaTable":true},"_luaTable":false},"equipmentMeta":{"leveled1":{"_luaTable":false},"trinket6":{"_luaTable":false},"leveled4":{"_luaTable":false},"leveled2":{"_luaTable":false},"leveled3":{"_luaTable":false},"trinket2":{"_luaTable":false},"trinket10":{"_luaTable":false},"trinket3":{"_luaTable":false},"trinket9":{"_luaTable":false},"trinket8":{"_luaTable":false},"trinket4":{"_luaTable":false},"trinket5":{"_luaTable":false},"trinket1":{"_luaTable":false},"trinket7":{"_luaTable":false},"leveled5":{"_luaTable":false},"_luaTable":true},"raceid":"e3ef91f8-4781-4a95-8a70-c4bc403a1a87","backgroundid":"2a5dbd17-45fd-4a20-ade2-edf9c700c883","classes":{"1":{"level":1,"classid":"44e0e762-0fa2-4c26-8d19-31ab6e2b8bbe","_luaTable":true},"_luaTable":false},"attributeBuild":{"array":2,"agl":1,"inu":4,"rea":3,"mgt":2,"_luaTable":true},"kitid":"29f9cbe7-b2c6-4ded-ae8c-8ce9def2b66f","notesRevision":"b3fc9a7a-6efd-4f7c-935d-814b2f256e00"},"bestiaryId":null,"summonerid":null,"ownerId":"PARTY","partyid":"bb7706e8-1934-4e09-8411-860b4fb451ef","size":-1,"createdTimestamp":1791873319731}]==]
+
+    --the portrait's image record, which ImportCharacter uploads into the game.
+    local THORNS_ASSETS = [==[{"images":{"4b4d6a17-cd8e-4e7c-a771-bb32b688ea9b":{"ctime":1791873401298,"description":"thornsavatar","height":504,"hidden":false,"imageId":"https://codexback.com/AyCNoMCWu8TjmupnQt-j9A","imageType":1,"keywords":["thornsavatar"],"mtime":1791873401298,"ord":0,"tint":{"a":1,"b":1,"g":1,"r":1},"width":464}},"audio":{}}]==]
+
+    local function OwnsVampireClass()
+        for _, list in ipairs({ module.GetOurPurchasedModules(), module.GetOurPatreonModules() }) do
+            for _, id in ipairs(list) do
+                if id == VAMPIRE_MODULE_ID then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    --- @param fullids string[]
+    --- @return boolean
+    local function AnyModuleInstalled(fullids)
+        for _, info in ipairs(module.GetLoadedModules()) do
+            if info.installedVersion ~= nil and not info.isdisabled then
+                for _, fullid in ipairs(fullids) do
+                    if info.fullid == fullid then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    --Writes Thorns into the game. False if the game's assets have not loaded yet.
+    --- @return boolean
+    local function AddThorns()
+        local charid = dmhub.ImportCharacter{
+            record = THORNS_RECORD,
+            assets = THORNS_ASSETS,
+            charid = THORNS_CHARID,
+        }
+        if charid == nil then
+            return false
+        end
+
+        local doc = mod:GetDocumentSnapshot(THORNS_DOC_ID)
+        doc:BeginChange()
+        doc.data.added = true
+        doc:CompleteChange("Add Thorns", {undoable = false})
+        print("Condemned: added the Vampire Class pregen Thorns")
+        return true
+    end
+
+    dmhub.Coroutine(function()
+        local gameid = dmhub.gameid
+        local started = dmhub.Time()
+        --"idle", "installing" (Vampire Class is on its way in), "done" or "failed".
+        local vampireInstall = "idle"
+
+        while not mod.unloaded and dmhub.gameid == gameid do
+            coroutine.yield(2)
+            if mod.unloaded or dmhub.gameid ~= gameid or dmhub.isLobbyGame then
+                return
+            end
+
+            if dmhub.inGame then
+                if not OwnsVampireClass() then
+                    return
+                end
+
+                local doc = mod:GetDocumentSnapshot(THORNS_DOC_ID)
+                if doc.data.added or dmhub.GetCharacterById(THORNS_CHARID) ~= nil then
+                    return
+                end
+
+                if not AnyModuleInstalled(CONDEMNED_MODULE_IDS) then
+                    if dmhub.Time() - started > THORNS_GIVE_UP_SECONDS then
+                        return
+                    end
+                elseif vampireInstall == "done" or AnyModuleInstalled({ VAMPIRE_MODULE_ID }) then
+                    --retried on the next pass while the game's assets are still loading.
+                    if AddThorns() then
+                        return
+                    end
+                elseif vampireInstall == "failed" then
+                    return
+                elseif vampireInstall == "idle" then
+                    vampireInstall = "installing"
+                    module.DownloadModuleInfo{
+                        moduleid = VAMPIRE_MODULE_ID,
+                        success = function(info)
+                            info:InstallAsHeroModule{
+                                success = function()
+                                    vampireInstall = "done"
+                                end,
+                                error = function(message)
+                                    print(string.format("Condemned: could not install Vampire Class for Thorns: %s", tostring(message)))
+                                    vampireInstall = "failed"
+                                end,
+                            }
+                        end,
+                        failure = function(message)
+                            print(string.format("Condemned: could not download Vampire Class for Thorns: %s", tostring(message)))
+                            vampireInstall = "failed"
+                        end,
+                    }
+                end
+            end
+        end
+    end)
 end)()
