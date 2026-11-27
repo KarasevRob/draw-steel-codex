@@ -1238,6 +1238,36 @@ text("presence.exit.abandon_tooltip_host", [[Your progress will be lost]])
 text("presence.exit.abandon_confirm", [[Really abandon?]])
 
 ----------------------------------------------------------------------------
+-- CONCEDING: the Concede Defeat menu row (host or solo, during combat)
+----------------------------------------------------------------------------
+
+text("hud.concede.menu", [[Concede Defeat]])
+text("hud.concede.title", [[Concede Defeat]])
+text("hud.concede.message", [[Do you want to concede defeat in this encounter?]])
+text("hud.concede.cancel", [[Cancel]])
+text("hud.concede.confirm", [[Concede]])
+
+----------------------------------------------------------------------------
+-- GOING LIVE: the Codex menu's Go Live dialog (a host who streams the game)
+----------------------------------------------------------------------------
+
+text("hud.golive.menu", [[Go Live...]])
+text("hud.golive.menu_live", [[Live: {code}]])
+text("hud.golive.title", [[Go Live]])
+text("hud.golive.intro", [[Viewers can follow this fight on their phones: the encounter, the heroes' cards, and the foes as the heroes know them. They see only what the players see. Chat never changes the game.]])
+text("hud.golive.delay_label", [[Stream delay (seconds)]])
+text("hud.golive.delay_hint", [[Match the delay you set in your streaming software, so the page never runs ahead of your stream.]])
+text("hud.golive.status_off", [[Not live]])
+text("hud.golive.status_live", [[Live]])
+text("hud.golive.code_label", [[Viewer code]])
+text("hud.golive.link_hint", [[Share this link in your chat or panels. It is safe to show on stream.]])
+text("hud.golive.copy", [[Copy Link]])
+text("hud.golive.copied", [[Copied]])
+text("hud.golive.start", [[Go Live]])
+text("hud.golive.end", [[End Stream]])
+text("hud.golive.close", [[Close]])
+
+----------------------------------------------------------------------------
 -- THE PLAYERS LIST: the popout under the title bar's players row
 ----------------------------------------------------------------------------
 
